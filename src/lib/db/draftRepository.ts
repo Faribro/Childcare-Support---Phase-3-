@@ -13,10 +13,14 @@ export async function saveDraft(
   }
 ): Promise<number> {
   const now = new Date().toISOString();
+  const clientSubmissionId = draft.clientSubmissionId || draft.uuid;
+  const version = draft.version || 1;
 
   if (draft.id) {
     await db.drafts.update(draft.id, {
       ...draft,
+      clientSubmissionId,
+      version,
       updatedAt: now,
     });
     return draft.id;
@@ -26,6 +30,8 @@ export async function saveDraft(
   if (existing && existing.id) {
     await db.drafts.update(existing.id, {
       ...draft,
+      clientSubmissionId: existing.clientSubmissionId || clientSubmissionId,
+      version: existing.version || version,
       updatedAt: now,
     });
     return existing.id;
@@ -33,6 +39,8 @@ export async function saveDraft(
 
   const newId = await db.drafts.add({
     ...draft,
+    clientSubmissionId,
+    version,
     createdAt: draft.createdAt || now,
     updatedAt: now,
     syncStatus: draft.syncStatus || 'draft',
@@ -47,6 +55,21 @@ export async function getDraftById(id: number): Promise<AssessmentRecord | undef
 
 export async function getDraftByUuid(uuid: string): Promise<AssessmentRecord | undefined> {
   return db.drafts.where('uuid').equals(uuid).first();
+}
+
+export async function getDraftByAnyId(idOrUuid: string | number): Promise<AssessmentRecord | undefined> {
+  if (typeof idOrUuid === 'number' || /^\d+$/.test(String(idOrUuid))) {
+    const byId = await db.drafts.get(Number(idOrUuid));
+    if (byId) return byId;
+  }
+  const str = String(idOrUuid);
+  const byUuid = await db.drafts.where('uuid').equals(str).first();
+  if (byUuid) return byUuid;
+
+  const byClient = await db.drafts.where('clientSubmissionId').equals(str).first();
+  if (byClient) return byClient;
+
+  return db.drafts.where('remoteSubmissionId').equals(str).first();
 }
 
 export async function getLatestDraft(): Promise<AssessmentRecord | undefined> {

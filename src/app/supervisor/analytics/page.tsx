@@ -33,7 +33,7 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           <div className="flex items-center space-x-3">
-            <Link href="/supervisor/linelist">
+            <Link href="/supervisor/assessments">
               <Button variant="secondary" className="shadow-sm">
                 <span>View Line-List</span>
               </Button>

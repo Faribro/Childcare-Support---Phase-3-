@@ -1,16 +1,48 @@
 /**
  * Canonical Domain Types for Childcare Support — Phase 3
+ * Exactly aligned with the official KoboToolbox CHILD_HIV_SUPPORT_FORM
  * Adheres strictly to approved programme linelists and non-negotiable data-minimisation rules.
  */
 
-export type Gender = 'Male' | 'Female' | 'Transgender' | 'Other';
+export type Gender = 'Male' | 'Female' | 'Other';
 
 export type OrphanStatus =
+  | 'Both parents alive'
+  | 'Single orphan (one parent deceased)'
+  | 'Double orphan (both parents deceased)'
+  // Legacy aliases for backward compatibility
   | 'None'
   | 'Maternal Orphan'
   | 'Paternal Orphan'
   | 'Double Orphan (Both Parents Deceased)'
   | 'Single Parent with Vulnerability';
+
+export type CaregiverRelationship =
+  | 'Mother'
+  | 'Father'
+  | 'Grandparent'
+  | 'Legal Guardian'
+  | 'Other';
+
+export type MainSourceOfIncome =
+  | 'Daily wage labour'
+  | 'Salaried employment'
+  | 'Self-employed'
+  | 'Pension / Government support'
+  | 'No regular income';
+
+export type AppetiteLevel = 'Good' | 'Reduced' | 'Poor / Very low';
+
+export type EducationStatus =
+  | 'Currently going to school'
+  | 'Dropped out of school'
+  | 'Never enrolled in school'
+  | 'Completed schooling'
+  | 'Other';
+
+export type SchoolType = 'Government school' | 'Private school' | 'Aided school';
+
+export type AttendanceType = 'Regular' | 'Irregular' | 'Dropped out';
 
 export type NutritionStatus =
   | 'Normal'
@@ -26,99 +58,300 @@ export type SyncStatus =
   | 'failed'
   | 'conflict';
 
+export type OutboxOperationType = 'CREATE' | 'UPDATE';
+
+export const INDIAN_STATES_AND_UTS = [
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Andaman and Nicobar Islands',
+  'Chandigarh',
+  'Dadra & Nagar Haveli and Daman & Diu',
+  'Delhi',
+  'Jammu and Kashmir',
+  'Ladakh',
+  'Lakshadweep',
+  'Puducherry',
+] as const;
+
+export type SignatureStatus =
+  | 'NOT_REQUIRED'
+  | 'PENDING'
+  | 'CAPTURED_LOCAL'
+  | 'QUEUED_FOR_UPLOAD'
+  | 'UPLOADED'
+  | 'FAILED'
+  | 'NEEDS_REVIEW';
+
+export interface CaregiverConsent {
+  consentProvided: boolean;
+  consentVersion: string;
+  caregiverName: string;
+  caregiverRelationship: string;
+  consentCapturedAt: string;
+  signatureRequired: boolean;
+  signatureStatus: SignatureStatus;
+  signatureAssetId?: string;
+}
+
+export interface ConsentData {
+  agreeToParticipate: boolean;
+  signatureDataUrl?: string;
+  signatureTimestamp?: string;
+}
+
 export interface DemographicsData {
-  artNumber: string;
+  artNumber: string; // Auto-generated Reference ID (STATE-DIST-DDHHMM-SEQ)
+  dateOfFilling?: string;
   childName: string;
   dob: string;
   calculatedAgeYears: number;
-  calculatedAgeMonths: number;
+  calculatedAgeMonths?: number;
   gender: Gender;
-  caregiverName: string;
-  caregiverRelationship: string;
-  caregiverPhone: string;
-  maskedAadhaar?: string;
-  district: string;
-  artCenter: string;
-}
-
-export interface HouseholdData {
   orphanStatus: OrphanStatus;
-  primaryCaregiverOccupation: string;
-  monthlyHouseholdIncome: number;
-  rationCardType: 'BPL' | 'AAY (Antyodaya)' | 'APL' | 'None';
-  numberOfSiblings: number;
+  caregiverName: string;
+  caregiverRelationship: CaregiverRelationship | string;
+  contactNumber: string;
+  fullAddress: string;
+  state: string;
+  district: string;
+  // Backward compatibility
+  caregiverPhone?: string;
+  maskedAadhaar?: string;
 }
 
-export interface ClinicalNutritionData {
-  heightCm: number;
+export interface HouseholdFinancialData {
+  totalFamilyMembers: number;
+  numberOfChildrenUnder18: number;
+  monthlyIncomeRs: number;
+  mainSourceOfIncome: MainSourceOfIncome;
+  // Backward compatibility
+  orphanStatus?: OrphanStatus;
+  primaryCaregiverOccupation?: string;
+  monthlyHouseholdIncome?: number;
+  rationCardType?: 'BPL' | 'AAY (Antyodaya)' | 'APL' | 'None';
+  numberOfSiblings?: number;
+}
+
+export interface HealthData {
   weightKg: number;
-  muacMm?: number;
-  bilateralPittingOedema: boolean;
+  heightCm: number;
   bmi: number;
-  bmiZScore: number;
-  nutritionStatus: NutritionStatus;
+  haemoglobinGdl?: number;
+  otherHealthConditions: string[];
+  otherHealthConditionSpecify?: string;
+  // Clinical triage
+  bmiZScore?: number;
+  nutritionStatus?: NutritionStatus;
+  bilateralPittingOedema?: boolean;
+  muacMm?: number;
   clinicalNotes?: string;
 }
 
-export interface EducationData {
-  schoolEnrolled: boolean;
-  schoolType?: 'Government' | 'Government-Aided' | 'Private' | 'Non-Formal';
-  schoolGrade?: string;
+export interface NutritionData {
+  appetite: AppetiteLevel;
+  mealsPerDay: number;
+  // Clinical anthropometry backward-compatibility aliases
+  heightCm?: number;
+  weightKg?: number;
+  bmi?: number;
+  muacMm?: number;
+  bilateralPittingOedema?: boolean;
+  nutritionStatus?: NutritionStatus;
+}
+
+export interface EducationStatusData {
+  educationStatus: EducationStatus;
+  educationStatusSpecify?: string;
+  schoolName?: string;
+  schoolSessionStartDate?: string;
+  schoolType?: SchoolType;
+  currentClass?: string;
+  attendance?: AttendanceType;
+  // Backward compatibility
+  schoolEnrolled?: boolean;
   attendancePercentage?: number;
-  grantRecommended: boolean;
-  recommendedGrantAmount: number;
-  supportMaterialsNeeded: string[];
+  grantRecommended?: boolean;
+  recommendedGrantAmount?: number;
+  schoolGrade?: string;
+  supportMaterialsNeeded?: string[];
 }
 
+export interface EducationCurrentExpensesData {
+  schoolFees: number;
+  tuitionFees: number;
+  books: number;
+  stationery: number;
+  uniform: number;
+  transport: number;
+  otherExpenses: number;
+  totalAnnualCost: number;
+  feeReceiptPhotoUrl?: string;
+  marksheetPhotoUrl?: string;
+  remarks?: string;
+}
+
+export interface EducationSupportRequiredData {
+  requiredSchoolFees: number;
+  requiredBooks: number;
+  requiredStationery: number;
+  requiredUniform: number;
+  requiredTransport: number;
+  requiredOtherSupport: number;
+  totalRequiredSupport: number;
+}
+
+export interface FinalReviewData {
+  allInfoCorrect: boolean;
+  organizationName?: string;
+  formSubmittedBy: string;
+  organizationEmail?: string;
+  submissionDate?: string;
+}
+
+// Backward-compat BankDetails (optional in new form)
 export interface BankDetailsData {
-  accountHolderName: string;
-  accountNumber: string;
-  ifscCode: string;
-  bankName: string;
-  branchName: string;
-  passbookPhotoCaptured: boolean;
-}
-
-export interface DeclarationData {
-  consentAcknowledged: boolean;
-  caseworkerName: string;
-  declarationDate: string;
-  signatureTimestamp: string;
+  accountHolderName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  bankName?: string;
+  branchName?: string;
+  passbookPhotoCaptured?: boolean;
 }
 
 export interface AssessmentRecord {
   id?: number; // Auto-incremented IndexedDB key
   uuid: string; // Client-assigned RFC 4122 UUIDv4
+  clientSubmissionId: string; // Stable UUID for idempotency
+  remoteSubmissionId?: string; // Canonical server-confirmed UUID
+  version: number; // Optimistic Concurrency Control version (starts at 1)
   interviewerName: string;
   stepIndex: number;
+  
+  // Official CHILD_HIV_SUPPORT_FORM Sections
+  consent: ConsentData;
+  caregiverConsent?: CaregiverConsent;
   demographics: DemographicsData;
-  household: HouseholdData;
-  nutrition: ClinicalNutritionData;
-  education: EducationData;
-  bankDetails: BankDetailsData;
-  declaration: DeclarationData;
+  householdFinancial: HouseholdFinancialData;
+  health: HealthData;
+  nutrition: NutritionData;
+  educationStatus: EducationStatusData;
+  educationExpenses: EducationCurrentExpensesData;
+  educationSupportRequired: EducationSupportRequiredData;
+  finalReview: FinalReviewData;
+
+  // Backward compatibility convenience properties
+  household?: HouseholdFinancialData;
+  bankDetails?: BankDetailsData;
+  declaration?: {
+    consentAcknowledged: boolean;
+    caseworkerName: string;
+    declarationDate: string;
+    signatureTimestamp?: string;
+  };
+  grantCalculation?: {
+    recommendedGrantAmount?: number;
+    totalGrantAmount?: number;
+  };
+  education?: any;
+
   syncStatus: SyncStatus;
   syncError?: string | null;
   createdAt: string;
   updatedAt: string;
+  syncedAt?: string | null;
 }
 
 export interface SyncQueueItem {
   id?: number;
   submissionUuid: string;
+  idempotencyKey: string;
+  operationType: OutboxOperationType;
   payload: AssessmentRecord;
   status: SyncStatus;
+  expectedVersion?: number;
   retryCount: number;
   lastAttempt: string | null;
   nextRetryTimestamp: number | null;
+  lastErrorCode?: string | number | null;
+  requestId?: string | null;
   errorMessage: string | null;
+  conflictMetadata?: {
+    serverVersion?: number;
+    conflictFields?: string[];
+    resolutionRequired?: boolean;
+  } | null;
 }
 
 export interface AuditEvent {
   id?: number;
   timestamp: string;
-  eventType: 'DRAFT_CREATED' | 'DRAFT_UPDATED' | 'ASSESSMENT_QUEUED' | 'SYNC_SUCCESS' | 'SYNC_FAILED' | 'VIEW_RECORD';
+  eventType:
+    | 'DRAFT_CREATED'
+    | 'DRAFT_UPDATED'
+    | 'ASSESSMENT_QUEUED'
+    | 'SYNC_SUCCESS'
+    | 'SYNC_FAILED'
+    | 'VIEW_RECORD'
+    | 'RECORD_PATCHED'
+    | 'CONCURRENCY_CONFLICT';
   targetUuid?: string;
   artNumber?: string;
+  actor?: string;
+  actorId?: string;
+  actorRole?: string;
+  action?: string;
+  operation?: string;
+  version?: number;
+  previousVersion?: number;
+  newVersion?: number;
+  changedFields?: string[];
+  changes?: Record<string, unknown>;
+  requestId?: string;
   details?: Record<string, unknown>;
+}
+
+export interface AllowlistedEditableFields {
+  contactNumber?: string;
+  caregiverPhone?: string;
+  caregiverName?: string;
+  caregiverRelationship?: string;
+  fullAddress?: string;
+  weightKg?: number;
+  heightCm?: number;
+  haemoglobinGdl?: number;
+  appetite?: AppetiteLevel;
+  mealsPerDay?: number;
+  educationStatus?: EducationStatus;
+  schoolName?: string;
+  currentClass?: string;
+  attendance?: AttendanceType;
+  totalAnnualCost?: number;
+  totalRequiredSupport?: number;
+  remarks?: string;
 }

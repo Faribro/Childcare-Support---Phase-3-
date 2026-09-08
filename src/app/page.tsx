@@ -1,211 +1,230 @@
-import React from 'react';
+'use client';
+
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
+import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
+import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import {
-  ClipboardCheck,
+  Plus,
   FileText,
-  RefreshCw,
+  ArrowRight,
+  Trash2,
+  Clock,
   ShieldCheck,
-  BarChart3,
-  ChevronRight,
-  HeartPulse,
-  Users,
-  GraduationCap,
-  Sparkles,
-  TableProperties,
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function HomePage() {
+  const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
+  const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [draftsData, queueData] = await Promise.all([
+        getAllDrafts(),
+        getAllQueueItems(),
+      ]);
+      setDrafts(draftsData);
+      setQueueItems(queueData);
+    } catch (err) {
+      console.error('Failed to load local records:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleDeleteDraft = async (id?: number) => {
+    if (!id) return;
+    if (confirm('Are you sure you want to delete this saved draft?')) {
+      await deleteDraft(id);
+      await loadData();
+    }
+  };
+
+  const waitingCount = queueItems.filter(
+    (q) => q.status === 'queued' || q.status === 'syncing' || q.status === 'failed'
+  ).length;
+
+  const submittedCount = queueItems.filter((q) => q.status === 'synced').length;
+
   return (
-    <AppShell>
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8 flex flex-col justify-between">
-        <div>
-          {/* Institutional Hero Banner */}
-          <section className="bg-gradient-to-br from-brand via-brand to-brand-dark text-white rounded-2xl p-5 sm:p-7 lg:p-8 shadow-md mb-6 lg:mb-8">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center space-x-2 bg-white/10 px-3 py-1 rounded-full text-xs font-semibold text-blue-200 mb-3 backdrop-blur-xs">
-                <HeartPulse className="h-4 w-4 text-emerald-400" />
-                <span>India HIV/AIDS Alliance • Paediatric Care Platform</span>
+    <AppShell pendingSyncCount={waitingCount}>
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 lg:py-10 flex flex-col justify-between space-y-6 sm:space-y-8">
+        <div className="space-y-6 sm:space-y-8">
+          {/* Main Action Header Card matching the clean minimalist reference */}
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-6 border-b border-slate-100 gap-4">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                  Children Nutrition & Education Support
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  Offline-first intake, acute malnutrition triage, and educational grant support platform.
+                </p>
               </div>
-              <h1 className="text-xl sm:text-3xl lg:text-4xl font-bold leading-tight">
-                Children Nutrition & Education Support
-              </h1>
-              <p className="text-xs sm:text-sm lg:text-base text-blue-100/90 mt-2 leading-relaxed">
-                Offline-first clinical and educational assessment system for field staff. Seamlessly evaluates acute malnutrition (SAM/MAM), calculates school grant entitlements, and synchronizes to Google Sheets.
-              </p>
 
-              <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
-                <Link href="/assessment/new" className="w-full sm:w-auto">
-                  <Button
-                    variant="emerald"
-                    size="lg"
-                    className="w-full sm:w-auto font-bold shadow-lg"
-                  >
-                    <ClipboardCheck className="h-5 w-5 mr-2" />
-                    <span>Start New Assessment</span>
-                  </Button>
-                </Link>
+              <Link href="/assessment/new" className="w-full sm:w-auto">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-full sm:w-auto font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl shadow-xs px-5 py-3"
+                >
+                  <Plus className="h-5 w-5 mr-1.5" />
+                  <span>Start New Assessment</span>
+                </Button>
+              </Link>
+            </div>
 
-                <Link href="/supervisor/linelist" className="w-full sm:w-auto">
-                  <Button
-                    variant="ghost"
-                    size="lg"
-                    className="w-full sm:w-auto text-white border border-white/30 hover:bg-white/10"
-                  >
-                    <TableProperties className="h-5 w-5 mr-2" />
-                    <span>Supervisor Line-List</span>
-                  </Button>
-                </Link>
-              </div>
+            {/* Three Status Counter Boxes */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 mt-6">
+              {/* Box 1: Local In-Progress Drafts */}
+              <Link
+                href="/assessment/sync?tab=drafts"
+                className="bg-slate-50/70 hover:bg-slate-100/80 border border-slate-200 rounded-xl p-4 transition-colors group"
+              >
+                <div className="text-xs font-semibold text-slate-600">Local In-Progress Drafts</div>
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 mt-1 group-hover:text-teal-700 transition-colors">
+                  {isLoading ? '...' : drafts.length}
+                </div>
+              </Link>
+
+              {/* Box 2: Waiting to be Sent */}
+              <Link
+                href="/assessment/sync?tab=outbox"
+                className="bg-sky-50/40 hover:bg-sky-50/80 border border-sky-200/80 rounded-xl p-4 transition-colors group"
+              >
+                <div className="text-xs font-semibold text-sky-900">Waiting to be Sent</div>
+                <div className="text-2xl sm:text-3xl font-bold text-sky-700 mt-1">
+                  {isLoading ? '...' : waitingCount}
+                </div>
+              </Link>
+
+              {/* Box 3: Submitted Assessments */}
+              <Link
+                href="/assessment/sync?tab=history"
+                className="bg-emerald-50/40 hover:bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-4 transition-colors group"
+              >
+                <div className="text-xs font-semibold text-emerald-900">Submitted Assessments</div>
+                <div className="text-2xl sm:text-3xl font-bold text-emerald-700 mt-1">
+                  {isLoading ? '...' : submittedCount}
+                </div>
+              </Link>
             </div>
           </section>
 
-          {/* Quick Action Navigation Grid (1 col on mobile, 2 cols on tablet, 4 cols on desktop) */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 lg:mb-8">
-            {/* Action 1: New Assessment */}
-            <Link
-              href="/assessment/new"
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-brand-light transition-all flex flex-col justify-between group"
-            >
-              <div>
-                <div className="h-12 w-12 rounded-xl bg-blue-50 text-brand flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-                  <ClipboardCheck className="h-6 w-6" />
-                </div>
-                <h3 className="text-base font-bold text-ink-900 group-hover:text-brand transition-colors">
-                  New Assessment
-                </h3>
-                <p className="text-xs text-ink-600 mt-1 leading-relaxed">
-                  Step-by-step intake for demographics, anthropometry, and education.
-                </p>
-              </div>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-brand">
-                <span>Begin Intake</span>
-                <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
-
-            {/* Action 2: Saved Drafts */}
-            <Link
-              href="/assessment/drafts"
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-brand-light transition-all flex flex-col justify-between group"
-            >
-              <div>
-                <div className="h-12 w-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-                  <FileText className="h-6 w-6" />
-                </div>
-                <h3 className="text-base font-bold text-ink-900 group-hover:text-brand transition-colors">
-                  Saved Drafts
-                </h3>
-                <p className="text-xs text-ink-600 mt-1 leading-relaxed">
-                  Resume locally saved assessments with 100% data recovery.
-                </p>
-              </div>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-slate-700">
-                <span>View Local Drafts</span>
-                <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
-
-            {/* Action 3: Sync Centre */}
-            <Link
-              href="/assessment/sync"
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-brand-light transition-all flex flex-col justify-between group"
-            >
-              <div>
-                <div className="h-12 w-12 rounded-xl bg-emerald-50 text-alliance-emerald flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-                  <RefreshCw className="h-6 w-6" />
-                </div>
-                <h3 className="text-base font-bold text-ink-900 group-hover:text-brand transition-colors">
-                  Sync Centre
-                </h3>
-                <p className="text-xs text-ink-600 mt-1 leading-relaxed">
-                  Inspect pending upload queue and manage Google Sheets synchronization.
-                </p>
-              </div>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-alliance-emerald">
-                <span>Inspect Outbox</span>
-                <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
-
-            {/* Action 4: Clinical Analytics */}
-            <Link
-              href="/supervisor/analytics"
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-brand-light transition-all flex flex-col justify-between group"
-            >
-              <div>
-                <div className="h-12 w-12 rounded-xl bg-amber-50 text-alert-amber flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-                  <BarChart3 className="h-6 w-6" />
-                </div>
-                <h3 className="text-base font-bold text-ink-900 group-hover:text-brand transition-colors">
-                  Clinical Analytics
-                </h3>
-                <p className="text-xs text-ink-600 mt-1 leading-relaxed">
-                  Review MAM/SAM malnutrition prevalence and grant disbursement data.
-                </p>
-              </div>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-alert-amber">
-                <span>View Metrics</span>
-                <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
-          </section>
-
-          {/* Key Program Metrics Bar on Desktop */}
-          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm mb-6 lg:mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm sm:text-base font-bold text-ink-900">Program Performance Overview</h2>
-              <span className="text-xs font-semibold text-slate-500">Live Pilot Staging</span>
+          {/* In-Progress Drafts Section */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                My In-Progress Drafts ({isLoading ? '0' : drafts.length})
+              </h2>
+              {drafts.length > 0 && (
+                <Link
+                  href="/assessment/sync?tab=drafts"
+                  className="text-xs font-semibold text-teal-700 hover:text-teal-800"
+                >
+                  View All in Sync Centre →
+                </Link>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <div className="flex items-center space-x-2 text-slate-500 text-xs mb-1">
-                  <Users className="h-4 w-4 text-brand" />
-                  <span>Total Screened</span>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-ink-900">142 Children</div>
+            {isLoading ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-xs">
+                Loading saved drafts...
               </div>
+            ) : drafts.length === 0 ? (
+              /* Clean Dashed Empty State Card matching the reference image */
+              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 sm:p-14 text-center">
+                <div className="text-slate-400 flex items-center justify-center mx-auto mb-3">
+                  <FileText className="h-9 w-9 stroke-1 text-slate-400" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-800">No active drafts on this device</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  When you start an assessment, your edits will autosave here so you can continue anytime.
+                </p>
+              </div>
+            ) : (
+              /* List of active drafts */
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {drafts.map((draft) => (
+                  <div
+                    key={draft.uuid}
+                    className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs hover:shadow-xs transition-shadow flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-xs font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                          {draft.demographics?.artNumber || 'ID PENDING'}
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                          Step {draft.stepIndex || 1} of 6
+                        </span>
+                      </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <div className="flex items-center space-x-2 text-slate-500 text-xs mb-1">
-                  <HeartPulse className="h-4 w-4 text-alert-amber" />
-                  <span>Malnutrition Triage</span>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-alert-amber">40 Cases (28.1%)</div>
-              </div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        {draft.demographics?.childName || 'Unnamed Assessment'}
+                      </h3>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <div className="flex items-center space-x-2 text-slate-500 text-xs mb-1">
-                  <GraduationCap className="h-4 w-4 text-alliance-emerald" />
-                  <span>Educational Grants</span>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-alliance-emerald">₹3,48,500</div>
-              </div>
+                      <div className="mt-2 space-y-1 text-xs text-slate-600">
+                        <div>Caregiver: {draft.demographics?.caregiverName || 'Not recorded'}</div>
+                        {draft.nutrition?.nutritionStatus && (
+                          <div className="text-slate-700 font-medium">
+                            Status: {draft.nutrition.nutritionStatus}
+                          </div>
+                        )}
+                        <div className="flex items-center space-x-1 text-[11px] text-slate-400 mt-1">
+                          <Clock className="h-3 w-3" />
+                          <span>
+                            Last saved: {new Date(draft.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <div className="flex items-center space-x-2 text-slate-500 text-xs mb-1">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                  <span>Sync Reliability</span>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-emerald-700">100% Idempotent</div>
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDraft(draft.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors rounded-md hover:bg-rose-50"
+                        title="Delete draft"
+                        aria-label="Delete draft"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+
+                      {/* Resume button linking to canonical /assessment/[id] */}
+                      <Link href={`/assessment/${draft.id || draft.uuid}`}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="font-bold text-teal-800 hover:text-teal-900 border-slate-300"
+                        >
+                          <span>Resume Intake</span>
+                          <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </section>
         </div>
 
-        {/* Security & Offline Institutional Footer */}
-        <footer className="pt-6 border-t border-slate-200">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-500 gap-2">
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-              <span>
-                Offline-First IndexedDB Encryption • Masked Aadhaar Privacy • Zero Stigma Presentation
-              </span>
-            </div>
-            <span>Version 3.0.0 • Deployment: Render Web Service</span>
-          </div>
+        {/* Minimal Clean Footer */}
+        <footer className="pt-8 pb-4 border-t border-slate-200/80 text-center">
+          <p className="text-xs text-slate-400">
+            India HIV/AIDS Alliance • Children Nutrition & Education Support Platform • Version 3.0.0
+          </p>
         </footer>
       </div>
     </AppShell>

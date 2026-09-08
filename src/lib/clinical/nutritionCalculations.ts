@@ -190,10 +190,18 @@ export function calculateGrantEntitlement(params: {
     reasons.push('MAM nutritional supplementation booster (+₹1,000)');
   }
 
-  if (orphanStatus === 'Double Orphan (Both Parents Deceased)') {
+  if (
+    orphanStatus === 'Double orphan (both parents deceased)' ||
+    orphanStatus === 'Double Orphan (Both Parents Deceased)'
+  ) {
     totalGrant += 1000;
     reasons.push('Double orphan high-vulnerability allowance (+₹1,000)');
-  } else if (orphanStatus === 'Maternal Orphan' || orphanStatus === 'Paternal Orphan') {
+  } else if (
+    orphanStatus === 'Single orphan (one parent deceased)' ||
+    orphanStatus === 'Maternal Orphan' ||
+    orphanStatus === 'Paternal Orphan' ||
+    orphanStatus === 'Single Parent with Vulnerability'
+  ) {
     totalGrant += 500;
     reasons.push('Single-parent orphan hardship allowance (+₹500)');
   }

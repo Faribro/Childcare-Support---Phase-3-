@@ -10,12 +10,12 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          DEFAULT: '#1E3A8A',
-          dark: '#172554',
-          light: '#2563EB',
-          50: '#EFF6FF',
-          100: '#DBEAFE',
-          900: '#1E3A8A',
+          DEFAULT: '#0D9488',
+          dark: '#0F766E',
+          light: '#14B8A6',
+          50: '#F0FDFA',
+          100: '#CCFBF1',
+          900: '#134E4A',
         },
         alliance: {
           emerald: '#047857',
