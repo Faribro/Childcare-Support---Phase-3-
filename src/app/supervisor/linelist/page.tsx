@@ -16,7 +16,7 @@ export default function LinelistRedirectPage() {
 
   return (
     <div className="p-12 text-center text-xs text-slate-500">
-      Redirecting to Master Linelist (/supervisor/assessments)...
+      Redirecting to ChildrenLinelist (/supervisor/assessments)...
     </div>
   );
 }

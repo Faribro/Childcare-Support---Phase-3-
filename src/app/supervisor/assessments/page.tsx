@@ -21,6 +21,8 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
+  Globe,
+  Maximize2,
 } from 'lucide-react';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
 
@@ -51,7 +53,6 @@ export default function SupervisorAssessmentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [schoolTypeFilter, setSchoolTypeFilter] = useState('ALL');
   const [orphanStatusFilter, setOrphanStatusFilter] = useState('ALL');
-  const [vlFilter, setVlFilter] = useState('ALL');
   const [districtFilter, setDistrictFilter] = useState('ALL');
   const [deleteConfirmId, setDeleteConfirmId] = useState<{ id: string; name: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -183,31 +184,23 @@ export default function SupervisorAssessmentsPage() {
         orphanStatusFilter === 'ALL' ||
         row.orphanStatus.toLowerCase().includes(orphanStatusFilter.toLowerCase());
 
-      const matchesVl =
-        vlFilter === 'ALL' ||
-        (vlFilter === 'SUPPRESSED' && (row.vlCategory.includes('Suppressed') || row.vlCategory.includes('Undetectable'))) ||
-        (vlFilter === 'UNSUPPRESSED' && row.vlCategory.includes('Unsuppressed')) ||
-        (vlFilter === 'UNDETECTABLE' && row.vlCategory.includes('Undetectable'));
-
       const matchesDistrict =
         districtFilter === 'ALL' || row.district.toLowerCase() === districtFilter.toLowerCase();
 
-      return matchesSearch && matchesSchoolType && matchesOrphanStatus && matchesVl && matchesDistrict;
+      return matchesSearch && matchesSchoolType && matchesOrphanStatus && matchesDistrict;
     });
-  }, [data, searchTerm, schoolTypeFilter, orphanStatusFilter, vlFilter, districtFilter]);
+  }, [data, searchTerm, schoolTypeFilter, orphanStatusFilter, districtFilter]);
 
   const hasActiveFilters =
     searchTerm !== '' ||
     schoolTypeFilter !== 'ALL' ||
     orphanStatusFilter !== 'ALL' ||
-    vlFilter !== 'ALL' ||
     districtFilter !== 'ALL';
 
   const resetFilters = () => {
     setSearchTerm('');
     setSchoolTypeFilter('ALL');
     setOrphanStatusFilter('ALL');
-    setVlFilter('ALL');
     setDistrictFilter('ALL');
   };
 
@@ -287,7 +280,7 @@ export default function SupervisorAssessmentsPage() {
               className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
             >
               <TableProperties className="h-4 w-4 text-teal-600" />
-              <span>Master Linelist</span>
+              <span>ChildrenLinelist</span>
             </Link>
             <Link
               href="/supervisor/analytics"
@@ -296,21 +289,32 @@ export default function SupervisorAssessmentsPage() {
               <BarChart3 className="h-4 w-4" />
               <span>Clinical Analytics</span>
             </Link>
+            <Link
+              href="/supervisor/gis"
+              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+            >
+              <Globe className="h-4 w-4" />
+              <span>GIS Spatial Map</span>
+            </Link>
           </div>
 
           <div className="flex items-center space-x-2 pb-2 sm:pb-0">
+            <Link
+              href="/supervisor/gis"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-800 hover:bg-teal-900 text-white shadow-xs hover:shadow-md transition-all group"
+            >
+              <Globe className="h-3.5 w-3.5 text-teal-300 group-hover:rotate-12 transition-transform" />
+              <span>Launch 3D GIS</span>
+              <Maximize2 className="h-3 w-3 text-teal-300 opacity-80" />
+            </Link>
             <Button variant="ghost" size="sm" onClick={fetchSubmissions} className="h-9 px-2.5 text-xs text-slate-600">
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
               <span>Refresh</span>
             </Button>
-            <Button variant="primary" onClick={handleExportCSV} size="sm" className="shadow-xs text-xs h-9">
-              <Download className="h-4 w-4 mr-1.5" />
-              <span>Export CSV ({filteredData.length})</span>
-            </Button>
           </div>
         </div>
 
-        {/* Precision Multi-Dimension Filters: School Type, Orphan Status, Viral Load, District */}
+        {/* Precision Multi-Dimension Filters: Search, School Type, Orphan Status, District & Export */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 shadow-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {/* Search */}
@@ -356,21 +360,6 @@ export default function SupervisorAssessmentsPage() {
               </select>
             </div>
 
-            {/* HIV Viral Load Filter */}
-            <div className="flex items-center space-x-2">
-              <Activity className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <select
-                className="w-full py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white"
-                value={vlFilter}
-                onChange={(e) => setVlFilter(e.target.value)}
-              >
-                <option value="ALL">All Viral Load Status</option>
-                <option value="SUPPRESSED">Suppressed (&lt;1,000 c/mL)</option>
-                <option value="UNDETECTABLE">Undetectable (&lt;50 c/mL)</option>
-                <option value="UNSUPPRESSED">High Viral Load (≥1,000 c/mL)</option>
-              </select>
-            </div>
-
             {/* District Filter */}
             <div className="flex items-center space-x-2">
               <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
@@ -386,6 +375,18 @@ export default function SupervisorAssessmentsPage() {
                 <option value="Solapur">Solapur</option>
                 <option value="Nashik">Nashik</option>
               </select>
+            </div>
+
+            {/* Export Linelist CSV */}
+            <div>
+              <Button
+                variant="primary"
+                onClick={handleExportCSV}
+                className="w-full h-9 sm:h-[38px] text-xs font-semibold shadow-xs flex items-center justify-center rounded-xl bg-teal-700 hover:bg-teal-800 text-white"
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                <span>Export CSV ({filteredData.length})</span>
+              </Button>
             </div>
           </div>
 

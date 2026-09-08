@@ -1,0 +1,133 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "district": "Mumbai", "state": "Maharashtra" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[72.7, 18.9], [72.9, 18.9], [72.9, 19.3], [72.7, 19.3], [72.7, 18.9]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Pune", "state": "Maharashtra" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[73.6, 18.3], [74.0, 18.3], [74.0, 18.7], [73.6, 18.7], [73.6, 18.3]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Nagpur", "state": "Maharashtra" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.9, 21.0], [79.3, 21.0], [79.3, 21.3], [78.9, 21.3], [78.9, 21.0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Thane", "state": "Maharashtra" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[72.9, 19.1], [73.2, 19.1], [73.2, 19.4], [72.9, 19.4], [72.9, 19.1]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Nashik", "state": "Maharashtra" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[73.6, 19.8], [74.0, 19.8], [74.0, 20.2], [73.6, 20.2], [73.6, 19.8]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Bhopal", "state": "Madhya Pradesh" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[77.2, 23.1], [77.6, 23.1], [77.6, 23.4], [77.2, 23.4], [77.2, 23.1]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Indore", "state": "Madhya Pradesh" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[75.6, 22.5], [76.0, 22.5], [76.0, 22.9], [75.6, 22.9], [75.6, 22.5]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Lucknow", "state": "Uttar Pradesh" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[80.7, 26.6], [81.1, 26.6], [81.1, 27.0], [80.7, 27.0], [80.7, 26.6]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Kanpur", "state": "Uttar Pradesh" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[80.1, 26.3], [80.5, 26.3], [80.5, 26.6], [80.1, 26.6], [80.1, 26.3]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "New Delhi", "state": "Delhi" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[76.9, 28.5], [77.3, 28.5], [77.3, 28.8], [76.9, 28.8], [76.9, 28.5]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Bangalore", "state": "Karnataka" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[77.4, 12.8], [77.8, 12.8], [77.8, 13.1], [77.4, 13.1], [77.4, 12.8]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Chennai", "state": "Tamil Nadu" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[80.1, 12.9], [80.4, 12.9], [80.4, 13.2], [80.1, 13.2], [80.1, 12.9]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Ahmedabad", "state": "Gujarat" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[72.4, 22.9], [72.8, 22.9], [72.8, 23.2], [72.4, 23.2], [72.4, 22.9]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Jaipur", "state": "Rajasthan" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[75.6, 26.7], [76.0, 26.7], [76.0, 27.0], [75.6, 27.0], [75.6, 26.7]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Kolkata", "state": "West Bengal" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[88.2, 22.4], [88.5, 22.4], [88.5, 22.7], [88.2, 22.7], [88.2, 22.4]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "district": "Hyderabad", "state": "Telangana" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.3, 17.2], [78.6, 17.2], [78.6, 17.5], [78.3, 17.5], [78.3, 17.2]]]
+      }
+    }
+  ]
+}

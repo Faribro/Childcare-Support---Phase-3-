@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   Award,
   PieChart,
+  Globe,
+  Maximize2,
 } from 'lucide-react';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
@@ -178,7 +180,7 @@ export default function AnalyticsDashboardPage() {
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8 space-y-6">
         {/* Exclusive Supervisor Tab Navigation */}
-        <div className="flex items-center justify-between border-b border-slate-200 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-6 gap-3">
           <div className="flex items-center space-x-1 overflow-x-auto">
             <Link
               href="/supervisor"
@@ -192,7 +194,7 @@ export default function AnalyticsDashboardPage() {
               className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
             >
               <TableProperties className="h-4 w-4" />
-              <span>Master Linelist</span>
+              <span>ChildrenLinelist</span>
             </Link>
             <Link
               href="/supervisor/analytics"
@@ -200,6 +202,24 @@ export default function AnalyticsDashboardPage() {
             >
               <BarChart3 className="h-4 w-4 text-teal-600" />
               <span>Clinical Analytics</span>
+            </Link>
+            <Link
+              href="/supervisor/gis"
+              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+            >
+              <Globe className="h-4 w-4" />
+              <span>GIS Spatial Map</span>
+            </Link>
+          </div>
+
+          <div className="flex items-center space-x-2 pb-2 sm:pb-0">
+            <Link
+              href="/supervisor/gis"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-800 hover:bg-teal-900 text-white shadow-xs hover:shadow-md transition-all group"
+            >
+              <Globe className="h-3.5 w-3.5 text-teal-300 group-hover:rotate-12 transition-transform" />
+              <span>Launch 3D GIS</span>
+              <Maximize2 className="h-3 w-3 text-teal-300 opacity-80" />
             </Link>
           </div>
         </div>
@@ -262,20 +282,15 @@ export default function AnalyticsDashboardPage() {
           <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center space-x-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-100 text-teal-800 uppercase tracking-wider">
-                    3D Isometric
-                  </span>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                    HIV Viral Load Suppression Cascade
-                  </h3>
-                </div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  HIV Viral Load Suppression Cascade
+                </h3>
                 <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                   NACO 95-95-95
                 </span>
               </div>
               <p className="text-xs text-slate-500 mb-4">
-                3D volumetric clinical staging: Undetectable vs Suppressed vs Unsuppressed vs UNAIDS Target
+                Clinical staging: Undetectable vs Suppressed vs Unsuppressed vs UNAIDS Target
               </p>
 
               {totalCount === 0 ? (
@@ -473,14 +488,9 @@ export default function AnalyticsDashboardPage() {
           <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center space-x-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 uppercase tracking-wider">
-                    3D Extruded Donut
-                  </span>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                    Pediatric BMI &amp; Growth Stunting
-                  </h3>
-                </div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  Pediatric BMI &amp; Growth Stunting
+                </h3>
                 <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full">
                   N = {totalCount}
                 </span>
@@ -586,14 +596,9 @@ export default function AnalyticsDashboardPage() {
           <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center space-x-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 uppercase tracking-wider">
-                    2D Spline Wave
-                  </span>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                    Haemoglobin (Hb) Clinical Density Spectrum
-                  </h3>
-                </div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  Haemoglobin (Hb) Clinical Density Spectrum
+                </h3>
                 <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
                   WHO Cutoffs
                 </span>
@@ -689,14 +694,9 @@ export default function AnalyticsDashboardPage() {
           <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center space-x-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 uppercase tracking-wider">
-                    2D Grouped Bars
-                  </span>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                    State Surveillance &amp; Suppression Comparison
-                  </h3>
-                </div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  State Surveillance &amp; Suppression Comparison
+                </h3>
                 <div className="flex items-center space-x-2 text-[11px]">
                   <span className="flex items-center">
                     <span className="h-2.5 w-2.5 rounded-xs bg-slate-300 mr-1" /> Total
