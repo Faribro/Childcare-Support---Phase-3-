@@ -5,6 +5,14 @@
 
 import { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 import { calculateBMI, calculateGrantEntitlement, classifyNutritionStatus } from '@/lib/clinical/nutritionCalculations';
+import {
+  SAMPLE_PASSBOOK_SVG,
+  SAMPLE_AADHAAR_SVG,
+  SAMPLE_CHILD_PHOTO_SVG,
+  SAMPLE_FEE_RECEIPT_SVG,
+  SAMPLE_MARKSHEET_SVG,
+  SAMPLE_CAREGIVER_SIGNATURE_SVG,
+} from '@/lib/constants/sampleDocuments';
 
 export interface StoredSheetRecord {
   _uuid: string;
@@ -288,7 +296,20 @@ for (const seed of SEED_RECORDS) {
     bank_name: 'State Bank of India',
     branch_name: 'Main',
     passbook_photo_captured: true,
-    caseworker_name: 'Caseworker',
+    passbook_photo_url: SAMPLE_PASSBOOK_SVG,
+    aadhaar_card_photo_url: SAMPLE_AADHAAR_SVG,
+    child_photo_url: SAMPLE_CHILD_PHOTO_SVG,
+    fee_receipt_photo_url: SAMPLE_FEE_RECEIPT_SVG,
+    marksheet_photo_url: SAMPLE_MARKSHEET_SVG,
+    signature_data_url: SAMPLE_CAREGIVER_SIGNATURE_SVG,
+    passbookPhotoUrl: SAMPLE_PASSBOOK_SVG,
+    aadhaarCardPhotoUrl: SAMPLE_AADHAAR_SVG,
+    childPhotoUrl: SAMPLE_CHILD_PHOTO_SVG,
+    feeReceiptPhotoUrl: SAMPLE_FEE_RECEIPT_SVG,
+    marksheetPhotoUrl: SAMPLE_MARKSHEET_SVG,
+    signatureDataUrl: SAMPLE_CAREGIVER_SIGNATURE_SVG,
+    masked_aadhaar: 'XXXX-XXXX-5566',
+    caseworker_name: 'Sunita Sharma',
     declaration_date: '2026-09-04',
     sync_state: 'SYNCED',
   };

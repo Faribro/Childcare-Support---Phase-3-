@@ -53,6 +53,7 @@ import {
   CheckCircle2,
   Save,
   Send,
+  ArrowLeft,
 } from 'lucide-react';
 
 export default function NewSinglePageAssessment() {
@@ -616,70 +617,38 @@ export default function NewSinglePageAssessment() {
   };
 
   return (
-    <AppShell>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-60 sm:pb-64">
-        {/* Header Summary Banner */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100 gap-4">
-            <div>
-              <div className="flex items-center space-x-2 text-teal-700 text-xs font-bold uppercase tracking-wider mb-1">
-                <FileCheck className="h-4 w-4" />
-                <span>CHILD_HIV_SUPPORT_FORM (Single Page Intake & Registry)</span>
-              </div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                Child Nutrition & Education Support Intake
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                Comprehensive 73-field registration form. Fill all sections on this single page and submit when complete.
-              </p>
+    <AppShell hideHeader>
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-60 sm:pb-64">
+        {/* Minimal Focus Header with Return Link and Reference ID */}
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200/80">
+          <Link
+            href="/"
+            className="inline-flex items-center text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors gap-1.5"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Cancel &amp; Return to Forms</span>
+          </Link>
+
+          <div className="flex items-center space-x-2.5">
+            <div className="flex items-center space-x-1.5 px-3 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
+              <span className="text-slate-400">Unique ID:</span>
+              <span className="font-bold text-teal-900">{formData.artNumber || 'Generating...'}</span>
             </div>
 
-            <div className="flex items-center space-x-2.5">
-              <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
-                <span className="text-slate-400">Unique ID:</span>
-                <span className="font-bold text-teal-900">{formData.artNumber || 'Generating...'}</span>
-              </div>
-
+            <div
+              className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center space-x-1 border ${
+                saveStatus === 'saving'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              }`}
+            >
               <div
-                className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center space-x-1 border ${
-                  saveStatus === 'saving'
-                    ? 'bg-amber-50 text-amber-800 border-amber-200'
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                className={`h-2 w-2 rounded-full ${
+                  saveStatus === 'saving' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
                 }`}
-              >
-                <div
-                  className={`h-2 w-2 rounded-full ${
-                    saveStatus === 'saving' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
-                  }`}
-                />
-                <span>{saveStatus === 'saving' ? 'Saving draft...' : 'Draft saved offline'}</span>
-              </div>
+              />
+              <span>{saveStatus === 'saving' ? 'Saving draft...' : 'Draft saved offline'}</span>
             </div>
-          </div>
-
-          {/* Quick Jump Bar */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-            <span className="text-slate-400 font-bold uppercase text-[10px] mr-1">Quick Jump:</span>
-            {[
-              { id: 'sec-consent', label: '1. Consent & Signature' },
-              { id: 'sec-child', label: '2. Child Demographics' },
-              { id: 'sec-banking', label: '3. Banking & KYC' },
-              { id: 'sec-household', label: '4. Household' },
-              { id: 'sec-health', label: '5. Clinical & ART' },
-              { id: 'sec-nutrition', label: '6. Nutrition' },
-              { id: 'sec-education', label: '7. Education' },
-              { id: 'sec-expenses', label: '8. Expenses & Aid' },
-              { id: 'sec-review', label: '9. Final Review' },
-            ].map((btn) => (
-              <button
-                key={btn.id}
-                type="button"
-                onClick={() => scrollToSection(btn.id)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-teal-900 border border-slate-200 text-slate-700 transition-colors font-medium text-[11px]"
-              >
-                {btn.label}
-              </button>
-            ))}
           </div>
         </div>
 

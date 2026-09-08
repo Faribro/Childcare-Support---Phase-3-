@@ -22,6 +22,7 @@ interface CaregiverSignaturePadProps {
   caregiverRelationship: string;
   initialSignatureUrl?: string;
   fallbackUuid?: string;
+  onSignatureChange?: (dataUrl: string) => void;
   onSignatureSaved?: (blob: Blob) => void;
   onSignatureCleared?: () => void;
   isSaved?: boolean;
@@ -33,6 +34,7 @@ export function CaregiverSignaturePad({
   caregiverRelationship,
   initialSignatureUrl,
   fallbackUuid,
+  onSignatureChange,
   onSignatureSaved,
   onSignatureCleared,
   isSaved: externalIsSaved,
@@ -78,6 +80,12 @@ export function CaregiverSignaturePad({
           if (onSignatureSaved) {
             onSignatureSaved(stored.blob);
           }
+          if (onSignatureChange) {
+            try {
+              const dataUrl = canvasRef.current?.toDataURL('image/png');
+              if (dataUrl) onSignatureChange(dataUrl);
+            } catch (_) {}
+          }
           return;
         }
 
@@ -100,6 +108,9 @@ export function CaregiverSignaturePad({
             }
           };
           img.src = initialSignatureUrl;
+          if (onSignatureChange) {
+            onSignatureChange(initialSignatureUrl);
+          }
         }
       } catch (err) {
         console.error('Failed to load caregiver signature:', err);
@@ -154,7 +165,19 @@ export function CaregiverSignaturePad({
   };
 
   const stopDrawing = () => {
+    if (!isDrawing) return;
     setIsDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas && hasStrokes) {
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        if (onSignatureChange) {
+          onSignatureChange(dataUrl);
+        }
+      } catch (err) {
+        console.error('Error generating signature data URL:', err);
+      }
+    }
   };
 
   const handleClear = async () => {
@@ -175,8 +198,14 @@ export function CaregiverSignaturePad({
     if (submissionUuid) {
       await deleteCaregiverSignatureBlob(submissionUuid);
     }
+    if (fallbackUuid && fallbackUuid !== submissionUuid) {
+      await deleteCaregiverSignatureBlob(fallbackUuid);
+    }
     if (onSignatureCleared) {
       onSignatureCleared();
+    }
+    if (onSignatureChange) {
+      onSignatureChange('');
     }
   };
 
@@ -199,12 +228,24 @@ export function CaregiverSignaturePad({
           caregiverName || 'Caregiver',
           caregiverRelationship || 'Approved Caregiver'
         );
+        if (fallbackUuid && fallbackUuid !== submissionUuid) {
+          await saveCaregiverSignatureBlob(
+            fallbackUuid,
+            blob,
+            caregiverName || 'Caregiver',
+            caregiverRelationship || 'Approved Caregiver'
+          );
+        }
         setIsSavedLocal(true);
         const url = URL.createObjectURL(blob);
         setPreviewUrl(url);
         setStatusMessage('Saved on this device (offline IndexedDB)');
         if (onSignatureSaved) {
           onSignatureSaved(blob);
+        }
+        if (onSignatureChange) {
+          const dataUrl = canvas.toDataURL('image/png');
+          onSignatureChange(dataUrl);
         }
       } catch (err) {
         console.error('Error saving signature Blob:', err);

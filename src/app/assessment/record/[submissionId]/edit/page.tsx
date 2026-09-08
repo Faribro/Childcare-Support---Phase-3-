@@ -49,6 +49,8 @@ import {
   RefreshCw,
   Clock,
   History,
+  Home,
+  FileCheck,
 } from 'lucide-react';
 
 export default function EditRecordPage() {
@@ -585,6 +587,13 @@ export default function EditRecordPage() {
     formData.requiredOtherSupport,
   ]);
 
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const handleSaveRevision = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.childName.trim()) {
@@ -619,6 +628,8 @@ export default function EditRecordPage() {
       nutritionStatus: nutritionResult.nutritionStatus,
       totalAnnualCost: totalAnnualEducationCost,
       totalRequiredSupport: totalRequiredSupport,
+      signatureDataUrl: existingSignatureUrl,
+      signature_data_url: existingSignatureUrl,
     };
 
     try {
@@ -678,7 +689,15 @@ export default function EditRecordPage() {
             district: formData.district,
             childAadhaarNumber: formData.childAadhaarNumber,
           },
-          consent: { agreeToParticipate: formData.agreeToParticipate },
+          consent: {
+            agreeToParticipate: formData.agreeToParticipate,
+            signatureDataUrl: existingSignatureUrl,
+          },
+          caregiverConsent: {
+            agreeToParticipate: formData.agreeToParticipate,
+            signatureDataUrl: existingSignatureUrl,
+          },
+          signatureDataUrl: existingSignatureUrl,
           bankingAndKyc: {
             bankAccountHolderName: formData.bankAccountHolderName,
             bankAccountNumber: formData.bankAccountNumber,
@@ -889,130 +908,309 @@ export default function EditRecordPage() {
           </div>
         )}
 
-        {/* Complete 8-Section Comprehensive Intake Edit Form */}
+        {/* Complete 9-Section Comprehensive Intake Edit Form matching New Assessment */}
         <form onSubmit={handleSaveRevision} className="space-y-6">
-          {/* Section 1: Child & Caregiver Details */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <User className="h-4 w-4" />
-              <span>1. Child &amp; Caregiver Demographics</span>
-            </h2>
+          {/* SECTION 1: Caregiver Consent & Signature Gate */}
+          <section
+            id="sec-consent"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Caregiver Consent &amp; Signature
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Informed caregiver authorization and signature prior to child intake
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <ShieldCheck className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Mandatory Consent Gate</span>
+              </div>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              {/* Consent Decision Radio Buttons */}
+              <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2">
+                <label className="text-xs font-bold text-slate-900 block">
+                  DO YOU AGREE TO PARTICIPATE IN THIS ASSESSMENT? (INFORMED CONSENT) *
+                </label>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  I voluntarily agree to provide demographic, nutritional, clinical, and banking information for my child to receive education and nutrition support under the India HIV/AIDS Alliance programme.
+                </p>
+
+                <div className="flex items-center space-x-3 pt-1">
+                  <label
+                    className={`flex items-center space-x-2.5 px-3.5 py-2 rounded-xl border cursor-pointer transition-all ${
+                      formData.agreeToParticipate === true
+                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/60'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="agreeToParticipate"
+                      checked={formData.agreeToParticipate === true}
+                      onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
+                      className="text-teal-600 focus:ring-teal-500"
+                    />
+                    <span className="text-xs">Yes — Consent Granted</span>
+                  </label>
+
+                  <label
+                    className={`flex items-center space-x-2.5 px-3.5 py-2 rounded-xl border cursor-pointer transition-all ${
+                      formData.agreeToParticipate === false
+                        ? 'bg-rose-50 border-rose-500 text-rose-900 font-bold shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/60'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="agreeToParticipate"
+                      checked={formData.agreeToParticipate === false}
+                      onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="text-xs">No — Consent Refused</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Caregiver Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Input
+                  label="Caregiver's Full Name *"
+                  required
+                  value={formData.caregiverName}
+                  onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                  helperText="Primary caregiver giving consent."
+                  placeholder="e.g. Manoj S."
+                />
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">
+                    Relationship to Child *
+                  </label>
+                  <select
+                    value={formData.caregiverRelationship}
+                    onChange={(e) =>
+                      setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
+                    }
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  >
+                    {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
+                      <option key={rel} value={rel}>
+                        {rel}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] text-slate-400 block">Caregiver legal relation</span>
+                </div>
+
+                <Input
+                  label="Caregiver Contact Number *"
+                  type="tel"
+                  required
+                  maxLength={10}
+                  value={formData.contactNumber}
+                  onChange={(e) =>
+                    setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
+                  }
+                  helperText="10-digit Indian mobile number."
+                  placeholder="e.g. 9822055667"
+                />
+              </div>
+
+              {/* Signature Pad */}
+              {formData.agreeToParticipate ? (
+                <div className="pt-1">
+                  <CaregiverSignaturePad
+                    submissionUuid={submissionId}
+                    fallbackUuid={fallbackSigUuid || submissionId}
+                    initialSignatureUrl={existingSignatureUrl}
+                    caregiverName={formData.caregiverName}
+                    caregiverRelationship={formData.caregiverRelationship || 'Caregiver'}
+                    onSignatureChange={(dataUrl) => {
+                      setExistingSignatureUrl(dataUrl);
+                      setHasSavedSignature(!!dataUrl);
+                    }}
+                    onSignatureSaved={() => setHasSavedSignature(true)}
+                  />
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-3">
+                  <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0" />
+                  <div>
+                    <p className="font-bold text-sm">Consent Not Granted</p>
+                    <p className="mt-0.5 text-rose-700">
+                      Under Alliance India child safeguarding protocols, intake cannot proceed without informed caregiver consent.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* SECTION 2: Child Demographics & Residence */}
+          <section
+            id="sec-child"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Child Demographics &amp; Residence
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Child profile, date of birth, orphan status, and residential address
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <User className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Beneficiary Profile</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {/* System Generated Unique ID Display */}
+              <div className="p-3 bg-teal-50/80 border border-teal-200/90 rounded-xl sm:col-span-2 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-teal-950 uppercase tracking-wide">
+                      Unique Beneficiary ID
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-600 text-white rounded-md tracking-wider">
+                      SYSTEM ID
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-teal-800/80 mt-0.5">
+                    Official non-stigmatising reference identifier systematically tied to child records, Drive folders, and Google Sheets
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2 bg-white px-3.5 py-2 rounded-lg border border-teal-300 font-mono text-sm font-bold text-teal-950 shadow-2xs w-fit">
+                  <span>{formData.artNumber || submissionId}</span>
+                </div>
+              </div>
+
               <Input
-                label="ART Registration Number *"
-                required
-                value={formData.artNumber}
-                onChange={(e) => setFormData({ ...formData, artNumber: e.target.value })}
-              />
-              <Input
-                label="Date of Filling"
+                label="Date of Filling Form (Visit Date) *"
                 type="date"
+                required
                 value={formData.dateOfFilling}
                 onChange={(e) => setFormData({ ...formData, dateOfFilling: e.target.value })}
+                helperText="Field visit date"
               />
+
               <Input
-                label="Child Full Name *"
+                label="Child's Full Name *"
                 required
                 value={formData.childName}
                 onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                helperText="As per school or birth certificate"
+                placeholder="e.g. Rahul Manoj S."
               />
-              <div>
-                <Input
-                  label="Date of Birth *"
-                  type="date"
-                  required
-                  value={formData.dob}
-                  onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                />
-                {ageResult.years > 0 && (
-                  <span className="text-[11px] font-semibold text-teal-800 mt-1 block">
-                    Calculated Age: {ageResult.years} yrs, {ageResult.months} mos
-                  </span>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Gender *</label>
-                <select
-                  value={formData.gender}
-                  onChange={(e) => setFormData({ ...formData, gender: e.target.value as Gender })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Transgender">Transgender</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Orphan Status *</label>
-                <select
-                  value={formData.orphanStatus}
-                  onChange={(e) => setFormData({ ...formData, orphanStatus: e.target.value as OrphanStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Both parents alive">Both parents alive</option>
-                  <option value="Maternal orphan">Maternal orphan</option>
-                  <option value="Paternal orphan">Paternal orphan</option>
-                  <option value="Double orphan">Double orphan</option>
-                </select>
-              </div>
 
               <Input
-                label="Primary Caregiver Full Name *"
+                label="Date of Birth *"
+                type="date"
                 required
-                value={formData.caregiverName}
-                onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                value={formData.dob}
+                onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                helperText={`Calculated Age: ${ageResult.years} yrs (${ageResult.months} mos)`}
               />
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Caregiver Relationship *</label>
-                <select
-                  value={formData.caregiverRelationship}
-                  onChange={(e) => setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Mother">Mother</option>
-                  <option value="Father">Father</option>
-                  <option value="Grandmother">Grandmother</option>
-                  <option value="Grandfather">Grandfather</option>
-                  <option value="Aunt">Aunt</option>
-                  <option value="Uncle">Uncle</option>
-                  <option value="Sibling">Sibling</option>
-                  <option value="Legal Guardian">Legal Guardian</option>
-                  <option value="Other">Other</option>
-                </select>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 block">Gender *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
+                    <label
+                      key={g}
+                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                        formData.gender === g
+                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="gender"
+                        value={g}
+                        checked={formData.gender === g}
+                        onChange={() => setFormData({ ...formData, gender: g })}
+                        className="text-teal-600 focus:ring-teal-500"
+                      />
+                      <span>{g}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
-              <Input
-                label="Contact Number (10 digits) *"
-                type="tel"
-                required
-                value={formData.contactNumber}
-                onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
-              />
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="text-xs font-bold text-slate-800 block">Orphan Status *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    'Both parents alive',
+                    'Single orphan (one parent deceased)',
+                    'Double orphan (both parents deceased)',
+                  ].map((st) => (
+                    <label
+                      key={st}
+                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                        formData.orphanStatus === st
+                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="orphanStatus"
+                        value={st}
+                        checked={formData.orphanStatus === st}
+                        onChange={() => setFormData({ ...formData, orphanStatus: st as OrphanStatus })}
+                        className="text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="truncate">{st}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
 
               <Input
                 label="Child Aadhaar Number"
                 value={formData.childAadhaarNumber}
                 onChange={(e) => setFormData({ ...formData, childAadhaarNumber: e.target.value })}
+                helperText="12-digit UIDAI number (optional)"
+                placeholder="e.g. 123456789012"
               />
 
-              <div className="sm:col-span-2">
+              <div className="sm:col-span-2 md:col-span-3">
                 <Input
-                  label="Full Residential Address"
+                  label="Full Residential Address *"
+                  required
                   value={formData.fullAddress}
                   onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                  helperText="House no., street, landmark, village/ward"
+                  placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">State *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">State / Union Territory *</label>
                 <select
                   value={formData.state}
                   onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
                   {INDIAN_STATES_AND_UTS.map((st) => (
                     <option key={st} value={st}>{st}</option>
@@ -1025,217 +1223,265 @@ export default function EditRecordPage() {
                 required
                 value={formData.district}
                 onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                helperText="District name"
+                placeholder="e.g. Pune"
               />
             </div>
           </section>
 
-          {/* Section 2: Caregiver Consent */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <ShieldCheck className="h-4 w-4" />
-              <span>2. Caregiver Consent</span>
-            </h2>
-
-            <div className="space-y-3">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.agreeToParticipate}
-                  onChange={(e) => setFormData({ ...formData, agreeToParticipate: e.target.checked })}
-                  className="mt-1 h-4 w-4 text-teal-600 rounded border-slate-300"
-                />
-                <span className="text-xs text-slate-700 leading-relaxed">
-                  I agree to participate in the Child Care &amp; Nutrition Support Project, and confirm that all information provided is true and verifiable.
-                </span>
-              </label>
-
-              <CaregiverSignaturePad
-                submissionUuid={submissionId}
-                fallbackUuid={fallbackSigUuid || submissionId}
-                initialSignatureUrl={existingSignatureUrl}
-                caregiverName={formData.caregiverName}
-                caregiverRelationship={formData.caregiverRelationship || 'Caregiver'}
-                onSignatureSaved={() => setHasSavedSignature(true)}
-              />
+          {/* SECTION 3: Banking & KYC Documents */}
+          <section
+            id="sec-banking"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Banking &amp; KYC Documents
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Beneficiary bank account details for direct benefit transfer and verification documents
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <CreditCard className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>DBT Verification</span>
+              </div>
             </div>
-          </section>
-
-          {/* Section 3: Banking & Identification (KYC) Details */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <CreditCard className="h-4 w-4" />
-              <span>3. Banking &amp; KYC Identification</span>
-            </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Account Holder Name"
+                label="BANK ACCOUNT HOLDER NAME"
                 value={formData.bankAccountHolderName}
                 onChange={(e) => setFormData({ ...formData, bankAccountHolderName: e.target.value })}
+                helperText="Primary account holder name as printed in passbook"
+                placeholder="Name as printed in passbook"
               />
               <Input
-                label="Bank Account Number"
+                label="BANK ACCOUNT NUMBER"
                 value={formData.bankAccountNumber}
                 onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
+                helperText="Full bank account number"
+                placeholder="e.g. 10023456789"
               />
               <Input
-                label="Bank IFSC Code"
+                label="BANK IFSC CODE"
                 value={formData.bankIfscCode}
                 onChange={(e) => setFormData({ ...formData, bankIfscCode: e.target.value.toUpperCase() })}
+                helperText="11-character IFSC code"
+                placeholder="e.g. SBIN0001234"
               />
               <Input
-                label="Bank Linked Mobile Number"
+                label="BANK LINKED MOBILE NUMBER"
                 value={formData.bankLinkedMobileNumber}
                 onChange={(e) => setFormData({ ...formData, bankLinkedMobileNumber: e.target.value })}
+                helperText="Mobile linked to bank account"
+                placeholder="e.g. 9822012345"
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
               <PhotoUpload
-                label="Passbook Photo"
+                label="PASSBOOK FRONT PAGE PHOTO"
+                helperText="Clear photo showing account number & IFSC"
                 value={formData.passbookPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
               />
               <PhotoUpload
-                label="Aadhaar Card Photo"
+                label="AADHAAR CARD PHOTO"
+                helperText="Front page photo of child / caregiver Aadhaar"
                 value={formData.aadhaarCardPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
               />
               <PhotoUpload
-                label="Child Beneficiary Photo"
+                label="PASSPORT SIZE / BENEFICIARY PHOTO"
+                helperText="Recent photograph of child beneficiary"
                 value={formData.childPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, childPhotoUrl: url || '' })}
               />
             </div>
           </section>
 
-          {/* Section 4: Household & Financial Details */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <FileText className="h-4 w-4" />
-              <span>4. Household &amp; Financial Assessment</span>
-            </h2>
+          {/* SECTION 4: Household & Socio-Economic Profile */}
+          <section
+            id="sec-household"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Household &amp; Socio-Economic Profile
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Family composition, dependency ratio, and monthly livelihood context
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <Home className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Socio-Economic Profile</span>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Total Household Members"
+                label="HOUSEHOLD MEMBERS (TOTAL FAMILY) *"
                 type="number"
+                min="1"
+                required
                 value={formData.totalFamilyMembers}
                 onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
+                helperText="Number of people in household."
               />
               <Input
-                label="Number of Children (< 18)"
+                label="NO OF CHILDREN (≤18 YRS) *"
                 type="number"
+                min="0"
+                required
                 value={formData.numberOfChildrenUnder18}
                 onChange={(e) => setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })}
+                helperText="Children in family under 18."
               />
               <Input
-                label="Monthly Income (₹)"
+                label="MONTHLY INCOME (RS.) *"
                 type="number"
+                min="0"
+                required
+                unit="₹"
                 value={formData.monthlyIncomeRs}
                 onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
-                unit="₹"
+                helperText="Total family monthly income."
               />
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Main Source of Income</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">INCOME SOURCE *</label>
                 <select
                   value={formData.mainSourceOfIncome}
                   onChange={(e) => setFormData({ ...formData, mainSourceOfIncome: e.target.value as MainSourceOfIncome })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
                   <option value="Daily wage labour">Daily wage labour</option>
-                  <option value="Agriculture / Farming">Agriculture / Farming</option>
+                  <option value="Agriculture / farming">Agriculture / farming</option>
                   <option value="Salaried employment">Salaried employment</option>
-                  <option value="Small business / Vending">Small business / Vending</option>
-                  <option value="Poverty / Dependent on support">Poverty / Dependent on support</option>
+                  <option value="Informal trade / petty shop">Informal trade / petty shop</option>
+                  <option value="Domestic work">Domestic work</option>
                   <option value="Other">Other</option>
                 </select>
               </div>
             </div>
           </section>
 
-          {/* Section 5: Clinical & ART Status */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <HeartPulse className="h-4 w-4" />
-              <span>5. Health, Clinical &amp; ART Measurements</span>
-            </h2>
+          {/* SECTION 5: Clinical Health, ART & Viral Load */}
+          <section
+            id="sec-health"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Clinical Health, ART &amp; Viral Load
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Anthropometric measurements, nutritional status, NACO ART treatment, and viral load suppression
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <HeartPulse className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Clinical Health</span>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <Input
-                  label="Weight (kg) *"
-                  type="number"
-                  step="0.1"
-                  required
-                  value={formData.weightKg}
-                  onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
-                  unit="kg"
-                />
-              </div>
-
-              <div>
-                <Input
-                  label="Height (cm) *"
-                  type="number"
-                  step="0.1"
-                  required
-                  value={formData.heightCm}
-                  onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
-                  unit="cm"
-                />
-              </div>
-
-              <div>
-                <span className="block text-xs font-bold text-slate-700 mb-1">BMI &amp; Category</span>
-                <div className="flex items-center gap-2 h-9">
-                  <span className="font-mono font-bold text-sm text-slate-900">{bmiValue.toFixed(1)}</span>
-                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <Input
+                label="CURRENT WEIGHT (KG) *"
+                type="number"
+                step="0.1"
+                required
+                unit="kg"
+                value={formData.weightKg}
+                onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
+                helperText="Measured weight."
+              />
+              <Input
+                label="CURRENT HEIGHT (CM) *"
+                type="number"
+                step="0.1"
+                required
+                unit="cm"
+                value={formData.heightCm}
+                onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
+                helperText="Measured height."
+              />
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-500 block">BMI &amp; CATEGORY</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-mono font-bold text-slate-900">{bmiValue} kg/m²</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900">
                     {bmiCategory}
                   </span>
                 </div>
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
               <Input
-                label="Haemoglobin (g/dL)"
+                label="HEMOGLOBIN (G/DL)"
+                type="number"
+                step="0.1"
+                unit="g/dL"
                 value={formData.haemoglobinGdl}
                 onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
-                unit="g/dL"
+                helperText={`Status: ${hbCategory}`}
               />
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ART Status</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">ART STATUS *</label>
                 <select
                   value={formData.artStatus}
                   onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
                   <option value="On ART">On ART</option>
-                  <option value="Pre-ART">Pre-ART</option>
-                  <option value="Transferred in">Transferred in</option>
-                  <option value="Loss to follow-up">Loss to follow-up</option>
+                  <option value="Initiating ART">Initiating ART</option>
+                  <option value="Defaulted / Lost to follow-up">Defaulted / Lost to follow-up</option>
+                  <option value="Not enrolled">Not enrolled</option>
                 </select>
               </div>
-
               <Input
-                label="ART Registration Date"
+                label="ART REGISTRATION DATE"
                 type="date"
                 value={formData.artRegistrationDate}
                 onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
+                helperText="Date of enrolment in ART program"
               />
-
               <Input
-                label="ART ID / Linked Number"
+                label="ART ID NUMBER"
                 value={formData.artIdNumber}
                 onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                helperText="Official NACO ART green card ID"
+                placeholder="e.g. MH-PUN-00123"
               />
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Viral Load Status</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">VIRAL LOAD STATUS *</label>
                 <select
                   value={formData.vlStatus}
                   onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
                   <option value="Tested in last 6 months">Tested in last 6 months</option>
                   <option value="Tested > 6 months ago">Tested &gt; 6 months ago</option>
@@ -1243,109 +1489,264 @@ export default function EditRecordPage() {
                   <option value="Awaiting result">Awaiting result</option>
                 </select>
               </div>
-
               <Input
-                label="Viral Load Count / Result"
+                label="VIRAL LOAD TEST DATE"
+                type="date"
+                value={formData.vlDate}
+                onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
+                helperText="Date of most recent VL test"
+              />
+              <Input
+                label="VIRAL LOAD (COPIES/ML)"
                 value={formData.viralLoad}
                 onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
+                helperText={`Suppression: ${vlCategory}`}
+                placeholder="Copies per mL or < 50"
               />
+            </div>
+
+            <div className="space-y-1.5 pt-2">
+              <label className="text-xs font-bold text-slate-800 block">COMORBIDITIES (Select all that apply)</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {['TB (Tuberculosis)', 'Hepatitis B', 'Hepatitis C', 'Malnutrition'].map((c) => (
+                  <label
+                    key={c}
+                    className="flex items-center space-x-2 p-2.5 rounded-xl border border-slate-200 text-xs cursor-pointer hover:bg-slate-50 transition-colors bg-white"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.otherHealthConditions.includes(c)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({ ...formData, otherHealthConditions: [...formData.otherHealthConditions, c] });
+                        } else {
+                          setFormData({ ...formData, otherHealthConditions: formData.otherHealthConditions.filter((x) => x !== c) });
+                        }
+                      }}
+                      className="rounded text-teal-600 focus:ring-teal-500"
+                    />
+                    <span>{c}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </section>
 
-          {/* Section 6: Nutrition Habits */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <Utensils className="h-4 w-4" />
-              <span>6. Nutrition Habits</span>
-            </h2>
+          {/* SECTION 6: Daily Nutrition Habits */}
+          <section
+            id="sec-nutrition"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  6
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Daily Nutrition Habits
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Child appetite assessment and daily meal frequency
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <Utensils className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Nutrition Tracker</span>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Appetite Level</label>
-                <select
-                  value={formData.appetite}
-                  onChange={(e) => setFormData({ ...formData, appetite: e.target.value as AppetiteLevel })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Good">Good</option>
-                  <option value="Moderate">Moderate</option>
-                  <option value="Poor">Poor</option>
-                </select>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 block">CHILD&apos;S APPETITE *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Good', 'Reduced', 'Poor'] as AppetiteLevel[]).map((ap) => (
+                    <label
+                      key={ap}
+                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                        formData.appetite === ap
+                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="appetite"
+                        value={ap}
+                        checked={formData.appetite === ap}
+                        onChange={() => setFormData({ ...formData, appetite: ap })}
+                        className="text-teal-600 focus:ring-teal-500"
+                      />
+                      <span>{ap}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <Input
-                label="Meals Per Day"
+                label="MEALS PER DAY *"
                 type="number"
+                min="1"
+                max="10"
+                required
                 value={formData.mealsPerDay}
                 onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
+                helperText="Full meals eaten daily."
               />
             </div>
           </section>
 
-          {/* Section 7: Education Status & Expenses */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <GraduationCap className="h-4 w-4" />
-              <span>7. Education Status &amp; Annual Expenses</span>
-            </h2>
+          {/* SECTION 7: Education Status */}
+          <section
+            id="sec-education"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  7
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Education Status
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    School enrolment status, grade level, and attendance continuity
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <GraduationCap className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Schooling Profile</span>
+              </div>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Education Status</label>
-                <select
-                  value={formData.educationStatus}
-                  onChange={(e) => setFormData({ ...formData, educationStatus: e.target.value as EducationStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Currently going to school">Currently going to school</option>
-                  <option value="Never enrolled">Never enrolled</option>
-                  <option value="Dropped out">Dropped out</option>
-                  <option value="Completed 10th">Completed 10th</option>
-                  <option value="Vocational training">Vocational training</option>
-                </select>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 block">EDUCATION STATUS *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    'Currently going to school',
+                    'Dropped out of school',
+                    'Never enrolled in school',
+                    'Completed schooling',
+                    'Other',
+                  ].map((st) => (
+                    <label
+                      key={st}
+                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                        formData.educationStatus === st
+                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="educationStatus"
+                        value={st}
+                        checked={formData.educationStatus === st}
+                        onChange={() => setFormData({ ...formData, educationStatus: st as EducationStatus })}
+                        className="text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="truncate">{st}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
-              <Input
-                label="School / Institution Name"
-                value={formData.schoolName}
-                onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
-              />
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">School Type</label>
-                <select
-                  value={formData.schoolType}
-                  onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Government school">Government school</option>
-                  <option value="Private school">Private school</option>
-                  <option value="Government aided">Government aided</option>
-                  <option value="Special school">Special school</option>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="SCHOOL NAME"
+                    value={formData.schoolName}
+                    onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
+                    helperText="Full name of the school."
+                    placeholder="e.g. Pune Zilla Parishad Primary School"
+                  />
+                </div>
+                <Input
+                  label="SCHOOL SESSION START DATE"
+                  type="date"
+                  value={formData.schoolSessionStartDate}
+                  onChange={(e) => setFormData({ ...formData, schoolSessionStartDate: e.target.value })}
+                  helperText="Session start date"
+                />
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">SCHOOL TYPE</label>
+                  <select
+                    value={formData.schoolType}
+                    onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  >
+                    <option value="Government school">Government school</option>
+                    <option value="Private school">Private school</option>
+                    <option value="Government aided">Government aided</option>
+                    <option value="Special school">Special school</option>
+                  </select>
+                </div>
+                <Input
+                  label="CURRENT CLASS"
+                  value={formData.currentClass}
+                  onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
+                  placeholder="e.g. Class 2"
+                />
+                <div className="sm:col-span-3">
+                  <label className="text-xs font-bold text-slate-800 block mb-1">ATTENDANCE STATUS</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['Regular', 'Irregular', 'Dropped out'] as AttendanceType[]).map((att) => (
+                      <label
+                        key={att}
+                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                          formData.attendance === att
+                            ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="attendance"
+                          value={att}
+                          checked={formData.attendance === att}
+                          onChange={() => setFormData({ ...formData, attendance: att })}
+                          className="text-teal-600 focus:ring-teal-500"
+                        />
+                        <span>{att}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
+            </div>
+          </section>
 
-              <Input
-                label="Current Class / Grade"
-                value={formData.currentClass}
-                onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
-              />
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Attendance Status</label>
-                <select
-                  value={formData.attendance}
-                  onChange={(e) => setFormData({ ...formData, attendance: e.target.value as AttendanceType })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="Regular">Regular</option>
-                  <option value="Irregular">Irregular</option>
-                </select>
+          {/* SECTION 8: Education Expenses & Aid Breakdown */}
+          <section
+            id="sec-expenses"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  8
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Education Expenses &amp; Aid Breakdown
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Annual and monthly school expenditures, required support schedule, and bill receipts
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <FileCheck className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Support Schedule</span>
               </div>
             </div>
 
             {/* Expenses & Approval Grid */}
-            <div className="pt-2 border-t border-slate-100">
+            <div className="pt-2">
               <ExpensesAndApprovalGrid
                 currentExpenses={{
                   schoolFees: formData.schoolFees,
@@ -1386,75 +1787,111 @@ export default function EditRecordPage() {
             </div>
           </section>
 
-          {/* Section 8: Support Required & Final Review */}
-          <section className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4">
-            <h2 className="text-sm font-bold text-[hsl(210,80%,35%)] flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <ShieldCheck className="h-4 w-4" />
-              <span>8. Support Required &amp; Caseworker Declaration</span>
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input
-                label="Required School Fees"
-                type="number"
-                value={formData.requiredSchoolFees}
-                onChange={(e) => setFormData({ ...formData, requiredSchoolFees: Number(e.target.value) })}
-                unit="₹"
-              />
-              <Input
-                label="Required Books"
-                type="number"
-                value={formData.requiredBooks}
-                onChange={(e) => setFormData({ ...formData, requiredBooks: Number(e.target.value) })}
-                unit="₹"
-              />
-              <Input
-                label="Required Stationery"
-                type="number"
-                value={formData.requiredStationery}
-                onChange={(e) => setFormData({ ...formData, requiredStationery: Number(e.target.value) })}
-                unit="₹"
-              />
-              <Input
-                label="Required Uniform"
-                type="number"
-                value={formData.requiredUniform}
-                onChange={(e) => setFormData({ ...formData, requiredUniform: Number(e.target.value) })}
-                unit="₹"
-              />
-              <Input
-                label="Required Transport"
-                type="number"
-                value={formData.requiredTransport}
-                onChange={(e) => setFormData({ ...formData, requiredTransport: Number(e.target.value) })}
-                unit="₹"
-              />
-              <Input
-                label="Required Other Support"
-                type="number"
-                value={formData.requiredOtherSupport}
-                onChange={(e) => setFormData({ ...formData, requiredOtherSupport: Number(e.target.value) })}
-                unit="₹"
-              />
+          {/* SECTION 9: Review & Submitter Attestation */}
+          <section
+            id="sec-review"
+            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                  9
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Review &amp; Submitter Attestation
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Alliance India approval decision, data verification, and caseworker sign-off
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
+                <ShieldCheck className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                <span>Programme Sign-Off</span>
+              </div>
             </div>
 
-            <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl flex items-center justify-between">
-              <span className="text-xs font-bold text-teal-950">Total Support Required:</span>
-              <span className="text-base font-bold text-teal-900">₹{totalRequiredSupport.toLocaleString()}</span>
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  APPROVED ALLIANCE INDIA (PROGRAMME STATUS)
+                </label>
+                <select
+                  value={formData.approvedAllianceIndia}
+                  onChange={(e) => setFormData({ ...formData, approvedAllianceIndia: e.target.value as ApprovedAllianceStatus })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                >
+                  <option value="Approved">Approved</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Rejected">Rejected</option>
+                </select>
+              </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800 block">
+                  REVIEW CONFIRMED (ALL INFORMATION ACCURATE) *
+                </label>
+                <div className="flex items-center space-x-3 pt-1">
+                  <label
+                    className={`flex items-center space-x-2 px-3 py-2 rounded-xl border text-xs cursor-pointer ${
+                      formData.allInfoCorrect
+                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="allInfoCorrect"
+                      checked={formData.allInfoCorrect}
+                      onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
+                      className="text-teal-600 focus:ring-teal-500"
+                    />
+                    <span>Yes — Verified</span>
+                  </label>
+                  <label
+                    className={`flex items-center space-x-2 px-3 py-2 rounded-xl border text-xs cursor-pointer ${
+                      !formData.allInfoCorrect
+                        ? 'bg-rose-50 border-rose-500 text-rose-900 font-semibold'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="allInfoCorrect"
+                      checked={!formData.allInfoCorrect}
+                      onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span>No — Needs correction</span>
+                  </label>
+                </div>
+              </div>
+
               <Input
-                label="Caseworker / Submitter Name *"
+                label="ORGANIZATION NAME"
+                value={formData.organizationName}
+                onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
+                placeholder="India HIV/AIDS Alliance"
+              />
+
+              <Input
+                label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
                 required
                 value={formData.formSubmittedBy}
                 onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                placeholder="e.g. Sunita Sharma"
               />
-              <Input
-                label="Organization Name"
-                value={formData.organizationName}
-                onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
-              />
+
+              <div className="sm:col-span-2">
+                <Input
+                  label="ORGANIZATION EMAIL ID"
+                  type="email"
+                  value={formData.organizationEmail}
+                  onChange={(e) => setFormData({ ...formData, organizationEmail: e.target.value })}
+                  placeholder="fieldworker@allianceindia.org"
+                />
+              </div>
             </div>
           </section>
 
