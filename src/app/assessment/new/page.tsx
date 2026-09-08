@@ -411,7 +411,7 @@ export default function NewSinglePageAssessment() {
       return 'Consent was not granted. The form cannot be submitted without caregiver consent.';
     }
     if (!hasSavedSignature) {
-      return 'Caregiver signature is mandatory. Please have the caregiver draw and save their signature in Section 2.';
+      return 'Caregiver signature is mandatory. Please have the caregiver draw and save their signature in Section 1.';
     }
     if (!formData.allInfoCorrect) {
       return 'Please verify that all information is correct and complete in the final review section.';
@@ -585,7 +585,7 @@ export default function NewSinglePageAssessment() {
 
   return (
     <AppShell>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-28">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-60 sm:pb-64">
         {/* Header Summary Banner */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100 gap-4">
@@ -629,15 +629,15 @@ export default function NewSinglePageAssessment() {
           <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
             <span className="text-slate-400 font-bold uppercase text-[10px] mr-1">Quick Jump:</span>
             {[
-              { id: 'sec-demographics', label: '1. Child & Caregiver' },
-              { id: 'sec-consent', label: '2. Consent & Signature' },
+              { id: 'sec-consent', label: '1. Consent & Signature' },
+              { id: 'sec-child', label: '2. Child Demographics' },
               { id: 'sec-banking', label: '3. Banking & KYC' },
               { id: 'sec-household', label: '4. Household' },
-              { id: 'sec-health', label: '5. Health, ART & VL' },
+              { id: 'sec-health', label: '5. Clinical & ART' },
               { id: 'sec-nutrition', label: '6. Nutrition' },
               { id: 'sec-education', label: '7. Education' },
-              { id: 'sec-expenses', label: '8. Expenses & Support' },
-              { id: 'sec-review', label: '9. Approval & Review' },
+              { id: 'sec-expenses', label: '8. Expenses & Aid' },
+              { id: 'sec-review', label: '9. Final Review' },
             ].map((btn) => (
               <button
                 key={btn.id}
@@ -662,55 +662,202 @@ export default function NewSinglePageAssessment() {
           </div>
         )}
 
-        {/* SECTION 1: Child & Caregiver Details */}
+        {/* SECTION 1: Caregiver Consent & Signature Gate */}
         <section
-          id="sec-demographics"
+          id="sec-consent"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <User className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                1
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Caregiver Consent & Signature
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Informed caregiver authorization and signature prior to child intake
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 1 — Child & Caregiver Details
-              </h2>
-              <p className="text-xs text-slate-500">
-                ENTER THE CHILD&apos;S PERSONAL DETAILS AND CAREGIVER INFORMATION CAREFULLY.
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <ShieldCheck className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Mandatory Consent Gate</span>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            {/* Consent Decision */}
+            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2.5">
+              <label className="text-xs font-bold text-slate-900 block">
+                DO YOU AGREE TO PARTICIPATE IN THIS ASSESSMENT? (INFORMED CONSENT) *
+              </label>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                I voluntarily agree to provide demographic, nutritional, clinical, and banking information for my child to receive education and nutrition support under the India HIV/AIDS Alliance programme.
               </p>
+
+              <div className="flex items-center space-x-3 pt-1">
+                <label
+                  className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all ${
+                    formData.agreeToParticipate === true
+                      ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="agreeToParticipate"
+                    checked={formData.agreeToParticipate === true}
+                    onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
+                    className="text-teal-600 focus:ring-teal-500"
+                  />
+                  <span className="text-xs">Yes — Consent Granted</span>
+                </label>
+
+                <label
+                  className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all ${
+                    formData.agreeToParticipate === false
+                      ? 'bg-rose-50 border-rose-500 text-rose-900 font-bold shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="agreeToParticipate"
+                    checked={formData.agreeToParticipate === false}
+                    onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
+                    className="text-rose-600 focus:ring-rose-500"
+                  />
+                  <span className="text-xs">No — Consent Refused</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Caregiver Details Required for Consent & Signing */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Input
+                label="Caregiver's Full Name *"
+                required
+                value={formData.caregiverName}
+                onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                helperText="Primary caregiver giving consent."
+                placeholder="e.g. Meena Sharma"
+              />
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 block">
+                  Relationship to Child *
+                </label>
+                <select
+                  value={formData.caregiverRelationship}
+                  onChange={(e) =>
+                    setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
+                  }
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                >
+                  {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
+                    <option key={rel} value={rel}>
+                      {rel}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-slate-400 block">Caregiver legal relation</span>
+              </div>
+
+              <Input
+                label="Caregiver Contact Number *"
+                type="tel"
+                required
+                maxLength={10}
+                value={formData.contactNumber}
+                onChange={(e) =>
+                  setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
+                }
+                helperText="10-digit Indian mobile number."
+                placeholder="e.g. 9822012345"
+              />
+            </div>
+
+            {/* Signature Pad or Refusal Alert */}
+            {formData.agreeToParticipate ? (
+              <div className="pt-1">
+                <CaregiverSignaturePad
+                  submissionUuid={clientUuid}
+                  caregiverName={formData.caregiverName || 'Caregiver'}
+                  caregiverRelationship={formData.caregiverRelationship || 'Mother'}
+                  onSignatureSaved={(blob) => setHasSavedSignature(!!blob)}
+                />
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-3">
+                <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0" />
+                <div>
+                  <p className="font-bold text-sm">Consent Not Granted</p>
+                  <p className="mt-0.5 text-rose-700">
+                    Under Alliance India child safeguarding protocols, intake cannot proceed without informed caregiver consent.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* SECTION 2: Child Demographics & Residence */}
+        <section
+          id="sec-child"
+          className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                2
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Child Demographics & Residence
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Child profile, date of birth, orphan status, and residential address
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <User className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Beneficiary Profile</span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <Input
-              label="DATE OF FILLING THIS FORM (VISIT DATE) *"
+              label="Date of Filling Form (Visit Date) *"
               type="date"
               required
               value={formData.dateOfFilling}
               onChange={(e) => setFormData({ ...formData, dateOfFilling: e.target.value })}
-              helperText="Visit date (DD/MM/YY)"
+              helperText="Field visit date"
             />
 
             <Input
-              label="CHILD'S FULL NAME *"
+              label="Child's Full Name *"
               required
               value={formData.childName}
               onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-              helperText="As per official birth / school records."
+              helperText="As per school or birth certificate"
               placeholder="e.g. Aarav Sharma"
             />
 
             <Input
-              label="DATE OF BIRTH *"
+              label="Date of Birth *"
               type="date"
               required
               value={formData.dob}
               onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-              helperText={`Completed Age: ${ageResult.years} years (${ageResult.months} months)`}
+              helperText={`Calculated Age: ${ageResult.years} yrs (${ageResult.months} mos)`}
             />
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">GENDER *</label>
+              <label className="text-xs font-bold text-slate-800 block">Gender *</label>
               <div className="grid grid-cols-3 gap-2">
                 {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
                   <label
@@ -718,7 +865,7 @@ export default function NewSinglePageAssessment() {
                     className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
                       formData.gender === g
                         ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                        : 'bg-white border-slate-200'
+                        : 'bg-white border-slate-200 text-slate-700'
                     }`}
                   >
                     <input
@@ -736,7 +883,7 @@ export default function NewSinglePageAssessment() {
             </div>
 
             <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-xs font-bold text-slate-800 block">ORPHAN STATUS *</label>
+              <label className="text-xs font-bold text-slate-800 block">Orphan Status *</label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
                   'Both parents alive',
@@ -748,7 +895,7 @@ export default function NewSinglePageAssessment() {
                     className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
                       formData.orphanStatus === st
                         ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                        : 'bg-white border-slate-200'
+                        : 'bg-white border-slate-200 text-slate-700'
                     }`}
                   >
                     <input
@@ -766,70 +913,29 @@ export default function NewSinglePageAssessment() {
             </div>
 
             <Input
-              label="CAREGIVER'S FULL NAME *"
-              required
-              value={formData.caregiverName}
-              onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
-              helperText="Name of the person caring for the child."
-              placeholder="e.g. Meena Sharma"
-            />
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">
-                CAREGIVER&apos;S RELATIONSHIP TO CHILD *
-              </label>
-              <select
-                value={formData.caregiverRelationship}
-                onChange={(e) =>
-                  setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
-                }
-                className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-              >
-                {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
-                  <option key={rel} value={rel}>
-                    {rel}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <Input
-              label="CAREGIVER CONTACT NUMBER *"
-              type="tel"
-              required
-              maxLength={10}
-              value={formData.contactNumber}
-              onChange={(e) =>
-                setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
-              }
-              helperText="10-digit Indian mobile number."
-              placeholder="e.g. 9822012345"
-            />
-
-            <Input
-              label="CHILD AADHAAR NUMBER"
+              label="Child Aadhaar Number"
               type="text"
               maxLength={12}
               value={formData.childAadhaarNumber}
               onChange={(e) =>
                 setFormData({ ...formData, childAadhaarNumber: e.target.value.replace(/\D/g, '') })
               }
-              helperText="12-digit UIDAI number (if available)."
+              helperText="12-digit UIDAI number (optional)"
               placeholder="e.g. 123456789012"
             />
 
             <div className="sm:col-span-2">
               <Input
-                label="FULL ADDRESS *"
+                label="Full Residential Address *"
                 value={formData.fullAddress}
                 onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                helperText="House no., street, village/ward."
+                helperText="House no., street, landmark, village/ward"
                 placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">STATE / UNION TERRITORY *</label>
+              <label className="text-xs font-bold text-slate-800 block">State / Union Territory *</label>
               <select
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
@@ -844,93 +950,12 @@ export default function NewSinglePageAssessment() {
             </div>
 
             <Input
-              label="DISTRICT *"
+              label="District *"
               value={formData.district}
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-              helperText="District name."
+              helperText="District name"
               placeholder="e.g. Pune"
             />
-          </div>
-        </section>
-
-        {/* SECTION 2: Consent & Caregiver Signature */}
-        <section
-          id="sec-consent"
-          className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
-        >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 2 — Caregiver Consent & Verification
-              </h2>
-              <p className="text-xs text-slate-500">
-                RECORD INFORMED CONSENT AND MANDATORY CAREGIVER SIGNATURE.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-900 block">
-                DO YOU AGREE TO PARTICIPATE? (CONSENT OBTAINED) *
-              </label>
-              <p className="text-xs text-slate-500">Caregiver authorization is mandatory to continue.</p>
-
-              <div className="flex items-center space-x-4 pt-1">
-                <label
-                  className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border cursor-pointer ${
-                    formData.agreeToParticipate === true
-                      ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
-                      : 'bg-white border-slate-200 text-slate-700'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="agreeToParticipate"
-                    checked={formData.agreeToParticipate === true}
-                    onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
-                    className="text-teal-600 focus:ring-teal-500"
-                  />
-                  <span className="text-xs">Yes</span>
-                </label>
-
-                <label
-                  className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border cursor-pointer ${
-                    formData.agreeToParticipate === false
-                      ? 'bg-rose-50 border-rose-500 text-rose-900 font-bold'
-                      : 'bg-white border-slate-200 text-slate-700'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="agreeToParticipate"
-                    checked={formData.agreeToParticipate === false}
-                    onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
-                    className="text-rose-600 focus:ring-rose-500"
-                  />
-                  <span className="text-xs">No</span>
-                </label>
-              </div>
-            </div>
-
-            {formData.agreeToParticipate ? (
-              <div className="pt-2">
-                <CaregiverSignaturePad
-                  submissionUuid={clientUuid}
-                  caregiverName={formData.caregiverName || 'Caregiver'}
-                  caregiverRelationship={formData.caregiverRelationship || 'Mother'}
-                  onSignatureSaved={(blob) => setHasSavedSignature(!!blob)}
-                />
-              </div>
-            ) : (
-              <div className="p-4 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-bold flex items-center space-x-2">
-                <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0" />
-                <span>⚠ CONSENT NOT GIVEN — THIS FORM CANNOT BE SUBMITTED.</span>
-              </div>
-            )}
           </div>
         </section>
 
@@ -939,17 +964,23 @@ export default function NewSinglePageAssessment() {
           id="sec-banking"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <CreditCard className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                3
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Banking & KYC Documents
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Beneficiary bank account details for direct benefit transfer and verification documents
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 3 — Banking & Identification (KYC) Details
-              </h2>
-              <p className="text-xs text-slate-500">
-                BENEFICIARY BANK ACCOUNT AND VERIFICATION PROOF DOCUMENTS FOR DIRECT BENEFIT TRANSFER.
-              </p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <CreditCard className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>DBT Verification</span>
             </div>
           </div>
 
@@ -1025,17 +1056,23 @@ export default function NewSinglePageAssessment() {
           id="sec-household"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <Home className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                4
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Household & Socio-Economic Profile
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Family composition, dependency ratio, and monthly livelihood context
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 4 — Household & Financial Details
-              </h2>
-              <p className="text-xs text-slate-500">
-                FAMILY SIZE, VULNERABILITY CONTEXT, AND MONTHLY INCOME DETAILS.
-              </p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <Home className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Socio-Economic Profile</span>
             </div>
           </div>
 
@@ -1103,17 +1140,23 @@ export default function NewSinglePageAssessment() {
           id="sec-health"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <HeartPulse className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                5
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Clinical Health, ART & Viral Load
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Anthropometric measurements, nutritional status, NACO ART treatment, and viral load suppression
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 5 — Clinical Health, ART & Viral Load Information
-              </h2>
-              <p className="text-xs text-slate-500">
-                ANTHROPOMETRIC MEASUREMENTS, NUTRITION CATEGORISATION, NACO ART TREATMENT AND VIRAL LOAD SUPPRESSION.
-              </p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <HeartPulse className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Clinical Health</span>
             </div>
           </div>
 
@@ -1313,15 +1356,23 @@ export default function NewSinglePageAssessment() {
           id="sec-nutrition"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <Utensils className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                6
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Daily Nutrition Habits
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Child appetite assessment and daily meal frequency
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 6 — Nutrition Habits
-              </h2>
-              <p className="text-xs text-slate-500">RECORD THE CHILD&apos;S DAILY EATING AND APPETITE STATUS.</p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <Utensils className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Nutrition Tracker</span>
             </div>
           </div>
 
@@ -1370,15 +1421,23 @@ export default function NewSinglePageAssessment() {
           id="sec-education"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <GraduationCap className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                7
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Education Status
+                </h2>
+                <p className="text-xs text-slate-500">
+                  School enrolment status, grade level, and attendance continuity
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 7 — Education Status
-              </h2>
-              <p className="text-xs text-slate-500">RECORD ENROLMENT, SCHOOL TYPE, GRADE AND ATTENDANCE CONTEXT.</p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <GraduationCap className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Schooling Profile</span>
             </div>
           </div>
 
@@ -1505,17 +1564,23 @@ export default function NewSinglePageAssessment() {
           id="sec-expenses"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <GraduationCap className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                8
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Education Expenses & Aid Breakdown
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Annual and monthly school expenditures, required support schedule, and bill receipts
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 8 — Education Expenses & Programme Support Grid
-              </h2>
-              <p className="text-xs text-slate-500">
-                RECORD ANNUAL AND MONTHLY SCHOOL EXPENDITURES, REQUIRED SUPPORT, AND BILL PROOFS.
-              </p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <FileText className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Support Schedule</span>
             </div>
           </div>
 
@@ -1557,17 +1622,23 @@ export default function NewSinglePageAssessment() {
           id="sec-review"
           className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5 scroll-mt-20"
         >
-          <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
-            <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
-              <FileCheck className="h-5 w-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+            <div className="flex items-center space-x-3.5">
+              <div className="h-9 w-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                9
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  Review & Submitter Attestation
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Alliance India approval decision, data verification, and caseworker sign-off
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Section 9 — Programme Approval & Final Review
-              </h2>
-              <p className="text-xs text-slate-500">
-                SUPERVISOR ALLIANCE INDIA APPROVAL DECISION, ATTESTATION, AND SUBMITTER SIGN-OFF.
-              </p>
+            <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/60 w-fit">
+              <FileCheck className="w-3.5 h-3.5 mr-1 text-teal-600" />
+              <span>Programme Sign-Off</span>
             </div>
           </div>
 
@@ -1660,6 +1731,9 @@ export default function NewSinglePageAssessment() {
             </div>
           </div>
         </section>
+
+        {/* Dedicated Bottom Clearance Spacer ensuring full scroll past sticky bar */}
+        <div className="h-32 w-full shrink-0 pointer-events-none" aria-hidden="true" />
 
         {/* Sticky Floating Bottom Action Bar */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 py-3">
