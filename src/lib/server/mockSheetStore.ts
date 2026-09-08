@@ -514,6 +514,26 @@ export const MockSheetStore = {
     const now = new Date().toISOString();
 
     // Apply only allowlisted editable fields
+    if (patch.childName !== undefined && patch.childName !== existing.child_name) {
+      existing.child_name = patch.childName;
+      changedFields.push('childName');
+    }
+    if (patch.dob !== undefined && patch.dob !== existing.dob) {
+      existing.dob = patch.dob;
+      changedFields.push('dob');
+    }
+    if (patch.gender !== undefined && patch.gender !== existing.gender) {
+      existing.gender = patch.gender;
+      changedFields.push('gender');
+    }
+    if (patch.district !== undefined && patch.district !== existing.district) {
+      existing.district = patch.district;
+      changedFields.push('district');
+    }
+    if (patch.editReason !== undefined) {
+      (existing as any).edit_reason = patch.editReason;
+      changedFields.push('editReason');
+    }
     if (patch.caregiverPhone !== undefined && patch.caregiverPhone !== existing.caregiverPhone) {
       existing.caregiverPhone = patch.caregiverPhone;
       changedFields.push('caregiverPhone');

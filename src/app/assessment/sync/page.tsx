@@ -14,7 +14,7 @@ import {
   releaseSyncLock,
 } from '@/lib/db/syncQueueRepository';
 import type { SyncQueueItem } from '@/types/domain';
-import { Search } from 'lucide-react';
+import { Search, Calendar, X } from 'lucide-react';
 
 export interface UnifiedAssessmentItem {
   id: string;
@@ -48,11 +48,14 @@ function SyncCentreContent() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReachable, setIsReachable] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
-  const [lastCheckTime, setLastCheckTime] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [viewingItem, setViewingItem] = useState<UnifiedAssessmentItem | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Filter States
   const [searchQuery, setSearchQuery] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const checkReachability = async () => {
     try {
@@ -81,7 +84,6 @@ function SyncCentreContent() {
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(online);
       setIsReachable(reachable);
-      setLastCheckTime(new Date().toLocaleTimeString());
     } catch (err) {
       console.error('[SyncCentre] Error loading data:', err);
     }
@@ -258,7 +260,6 @@ function SyncCentreContent() {
 
       if (map.has(id)) {
         const existing = map.get(id)!;
-        // If local has pending changes or newer revision, show local pending status
         if (qItem.status !== 'synced' || revisionNumber >= existing.revisionNumber) {
           map.set(id, {
             ...existing,
@@ -310,22 +311,35 @@ function SyncCentreContent() {
     (i) => i.status === 'synced' && i.sheetsStatus === 'exported'
   ).length;
 
+  // Filter with Search Query + From/To Date
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return unifiedItems;
-    const q = searchQuery.toLowerCase();
-    return unifiedItems.filter(
-      (item) =>
-        item.id.toLowerCase().includes(q) ||
-        item.childName.toLowerCase().includes(q) ||
-        item.caregiverName.toLowerCase().includes(q) ||
-        (item.district && item.district.toLowerCase().includes(q)) ||
-        (item.state && item.state.toLowerCase().includes(q))
-    );
-  }, [unifiedItems, searchQuery]);
+    return unifiedItems.filter((item) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const match =
+          item.id.toLowerCase().includes(q) ||
+          item.childName.toLowerCase().includes(q) ||
+          item.caregiverName.toLowerCase().includes(q) ||
+          (item.district && item.district.toLowerCase().includes(q)) ||
+          (item.state && item.state.toLowerCase().includes(q));
+        if (!match) return false;
+      }
+
+      const itemDateStr = item.createdAt ? item.createdAt.split('T')[0] : '';
+      if (fromDate && itemDateStr && itemDateStr < fromDate) {
+        return false;
+      }
+      if (toDate && itemDateStr && itemDateStr > toDate) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [unifiedItems, searchQuery, fromDate, toDate]);
 
   return (
     <AppShell pendingSyncCount={pendingCount}>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 sm:py-10 space-y-6 animate-in fade-in duration-200">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5 animate-in fade-in duration-200">
         {/* Read-only Submission View Modal */}
         {viewingItem && (
           <SubmissionViewModal
@@ -352,18 +366,15 @@ function SyncCentreContent() {
           </div>
         )}
 
-        {/* Header & Connection Card Matching Reference SyncCentre */}
-        <div className="p-6 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[hsl(215,18%,90%)] pb-4">
+        {/* Replaced Header: Search, Date Filter & Sync Actions Bar */}
+        <div className="p-4 sm:p-5 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold text-[hsl(220,15%,15%)] flex items-center gap-2">
-                <svg className="w-5 h-5 text-[hsl(210,80%,45%)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Submitted Assessments
-              </h2>
-              <p className="text-xs text-[hsl(215,12%,40%)] mt-0.5">
-                View your submitted assessments and check whether they have been safely sent for reporting.
+              <h1 className="text-base sm:text-lg font-bold text-[hsl(220,15%,15%)]">
+                Submitted Assessments ({filteredItems.length})
+              </h1>
+              <p className="text-xs text-[hsl(215,12%,45%)] mt-0.5">
+                {syncedCount} added to the report • {pendingCount} waiting
               </p>
             </div>
 
@@ -373,11 +384,11 @@ function SyncCentreContent() {
                 variant="primary"
                 onClick={handleSyncAll}
                 disabled={isSyncing || !isReachable}
-                className="font-bold px-6 shadow-xs flex-shrink-0 bg-[hsl(210,80%,45%)] hover:bg-[hsl(210,80%,40%)] text-white cursor-pointer"
+                className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-[hsl(210,80%,45%)] hover:bg-[hsl(210,80%,40%)] text-white cursor-pointer"
               >
                 {isSyncing ? (
                   <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
@@ -390,69 +401,72 @@ function SyncCentreContent() {
             )}
           </div>
 
-          {/* Connection Status */}
-          <div className="flex items-center justify-between text-xs px-3.5 py-2.5 rounded-lg bg-[hsl(215,20%,97%)] border border-[hsl(215,18%,88%)]">
-            <div className="flex items-center gap-2">
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  !isOnline
-                    ? 'bg-[hsl(40,90%,50%)]'
-                    : isReachable
-                      ? 'bg-[hsl(145,65%,45%)]'
-                      : 'bg-[hsl(0,72%,48%)]'
-                }`}
+          {/* Search Bar & Date Range Filters */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-[hsl(215,18%,90%)]">
+            {/* Search Input */}
+            <div className="relative sm:col-span-6">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by child name, ART number, caregiver, district..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-[hsl(215,18%,85%)] bg-slate-50/50 text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:bg-white transition-colors"
               />
-              <span className="font-semibold text-[hsl(220,15%,20%)]">
-                {!isOnline
-                  ? 'No internet connection'
-                  : isReachable
-                    ? 'Connection: Working'
-                    : 'Connection unavailable'}
-              </span>
             </div>
-            {lastCheckTime && (
-              <span className="text-[11px] text-[hsl(215,12%,50%)]">
-                Last checked at {lastCheckTime}
-              </span>
-            )}
+
+            {/* From Date */}
+            <div className="sm:col-span-3 flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">From:</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-[hsl(215,18%,85%)] bg-slate-50/50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:bg-white transition-colors"
+              />
+            </div>
+
+            {/* To Date */}
+            <div className="sm:col-span-3 flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">To:</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-[hsl(215,18%,85%)] bg-slate-50/50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:bg-white transition-colors"
+              />
+            </div>
           </div>
+
+          {(searchQuery || fromDate || toDate) && (
+            <div className="flex items-center justify-between text-xs pt-1 text-slate-500">
+              <span>Showing {filteredItems.length} filtered results</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setFromDate('');
+                  setToDate('');
+                }}
+                className="text-xs font-semibold text-teal-700 hover:text-teal-900 cursor-pointer underline flex items-center gap-1"
+              >
+                <X className="h-3 w-3" />
+                <span>Clear filters</span>
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Your Assessments Section */}
-        <section className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-bold text-[hsl(220,15%,20%)]">
-                Your Assessments ({unifiedItems.length})
-              </h3>
-              <span className="text-xs text-[hsl(215,12%,45%)] font-medium">
-                {syncedCount} added to the report • {pendingCount} waiting
-              </span>
-            </div>
-
-            {/* Quick Search */}
-            {unifiedItems.length > 3 && (
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Filter assessments..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[hsl(215,18%,85%)] bg-white text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
-                />
-              </div>
-            )}
-          </div>
-
+        {/* Your Assessments List */}
+        <section className="space-y-3">
           {filteredItems.length === 0 ? (
             <div className="p-8 rounded-xl border border-dashed border-[hsl(215,18%,85%)] text-center space-y-1.5 bg-white">
               <p className="text-xs font-semibold text-[hsl(220,15%,25%)]">
-                {searchQuery ? 'No assessments match your search' : 'No submitted assessments yet'}
+                {searchQuery || fromDate || toDate ? 'No assessments match your search or date filter' : 'No submitted assessments yet'}
               </p>
               <p className="text-[11px] text-[hsl(215,12%,50%)] max-w-md mx-auto">
-                {searchQuery
-                  ? 'Try changing your search terms.'
+                {searchQuery || fromDate || toDate
+                  ? 'Try clearing or changing your search criteria.'
                   : 'When you complete an assessment, it will appear here so you can check that it has been safely sent for reporting.'}
               </p>
             </div>
@@ -468,7 +482,7 @@ function SyncCentreContent() {
                 const revisionCount = item.revisionNumber || 1;
                 const isAmended = revisionCount > 1;
 
-                // Operational helper text for ART Centre staff matching reference
+                // Operational helper text for ART Centre staff
                 let helperText = 'This assessment is saved on this device and will be sent when internet is available.';
                 if (isSheetsExported && isServerAccepted) {
                   helperText = 'The latest assessment information is now available in the reporting sheet.';
@@ -554,7 +568,7 @@ function SyncCentreContent() {
                             </span>
                           )}
 
-                          {/* 4. Human-Readable Assessment Reference */}
+                          {/* 4. Assessment Reference */}
                           <span className="text-xs font-semibold text-[hsl(220,15%,25%)]">
                             Assessment reference: <strong className="font-bold text-[hsl(220,15%,15%)] font-mono">{item.id}</strong>
                           </span>
