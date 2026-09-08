@@ -3,108 +3,151 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
-import { StepIndicator } from '@/components/wizard/StepIndicator';
-import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { StepIndicator } from '@/components/wizard/StepIndicator';
 import { BottomActionBar } from '@/components/ui/BottomActionBar';
+import { CaregiverSignaturePad } from '@/components/ui/CaregiverSignaturePad';
+import { PhotoUpload } from '@/components/ui/PhotoUpload';
+import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
+import { saveDraft } from '@/lib/db/draftRepository';
+import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
+import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { generateAssessmentId } from '@/lib/utils/idGenerator';
 import {
   calculateAge,
   calculateBMI,
   classifyNutritionStatus,
-  calculateGrantEntitlement,
 } from '@/lib/clinical/nutritionCalculations';
-import { saveDraft } from '@/lib/db/draftRepository';
-import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
-import type {
-  AssessmentRecord,
-  Gender,
-  OrphanStatus,
-  NutritionStatus,
+import {
+  INDIAN_STATES_AND_UTS,
+  type AssessmentRecord,
+  type Gender,
+  type OrphanStatus,
+  type CaregiverRelationship,
+  type MainSourceOfIncome,
+  type AppetiteLevel,
+  type EducationStatus,
+  type SchoolType,
+  type AttendanceType,
 } from '@/types/domain';
 import {
-  HeartPulse,
-  GraduationCap,
-  Home,
   User,
-  CreditCard,
-  FileCheck2,
+  ShieldCheck,
+  HeartPulse,
+  Utensils,
+  GraduationCap,
+  FileCheck,
   AlertTriangle,
+  RotateCcw,
   CheckCircle2,
 } from 'lucide-react';
 
 const WIZARD_STEPS = [
-  { number: 1, title: 'Demographics', description: 'Child & caregiver identification' },
-  { number: 2, title: 'Household', description: 'Socioeconomic & orphan status' },
-  { number: 3, title: 'Nutrition', description: 'Anthropometry & MAM/SAM triage' },
-  { number: 4, title: 'Education', description: 'Schooling & grant calculation' },
-  { number: 5, title: 'Bank Details', description: 'DBT account verification' },
-  { number: 6, title: 'Sign-off', description: 'Declaration & sync queuing' },
+  { number: 1, title: 'Child & Caregiver', description: 'Identification & registry' },
+  { number: 2, title: 'Consent & Signature', description: 'Caregiver authorisation' },
+  { number: 3, title: 'Health Assessment', description: 'Anthropometry & household' },
+  { number: 4, title: 'Nutrition Habits', description: 'Appetite & dietary intake' },
+  { number: 5, title: 'Education Support', description: 'Schooling & financial need' },
+  { number: 6, title: 'Review & Submit', description: 'Verification & sign-off' },
 ];
 
 export default function NewAssessmentPage() {
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
-  const [clientUuid, setClientUuid] = useState<string>('');
 
-  // Form State
+  const [clientUuid, setClientUuid] = useState<string>('');
+  const [currentStep, setCurrentStep] = useState(1);
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasSavedSignature, setHasSavedSignature] = useState(false);
+
+  // Form State matching CHILD_HIV_SUPPORT_FORM
   const [formData, setFormData] = useState({
-    // Step 1
+    // Step 1: Identification
     artNumber: '',
+    dateOfFilling: new Date().toISOString().split('T')[0],
     childName: '',
     dob: '',
     gender: 'Male' as Gender,
+    orphanStatus: 'Both parents alive' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: 'Mother',
-    caregiverPhone: '',
-    maskedAadhaar: '',
+    caregiverRelationship: 'Mother' as CaregiverRelationship,
+    contactNumber: '',
+    fullAddress: '',
+    state: 'Maharashtra',
     district: 'Pune',
-    artCenter: 'Sassoon General Hospital',
 
-    // Step 2
-    orphanStatus: 'None' as OrphanStatus,
-    primaryCaregiverOccupation: 'Daily Wage Laborer',
-    monthlyHouseholdIncome: 4500,
-    rationCardType: 'BPL' as 'BPL' | 'AAY (Antyodaya)' | 'APL' | 'None',
-    numberOfSiblings: 2,
+    // Step 2: Consent
+    agreeToParticipate: true,
 
-    // Step 3
-    heightCm: 110,
-    weightKg: 15.5,
-    muacMm: 122,
-    bilateralPittingOedema: false,
-    clinicalNotes: '',
+    // Step 3: Health & Household
+    weightKg: 14.5,
+    heightCm: 100,
+    haemoglobinGdl: '',
+    otherHealthConditions: [] as string[],
+    otherHealthConditionSpecify: '',
+    totalFamilyMembers: 4,
+    numberOfChildrenUnder18: 2,
+    monthlyIncomeRs: 5000,
+    mainSourceOfIncome: 'Daily wage labour' as MainSourceOfIncome,
 
-    // Step 4
-    schoolEnrolled: true,
-    schoolType: 'Government' as 'Government' | 'Government-Aided' | 'Private' | 'Non-Formal',
-    schoolGrade: 'Standard 3',
-    attendancePercentage: 80,
-    supportMaterialsNeeded: ['School Uniform', 'Stationery Kit'],
+    // Step 4: Nutrition Habits
+    appetite: 'Good' as AppetiteLevel,
+    mealsPerDay: 3,
 
-    // Step 5
-    accountHolderName: '',
-    accountNumber: '',
-    ifscCode: 'SBIN0001234',
-    bankName: 'State Bank of India',
-    branchName: 'Main Branch',
-    passbookPhotoCaptured: true,
+    // Step 5: Education Profile & Support
+    educationStatus: 'Currently going to school' as EducationStatus,
+    educationStatusSpecify: '',
+    schoolName: '',
+    schoolSessionStartDate: '',
+    schoolType: 'Government school' as SchoolType,
+    currentClass: 'Class 2',
+    attendance: 'Regular' as AttendanceType,
 
-    // Step 6
-    interviewerName: 'Farid Sayyed',
-    consentAcknowledged: true,
+    // Current Expenses
+    schoolFees: 0,
+    tuitionFees: 0,
+    books: 0,
+    stationery: 0,
+    uniform: 0,
+    transport: 0,
+    otherExpenses: 0,
+    feeReceiptPhotoUrl: '',
+    marksheetPhotoUrl: '',
+    remarks: '',
+
+    // Support Required
+    requiredSchoolFees: 0,
+    requiredBooks: 0,
+    requiredStationery: 0,
+    requiredUniform: 0,
+    requiredTransport: 0,
+    requiredOtherSupport: 0,
+
+    // Step 6: Review
+    allInfoCorrect: true,
+    organizationName: 'India HIV/AIDS Alliance',
+    formSubmittedBy: 'Sunita Sharma',
+    organizationEmail: 'fieldworker@allianceindia.org',
   });
 
-  // Client-side UUID initialization
+  // Generate UUID & Auto-Reference ID on client mount
   useEffect(() => {
-    if (!clientUuid && typeof window !== 'undefined') {
-      const generated = window.crypto?.randomUUID ? window.crypto.randomUUID() : 'uuid-' + Date.now();
-      setClientUuid(generated);
-    }
-  }, [clientUuid]);
+    const uuid = crypto.randomUUID();
+    setClientUuid(uuid);
+    const refId = generateAssessmentId('MH', formData.district);
+    setFormData((prev) => ({ ...prev, artNumber: refId }));
+  }, []);
 
-  // Derived Calculations
+  // Check if signature is saved in IndexedDB
+  useEffect(() => {
+    if (!clientUuid) return;
+    getCaregiverSignatureBlob(clientUuid).then((sig) => {
+      setHasSavedSignature(!!sig);
+    });
+  }, [clientUuid, currentStep]);
+
+  // Calculations
   const ageResult = useMemo(() => {
     if (!formData.dob) return { years: 0, months: 0, totalMonths: 0 };
     try {
@@ -114,91 +157,156 @@ export default function NewAssessmentPage() {
     }
   }, [formData.dob]);
 
+  const bmiValue = useMemo(() => {
+    return calculateBMI(Number(formData.weightKg) || 0, Number(formData.heightCm) || 0);
+  }, [formData.weightKg, formData.heightCm]);
+
   const nutritionResult = useMemo(() => {
     return classifyNutritionStatus({
       ageYears: ageResult.years || 5,
       heightCm: Number(formData.heightCm) || 100,
       weightKg: Number(formData.weightKg) || 15,
-      muacMm: Number(formData.muacMm) || undefined,
-      bilateralPittingOedema: formData.bilateralPittingOedema,
     });
-  }, [ageResult.years, formData.heightCm, formData.weightKg, formData.muacMm, formData.bilateralPittingOedema]);
+  }, [ageResult.years, formData.heightCm, formData.weightKg]);
 
-  const grantResult = useMemo(() => {
-    return calculateGrantEntitlement({
-      schoolEnrolled: formData.schoolEnrolled,
-      attendancePercentage: Number(formData.attendancePercentage) || 0,
-      nutritionStatus: nutritionResult.nutritionStatus,
-      orphanStatus: formData.orphanStatus,
-    });
-  }, [formData.schoolEnrolled, formData.attendancePercentage, nutritionResult.nutritionStatus, formData.orphanStatus]);
+  const totalAnnualEducationCost = useMemo(() => {
+    return (
+      Number(formData.schoolFees || 0) +
+      Number(formData.tuitionFees || 0) +
+      Number(formData.books || 0) +
+      Number(formData.stationery || 0) +
+      Number(formData.uniform || 0) +
+      Number(formData.transport || 0) +
+      Number(formData.otherExpenses || 0)
+    );
+  }, [
+    formData.schoolFees,
+    formData.tuitionFees,
+    formData.books,
+    formData.stationery,
+    formData.uniform,
+    formData.transport,
+    formData.otherExpenses,
+  ]);
 
-  // Debounced Autosave to Dexie IndexedDB
+  const totalRequiredSupport = useMemo(() => {
+    return (
+      Number(formData.requiredSchoolFees || 0) +
+      Number(formData.requiredBooks || 0) +
+      Number(formData.requiredStationery || 0) +
+      Number(formData.requiredUniform || 0) +
+      Number(formData.requiredTransport || 0) +
+      Number(formData.requiredOtherSupport || 0)
+    );
+  }, [
+    formData.requiredSchoolFees,
+    formData.requiredBooks,
+    formData.requiredStationery,
+    formData.requiredUniform,
+    formData.requiredTransport,
+    formData.requiredOtherSupport,
+  ]);
+
+  // Autosave to Dexie drafts table
   useEffect(() => {
     if (!clientUuid) return;
 
     setSaveStatus('saving');
     const timer = setTimeout(async () => {
       try {
-        const record: Partial<AssessmentRecord> = {
+        const record = {
           uuid: clientUuid,
-          interviewerName: formData.interviewerName || 'Field Enumerator',
+          clientSubmissionId: clientUuid,
+          interviewerName: formData.formSubmittedBy || 'Caseworker',
           stepIndex: currentStep,
           demographics: {
             artNumber: formData.artNumber,
+            dateOfFilling: formData.dateOfFilling,
             childName: formData.childName,
             dob: formData.dob,
             calculatedAgeYears: ageResult.years,
             calculatedAgeMonths: ageResult.months,
             gender: formData.gender,
+            orphanStatus: formData.orphanStatus,
             caregiverName: formData.caregiverName,
             caregiverRelationship: formData.caregiverRelationship,
-            caregiverPhone: formData.caregiverPhone,
-            maskedAadhaar: formData.maskedAadhaar,
+            contactNumber: formData.contactNumber,
+            caregiverPhone: formData.contactNumber,
+            fullAddress: formData.fullAddress,
+            state: formData.state,
             district: formData.district,
-            artCenter: formData.artCenter,
           },
-          household: {
-            orphanStatus: formData.orphanStatus,
-            primaryCaregiverOccupation: formData.primaryCaregiverOccupation,
-            monthlyHouseholdIncome: Number(formData.monthlyHouseholdIncome) || 0,
-            rationCardType: formData.rationCardType,
-            numberOfSiblings: Number(formData.numberOfSiblings) || 0,
-          },
-          nutrition: {
-            heightCm: Number(formData.heightCm) || 0,
-            weightKg: Number(formData.weightKg) || 0,
-            muacMm: Number(formData.muacMm) || undefined,
-            bilateralPittingOedema: formData.bilateralPittingOedema,
-            bmi: nutritionResult.bmi,
-            bmiZScore: nutritionResult.bmiZScore,
-            nutritionStatus: nutritionResult.nutritionStatus,
-            clinicalNotes: formData.clinicalNotes,
-          },
-          education: {
-            schoolEnrolled: formData.schoolEnrolled,
-            schoolType: formData.schoolType,
-            schoolGrade: formData.schoolGrade,
-            attendancePercentage: Number(formData.attendancePercentage) || 0,
-            grantRecommended: grantResult.grantRecommended,
-            recommendedGrantAmount: grantResult.recommendedGrantAmount,
-            supportMaterialsNeeded: formData.supportMaterialsNeeded,
-          },
-          bankDetails: {
-            accountHolderName: formData.accountHolderName || formData.caregiverName,
-            accountNumber: formData.accountNumber,
-            ifscCode: formData.ifscCode,
-            bankName: formData.bankName,
-            branchName: formData.branchName,
-            passbookPhotoCaptured: formData.passbookPhotoCaptured,
-          },
-          declaration: {
-            consentAcknowledged: formData.consentAcknowledged,
-            caseworkerName: formData.interviewerName,
-            declarationDate: new Date().toISOString().split('T')[0],
+          consent: {
+            agreeToParticipate: formData.agreeToParticipate,
             signatureTimestamp: new Date().toISOString(),
           },
+          caregiverConsent: {
+            consentProvided: formData.agreeToParticipate,
+            consentVersion: 'v1.0-2026',
+            caregiverName: formData.caregiverName || 'Caregiver',
+            caregiverRelationship: formData.caregiverRelationship || 'Mother',
+            consentCapturedAt: new Date().toISOString(),
+            signatureRequired: true,
+            signatureStatus: hasSavedSignature ? 'CAPTURED_LOCAL' : 'PENDING',
+          },
+          householdFinancial: {
+            totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
+            numberOfChildrenUnder18: Number(formData.numberOfChildrenUnder18) || 0,
+            monthlyIncomeRs: Number(formData.monthlyIncomeRs) || 0,
+            mainSourceOfIncome: formData.mainSourceOfIncome,
+          },
+          health: {
+            weightKg: Number(formData.weightKg) || 0,
+            heightCm: Number(formData.heightCm) || 0,
+            bmi: bmiValue,
+            haemoglobinGdl: formData.haemoglobinGdl ? Number(formData.haemoglobinGdl) : undefined,
+            otherHealthConditions: formData.otherHealthConditions,
+            otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
+            nutritionStatus: nutritionResult.nutritionStatus,
+          },
+          nutrition: {
+            appetite: formData.appetite,
+            mealsPerDay: Number(formData.mealsPerDay) || 3,
+          },
+          educationStatus: {
+            educationStatus: formData.educationStatus,
+            educationStatusSpecify: formData.educationStatusSpecify,
+            schoolName: formData.schoolName,
+            schoolSessionStartDate: formData.schoolSessionStartDate,
+            schoolType: formData.schoolType,
+            currentClass: formData.currentClass,
+            attendance: formData.attendance,
+          },
+          educationExpenses: {
+            schoolFees: Number(formData.schoolFees) || 0,
+            tuitionFees: Number(formData.tuitionFees) || 0,
+            books: Number(formData.books) || 0,
+            stationery: Number(formData.stationery) || 0,
+            uniform: Number(formData.uniform) || 0,
+            transport: Number(formData.transport) || 0,
+            otherExpenses: Number(formData.otherExpenses) || 0,
+            totalAnnualCost: totalAnnualEducationCost,
+            feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
+            marksheetPhotoUrl: formData.marksheetPhotoUrl,
+            remarks: formData.remarks,
+          },
+          educationSupportRequired: {
+            requiredSchoolFees: Number(formData.requiredSchoolFees) || 0,
+            requiredBooks: Number(formData.requiredBooks) || 0,
+            requiredStationery: Number(formData.requiredStationery) || 0,
+            requiredUniform: Number(formData.requiredUniform) || 0,
+            requiredTransport: Number(formData.requiredTransport) || 0,
+            requiredOtherSupport: Number(formData.requiredOtherSupport) || 0,
+            totalRequiredSupport: totalRequiredSupport,
+          },
+          finalReview: {
+            allInfoCorrect: formData.allInfoCorrect,
+            organizationName: formData.organizationName,
+            formSubmittedBy: formData.formSubmittedBy,
+            organizationEmail: formData.organizationEmail,
+          },
           syncStatus: 'draft',
+          updatedAt: new Date().toISOString(),
         };
 
         await saveDraft(record as any);
@@ -210,9 +318,53 @@ export default function NewAssessmentPage() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [formData, clientUuid, currentStep, ageResult, nutritionResult, grantResult]);
+  }, [
+    formData,
+    clientUuid,
+    currentStep,
+    ageResult,
+    bmiValue,
+    nutritionResult,
+    totalAnnualEducationCost,
+    totalRequiredSupport,
+    hasSavedSignature,
+  ]);
 
-  // Step Navigation Handlers
+  // Step Gating Validation
+  const canProceed = useMemo(() => {
+    if (currentStep === 1) {
+      return (
+        formData.childName.trim().length >= 2 &&
+        formData.dob.length > 0 &&
+        formData.caregiverName.trim().length >= 2 &&
+        formData.contactNumber.trim().length === 10
+      );
+    }
+    if (currentStep === 2) {
+      // Locked Caretaker Signature Policy Gate:
+      // If consent = No -> blocked.
+      // If consent = Yes -> caregiver signature must be saved locally in IndexedDB.
+      return formData.agreeToParticipate && hasSavedSignature;
+    }
+    if (currentStep === 3) {
+      return (
+        Number(formData.weightKg) > 2 &&
+        Number(formData.heightCm) > 40 &&
+        Number(formData.totalFamilyMembers) >= 1
+      );
+    }
+    if (currentStep === 4) {
+      return Number(formData.mealsPerDay) >= 1;
+    }
+    if (currentStep === 5) {
+      return true;
+    }
+    if (currentStep === 6) {
+      return formData.allInfoCorrect && formData.formSubmittedBy.trim().length >= 2;
+    }
+    return true;
+  }, [currentStep, formData, hasSavedSignature]);
+
   const handleNext = () => {
     if (currentStep < 6) {
       setCurrentStep((prev) => prev + 1);
@@ -229,78 +381,132 @@ export default function NewAssessmentPage() {
     }
   };
 
+  const handleRegenerateId = () => {
+    const newId = generateAssessmentId('MH', formData.district, Math.floor(Math.random() * 90) + 10);
+    setFormData((prev) => ({ ...prev, artNumber: newId }));
+  };
+
   const handleFinalSubmission = async () => {
     setIsSubmitting(true);
     try {
       const fullRecord: AssessmentRecord = {
         uuid: clientUuid,
-        interviewerName: formData.interviewerName,
+        clientSubmissionId: clientUuid,
+        version: 1,
+        interviewerName: formData.formSubmittedBy,
         stepIndex: 6,
         demographics: {
-          artNumber: formData.artNumber || 'MH-PUN-DEMO',
-          childName: formData.childName || 'Beneficiary Child',
-          dob: formData.dob || '2019-01-01',
+          artNumber: formData.artNumber,
+          dateOfFilling: formData.dateOfFilling,
+          childName: formData.childName,
+          dob: formData.dob,
           calculatedAgeYears: ageResult.years,
           calculatedAgeMonths: ageResult.months,
           gender: formData.gender,
-          caregiverName: formData.caregiverName || 'Caregiver',
-          caregiverRelationship: formData.caregiverRelationship,
-          caregiverPhone: formData.caregiverPhone || '9876543210',
-          maskedAadhaar: formData.maskedAadhaar || 'XXXX-XXXX-1234',
-          district: formData.district,
-          artCenter: formData.artCenter,
-        },
-        household: {
           orphanStatus: formData.orphanStatus,
-          primaryCaregiverOccupation: formData.primaryCaregiverOccupation,
-          monthlyHouseholdIncome: Number(formData.monthlyHouseholdIncome) || 0,
-          rationCardType: formData.rationCardType,
-          numberOfSiblings: Number(formData.numberOfSiblings) || 0,
+          caregiverName: formData.caregiverName,
+          caregiverRelationship: formData.caregiverRelationship,
+          contactNumber: formData.contactNumber,
+          caregiverPhone: formData.contactNumber,
+          fullAddress: formData.fullAddress,
+          state: formData.state,
+          district: formData.district,
+        },
+        consent: {
+          agreeToParticipate: formData.agreeToParticipate,
+          signatureTimestamp: new Date().toISOString(),
+        },
+        caregiverConsent: {
+          consentProvided: formData.agreeToParticipate,
+          consentVersion: 'v1.0-2026',
+          caregiverName: formData.caregiverName,
+          caregiverRelationship: formData.caregiverRelationship,
+          consentCapturedAt: new Date().toISOString(),
+          signatureRequired: true,
+          signatureStatus: 'CAPTURED_LOCAL',
+        },
+        householdFinancial: {
+          totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
+          numberOfChildrenUnder18: Number(formData.numberOfChildrenUnder18) || 0,
+          monthlyIncomeRs: Number(formData.monthlyIncomeRs) || 0,
+          mainSourceOfIncome: formData.mainSourceOfIncome,
+        },
+        health: {
+          weightKg: Number(formData.weightKg) || 0,
+          heightCm: Number(formData.heightCm) || 0,
+          bmi: bmiValue,
+          haemoglobinGdl: formData.haemoglobinGdl ? Number(formData.haemoglobinGdl) : undefined,
+          otherHealthConditions: formData.otherHealthConditions,
+          otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
+          nutritionStatus: nutritionResult.nutritionStatus,
         },
         nutrition: {
-          heightCm: Number(formData.heightCm) || 100,
-          weightKg: Number(formData.weightKg) || 15,
-          muacMm: Number(formData.muacMm) || 125,
-          bilateralPittingOedema: formData.bilateralPittingOedema,
-          bmi: nutritionResult.bmi,
-          bmiZScore: nutritionResult.bmiZScore,
-          nutritionStatus: nutritionResult.nutritionStatus,
-          clinicalNotes: formData.clinicalNotes,
+          appetite: formData.appetite,
+          mealsPerDay: Number(formData.mealsPerDay) || 3,
         },
-        education: {
-          schoolEnrolled: formData.schoolEnrolled,
+        educationStatus: {
+          educationStatus: formData.educationStatus,
+          educationStatusSpecify: formData.educationStatusSpecify,
+          schoolName: formData.schoolName,
+          schoolSessionStartDate: formData.schoolSessionStartDate,
           schoolType: formData.schoolType,
-          schoolGrade: formData.schoolGrade,
-          attendancePercentage: Number(formData.attendancePercentage) || 80,
-          grantRecommended: grantResult.grantRecommended,
-          recommendedGrantAmount: grantResult.recommendedGrantAmount,
-          supportMaterialsNeeded: formData.supportMaterialsNeeded,
+          currentClass: formData.currentClass,
+          attendance: formData.attendance,
         },
-        bankDetails: {
-          accountHolderName: formData.accountHolderName || formData.caregiverName || 'Caregiver',
-          accountNumber: formData.accountNumber || '123456789012',
-          ifscCode: formData.ifscCode,
-          bankName: formData.bankName,
-          branchName: formData.branchName,
-          passbookPhotoCaptured: formData.passbookPhotoCaptured,
+        educationExpenses: {
+          schoolFees: Number(formData.schoolFees) || 0,
+          tuitionFees: Number(formData.tuitionFees) || 0,
+          books: Number(formData.books) || 0,
+          stationery: Number(formData.stationery) || 0,
+          uniform: Number(formData.uniform) || 0,
+          transport: Number(formData.transport) || 0,
+          otherExpenses: Number(formData.otherExpenses) || 0,
+          totalAnnualCost: totalAnnualEducationCost,
+          feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
+          marksheetPhotoUrl: formData.marksheetPhotoUrl,
+          remarks: formData.remarks,
         },
-        declaration: {
-          consentAcknowledged: formData.consentAcknowledged,
-          caseworkerName: formData.interviewerName,
-          declarationDate: new Date().toISOString().split('T')[0],
-          signatureTimestamp: new Date().toISOString(),
+        educationSupportRequired: {
+          requiredSchoolFees: Number(formData.requiredSchoolFees) || 0,
+          requiredBooks: Number(formData.requiredBooks) || 0,
+          requiredStationery: Number(formData.requiredStationery) || 0,
+          requiredUniform: Number(formData.requiredUniform) || 0,
+          requiredTransport: Number(formData.requiredTransport) || 0,
+          requiredOtherSupport: Number(formData.requiredOtherSupport) || 0,
+          totalRequiredSupport: totalRequiredSupport,
+        },
+        finalReview: {
+          allInfoCorrect: formData.allInfoCorrect,
+          organizationName: formData.organizationName,
+          formSubmittedBy: formData.formSubmittedBy,
+          organizationEmail: formData.organizationEmail,
+        },
+        grantCalculation: {
+          totalGrantAmount: totalRequiredSupport || 2000,
         },
         syncStatus: 'queued',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
-      await enqueueSubmission(fullRecord);
-      router.push('/assessment/sync?submitted=true');
+      await enqueueSubmission(fullRecord, { operationType: 'CREATE' });
+      router.push(`/assessment/sync?submitted=true&ref=${encodeURIComponent(formData.artNumber)}`);
     } catch (err) {
-      console.error('Submission error:', err);
+      console.error('Submission failed:', err);
       setIsSubmitting(false);
     }
+  };
+
+  const toggleHealthCondition = (cond: string) => {
+    setFormData((prev) => {
+      const exists = prev.otherHealthConditions.includes(cond);
+      return {
+        ...prev,
+        otherHealthConditions: exists
+          ? prev.otherHealthConditions.filter((c) => c !== cond)
+          : [...prev.otherHealthConditions, cond],
+      };
+    });
   };
 
   return (
@@ -311,594 +517,950 @@ export default function NewAssessmentPage() {
         saveStatus: saveStatus,
       }}
     >
-      {/* Wizard Stepper Bar */}
       <StepIndicator
         currentStep={currentStep}
         totalSteps={6}
         steps={WIZARD_STEPS}
-        onStepClick={(step) => setCurrentStep(step)}
+        onStepClick={(step) => {
+          if (step <= currentStep) setCurrentStep(step);
+        }}
       />
 
-      {/* Main Responsive Form Body */}
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-          {/* Main Form Fields Container (8 cols on desktop, full width on mobile) */}
-          <div className="lg:col-span-8 flex flex-col space-y-6">
-            {/* Step 1: Child Demographics */}
-            {currentStep === 1 && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                <div className="flex items-center space-x-2.5 pb-4 mb-4 border-b border-slate-100">
-                  <div className="bg-blue-50 text-brand p-2 rounded-xl">
+      <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-6 sm:py-8">
+        <div className="space-y-6">
+          {/* STEP 1: Child & Caregiver Details */}
+          {currentStep === 1 && (
+            <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-5">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center space-x-2.5">
+                  <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
                     <User className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="text-base sm:text-lg font-bold text-ink-900">Step 1: Child Demographics</h2>
-                    <p className="text-xs text-ink-600">Enter ART registration and primary caregiver information</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input
-                    label="ART Registration Number"
-                    required
-                    placeholder="e.g. MH-PUN-1049"
-                    value={formData.artNumber}
-                    onChange={(e) => setFormData({ ...formData, artNumber: e.target.value.toUpperCase() })}
-                    helperText="Official National ART Centre registration ID"
-                  />
-
-                  <Input
-                    label="Child Full Name"
-                    required
-                    placeholder="First and last name"
-                    value={formData.childName}
-                    onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-                  />
-
-                  <div>
-                    <Input
-                      label="Date of Birth"
-                      type="date"
-                      required
-                      value={formData.dob}
-                      onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                      helperText={
-                        formData.dob
-                          ? `Calculated Age: ${ageResult.years} yrs, ${ageResult.months} mos`
-                          : 'Select child date of birth'
-                      }
-                    />
-                  </div>
-
-                  <div className="flex flex-col space-y-1.5">
-                    <label className="text-xs font-bold text-ink-900">Gender *</label>
-                    <select
-                      className="w-full min-h-[48px] px-3.5 py-3 text-base text-ink-900 bg-white border border-slate-300 rounded-xl focus:ring-3 focus:ring-brand-light focus:border-brand"
-                      value={formData.gender}
-                      onChange={(e) => setFormData({ ...formData, gender: e.target.value as Gender })}
-                    >
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Transgender">Transgender</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-
-                  <Input
-                    label="Primary Caregiver Name"
-                    required
-                    placeholder="Caregiver full name"
-                    value={formData.caregiverName}
-                    onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
-                  />
-
-                  <Input
-                    label="Relationship to Child"
-                    required
-                    placeholder="e.g. Mother, Grandmother, Uncle"
-                    value={formData.caregiverRelationship}
-                    onChange={(e) => setFormData({ ...formData, caregiverRelationship: e.target.value })}
-                  />
-
-                  <Input
-                    label="Caregiver Contact Phone"
-                    type="tel"
-                    required
-                    placeholder="10-digit mobile number"
-                    value={formData.caregiverPhone}
-                    onChange={(e) => setFormData({ ...formData, caregiverPhone: e.target.value })}
-                  />
-
-                  <Input
-                    label="Masked Aadhaar Number"
-                    placeholder="XXXX-XXXX-1234"
-                    value={formData.maskedAadhaar}
-                    onChange={(e) => setFormData({ ...formData, maskedAadhaar: e.target.value })}
-                    helperText="For data privacy, store only last 4 digits"
-                  />
-
-                  <Input
-                    label="District"
-                    required
-                    value={formData.district}
-                    onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                  />
-
-                  <Input
-                    label="Designated ART Centre"
-                    required
-                    value={formData.artCenter}
-                    onChange={(e) => setFormData({ ...formData, artCenter: e.target.value })}
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* Step 2: Household & Family */}
-            {currentStep === 2 && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                <div className="flex items-center space-x-2.5 pb-4 mb-4 border-b border-slate-100">
-                  <div className="bg-blue-50 text-brand p-2 rounded-xl">
-                    <Home className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-ink-900">Step 2: Household & Vulnerability</h2>
-                    <p className="text-xs text-ink-600">Socioeconomic background, orphanhood, and living standards</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2 flex flex-col space-y-1.5">
-                    <label className="text-xs font-bold text-ink-900">Orphanhood Vulnerability Tier *</label>
-                    <select
-                      className="w-full min-h-[48px] px-3.5 py-3 text-base text-ink-900 bg-white border border-slate-300 rounded-xl focus:ring-3 focus:ring-brand-light focus:border-brand"
-                      value={formData.orphanStatus}
-                      onChange={(e) => setFormData({ ...formData, orphanStatus: e.target.value as OrphanStatus })}
-                    >
-                      <option value="None">None (Both parents living)</option>
-                      <option value="Maternal Orphan">Maternal Orphan (Mother deceased)</option>
-                      <option value="Paternal Orphan">Paternal Orphan (Father deceased)</option>
-                      <option value="Double Orphan (Both Parents Deceased)">Double Orphan (Both parents deceased)</option>
-                      <option value="Single Parent with Vulnerability">Single Parent with Vulnerability</option>
-                    </select>
-                  </div>
-
-                  <Input
-                    label="Primary Caregiver Occupation"
-                    required
-                    value={formData.primaryCaregiverOccupation}
-                    onChange={(e) => setFormData({ ...formData, primaryCaregiverOccupation: e.target.value })}
-                  />
-
-                  <Input
-                    label="Monthly Household Income (INR)"
-                    type="number"
-                    required
-                    value={formData.monthlyHouseholdIncome}
-                    onChange={(e) => setFormData({ ...formData, monthlyHouseholdIncome: Number(e.target.value) })}
-                    unit="₹"
-                  />
-
-                  <div className="flex flex-col space-y-1.5">
-                    <label className="text-xs font-bold text-ink-900">Ration Card Tier *</label>
-                    <select
-                      className="w-full min-h-[48px] px-3.5 py-3 text-base text-ink-900 bg-white border border-slate-300 rounded-xl focus:ring-3 focus:ring-brand-light focus:border-brand"
-                      value={formData.rationCardType}
-                      onChange={(e) => setFormData({ ...formData, rationCardType: e.target.value as any })}
-                    >
-                      <option value="BPL">BPL (Below Poverty Line)</option>
-                      <option value="AAY (Antyodaya)">AAY (Antyodaya Anna Yojana)</option>
-                      <option value="APL">APL (Above Poverty Line)</option>
-                      <option value="None">None / No Card Issued</option>
-                    </select>
-                  </div>
-
-                  <Input
-                    label="Number of Dependent Siblings"
-                    type="number"
-                    value={formData.numberOfSiblings}
-                    onChange={(e) => setFormData({ ...formData, numberOfSiblings: Number(e.target.value) })}
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* Step 3: Clinical Nutrition & Anthropometry */}
-            {currentStep === 3 && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                <div className="flex items-center space-x-2.5 pb-4 mb-4 border-b border-slate-100">
-                  <div className="bg-emerald-50 text-alliance-emerald p-2 rounded-xl">
-                    <HeartPulse className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-ink-900">Step 3: Clinical Nutrition Assessment</h2>
-                    <p className="text-xs text-ink-600">Physical measurements and instant WHO malnutrition staging</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                  <Input
-                    label="Standing Height (cm)"
-                    type="number"
-                    step="0.1"
-                    required
-                    value={formData.heightCm}
-                    onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
-                    unit="cm"
-                    helperText="Measure without footwear"
-                  />
-
-                  <Input
-                    label="Body Weight (kg)"
-                    type="number"
-                    step="0.1"
-                    required
-                    value={formData.weightKg}
-                    onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
-                    unit="kg"
-                    helperText="Use calibrated digital scale"
-                  />
-
-                  <Input
-                    label="MUAC (mm)"
-                    type="number"
-                    value={formData.muacMm}
-                    onChange={(e) => setFormData({ ...formData, muacMm: Number(e.target.value) })}
-                    unit="mm"
-                    helperText="Mid-Upper Arm Circumference"
-                  />
-                </div>
-
-                {/* Bilateral Oedema Toggle */}
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl mb-4">
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.bilateralPittingOedema}
-                      onChange={(e) => setFormData({ ...formData, bilateralPittingOedema: e.target.checked })}
-                      className="h-5 w-5 text-alert-rose rounded border-slate-300 focus:ring-rose-400"
-                    />
-                    <div>
-                      <span className="text-sm font-bold text-ink-900">Bilateral Pitting Oedema Present</span>
-                      <p className="text-xs text-slate-500">Thumb pressure on both feet leaves indentation (Kwashiorkor check)</p>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Instant Malnutrition Triage Alert Card */}
-                <div
-                  className={`p-4 rounded-xl border ${
-                    nutritionResult.nutritionStatus === 'SAM (Severe Acute Malnutrition)'
-                      ? 'bg-rose-50 border-rose-300 text-rose-900'
-                      : nutritionResult.nutritionStatus === 'MAM (Moderate Acute Malnutrition)'
-                      ? 'bg-amber-50 border-amber-300 text-amber-900'
-                      : 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                  }`}
-                >
-                  <div className="flex items-start space-x-3">
-                    {nutritionResult.nutritionStatus === 'SAM (Severe Acute Malnutrition)' ? (
-                      <AlertTriangle className="h-6 w-6 text-alert-rose shrink-0 mt-0.5" />
-                    ) : (
-                      <CheckCircle2 className="h-6 w-6 text-alliance-emerald shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider">Clinical Triage Finding</span>
-                        <span className="text-xs font-bold bg-white/80 px-2 py-0.5 rounded-md shadow-xs">
-                          BMI: {nutritionResult.bmi} kg/m²
-                        </span>
-                      </div>
-                      <h3 className="text-sm font-bold mt-1">{nutritionResult.nutritionStatus}</h3>
-                      <p className="text-xs mt-1 leading-relaxed opacity-90">{nutritionResult.triageNotes}</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* Step 4: Education Support */}
-            {currentStep === 4 && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                <div className="flex items-center space-x-2.5 pb-4 mb-4 border-b border-slate-100">
-                  <div className="bg-blue-50 text-brand p-2 rounded-xl">
-                    <GraduationCap className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-ink-900">Step 4: Education & Support Grants</h2>
-                    <p className="text-xs text-ink-600">School enrollment status and entitlement calculations</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                  <div className="sm:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <label className="flex items-center space-x-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.schoolEnrolled}
-                        onChange={(e) => setFormData({ ...formData, schoolEnrolled: e.target.checked })}
-                        className="h-5 w-5 text-brand rounded border-slate-300 focus:ring-brand"
-                      />
-                      <span className="text-sm font-bold text-ink-900">Child is Currently Enrolled in School</span>
-                    </label>
-                  </div>
-
-                  {formData.schoolEnrolled && (
-                    <>
-                      <div className="flex flex-col space-y-1.5">
-                        <label className="text-xs font-bold text-ink-900">School Type</label>
-                        <select
-                          className="w-full min-h-[48px] px-3.5 py-3 text-base text-ink-900 bg-white border border-slate-300 rounded-xl focus:ring-3 focus:ring-brand-light focus:border-brand"
-                          value={formData.schoolType}
-                          onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as any })}
-                        >
-                          <option value="Government">Government School</option>
-                          <option value="Government-Aided">Government-Aided</option>
-                          <option value="Private">Private School</option>
-                          <option value="Non-Formal">Non-Formal / Bridging Centre</option>
-                        </select>
-                      </div>
-
-                      <Input
-                        label="Current Standard / Grade"
-                        value={formData.schoolGrade}
-                        onChange={(e) => setFormData({ ...formData, schoolGrade: e.target.value })}
-                        placeholder="e.g. Standard 4"
-                      />
-
-                      <Input
-                        label="Average Attendance Percentage"
-                        type="number"
-                        value={formData.attendancePercentage}
-                        onChange={(e) => setFormData({ ...formData, attendancePercentage: Number(e.target.value) })}
-                        unit="%"
-                      />
-                    </>
-                  )}
-                </div>
-
-                {/* Educational Grant Recommendation Card */}
-                <div className="p-4 bg-blue-50/80 border border-blue-200 rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-brand">Calculated Grant Entitlement</span>
-                    <span className="text-base font-bold text-brand bg-white px-2.5 py-0.5 rounded-lg shadow-xs">
-                      ₹{grantResult.recommendedGrantAmount.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-ink-700 mt-2 leading-relaxed">{grantResult.rationale}</p>
-                </div>
-              </section>
-            )}
-
-            {/* Step 5: DBT Bank Details */}
-            {currentStep === 5 && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                <div className="flex items-center space-x-2.5 pb-4 mb-4 border-b border-slate-100">
-                  <div className="bg-blue-50 text-brand p-2 rounded-xl">
-                    <CreditCard className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-ink-900">Step 5: Direct Benefit Transfer (DBT)</h2>
-                    <p className="text-xs text-ink-600">Caregiver bank account details for grant disbursement</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input
-                    label="Account Holder Name (As in Bank Passbook)"
-                    required
-                    placeholder="Caregiver name"
-                    value={formData.accountHolderName}
-                    onChange={(e) => setFormData({ ...formData, accountHolderName: e.target.value })}
-                  />
-
-                  <Input
-                    label="Bank Account Number"
-                    type="password"
-                    required
-                    placeholder="9 to 18 digits"
-                    value={formData.accountNumber}
-                    onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
-                  />
-
-                  <Input
-                    label="Bank IFSC Code"
-                    required
-                    placeholder="e.g. SBIN0001234"
-                    value={formData.ifscCode}
-                    onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value.toUpperCase() })}
-                  />
-
-                  <Input
-                    label="Bank Name"
-                    required
-                    value={formData.bankName}
-                    onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
-                  />
-
-                  <Input
-                    label="Branch Name"
-                    required
-                    value={formData.branchName}
-                    onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
-                  />
-
-                  <div className="sm:col-span-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                    <label className="flex items-center space-x-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.passbookPhotoCaptured}
-                        onChange={(e) => setFormData({ ...formData, passbookPhotoCaptured: e.target.checked })}
-                        className="h-5 w-5 text-alliance-emerald rounded border-slate-300 focus:ring-emerald-400"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-emerald-950">Bank Passbook Photo Verified</span>
-                        <p className="text-xs text-emerald-800">Physical document verified by field worker</p>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* Step 6: Review & Sign-off */}
-            {currentStep === 6 && (
-              <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                <div className="flex items-center space-x-2.5 pb-4 mb-4 border-b border-slate-100">
-                  <div className="bg-emerald-50 text-alliance-emerald p-2 rounded-xl">
-                    <FileCheck2 className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-ink-900">Step 6: Review & Caseworker Sign-off</h2>
-                    <p className="text-xs text-ink-600">Verify assessment summary and sign off for synchronization</p>
-                  </div>
-                </div>
-
-                {/* Summary Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-6">
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <span className="text-slate-500 font-medium">Child Identification</span>
-                    <p className="font-bold text-ink-900 text-sm mt-0.5">{formData.childName || 'Not entered'}</p>
-                    <p className="text-brand font-mono font-bold mt-0.5">ART ID: {formData.artNumber}</p>
-                    <p className="text-slate-600">Age: {ageResult.years} yrs ({formData.gender})</p>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <span className="text-slate-500 font-medium">Nutritional Triage</span>
-                    <p className="font-bold text-ink-900 text-sm mt-0.5">{nutritionResult.nutritionStatus}</p>
-                    <p className="text-slate-600">Height: {formData.heightCm} cm | Weight: {formData.weightKg} kg</p>
-                    <p className="text-slate-600">MUAC: {formData.muacMm} mm | BMI: {nutritionResult.bmi}</p>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <span className="text-slate-500 font-medium">Educational Support</span>
-                    <p className="font-bold text-ink-900 text-sm mt-0.5">
-                      {formData.schoolEnrolled ? formData.schoolGrade : 'Not Enrolled'}
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                      Section 1 — Child & Caregiver Details
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      ENTER THE CHILD&apos;S PERSONAL DETAILS AND CAREGIVER INFORMATION CAREFULLY.
                     </p>
-                    <p className="text-slate-600">Attendance: {formData.attendancePercentage}%</p>
-                    <p className="text-alliance-emerald font-bold">Grant: ₹{grantResult.recommendedGrantAmount}</p>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <span className="text-slate-500 font-medium">Caregiver & Bank</span>
-                    <p className="font-bold text-ink-900 text-sm mt-0.5">{formData.caregiverName} ({formData.caregiverRelationship})</p>
-                    <p className="text-slate-600">Contact: {formData.caregiverPhone}</p>
-                    <p className="font-mono text-slate-600">IFSC: {formData.ifscCode}</p>
                   </div>
                 </div>
 
-                {/* Caseworker Declaration */}
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4">
-                  <label className="flex items-start space-x-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.consentAcknowledged}
-                      onChange={(e) => setFormData({ ...formData, consentAcknowledged: e.target.checked })}
-                      className="h-5 w-5 text-brand rounded border-slate-300 focus:ring-brand mt-0.5"
-                    />
-                    <div className="text-xs text-ink-900 leading-relaxed">
-                      <span className="font-bold">Caseworker Declaration & Informed Consent:</span> I certify that I have conducted this assessment in person, confirmed anthropometric measurements, verified caregiver identity, and obtained informed consent in accordance with India HIV/AIDS Alliance protocols.
-                    </div>
-                  </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRegenerateId}
+                  className="text-xs text-teal-700"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                  <span>Regenerate ID</span>
+                </Button>
+              </div>
+
+              {/* Assessment Reference ID */}
+              <div className="p-3 bg-teal-50/50 border border-teal-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-teal-800">
+                    Assessment Reference ID
+                  </span>
+                  <div className="font-mono font-bold text-base text-teal-900">{formData.artNumber}</div>
+                </div>
+                <span className="text-[11px] text-teal-700 font-medium">Non-stigmatising ID</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="DATE OF FILLING THIS FORM *"
+                  type="date"
+                  required
+                  value={formData.dateOfFilling}
+                  onChange={(e) => setFormData({ ...formData, dateOfFilling: e.target.value })}
+                  helperText="Today's date (DD/MM/YY)"
+                />
+
+                <Input
+                  label="CHILD'S FULL NAME *"
+                  required
+                  value={formData.childName}
+                  onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                  helperText="As per official records."
+                  placeholder="e.g. Pooja Ramesh K."
+                />
+
+                <Input
+                  label="DATE OF BIRTH *"
+                  type="date"
+                  required
+                  value={formData.dob}
+                  onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                  helperText="Enter date as DD/MM/YY. Age is calculated automatically."
+                />
+
+                <div className="flex flex-col justify-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">
+                    AGE: COMPLETED YEARS
+                  </span>
+                  <div className="text-base font-bold text-slate-900">
+                    {ageResult.years} years {ageResult.months > 0 ? `(${ageResult.months} mos)` : ''}
+                  </div>
+                </div>
+
+                {/* GENDER */}
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">GENDER *</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
+                      <label
+                        key={g}
+                        className={`flex items-center space-x-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                          formData.gender === g
+                            ? 'bg-teal-50/70 border-teal-500 text-teal-900 font-bold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="gender"
+                          value={g}
+                          checked={formData.gender === g}
+                          onChange={() => setFormData({ ...formData, gender: g })}
+                          className="text-teal-600 focus:ring-teal-500"
+                        />
+                        <span className="text-xs">{g}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ORPHAN STATUS */}
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">ORPHAN STATUS *</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {[
+                      'Both parents alive',
+                      'Single orphan (one parent deceased)',
+                      'Double orphan (both parents deceased)',
+                    ].map((status) => (
+                      <label
+                        key={status}
+                        className={`flex items-center space-x-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                          formData.orphanStatus === status
+                            ? 'bg-teal-50/70 border-teal-500 text-teal-900 font-bold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="orphanStatus"
+                          value={status}
+                          checked={formData.orphanStatus === status}
+                          onChange={() => setFormData({ ...formData, orphanStatus: status as OrphanStatus })}
+                          className="text-teal-600 focus:ring-teal-500 shrink-0"
+                        />
+                        <span className="text-xs">{status}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 <Input
-                  label="Authorised Enumerator / Caseworker Name"
+                  label="CAREGIVER'S FULL NAME *"
                   required
-                  value={formData.interviewerName}
-                  onChange={(e) => setFormData({ ...formData, interviewerName: e.target.value })}
+                  value={formData.caregiverName}
+                  onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                  helperText="Name of the person caring for the child."
+                  placeholder="e.g. Ramesh K."
                 />
-              </section>
-            )}
 
-            {/* Desktop Action Bar Buttons (Inside form container on large screens) */}
-            <div className="hidden md:flex items-center justify-between pt-4 border-t border-slate-200">
-              {currentStep > 1 ? (
-                <Button type="button" variant="secondary" onClick={handlePrev}>
-                  Previous Step
-                </Button>
-              ) : (
-                <div />
-              )}
+                {/* CAREGIVER'S RELATIONSHIP TO CHILD */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">
+                    CAREGIVER&apos;S RELATIONSHIP TO CHILD *
+                  </label>
+                  <select
+                    className="w-full min-h-[48px] px-3.5 py-3 text-sm text-slate-900 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    value={formData.caregiverRelationship}
+                    onChange={(e) =>
+                      setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
+                    }
+                  >
+                    <option value="Mother">Mother</option>
+                    <option value="Father">Father</option>
+                    <option value="Grandparent">Grandparent</option>
+                    <option value="Legal Guardian">Legal Guardian</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
 
-              <Button
-                type="button"
-                variant={currentStep === 6 ? 'emerald' : 'primary'}
-                onClick={handleNext}
-                isLoading={isSubmitting}
-                className="min-w-[160px]"
-              >
-                {currentStep === 6 ? 'Queue Assessment for Sync' : 'Continue to Next Step'}
-              </Button>
-            </div>
-          </div>
+                <Input
+                  label="CONTACT NUMBER *"
+                  type="tel"
+                  required
+                  value={formData.contactNumber}
+                  onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  helperText="10-digit mobile number."
+                  placeholder="98XXXXXXXX"
+                />
 
-          {/* Right Sidebar on Desktop: Live Clinical & Progress Summary (4 cols) */}
-          <div className="hidden lg:block lg:col-span-4 space-y-4">
-            {/* Live Beneficiary Card */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-              <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500">Active Beneficiary</span>
-              <h3 className="text-base font-bold text-ink-900 mt-1">
-                {formData.childName || 'Unregistered Intake'}
-              </h3>
-              <p className="font-mono text-xs font-bold text-brand mt-0.5">
-                {formData.artNumber || 'ART ID: PENDING'}
-              </p>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="text-slate-500">Local Draft:</span>
-                <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-                  Autosaved (IndexedDB)
-                </span>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">STATE / UNION TERRITORY *</label>
+                  <select
+                    className="w-full min-h-[48px] px-3.5 py-3 text-sm text-slate-900 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    value={formData.state}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                  >
+                    {INDIAN_STATES_AND_UTS.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">DISTRICT *</label>
+                  <select
+                    className="w-full min-h-[48px] px-3.5 py-3 text-sm text-slate-900 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    value={formData.district}
+                    onChange={(e) => {
+                      const newDist = e.target.value;
+                      setFormData((prev) => ({
+                        ...prev,
+                        district: newDist,
+                        artNumber: generateAssessmentId('MH', newDist),
+                      }));
+                    }}
+                  >
+                    <option value="Pune">Pune District</option>
+                    <option value="Mumbai Suburban">Mumbai Suburban</option>
+                    <option value="Thane">Thane District</option>
+                    <option value="Solapur">Solapur District</option>
+                    <option value="Nashik">Nashik District</option>
+                    <option value="Nagpur">Nagpur District</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <Input
+                    label="FULL ADDRESS *"
+                    required
+                    value={formData.fullAddress}
+                    onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                    helperText="House no., street, village/ward."
+                    placeholder="e.g. Flat 12, Shiv Smruti, Market Yard, Pune"
+                  />
+                </div>
               </div>
-            </div>
+            </section>
+          )}
 
-            {/* Real-time Malnutrition Calculator Summary */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-              <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500">Clinical Growth Indices</span>
-              <div className="mt-3 space-y-2.5 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-600">Calculated Age:</span>
-                  <span className="font-bold text-ink-900">{ageResult.years} yrs, {ageResult.months} mos</span>
+          {/* STEP 2: Consent & Caregiver Signature */}
+          {currentStep === 2 && (
+            <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-6">
+              <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-100">
+                <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
+                  <ShieldCheck className="h-5 w-5" />
                 </div>
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-600">BMI:</span>
-                  <span className="font-bold text-ink-900">{nutritionResult.bmi} kg/m²</span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">Consent</h2>
+                  <p className="text-xs text-slate-500">
+                    Informed caregiver consent and biometric signature authorization.
+                  </p>
                 </div>
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-600">Z-Score:</span>
-                  <span className="font-bold text-ink-900">{nutritionResult.bmiZScore} SD</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-600">Nutrition Status:</span>
-                  <span
-                    className={`font-bold ${
-                      nutritionResult.nutritionStatus.includes('SAM')
-                        ? 'text-alert-rose'
-                        : nutritionResult.nutritionStatus.includes('MAM')
-                        ? 'text-alert-amber'
-                        : 'text-alliance-emerald'
+              </div>
+
+              {/* Consent Statement Card */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs leading-relaxed text-slate-700 space-y-2">
+                <p className="font-bold text-slate-900">
+                  Consent Statement (Version v1.0-2026):
+                </p>
+                <p>
+                  I voluntarily confirm that I am the designated caregiver for{' '}
+                  <strong>{formData.childName || 'the child'}</strong> and consent to participation in the India
+                  HIV/AIDS Alliance Paediatric Care and Nutritional Support Programme. I agree to anthropometric
+                  measurements, clinical triage, and educational grant evaluation.
+                </p>
+              </div>
+
+              {/* DO YOU AGREE TO PARTICIPATE? */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-900 block">
+                  DO YOU AGREE TO PARTICIPATE? *
+                </label>
+                <p className="text-[11px] text-slate-500">You must say Yes to continue.</p>
+
+                <div className="grid grid-cols-2 gap-3 max-w-sm">
+                  <label
+                    className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      formData.agreeToParticipate
+                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
-                    {nutritionResult.nutritionStatus}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-600">Recommended Grant:</span>
-                  <span className="font-bold text-brand">₹{grantResult.recommendedGrantAmount}</span>
+                    <input
+                      type="radio"
+                      name="agreeToParticipate"
+                      checked={formData.agreeToParticipate === true}
+                      onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
+                      className="text-teal-600 focus:ring-teal-500"
+                    />
+                    <span className="text-xs">Yes</span>
+                  </label>
+
+                  <label
+                    className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      formData.agreeToParticipate === false
+                        ? 'bg-rose-50 border-rose-400 text-rose-900 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="agreeToParticipate"
+                      checked={formData.agreeToParticipate === false}
+                      onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="text-xs">No</span>
+                  </label>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Mobile Sticky Bottom Action Bar (< 768px) */}
-      <div className="md:hidden">
-        <BottomActionBar
-          onNext={handleNext}
-          onPrev={currentStep > 1 ? handlePrev : undefined}
-          isFinalStep={currentStep === 6}
-          isSubmitting={isSubmitting}
-        />
+              {/* Consent NOT Given Warning Banner */}
+              {!formData.agreeToParticipate && (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-start space-x-3 text-xs">
+                  <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold">⚠ CONSENT NOT GIVEN — THIS FORM CANNOT BE SUBMITTED.</h4>
+                    <p className="mt-0.5 text-rose-700">
+                      Caregiver authorization is mandatory under programme safeguarding guidelines. No nutritional or
+                      educational evaluation data can be captured without consent.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Caregiver Signature Pad (Shown only when consent = Yes) */}
+              {formData.agreeToParticipate && (
+                <div className="pt-2">
+                  <CaregiverSignaturePad
+                    submissionUuid={clientUuid}
+                    caregiverName={formData.caregiverName}
+                    caregiverRelationship={formData.caregiverRelationship}
+                    onSignatureSaved={() => setHasSavedSignature(true)}
+                    onSignatureCleared={() => setHasSavedSignature(false)}
+                    isSaved={hasSavedSignature}
+                  />
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* STEP 3: Health & Household */}
+          {currentStep === 3 && (
+            <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-6">
+              <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-100">
+                <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
+                  <HeartPulse className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Section 3 — Health Information
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    RECORD THE CHILD&apos;S CURRENT HEALTH AND CLINICAL DETAILS.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Input
+                  label="CURRENT WEIGHT (KG) *"
+                  type="number"
+                  step="0.1"
+                  required
+                  value={formData.weightKg}
+                  onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
+                  helperText="Measured in kilograms."
+                  unit="kg"
+                />
+
+                <Input
+                  label="CURRENT HEIGHT (CM) *"
+                  type="number"
+                  step="0.1"
+                  required
+                  value={formData.heightCm}
+                  onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
+                  helperText="Measured in centimetres."
+                  unit="cm"
+                />
+
+                <div className="flex flex-col justify-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">
+                    BMI: KG/M² |
+                  </span>
+                  <div className="text-base font-bold text-teal-900">{bmiValue} kg/m²</div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <Input
+                    label="HAEMOGLOBIN (G/DL)"
+                    type="number"
+                    step="0.1"
+                    value={formData.haemoglobinGdl}
+                    onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
+                    helperText="Latest result. Normal: 11–16 g/dL."
+                    placeholder="e.g. 11.5"
+                    unit="g/dL"
+                  />
+                </div>
+              </div>
+
+              {/* OTHER HEALTH CONDITIONS */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="text-xs font-bold text-slate-800 block">
+                  OTHER HEALTH CONDITIONS (Select all that apply.)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {[
+                    'TB (Tuberculosis)',
+                    'Hepatitis B',
+                    'Hepatitis C',
+                    'Any Other Health Condition (specify)',
+                  ].map((cond) => {
+                    const checked = formData.otherHealthConditions.includes(cond);
+                    return (
+                      <label
+                        key={cond}
+                        className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                          checked
+                            ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleHealthCondition(cond)}
+                          className="h-4 w-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500"
+                        />
+                        <span className="text-xs">{cond}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {formData.otherHealthConditions.includes('Any Other Health Condition (specify)') && (
+                  <div className="mt-3">
+                    <Input
+                      label="OTHER HEALTH CONDITION (PLEASE SPECIFY)"
+                      value={formData.otherHealthConditionSpecify}
+                      onChange={(e) =>
+                        setFormData({ ...formData, otherHealthConditionSpecify: e.target.value })
+                      }
+                      helperText="Specify the other health condition."
+                      placeholder="e.g. Chronic Asthma"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2 — Household & Financial Details */}
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Section 2 — Household & Financial Details
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    TELL US ABOUT THE FAMILY&apos;S SIZE AND FINANCIAL SITUATION.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="TOTAL FAMILY MEMBERS *"
+                    type="number"
+                    required
+                    value={formData.totalFamilyMembers}
+                    onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
+                    helperText="Number of people in the household."
+                  />
+
+                  <Input
+                    label="NUMBER OF CHILDREN (≤18 YRS) *"
+                    type="number"
+                    required
+                    value={formData.numberOfChildrenUnder18}
+                    onChange={(e) =>
+                      setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })
+                    }
+                  />
+
+                  <Input
+                    label="MONTHLY INCOME (RS.) *"
+                    type="number"
+                    required
+                    value={formData.monthlyIncomeRs}
+                    onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
+                    unit="₹"
+                  />
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-800 block">
+                      MAIN SOURCE OF INCOME *
+                    </label>
+                    <select
+                      className="w-full min-h-[48px] px-3.5 py-3 text-sm text-slate-900 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      value={formData.mainSourceOfIncome}
+                      onChange={(e) =>
+                        setFormData({ ...formData, mainSourceOfIncome: e.target.value as MainSourceOfIncome })
+                      }
+                    >
+                      <option value="Daily wage labour">Daily wage labour</option>
+                      <option value="Salaried employment">Salaried employment</option>
+                      <option value="Self-employed">Self-employed</option>
+                      <option value="Pension / Government support">Pension / Government support</option>
+                      <option value="No regular income">No regular income</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* STEP 4: Nutrition Habits */}
+          {currentStep === 4 && (
+            <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-6">
+              <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-100">
+                <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
+                  <Utensils className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Section 4 — Nutrition
+                  </h2>
+                  <p className="text-xs text-slate-500">RECORD THE CHILD&apos;S DAILY EATING HABITS.</p>
+                </div>
+              </div>
+
+              {/* CHILD'S APPETITE */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-900 block">CHILD&apos;S APPETITE *</label>
+                <p className="text-[11px] text-slate-500">How is the child&apos;s usual appetite?</p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {(['Good', 'Reduced', 'Poor / Very low'] as AppetiteLevel[]).map((app) => (
+                    <label
+                      key={app}
+                      className={`flex items-center space-x-3 p-3.5 rounded-xl border cursor-pointer transition-colors ${
+                        formData.appetite === app
+                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="appetite"
+                        value={app}
+                        checked={formData.appetite === app}
+                        onChange={() => setFormData({ ...formData, appetite: app })}
+                        className="text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="text-xs">{app}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="max-w-xs">
+                <Input
+                  label="MEALS PER DAY *"
+                  type="number"
+                  required
+                  value={formData.mealsPerDay}
+                  onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
+                  helperText="Full meals eaten daily."
+                />
+              </div>
+
+              {/* Anthropometric Triage Summary */}
+              <div
+                className={`p-4 rounded-xl border ${
+                  nutritionResult.nutritionStatus.includes('SAM')
+                    ? 'bg-rose-50 border-rose-300 text-rose-900'
+                    : nutritionResult.nutritionStatus.includes('MAM')
+                    ? 'bg-amber-50 border-amber-300 text-amber-900'
+                    : 'bg-teal-50 border-teal-300 text-teal-900'
+                }`}
+              >
+                <div className="text-xs font-bold uppercase tracking-wider">WHO Anthropometric Triage</div>
+                <div className="text-base font-bold mt-0.5">{nutritionResult.nutritionStatus}</div>
+                <div className="text-xs mt-1 opacity-85">
+                  BMI: {bmiValue} kg/m² | Classification notes: {nutritionResult.triageNotes}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* STEP 5: Education Profile & Support */}
+          {currentStep === 5 && (
+            <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-6">
+              <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-100">
+                <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
+                  <GraduationCap className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Section 5 — Education
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    RECORD THE CHILD&apos;S CURRENT EDUCATION STATUS.
+                  </p>
+                </div>
+              </div>
+
+              {/* EDUCATION STATUS */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-900 block">EDUCATION STATUS *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {[
+                    'Currently going to school',
+                    'Dropped out of school',
+                    'Never enrolled in school',
+                    'Completed schooling',
+                    'Other',
+                  ].map((st) => (
+                    <label
+                      key={st}
+                      className={`flex items-center space-x-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        formData.educationStatus === st
+                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="educationStatus"
+                        value={st}
+                        checked={formData.educationStatus === st}
+                        onChange={() => setFormData({ ...formData, educationStatus: st as EducationStatus })}
+                        className="text-teal-600 focus:ring-teal-500 shrink-0"
+                      />
+                      <span className="text-xs">{st}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {formData.educationStatus === 'Other' && (
+                <Input
+                  label="OTHER EDUCATION STATUS (PLEASE SPECIFY)"
+                  value={formData.educationStatusSpecify}
+                  onChange={(e) => setFormData({ ...formData, educationStatusSpecify: e.target.value })}
+                  helperText="Describe the child's education situation."
+                />
+              )}
+
+              {formData.educationStatus === 'Currently going to school' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  <Input
+                    label="SCHOOL NAME"
+                    value={formData.schoolName}
+                    onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
+                    helperText="Full name of the school."
+                    placeholder="e.g. Pune Zilla Parishad Primary School"
+                  />
+
+                  <Input
+                    label="SCHOOL SESSION START DATE"
+                    type="date"
+                    value={formData.schoolSessionStartDate}
+                    onChange={(e) => setFormData({ ...formData, schoolSessionStartDate: e.target.value })}
+                    helperText="Enter the date when the school is going to start"
+                  />
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-800 block">SCHOOL TYPE</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['Government school', 'Private school', 'Aided school'] as SchoolType[]).map((st) => (
+                        <label
+                          key={st}
+                          className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer ${
+                            formData.schoolType === st
+                              ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="schoolType"
+                            value={st}
+                            checked={formData.schoolType === st}
+                            onChange={() => setFormData({ ...formData, schoolType: st })}
+                            className="text-teal-600"
+                          />
+                          <span className="truncate">{st.replace(' school', '')}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Input
+                    label="CURRENT CLASS"
+                    value={formData.currentClass}
+                    onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
+                    helperText="e.g. Class 5"
+                  />
+
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <label className="text-xs font-bold text-slate-800 block">ATTENDANCE</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(['Regular', 'Irregular', 'Dropped out'] as AttendanceType[]).map((att) => (
+                        <label
+                          key={att}
+                          className={`flex items-center space-x-2 p-3 rounded-xl border text-xs cursor-pointer ${
+                            formData.attendance === att
+                              ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="attendance"
+                            value={att}
+                            checked={formData.attendance === att}
+                            onChange={() => setFormData({ ...formData, attendance: att })}
+                            className="text-teal-600"
+                          />
+                          <span>{att}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Education Expenses & Programme Approval Grid */}
+              <div className="pt-4 border-t border-slate-100">
+                <ExpensesAndApprovalGrid
+                  currentExpenses={{
+                    schoolFees: formData.schoolFees,
+                    tuitionFees: formData.tuitionFees,
+                    books: formData.books,
+                    stationery: formData.stationery,
+                    uniform: formData.uniform,
+                    transport: formData.transport,
+                    otherExpenses: formData.otherExpenses,
+                    feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
+                    marksheetPhotoUrl: formData.marksheetPhotoUrl,
+                    remarks: formData.remarks,
+                  }}
+                  requiredSupport={{
+                    requiredSchoolFees: formData.requiredSchoolFees,
+                    requiredBooks: formData.requiredBooks,
+                    requiredStationery: formData.requiredStationery,
+                    requiredUniform: formData.requiredUniform,
+                    requiredTransport: formData.requiredTransport,
+                    requiredOtherSupport: formData.requiredOtherSupport,
+                  }}
+                  onCurrentExpenseChange={(field, val) =>
+                    setFormData((prev) => ({ ...prev, [field]: val }))
+                  }
+                  onRequiredSupportChange={(field, val) =>
+                    setFormData((prev) => ({ ...prev, [field]: val }))
+                  }
+                  onReceiptPhotoChange={(url) =>
+                    setFormData((prev) => ({ ...prev, feeReceiptPhotoUrl: url || '' }))
+                  }
+                  onMarksheetPhotoChange={(url) =>
+                    setFormData((prev) => ({ ...prev, marksheetPhotoUrl: url || '' }))
+                  }
+                  onRemarksChange={(rem) =>
+                    setFormData((prev) => ({ ...prev, remarks: rem }))
+                  }
+                />
+              </div>
+            </section>
+          )}
+
+          {/* STEP 6: Review & Submit */}
+          {currentStep === 6 && (
+            <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-7 shadow-xs space-y-6">
+              <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-100">
+                <div className="bg-teal-50 text-teal-700 p-2 rounded-xl border border-teal-200">
+                  <FileCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Section 7 — Final Review
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    REVIEW ALL INFORMATION CAREFULLY BEFORE SUBMITTING.
+                  </p>
+                </div>
+              </div>
+
+              {/* Field Summary Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pb-3 border-b border-slate-200">
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">CHILD</span>
+                    <span className="font-bold text-slate-900 text-sm">{formData.childName}</span>
+                    <span className="font-mono text-teal-900 text-xs block">Ref: {formData.artNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">
+                      AGE / DOB
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {ageResult.years} YEARS | DOB: {formData.dob}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pb-3 border-b border-slate-200">
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">
+                      CAREGIVER
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {formData.caregiverName} ({formData.caregiverRelationship})
+                    </span>
+                    <span className="text-slate-500 block">Phone: {formData.contactNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">
+                      DISTRICT / STATE
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {formData.district} / {formData.state}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pb-3 border-b border-slate-200">
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">
+                      WEIGHT / HEIGHT / BMI
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {formData.weightKg} KG / {formData.heightCm} CM | BMI: ({bmiValue})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">
+                      HAEMOGLOBIN
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {formData.haemoglobinGdl ? `${formData.haemoglobinGdl} G/DL` : 'Not recorded'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <div>
+                    <span className="text-slate-400 font-bold uppercase text-[10px] block">
+                      TOTAL REQUIRED SUPPORT
+                    </span>
+                    <span className="text-base font-bold text-teal-900">₹{totalRequiredSupport}</span>
+                  </div>
+                  <div className="flex items-center text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl font-semibold">
+                    <CheckCircle2 className="h-4 w-4 mr-1.5 text-emerald-600" />
+                    <span>Caregiver signature captured</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* IS ALL INFORMATION CORRECT AND COMPLETE? */}
+              <div className="space-y-2 pt-2">
+                <label className="text-xs font-bold text-slate-900 block">
+                  IS ALL INFORMATION CORRECT AND COMPLETE? *
+                </label>
+
+                <div className="space-y-2">
+                  <label
+                    className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer ${
+                      formData.allInfoCorrect
+                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="allInfoCorrect"
+                      checked={formData.allInfoCorrect === true}
+                      onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
+                      className="text-teal-600 focus:ring-teal-500"
+                    />
+                    <span className="text-xs">Yes — all information is correct</span>
+                  </label>
+
+                  <label
+                    className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer ${
+                      formData.allInfoCorrect === false
+                        ? 'bg-rose-50 border-rose-400 text-rose-900 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="allInfoCorrect"
+                      checked={formData.allInfoCorrect === false}
+                      onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="text-xs">No — I need to make corrections</span>
+                  </label>
+                </div>
+
+                {!formData.allInfoCorrect && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs">
+                    ⚠ PLEASE GO BACK AND CORRECT ANY ERRORS BEFORE SUBMITTING.
+                  </div>
+                )}
+              </div>
+
+              {/* Submitter Metadata */}
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <h3 className="text-sm font-bold text-slate-900">Final Review Sign-off</h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <Input
+                    label="ORGANIZATION NAME"
+                    value={formData.organizationName}
+                    onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
+                  />
+
+                  <Input
+                    label="FORM SUBMITTED BY *"
+                    required
+                    value={formData.formSubmittedBy}
+                    onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                    helperText="Enter your name"
+                  />
+
+                  <Input
+                    label="ORGANIZATION EMAIL ID"
+                    type="email"
+                    value={formData.organizationEmail}
+                    onChange={(e) => setFormData({ ...formData, organizationEmail: e.target.value })}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
+          <BottomActionBar
+            onNext={handleNext}
+            onPrev={currentStep > 1 ? handlePrev : undefined}
+            nextLabel={currentStep === 6 ? 'Queue for Sync' : 'Continue'}
+            isFinalStep={currentStep === 6}
+            isSubmitting={isSubmitting}
+            disableNext={!canProceed}
+          />
+        </div>
       </div>
     </AppShell>
   );

@@ -1,13 +1,18 @@
 /**
  * Zod Runtime Validation Schemas for Childcare Support — Phase 3
- * Enforces strict data integrity across all 6 wizard steps and backend API ingestion.
+ * Exactly aligned with official KoboToolbox CHILD_HIV_SUPPORT_FORM
+ * and CARETAKER SIGNATURE POLICY OVERRIDE.
  */
 
 import { z } from 'zod';
 
-export const genderEnum = z.enum(['Male', 'Female', 'Transgender', 'Other']);
+export const genderEnum = z.enum(['Male', 'Female', 'Other']);
 
 export const orphanStatusEnum = z.enum([
+  'Both parents alive',
+  'Single orphan (one parent deceased)',
+  'Double orphan (both parents deceased)',
+  // Legacy aliases
   'None',
   'Maternal Orphan',
   'Paternal Orphan',
@@ -15,133 +20,258 @@ export const orphanStatusEnum = z.enum([
   'Single Parent with Vulnerability',
 ]);
 
-export const rationCardEnum = z.enum(['BPL', 'AAY (Antyodaya)', 'APL', 'None']);
-
-export const nutritionStatusEnum = z.enum([
-  'Normal',
-  'MAM (Moderate Acute Malnutrition)',
-  'SAM (Severe Acute Malnutrition)',
-  'Overweight / Obese',
+export const caregiverRelationshipEnum = z.enum([
+  'Mother',
+  'Father',
+  'Grandparent',
+  'Legal Guardian',
+  'Other',
 ]);
 
-// Step 1: Child Demographics Schema
+export const mainSourceOfIncomeEnum = z.enum([
+  'Daily wage labour',
+  'Salaried employment',
+  'Self-employed',
+  'Pension / Government support',
+  'No regular income',
+]);
+
+export const appetiteEnum = z.enum(['Good', 'Reduced', 'Poor / Very low']);
+
+export const educationStatusEnum = z.enum([
+  'Currently going to school',
+  'Dropped out of school',
+  'Never enrolled in school',
+  'Completed schooling',
+  'Other',
+]);
+
+export const schoolTypeEnum = z.enum([
+  'Government school',
+  'Private school',
+  'Aided school',
+]);
+
+export const attendanceEnum = z.enum(['Regular', 'Irregular', 'Dropped out']);
+
+export const signatureStatusEnum = z.enum([
+  'NOT_REQUIRED',
+  'PENDING',
+  'CAPTURED_LOCAL',
+  'QUEUED_FOR_UPLOAD',
+  'UPLOADED',
+  'FAILED',
+  'NEEDS_REVIEW',
+]);
+
+// Step 1: Demographics Schema
 export const demographicsSchema = z.object({
   artNumber: z
     .string()
-    .min(3, 'ART Number must be at least 3 characters')
-    .max(30, 'ART Number cannot exceed 30 characters')
-    .regex(/^[A-Z0-9\-_/]+$/i, 'ART Number contains invalid characters'),
-  childName: z
-    .string()
-    .min(2, 'Child name must be at least 2 characters')
-    .max(100, 'Child name cannot exceed 100 characters'),
+    .min(3, 'Reference ID must be at least 3 characters')
+    .max(50, 'Reference ID cannot exceed 50 characters'),
+  dateOfFilling: z.string().optional(),
+  childName: z.string().min(2, 'Child full name is required'),
   dob: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of Birth must be in YYYY-MM-DD format')
     .refine((val) => {
       const d = new Date(val);
       return !isNaN(d.getTime()) && d <= new Date();
     }, 'Date of Birth cannot be in the future'),
-  gender: genderEnum,
-  caregiverName: z.string().min(2, 'Caregiver name must be at least 2 characters'),
-  caregiverRelationship: z.string().min(2, 'Relationship to child is required'),
-  caregiverPhone: z
+  gender: z.enum(['Male', 'Female', 'Other', 'Transgender']).default('Male'),
+  orphanStatus: orphanStatusEnum.default('Both parents alive'),
+  caregiverName: z.string().min(2, 'Caregiver name is required'),
+  caregiverRelationship: z.string().min(2, 'Caregiver relationship is required'),
+  contactNumber: z
     .string()
-    .regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number'),
-  maskedAadhaar: z
-    .string()
+    .regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number')
     .optional()
-    .refine(
-      (val) => !val || /^XXXX-XXXX-\d{4}$/.test(val) || /^\d{12}$/.test(val),
-      'Aadhaar must be formatted as XXXX-XXXX-1234 or 12 digits'
-    ),
+    .or(z.literal('')),
+  caregiverPhone: z.string().optional(),
+  fullAddress: z.string().min(2, 'Full address is required').optional().or(z.literal('')),
+  state: z.string().min(2, 'State / Union Territory is required').default('Maharashtra'),
   district: z.string().min(2, 'District is required'),
-  artCenter: z.string().min(2, 'ART Centre name is required'),
+  calculatedAgeYears: z.number().min(0).optional(),
+  calculatedAgeMonths: z.number().min(0).optional(),
+  maskedAadhaar: z.string().optional(),
 });
 
-// Step 2: Household & Family Schema
-export const householdSchema = z.object({
-  orphanStatus: orphanStatusEnum,
-  primaryCaregiverOccupation: z.string().min(2, 'Caregiver occupation is required'),
-  monthlyHouseholdIncome: z
-    .number({ invalid_type_error: 'Please enter a valid income' })
-    .min(0, 'Income cannot be negative'),
-  rationCardType: rationCardEnum,
-  numberOfSiblings: z
-    .number({ invalid_type_error: 'Please enter number of siblings' })
-    .int()
-    .min(0, 'Cannot be negative'),
-});
-
-// Step 3: Clinical Nutrition Anthropometry Schema
-export const nutritionSchema = z.object({
-  heightCm: z
-    .number({ invalid_type_error: 'Height in cm is required' })
-    .min(40, 'Height must be at least 40 cm')
-    .max(220, 'Height cannot exceed 220 cm'),
-  weightKg: z
-    .number({ invalid_type_error: 'Weight in kg is required' })
-    .min(2, 'Weight must be at least 2 kg')
-    .max(150, 'Weight cannot exceed 150 kg'),
-  muacMm: z
-    .number()
-    .min(50, 'MUAC must be at least 50 mm')
-    .max(300, 'MUAC cannot exceed 300 mm')
-    .optional(),
-  bilateralPittingOedema: z.boolean().default(false),
-  clinicalNotes: z.string().max(500).optional(),
-});
-
-// Step 4: Education & Support Schema
-export const educationSchema = z.object({
-  schoolEnrolled: z.boolean(),
-  schoolType: z
-    .enum(['Government', 'Government-Aided', 'Private', 'Non-Formal'])
-    .optional(),
-  schoolGrade: z.string().max(30).optional(),
-  attendancePercentage: z.number().min(0).max(100).optional(),
-  supportMaterialsNeeded: z.array(z.string()).default([]),
-});
-
-// Step 5: Direct Benefit Transfer (DBT) Bank Details Schema
-export const bankDetailsSchema = z.object({
-  accountHolderName: z.string().min(2, 'Account holder name is required'),
-  accountNumber: z
-    .string()
-    .regex(/^\d{9,18}$/, 'Bank account number must be 9 to 18 digits'),
-  ifscCode: z
-    .string()
-    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'Invalid IFSC code (e.g. SBIN0001234)'),
-  bankName: z.string().min(2, 'Bank name is required'),
-  branchName: z.string().min(2, 'Branch name is required'),
-  passbookPhotoCaptured: z.boolean().default(false),
-});
-
-// Step 6: Caseworker Declaration Schema
-export const declarationSchema = z.object({
-  consentAcknowledged: z.literal(true, {
-    errorMap: () => ({ message: 'Informed consent must be confirmed before submission' }),
+// Step 2: Caregiver Consent & Signature Schema
+export const caregiverConsentSchema = z.object({
+  consentProvided: z.literal(true, {
+    errorMap: () => ({ message: 'Caregiver consent must be provided to continue and submit' }),
   }),
-  caseworkerName: z.string().min(2, 'Caseworker name is required'),
-  declarationDate: z.string().min(8, 'Declaration date is required'),
+  consentVersion: z.string().default('v1.0-2026'),
+  caregiverName: z.string().min(2, 'Caregiver name is required for signature'),
+  caregiverRelationship: z.string().min(2, 'Caregiver relationship is required'),
+  consentCapturedAt: z.string().min(8, 'Consent timestamp is required'),
+  signatureRequired: z.boolean().default(true),
+  signatureStatus: signatureStatusEnum.default('CAPTURED_LOCAL'),
+  signatureAssetId: z.string().optional(),
+});
+
+// Step 3: Household & Financial Schema
+export const householdFinancialSchema = z.object({
+  totalFamilyMembers: z.number().min(1).default(3),
+  numberOfChildrenUnder18: z.number().min(0).default(1),
+  monthlyIncomeRs: z.number().min(0).default(0),
+  mainSourceOfIncome: mainSourceOfIncomeEnum.default('Daily wage labour'),
+  // Legacy aliases
+  orphanStatus: orphanStatusEnum.optional(),
+  primaryCaregiverOccupation: z.string().optional(),
+  monthlyHouseholdIncome: z.number().optional(),
+  rationCardType: z.string().optional(),
+  numberOfSiblings: z.number().optional(),
+});
+
+// Step 4: Health & Clinical Information
+export const healthSchema = z.object({
+  weightKg: z.number().min(2, 'Weight must be at least 2 kg').max(150),
+  heightCm: z.number().min(40, 'Height must be at least 40 cm').max(220),
+  bmi: z.number().min(5).max(60),
+  haemoglobinGdl: z.number().min(2).max(25).optional(),
+  otherHealthConditions: z.array(z.string()).default([]),
+  otherHealthConditionSpecify: z.string().optional(),
+  // Clinical
+  muacMm: z.number().optional(),
+  bilateralPittingOedema: z.boolean().default(false),
+  clinicalNotes: z.string().optional(),
+});
+
+// Step 5: Nutrition & Eating Habits
+export const nutritionHabitsSchema = z.object({
+  appetite: appetiteEnum.default('Good'),
+  mealsPerDay: z.number().min(1).max(10).default(3),
+});
+
+// Step 6: Education Status
+export const educationStatusSchema = z.object({
+  educationStatus: educationStatusEnum.default('Currently going to school'),
+  educationStatusSpecify: z.string().optional(),
+  schoolName: z.string().optional(),
+  schoolSessionStartDate: z.string().optional(),
+  schoolType: schoolTypeEnum.optional(),
+  currentClass: z.string().optional(),
+  attendance: attendanceEnum.optional(),
+  // Legacy
+  schoolEnrolled: z.boolean().optional(),
+  schoolGrade: z.string().optional(),
+  attendancePercentage: z.number().optional(),
+  supportMaterialsNeeded: z.array(z.string()).optional(),
+});
+
+// Step 7: Education Current Expenses
+export const educationExpensesSchema = z.object({
+  schoolFees: z.number().min(0).default(0),
+  tuitionFees: z.number().min(0).default(0),
+  books: z.number().min(0).default(0),
+  stationery: z.number().min(0).default(0),
+  uniform: z.number().min(0).default(0),
+  transport: z.number().min(0).default(0),
+  otherExpenses: z.number().min(0).default(0),
+  totalAnnualCost: z.number().min(0).default(0),
+  feeReceiptPhotoUrl: z.string().optional(),
+  marksheetPhotoUrl: z.string().optional(),
+  remarks: z.string().optional(),
+});
+
+// Step 8: Education Support Required
+export const educationSupportRequiredSchema = z.object({
+  requiredSchoolFees: z.number().min(0).default(0),
+  requiredBooks: z.number().min(0).default(0),
+  requiredStationery: z.number().min(0).default(0),
+  requiredUniform: z.number().min(0).default(0),
+  requiredTransport: z.number().min(0).default(0),
+  requiredOtherSupport: z.number().min(0).default(0),
+  totalRequiredSupport: z.number().min(0).default(0),
+});
+
+// Step 9: Final Review & Attestation
+export const finalReviewSchema = z.object({
+  allInfoCorrect: z.literal(true, {
+    errorMap: () => ({ message: 'All information must be confirmed correct before submission' }),
+  }),
+  organizationName: z.string().default('India HIV/AIDS Alliance'),
+  formSubmittedBy: z.string().min(2, 'Submitter name is required'),
+  organizationEmail: z.string().email().optional().or(z.literal('')),
+  submissionDate: z.string().optional(),
+});
+
+// Allowlisted Schema for PATCH Mutations with Optimistic Concurrency Control
+export const patchSubmissionSchema = z.object({
+  expectedVersion: z.number().int().positive('expectedVersion must be a positive integer'),
+  caregiverName: z.string().min(2).optional(),
+  caregiverRelationship: z.string().min(2).optional(),
+  contactNumber: z.string().optional(),
+  caregiverPhone: z.string().optional(),
+  fullAddress: z.string().optional(),
+  weightKg: z.number().min(2).max(150).optional(),
+  heightCm: z.number().min(40).max(220).optional(),
+  haemoglobinGdl: z.number().optional(),
+  appetite: appetiteEnum.optional(),
+  mealsPerDay: z.number().optional(),
+  educationStatus: educationStatusEnum.optional(),
+  schoolName: z.string().optional(),
+  currentClass: z.string().optional(),
+  attendance: attendanceEnum.optional(),
+  totalAnnualCost: z.number().optional(),
+  totalRequiredSupport: z.number().optional(),
+  remarks: z.string().optional(),
+  // Legacy aliases
+  primaryCaregiverOccupation: z.string().optional(),
+  monthlyHouseholdIncome: z.number().optional(),
+  rationCardType: z.string().optional(),
+  numberOfSiblings: z.number().optional(),
+  muacMm: z.number().optional(),
+  bilateralPittingOedema: z.boolean().optional(),
+  clinicalNotes: z.string().optional(),
+  schoolEnrolled: z.boolean().optional(),
+  schoolType: z.string().optional(),
+  schoolGrade: z.string().optional(),
+  attendancePercentage: z.number().optional(),
+  supportMaterialsNeeded: z.array(z.string()).optional(),
+  accountHolderName: z.string().optional(),
+  accountNumber: z.string().optional(),
+  ifscCode: z.string().optional(),
+  bankName: z.string().optional(),
+  branchName: z.string().optional(),
+  passbookPhotoCaptured: z.boolean().optional(),
 });
 
 // Complete Submission Schema for API Ingestion
 export const completeSubmissionSchema = z.object({
   uuid: z.string().uuid('Invalid client UUIDv4'),
-  interviewerName: z.string().min(2),
+  clientSubmissionId: z.string().uuid().optional(),
+  interviewerName: z.string().min(2).default('Caseworker'),
   demographics: demographicsSchema,
-  household: householdSchema,
-  nutrition: nutritionSchema,
-  education: educationSchema,
-  bankDetails: bankDetailsSchema,
-  declaration: declarationSchema,
+  caregiverConsent: caregiverConsentSchema.optional(),
+  consent: z.object({
+    agreeToParticipate: z.boolean().default(true),
+    signatureDataUrl: z.string().optional(),
+    signatureTimestamp: z.string().optional(),
+  }).optional(),
+  householdFinancial: householdFinancialSchema.optional(),
+  health: healthSchema.optional(),
+  nutrition: z.union([nutritionHabitsSchema, z.any()]).optional(),
+  educationStatus: educationStatusSchema.optional(),
+  educationExpenses: educationExpensesSchema.optional(),
+  educationSupportRequired: educationSupportRequiredSchema.optional(),
+  finalReview: finalReviewSchema.optional(),
+  // Legacy blocks
+  household: z.any().optional(),
+  education: z.any().optional(),
+  bankDetails: z.any().optional(),
+  declaration: z.any().optional(),
 });
 
 export type DemographicsFormValues = z.infer<typeof demographicsSchema>;
-export type HouseholdFormValues = z.infer<typeof householdSchema>;
-export type NutritionFormValues = z.infer<typeof nutritionSchema>;
-export type EducationFormValues = z.infer<typeof educationSchema>;
-export type BankDetailsFormValues = z.infer<typeof bankDetailsSchema>;
-export type DeclarationFormValues = z.infer<typeof declarationSchema>;
+export type CaregiverConsentValues = z.infer<typeof caregiverConsentSchema>;
+export type HouseholdFinancialValues = z.infer<typeof householdFinancialSchema>;
+export type HealthValues = z.infer<typeof healthSchema>;
+export type NutritionHabitsValues = z.infer<typeof nutritionHabitsSchema>;
+export type EducationStatusValues = z.infer<typeof educationStatusSchema>;
+export type EducationExpensesValues = z.infer<typeof educationExpensesSchema>;
+export type EducationSupportRequiredValues = z.infer<typeof educationSupportRequiredSchema>;
+export type FinalReviewValues = z.infer<typeof finalReviewSchema>;
 export type CompleteSubmissionPayload = z.infer<typeof completeSubmissionSchema>;
+export type PatchSubmissionPayload = z.infer<typeof patchSubmissionSchema>;
