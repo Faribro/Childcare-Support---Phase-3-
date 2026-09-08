@@ -215,20 +215,33 @@ export default function SupervisorDashboardPage() {
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8">
-        {/* Supervisor Masthead Header - NO NEW INTAKE BUTTON */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-6 mb-6 border-b border-slate-200 gap-4">
-          <div>
-            <div className="flex items-center space-x-2 text-teal-700 text-xs font-bold uppercase tracking-wider mb-1">
-              <ShieldCheck className="h-4 w-4" />
-              <span>Supervisor Clinical & Quality Assurance Portal</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Programme Clinical Surveillance</h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Authoritative linelist surveillance, viral load monitoring, and pediatric nutrition triage.
-            </p>
+        {/* Exclusive Supervisor Tab Navigation & Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-6 gap-3">
+          <div className="flex items-center space-x-1 overflow-x-auto">
+            <Link
+              href="/supervisor"
+              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
+            >
+              <Activity className="h-4 w-4 text-teal-600" />
+              <span>Overview &amp; Surveillance</span>
+            </Link>
+            <Link
+              href="/supervisor/assessments"
+              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+            >
+              <TableProperties className="h-4 w-4" />
+              <span>Master Linelist</span>
+            </Link>
+            <Link
+              href="/supervisor/analytics"
+              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span>Clinical Analytics</span>
+            </Link>
           </div>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center space-x-2 pb-2 sm:pb-0">
             <Button variant="secondary" onClick={handleExportCSV} className="shadow-xs text-xs h-9">
               <Download className="h-3.5 w-3.5 mr-1.5 text-slate-600" />
               <span>Export Linelist (CSV)</span>
@@ -236,32 +249,7 @@ export default function SupervisorDashboardPage() {
           </div>
         </div>
 
-        {/* Exclusive Supervisor Tab Navigation */}
-        <div className="flex items-center space-x-1 border-b border-slate-200 mb-6 overflow-x-auto">
-          <Link
-            href="/supervisor"
-            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
-          >
-            <Activity className="h-4 w-4 text-teal-600" />
-            <span>Overview &amp; Surveillance</span>
-          </Link>
-          <Link
-            href="/supervisor/assessments"
-            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
-          >
-            <TableProperties className="h-4 w-4" />
-            <span>Master Linelist</span>
-          </Link>
-          <Link
-            href="/supervisor/analytics"
-            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
-          >
-            <BarChart3 className="h-4 w-4" />
-            <span>Clinical Analytics</span>
-          </Link>
-        </div>
-
-                {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
+        {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5 mb-8">
           {/* 1. Total Evaluated */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-slate-300 transition-all">
