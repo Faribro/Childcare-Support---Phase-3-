@@ -308,22 +308,24 @@ To prevent race conditions during network reconnects or rapid "Sync All" button 
 
 ---
 
-## 8. Canonical Route Matrix: Current vs Proposed State
+## 8. Canonical Route Matrix: Explicit Namespaces (No ID-Format Guessing)
 
-| Route URI | Purpose | Current State | Proposed Implementation Plan |
+| Route URI | Purpose | Current State | Corrected Architectural State |
 | :--- | :--- | :--- | :--- |
-| `/` | Field Worker & Supervisor Dashboard | Implemented (`src/app/page.tsx`) | Update navigation links to point to canonical routes (`/supervisor/assessments`, `/assessment/sync?tab=drafts`). |
-| `/assessment/new` | Multi-step New Assessment Intake | Implemented (`src/app/assessment/new/page.tsx`) | Ensure route produces valid build. Link review step to `/assessment/[id]/review` or unified wizard review. |
-| `/assessment/drafts` | Saved Drafts List | Implemented (`src/app/assessment/drafts/page.tsx`) | Redirect or render unified Sync Centre view with active `tab=drafts`. |
-| `/assessment/sync` | Sync & Upload Centre | Implemented (`src/app/assessment/sync/page.tsx`) | Upgrade to Unified Hub with tabs: **Outbox**, **Drafts**, and **History**. Integrate client lock and backoff. |
-| `/assessment/[id]` | Canonical Record View / Draft Resume | **Missing (404)** | Create `src/app/assessment/[id]/page.tsx` with ID guard: if local draft, allow resume; if synced record, render read-only canonical assessment with "Edit" action. |
-| `/assessment/[id]/edit` | Authorized Editing of Synced Record | **Missing (404)** | Create `src/app/assessment/[id]/edit/page.tsx` restricting inputs to allowlisted fields and binding `expectedVersion`. |
-| `/assessment/[id]/review` | Pre-submission / Pre-update Review | **Missing (404)** | Create `src/app/assessment/[id]/review/page.tsx` rendering clinical triage summary and consent check. |
-| `/assessment/[id]/receipt` | Immutable Proof of Submission | **Missing (404)** | Create `src/app/assessment/[id]/receipt/page.tsx` rendering confirmation QR/UUID, timestamp, grant entitlement. |
-| `/supervisor` | Supervisor Hub Dashboard | **Missing (404)** | Create `src/app/supervisor/page.tsx` providing supervisor overview, triage statistics, and navigation. |
-| `/supervisor/assessments` | Supervisor Master Line-List | **Missing (404)** (`/supervisor/linelist` exists) | Implement `src/app/supervisor/assessments/page.tsx` (or alias `/supervisor/linelist`) linking to `/supervisor/assessments/[id]`. |
-| `/supervisor/assessments/[id]` | Supervisor Detailed Clinical Audit | **Missing (404)** | Create `src/app/supervisor/assessments/[id]/page.tsx` providing clinical review and audit history. |
-| `/supervisor/analytics` | Malnutrition & Grant Analytics | Implemented (`src/app/supervisor/analytics/page.tsx`) | Retain and ensure all outbound links reference canonical paths. |
+| `/` | Field Worker & Supervisor Dashboard | Implemented (`src/app/page.tsx`) | Minimalist card design; counter cards link to `/assessment/sync?tab=...`. |
+| `/assessment/new` | Multi-step New Assessment Intake | Implemented (`src/app/assessment/new/page.tsx`) | Auto-generates Assessment Reference ID (e.g., `MH-PUN-081255-01`). No ART Centre fields. |
+| `/assessment/drafts` | Saved Drafts List (Legacy Link) | Implemented (`src/app/assessment/drafts/page.tsx`) | Permanent redirect to `/assessment/sync?tab=drafts`. |
+| `/assessment/sync` | Unified Sync Centre | Implemented (`src/app/assessment/sync/page.tsx`) | 3 interactive tabs: **Outbox Queue**, **Local Drafts**, and **Sync History**. |
+| `/assessment/draft/[draftId]` | Local Draft Resume & Intake | **NEW EXPLICIT ROUTE** | Explicit local draft editing and autosave. Never confused with remote record. |
+| `/assessment/draft/[draftId]/review` | Pre-submission Review of Draft | **NEW EXPLICIT ROUTE** | Pre-queue clinical verification and consent confirmation offline. |
+| `/assessment/record/[submissionId]` | Canonical Synced Record Detail | **NEW EXPLICIT ROUTE** | Authoritative remote view with "Edit Approved Fields" and "View Receipt". |
+| `/assessment/record/[submissionId]/edit` | Authorized Editing of Synced Record | **NEW EXPLICIT ROUTE** | Strict allowlist editing with `If-Match` OCC version precondition. |
+| `/assessment/record/[submissionId]/receipt` | Minimal Proof of Submission Receipt | **NEW EXPLICIT ROUTE** | Data-minimised receipt (reference, confirmation status, timestamp, version, actor). |
+| `/assessment/[id]` | Deprecated Catch-All Route | Deprecated | Temporary migration redirect to `/assessment/draft/[id]` or `/assessment/record/[id]`. |
+| `/supervisor` | Supervisor Hub Dashboard | **NEW** | Supervisor overview, triage statistics, navigation to assessments and analytics. |
+| `/supervisor/assessments` | Supervisor Master Line-List | **NEW** (Replaces `/supervisor/linelist`) | Clean linelist without `artCenter` or sensitive columns, linking to detail records. |
+| `/supervisor/assessments/[submissionId]` | Supervisor Detailed Clinical Audit | **NEW** | Full clinical review and OCC audit history for authorized supervisors. |
+| `/supervisor/analytics` | Clinical Malnutrition & Grants Analytics | Implemented (`src/app/supervisor/analytics/page.tsx`) | Updated outbound navigation links to canonical routes. |
 
 ---
 
