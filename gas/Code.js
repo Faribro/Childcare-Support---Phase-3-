@@ -515,3 +515,336 @@ function errorResponse_(message, code) {
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }
+
+function diagnosticCheck() {
+  var log = [];
+  log.push('Starting diagnostic');
+  try {
+    log.push('Opening spreadsheet by ID: ' + TARGET_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+    log.push('Spreadsheet opened successfully: ' + ss.getName());
+    var sheets = ss.getSheets();
+    log.push('Number of sheets: ' + sheets.length);
+    for (var i = 0; i < sheets.length; i++) {
+      log.push('Sheet ' + i + ' name: ' + sheets[i].getName() + ', gid: ' + sheets[i].getSheetId());
+    }
+  } catch (e) {
+    log.push('Error opening by ID: ' + e.toString());
+  }
+  try {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    log.push('Active spreadsheet: ' + (active ? active.getName() : 'null'));
+  } catch (e) {
+    log.push('Error getting active: ' + e.toString());
+  }
+  return log.join('\n');
+}
+
+/**
+ * Direct initialization and testing helper.
+ * Can be executed directly from Google Apps Script editor or via clasp run.
+ * Populates all 73 headers in Row 1 and appends 3 realistic Phase 3 assessment records.
+ */
+function runSetupAndInsertSampleRows() {
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+
+  // 1. Ensure all 73 headers are in Row 1
+  var headerRange = sheet.getRange(1, 1, 1, COLUMN_HEADERS.length);
+  headerRange.setValues([COLUMN_HEADERS]);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#0D9488');
+  headerRange.setFontColor('#FFFFFF');
+  headerRange.setHorizontalAlignment('center');
+  sheet.setFrozenRows(1);
+
+  Logger.log('Row 1 headers successfully set (' + COLUMN_HEADERS.length + ' columns).');
+
+  // 2. Sample Beneficiaries
+  var samples = [
+    {
+      uuid: 'e0111111-1111-4111-8111-111111111111',
+      koboId: 'MH-PUN-0842',
+      formSubmittedBy: 'Kavita Shinde (Field Worker)',
+      interviewerName: 'Kavita Shinde',
+      visitDate: '2026-09-08',
+      demographics: {
+        childName: 'Pooja Ramesh K.',
+        dob: '2019-02-15',
+        calculatedAgeYears: 7,
+        gender: 'Female',
+        orphanStatus: 'Single orphan (mother alive)',
+        caregiverName: 'Sunita Ramesh K.',
+        caregiverRelationship: 'Mother',
+        contactNumber: '9822011223',
+        fullAddress: 'Room 12, Chawl No 4, Anand Nagar, Wadgaon Sheri',
+        state: 'Maharashtra',
+        district: 'Pune',
+        childAadhaarNumber: 'XXXX-XXXX-8421',
+      },
+      caregiverConsent: {
+        consentObtained: 'Yes',
+        caregiverFullName: 'Sunita Ramesh K.',
+        caregiverRelation: 'Mother',
+        signatureStatus: 'CAPTURED_LOCAL',
+      },
+      bankingAndKyc: {
+        bankAccountHolderName: 'Sunita Ramesh K.',
+        bankAccountNumber: '30981245671',
+        bankIfscCode: 'SBIN0001482',
+        bankLinkedMobileNumber: '9822011223',
+        childAadhaarNumber: 'XXXX-XXXX-8421',
+        passbookPhotoUrl: 'https://alliance.org/kyc/pb-8421.jpg',
+        aadhaarCardPhotoUrl: 'https://alliance.org/kyc/adh-8421.jpg',
+        childPhotoUrl: 'https://alliance.org/kyc/photo-8421.jpg',
+      },
+      householdFinancial: {
+        totalFamilyMembers: 4,
+        numberOfChildrenUnder18: 2,
+        monthlyIncomeRs: 6500,
+        mainSourceOfIncome: 'Daily wage domestic worker',
+      },
+      health: {
+        weightKg: 18.2,
+        heightCm: 114,
+        bmi: 14.0,
+        bmiCategory: 'Normal',
+        haemoglobinGdl: 11.4,
+        hbCategory: 'Mild Anemia',
+        otherHealthConditions: ['None'],
+        artStatus: 'On ART',
+        artRegistrationDate: '2022-06-10',
+        artIdNumber: 'MH-PUN-0842',
+        vlStatus: 'Tested in last 6 months',
+        vlDate: '2026-04-12',
+        viralLoad: '< 50',
+        vlCategory: 'Undetectable (<50 copies/mL)',
+      },
+      nutrition: {
+        appetite: 'Good',
+        mealsPerDay: 3,
+      },
+      educationStatus: {
+        educationStatus: 'Currently going to school',
+        schoolName: 'Pune Mahanagarpalika Vidyaniketan No 14',
+        schoolSessionStartDate: '2026-06-15',
+        schoolType: 'Government school',
+        currentClass: 'Class 2',
+        attendance: 'Regular',
+      },
+      educationExpenses: {
+        schoolFees: 1200,
+        tuitionFees: 500,
+        books: 600,
+        stationery: 300,
+        uniform: 800,
+        transport: 400,
+        otherExpenses: 0,
+        totalAnnualCost: 3800,
+        feeReceiptPhotoUrl: 'https://alliance.org/receipts/rec-8421.pdf',
+        marksheetPhotoUrl: 'https://alliance.org/receipts/mark-8421.jpg',
+        remarks: 'Eligible for Phase 3 stationery and tuition support.',
+      },
+      finalReview: {
+        approvedAllianceIndia: 'Approved',
+        allInfoCorrect: true,
+        organizationName: 'India HIV/AIDS Alliance',
+        formSubmittedBy: 'Kavita Shinde',
+        organizationEmail: 'pune.field@allianceindia.org',
+      },
+      syncNeeded: 'NO',
+    },
+    {
+      uuid: 'e0222222-2222-4222-8222-222222222222',
+      koboId: 'MH-THN-0951',
+      formSubmittedBy: 'Amol Jadhav (Field Worker)',
+      interviewerName: 'Amol Jadhav',
+      visitDate: '2026-09-07',
+      demographics: {
+        childName: 'Aarav Sachin P.',
+        dob: '2021-05-10',
+        calculatedAgeYears: 5,
+        gender: 'Male',
+        orphanStatus: 'Both parents alive',
+        caregiverName: 'Priya Sachin P.',
+        caregiverRelationship: 'Mother',
+        contactNumber: '9822022334',
+        fullAddress: 'Gali 3, Kisan Nagar, Wagle Estate',
+        state: 'Maharashtra',
+        district: 'Thane',
+        childAadhaarNumber: 'XXXX-XXXX-9512',
+      },
+      caregiverConsent: {
+        consentObtained: 'Yes',
+        caregiverFullName: 'Priya Sachin P.',
+        caregiverRelation: 'Mother',
+        signatureStatus: 'CAPTURED_LOCAL',
+      },
+      bankingAndKyc: {
+        bankAccountHolderName: 'Priya Sachin P.',
+        bankAccountNumber: '60124458902',
+        bankIfscCode: 'MAHB0000412',
+        bankLinkedMobileNumber: '9822022334',
+        childAadhaarNumber: 'XXXX-XXXX-9512',
+        passbookPhotoUrl: 'https://alliance.org/kyc/pb-9512.jpg',
+        aadhaarCardPhotoUrl: 'https://alliance.org/kyc/adh-9512.jpg',
+        childPhotoUrl: 'https://alliance.org/kyc/photo-9512.jpg',
+      },
+      householdFinancial: {
+        totalFamilyMembers: 5,
+        numberOfChildrenUnder18: 3,
+        monthlyIncomeRs: 5200,
+        mainSourceOfIncome: 'Auto rickshaw helper',
+      },
+      health: {
+        weightKg: 12.1,
+        heightCm: 98,
+        bmi: 12.6,
+        bmiCategory: 'MAM (Moderate Acute Malnutrition)',
+        haemoglobinGdl: 9.8,
+        hbCategory: 'Moderate Anemia',
+        otherHealthConditions: ['Recurrent respiratory infection'],
+        artStatus: 'On ART',
+        artRegistrationDate: '2023-11-20',
+        artIdNumber: 'MH-THN-0951',
+        vlStatus: 'Tested in last 6 months',
+        vlDate: '2026-05-18',
+        viralLoad: '120',
+        vlCategory: 'Suppressed (<1000 copies/mL)',
+      },
+      nutrition: {
+        appetite: 'Poor',
+        mealsPerDay: 2,
+      },
+      educationStatus: {
+        educationStatus: 'Currently going to school',
+        schoolName: 'Balwadi Anganwadi Kendra No 8',
+        schoolSessionStartDate: '2026-06-15',
+        schoolType: 'Anganwadi',
+        currentClass: 'Anganwadi Senior',
+        attendance: 'Irregular',
+      },
+      educationExpenses: {
+        schoolFees: 600,
+        tuitionFees: 400,
+        books: 400,
+        stationery: 250,
+        uniform: 500,
+        transport: 0,
+        otherExpenses: 150,
+        totalAnnualCost: 2300,
+        feeReceiptPhotoUrl: 'https://alliance.org/receipts/rec-9512.pdf',
+        marksheetPhotoUrl: 'https://alliance.org/receipts/mark-9512.jpg',
+        remarks: 'Requires immediate supplementary nutrition support (MAM).',
+      },
+      finalReview: {
+        approvedAllianceIndia: 'Approved',
+        allInfoCorrect: true,
+        organizationName: 'India HIV/AIDS Alliance',
+        formSubmittedBy: 'Amol Jadhav',
+        organizationEmail: 'thane.field@allianceindia.org',
+      },
+      syncNeeded: 'NO',
+    },
+    {
+      uuid: 'e0333333-3333-4333-8333-333333333333',
+      koboId: 'MH-MUM-1102',
+      formSubmittedBy: 'Fatima Shaikh (Field Worker)',
+      interviewerName: 'Fatima Shaikh',
+      visitDate: '2026-09-06',
+      demographics: {
+        childName: 'Tanvi Dilip M.',
+        dob: '2017-08-20',
+        calculatedAgeYears: 9,
+        gender: 'Female',
+        orphanStatus: 'Double orphan (both parents deceased)',
+        caregiverName: 'Parvati M. (Grandmother)',
+        caregiverRelationship: 'Grandmother',
+        contactNumber: '9822033445',
+        fullAddress: 'Room 5, PMG Colony, Mankhurd',
+        state: 'Maharashtra',
+        district: 'Mumbai Suburban',
+        childAadhaarNumber: 'XXXX-XXXX-1102',
+      },
+      caregiverConsent: {
+        consentObtained: 'Yes',
+        caregiverFullName: 'Parvati M.',
+        caregiverRelation: 'Grandmother',
+        signatureStatus: 'CAPTURED_LOCAL',
+      },
+      bankingAndKyc: {
+        bankAccountHolderName: 'Parvati M.',
+        bankAccountNumber: '10842239011',
+        bankIfscCode: 'CBIN0281045',
+        bankLinkedMobileNumber: '9822033445',
+        childAadhaarNumber: 'XXXX-XXXX-1102',
+        passbookPhotoUrl: 'https://alliance.org/kyc/pb-1102.jpg',
+        aadhaarCardPhotoUrl: 'https://alliance.org/kyc/adh-1102.jpg',
+        childPhotoUrl: 'https://alliance.org/kyc/photo-1102.jpg',
+      },
+      householdFinancial: {
+        totalFamilyMembers: 3,
+        numberOfChildrenUnder18: 1,
+        monthlyIncomeRs: 4000,
+        mainSourceOfIncome: 'Old age pension & knitting',
+      },
+      health: {
+        weightKg: 24.5,
+        heightCm: 125,
+        bmi: 15.7,
+        bmiCategory: 'Normal',
+        haemoglobinGdl: 12.0,
+        hbCategory: 'Normal',
+        otherHealthConditions: ['None'],
+        artStatus: 'On ART',
+        artRegistrationDate: '2021-03-14',
+        artIdNumber: 'MH-MUM-1102',
+        vlStatus: 'Tested in last 6 months',
+        vlDate: '2026-03-25',
+        viralLoad: '< 50',
+        vlCategory: 'Undetectable (<50 copies/mL)',
+      },
+      nutrition: {
+        appetite: 'Good',
+        mealsPerDay: 3,
+      },
+      educationStatus: {
+        educationStatus: 'Currently going to school',
+        schoolName: 'Mankhurd Municipal Primary School',
+        schoolSessionStartDate: '2026-06-15',
+        schoolType: 'Government school',
+        currentClass: 'Class 4',
+        attendance: 'Regular',
+      },
+      educationExpenses: {
+        schoolFees: 1500,
+        tuitionFees: 700,
+        books: 800,
+        stationery: 400,
+        uniform: 900,
+        transport: 500,
+        otherExpenses: 0,
+        totalAnnualCost: 4800,
+        feeReceiptPhotoUrl: 'https://alliance.org/receipts/rec-1102.pdf',
+        marksheetPhotoUrl: 'https://alliance.org/receipts/mark-1102.jpg',
+        remarks: 'High priority grant entitlement: Double orphan under elderly grandmother care.',
+      },
+      finalReview: {
+        approvedAllianceIndia: 'Approved',
+        allInfoCorrect: true,
+        organizationName: 'India HIV/AIDS Alliance',
+        formSubmittedBy: 'Fatima Shaikh',
+        organizationEmail: 'mumbai.field@allianceindia.org',
+      },
+      syncNeeded: 'NO',
+    }
+  ];
+
+  for (var s = 0; s < samples.length; s++) {
+    var res = handleCreate_(samples[s]);
+    Logger.log('Sample ' + (s + 1) + ' result: ' + res.getContent());
+  }
+
+  return 'Setup complete! Row 1 headers formatted and ' + samples.length + ' sample records inserted into ' + PRIMARY_SHEET_NAME;
+}
+
