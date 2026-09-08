@@ -22,7 +22,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
-  PlusCircle,
   FileText,
   Trash2,
   ArrowRight,
@@ -176,13 +175,6 @@ function SyncCenterContent() {
               <CloudUpload className="h-4 w-4 mr-2" />
               <span>Sync All ({pendingCount})</span>
             </Button>
-
-            <Link href="/assessment/new">
-              <Button variant="secondary" className="shadow-2xs font-semibold">
-                <PlusCircle className="h-4 w-4 mr-1.5" />
-                <span>New Intake</span>
-              </Button>
-            </Link>
           </div>
         </div>
 

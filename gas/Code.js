@@ -3,7 +3,8 @@
  * Target Sheet ID: 1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA
  *
  * Implements:
- * - 72-Column Schema with "1\nUnique ID" replacing obsolete Kobo UUID & Kobo ID
+ * - 73-Column Schema with "1\nUnique ID" and "2\nRevision Number"
+ * - Auto-incrementing Revision Number (1 on create, 2, 3... on each OCC update)
  * - Systematic Google Drive upload in child-namewise folders: "<ChildName> - <UniqueID>"
  * - Automated deletion/trashing of old document files upon updating or changing files
  * - In-cell embedded images with hover-to-copy & click-to-open links (=HYPERLINK(url, IMAGE(url)))
@@ -23,103 +24,104 @@ var BANNER_TITLE = 'CHILD HIV CARE & NUTRITION LINELIST';
 var DASHBOARD_URL = 'https://childcare-support-phase-3.onrender.com';
 var ROOT_DOCUMENTS_FOLDER_NAME = 'Child_Nutrition_Phase3_Documents';
 
-// Exact 72 Rectified Column Headers (Number on top + newline)
+// Exact 73 Rectified Column Headers (Number on top + newline)
 var COLUMN_HEADERS = [
   "1\nUnique ID",
-  "2\nSubmission Time",
-  "3\nSubmitted By",
-  "4\nConsent Obtained",
-  "5\nSignature /\nThumb Impression",
-  "6\nVisit Date",
-  "7\nInterviewer Name",
-  "8\nChild Name",
-  "9\nDate of Birth",
-  "10\nAge",
-  "11\nGender",
-  "12\nOrphan Status",
-  "13\nCaregiver Full Name",
-  "14\nCaregiver Relation",
-  "15\nCaregiver Contact",
-  "16\nAddress",
-  "17\nState",
-  "18\nDistrict",
-  "19\nBank Account Holder Name",
-  "20\nBank Account Number",
-  "21\nBank IFSC Code",
-  "22\nBank Linked Mobile Number",
-  "23\nChild Aadhaar Number",
-  "24\nPassbook Front Page Link",
-  "25\nAadhaar Card Link",
-  "26\nPassport Size Photo Link",
-  "27\nHousehold Members",
-  "28\nNo of Children",
-  "29\nMonthly Income",
-  "30\nIncome Source",
-  "31\nCurrent Weight (kg)",
-  "32\nCurrent Height (cm)",
-  "33\nBMI",
-  "34\nBMI Category",
-  "35\nHemoglobin (g/dL)",
-  "36\nHb Category",
-  "37\nComorbidities",
-  "38\nComorbidities Other",
-  "39\nART Status",
-  "40\nART Registration Date",
-  "41\nART ID Number",
-  "42\nVL Status",
-  "43\nVL Date",
-  "44\nViral Load",
-  "45\nVL Category",
-  "46\nAppetite",
-  "47\nMeals per Day",
-  "48\nEducation Status",
-  "49\nEducation Status Other",
-  "50\nSchool Name",
-  "51\nSchool Session Start Date",
-  "52\nSchool Type",
-  "53\nCurrent Class",
-  "54\nAttendance Status",
-  "55\nSchool Fees",
-  "56\nPrivate Tuition Fee",
-  "57\nSchool Books",
-  "58\nSchool Stationery",
-  "59\nSchool Uniform",
-  "60\nSchool Transport",
-  "61\nSchool Other Expenses",
-  "62\nTotal Annual Education Cost",
-  "63\nSchool Fee Receipt Link",
-  "64\nMarksheet Photo Link",
-  "65\nRemarks (If Any)",
-  "66\nApproved Alliance India",
-  "67\nReview Confirmed",
-  "68\nOrganization Name",
-  "69\nForm Submitted By",
-  "70\nOrganization Email",
-  "71\nSync Needed",
-  "72\nLast Updated"
+  "2\nRevision Number",
+  "3\nSubmission Time",
+  "4\nSubmitted By",
+  "5\nConsent Obtained",
+  "6\nSignature /\nThumb Impression",
+  "7\nVisit Date",
+  "8\nInterviewer Name",
+  "9\nChild Name",
+  "10\nDate of Birth",
+  "11\nAge",
+  "12\nGender",
+  "13\nOrphan Status",
+  "14\nCaregiver Full Name",
+  "15\nCaregiver Relation",
+  "16\nCaregiver Contact",
+  "17\nAddress",
+  "18\nState",
+  "19\nDistrict",
+  "20\nBank Account Holder Name",
+  "21\nBank Account Number",
+  "22\nBank IFSC Code",
+  "23\nBank Linked Mobile Number",
+  "24\nChild Aadhaar Number",
+  "25\nPassbook Front Page Link",
+  "26\nAadhaar Card Link",
+  "27\nPassport Size Photo Link",
+  "28\nHousehold Members",
+  "29\nNo of Children",
+  "30\nMonthly Income",
+  "31\nIncome Source",
+  "32\nCurrent Weight (kg)",
+  "33\nCurrent Height (cm)",
+  "34\nBMI",
+  "35\nBMI Category",
+  "36\nHemoglobin (g/dL)",
+  "37\nHb Category",
+  "38\nComorbidities",
+  "39\nComorbidities Other",
+  "40\nART Status",
+  "41\nART Registration Date",
+  "42\nART ID Number",
+  "43\nVL Status",
+  "44\nVL Date",
+  "45\nViral Load",
+  "46\nVL Category",
+  "47\nAppetite",
+  "48\nMeals per Day",
+  "49\nEducation Status",
+  "50\nEducation Status Other",
+  "51\nSchool Name",
+  "52\nSchool Session Start Date",
+  "53\nSchool Type",
+  "54\nCurrent Class",
+  "55\nAttendance Status",
+  "56\nSchool Fees",
+  "57\nPrivate Tuition Fee",
+  "58\nSchool Books",
+  "59\nSchool Stationery",
+  "60\nSchool Uniform",
+  "61\nSchool Transport",
+  "62\nSchool Other Expenses",
+  "63\nTotal Annual Education Cost",
+  "64\nSchool Fee Receipt Link",
+  "65\nMarksheet Photo Link",
+  "66\nRemarks (If Any)",
+  "67\nApproved Alliance India",
+  "68\nReview Confirmed",
+  "69\nOrganization Name",
+  "70\nForm Submitted By",
+  "71\nOrganization Email",
+  "72\nSync Needed",
+  "73\nLast Updated"
 ];
 
-// Document Columns with 1-based indexing in the 72-column schema
+// Document Columns with 1-based indexing in the 73-column schema
 var DOC_COLUMNS = {
-  SIGNATURE: 5,
-  PASSBOOK: 24,
-  AADHAAR: 25,
-  CHILD_PHOTO: 26,
-  FEE_RECEIPT: 63,
-  MARKSHEET: 64
+  SIGNATURE: 6,
+  PASSBOOK: 25,
+  AADHAAR: 26,
+  CHILD_PHOTO: 27,
+  FEE_RECEIPT: 64,
+  MARKSHEET: 65
 };
 
 // Pastel Category Background Fills matching the reference sheet
 var HEADER_CATEGORIES = [
-  { start: 1, end: 7, color: '#D9E2F3' },   // Intake & Consent (Pale Blue)
-  { start: 8, end: 18, color: '#E2EFDA' },  // Child Demographics & Residence (Pale Green)
-  { start: 19, end: 26, color: '#FFF2CC' }, // Banking & KYC Documents (Pale Yellow)
-  { start: 27, end: 30, color: '#EDEDED' }, // Household & Socio-Economic (Pale Gray)
-  { start: 31, end: 45, color: '#FCE4D6' }, // Health, ART & Clinical (Pale Salmon/Rose)
-  { start: 46, end: 47, color: '#E2EFDA' }, // Nutrition & Habits (Pale Green)
-  { start: 48, end: 54, color: '#D9E2F3' }, // Education Status (Pale Blue)
-  { start: 55, end: 65, color: '#FFF2CC' }, // Education Expenses & Documents (Pale Orange)
-  { start: 66, end: 72, color: '#D9E2F3' }  // Programme Governance & Audit (Pale Blue/Slate)
+  { start: 1, end: 8, color: '#D9E2F3' },   // Intake, Revision & Consent (Pale Blue)
+  { start: 9, end: 19, color: '#E2EFDA' },  // Child Demographics & Residence (Pale Green)
+  { start: 20, end: 27, color: '#FFF2CC' }, // Banking & KYC Documents (Pale Yellow)
+  { start: 28, end: 31, color: '#EDEDED' }, // Household & Socio-Economic (Pale Gray)
+  { start: 32, end: 46, color: '#FCE4D6' }, // Health, ART & Clinical (Pale Salmon/Rose)
+  { start: 47, end: 48, color: '#E2EFDA' }, // Nutrition & Habits (Pale Green)
+  { start: 49, end: 55, color: '#D9E2F3' }, // Education Status (Pale Blue)
+  { start: 56, end: 66, color: '#FFF2CC' }, // Education Expenses & Documents (Pale Orange)
+  { start: 67, end: 73, color: '#D9E2F3' }  // Programme Governance & Audit (Pale Blue/Slate)
 ];
 
 // Fallback image URLs for sample rows
@@ -140,7 +142,7 @@ function onOpen(e) {
   try {
     var ui = SpreadsheetApp.getUi();
     ui.createMenu('Child Nutrition PWA')
-      .addItem('Setup 72 Rectified Headers & Insert Samples', 'runSetupAndInsertSampleRows')
+      .addItem('Setup 73 Rectified Headers & Insert Samples', 'runSetupAndInsertSampleRows')
       .addItem('Format Header Styles & In-Cell Images', 'formatSheetLinelistDesign')
       .addItem('Verify Google Drive Document Folders', 'verifyDriveDocumentFolders')
       .addToUi();
@@ -272,7 +274,7 @@ function ensureHeaders_(sheet) {
     bannerRange.setFontWeight('bold');
     bannerRange.setVerticalAlignment('middle');
 
-    // Merge B1:BT1 (Columns 2 to 72)
+    // Merge B1:BU1 (Columns 2 to 73)
     var mergeRange = sheet.getRange(1, 2, 1, COLUMN_HEADERS.length - 1);
     try {
       mergeRange.merge();
@@ -287,7 +289,7 @@ function ensureHeaders_(sheet) {
     var spacerRange = sheet.getRange(2, 1, 1, COLUMN_HEADERS.length);
     spacerRange.setBackground('#FFFFFF');
 
-    // --- ROW 3: Rectified 72 Headers ---
+    // --- ROW 3: Rectified 73 Headers ---
     sheet.setRowHeight(3, 90);
     var headerRange = sheet.getRange(HEADER_ROW_INDEX, 1, 1, COLUMN_HEADERS.length);
     headerRange.setValues([COLUMN_HEADERS]);
@@ -324,13 +326,15 @@ function applyColumnWidths_(sheet) {
       sheet.setColumnWidth(i, 110);
     } else if (i === 1) { // Unique ID
       sheet.setColumnWidth(i, 160);
-    } else if (i === 8 || i === 13) { // Child Name / Caregiver Name
+    } else if (i === 2) { // Revision Number
+      sheet.setColumnWidth(i, 80);
+    } else if (i === 9 || i === 14) { // Child Name / Caregiver Name
       sheet.setColumnWidth(i, 150);
-    } else if (i === 16) { // Address
+    } else if (i === 17) { // Address
       sheet.setColumnWidth(i, 220);
-    } else if (i === 50) { // School Name
+    } else if (i === 51) { // School Name
       sheet.setColumnWidth(i, 180);
-    } else if (i === 65) { // Remarks
+    } else if (i === 66) { // Remarks
       sheet.setColumnWidth(i, 200);
     } else {
       sheet.setColumnWidth(i, 100);
@@ -591,13 +595,16 @@ function handleCreate_(payload) {
       if (rowId === String(uniqueId).trim() || (payload.uuid && rowId === String(payload.uuid).trim())) {
         var rowIndex = 4 + r;
         var existingRow = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getValues()[0];
+        var currentRev = parseInt(existingRow[1], 10) || 1;
         return ContentService.createTextOutput(
           JSON.stringify({
             status: 'success',
             acknowledged: true,
             remoteSubmissionId: String(existingRow[0]),
             clientSubmissionId: uniqueId,
-            version: 1,
+            uniqueId: String(existingRow[0]),
+            revisionNumber: currentRev,
+            version: currentRev,
             isDuplicate: true,
             idempotencyNote: 'Duplicate recognized. Existing row confirmed in Sheet.',
           })
@@ -612,95 +619,96 @@ function handleCreate_(payload) {
   // Get or create dedicated child folder in Drive: "<ChildName> - <UniqueID>"
   var childFolder = getOrCreateChildFolder_(childName, uniqueId);
 
-  // Build the 72-value array matching COLUMN_HEADERS 1-to-1
+  // Build the 73-value array matching COLUMN_HEADERS 1-to-1
   var row = new Array(COLUMN_HEADERS.length);
 
-  row[0] = uniqueId; // 1 Unique ID (Auto-Generated Assessment / Beneficiary ID)
-  row[1] = payload.submissionTime || payload.createdAt || now; // 2 Submission Time
-  row[2] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 3 Submitted By
-  row[3] = (payload.consent && (payload.consent.agreeToParticipate || payload.consent.consentGiven)) ||
-           payload.consentObtained === 'Yes' ? 'Yes' : 'No'; // 4 Consent Obtained
+  row[0] = uniqueId; // 1 Unique ID
+  row[1] = 1;        // 2 Revision Number (Initial creation is Rev 1)
+  row[2] = payload.submissionTime || payload.createdAt || now; // 3 Submission Time
+  row[3] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 4 Submitted By
+  row[4] = (payload.consent && (payload.consent.agreeToParticipate || payload.consent.consentGiven)) ||
+           payload.consentObtained === 'Yes' ? 'Yes' : 'No'; // 5 Consent Obtained
 
-  // 5 Signature / Thumb Impression — Stored in child folder, formatted as in-cell formula
+  // 6 Signature / Thumb Impression — In-cell embedded formula
   var sigVal = payload.signatureDataUrl || (payload.consent && payload.consent.signatureDataUrl) ||
                (payload.caregiverConsent && payload.caregiverConsent.signatureDataUrl) ||
                payload.signatureUrl || (payload.caregiverConsent && payload.caregiverConsent.signatureUrl) ||
                payload.signatureStatus || '';
-  row[4] = sigVal ? processDocumentUpload_(sigVal, childFolder, 'Signature', uniqueId) : 'CAPTURED_LOCAL';
+  row[5] = sigVal ? processDocumentUpload_(sigVal, childFolder, 'Signature', uniqueId) : 'CAPTURED_LOCAL';
 
-  row[5] = d.dateOfFilling || payload.visitDate || now.split('T')[0]; // 6 Visit Date
-  row[6] = payload.interviewerName || f.formSubmittedBy || ''; // 7 Interviewer Name
-  row[7] = childName; // 8 Child Name
-  row[8] = d.dob || payload.dob || ''; // 9 Date of Birth
-  row[9] = d.calculatedAgeYears !== undefined ? d.calculatedAgeYears : (payload.age || ''); // 10 Age
-  row[10] = d.gender || payload.gender || 'Male'; // 11 Gender
-  row[11] = d.orphanStatus || payload.orphanStatus || ''; // 12 Orphan Status
-  row[12] = d.caregiverName || payload.caregiverFullName || payload.caregiverName || ''; // 13 Caregiver Full Name
-  row[13] = d.caregiverRelationship || payload.caregiverRelation || ''; // 14 Caregiver Relation
-  row[14] = d.contactNumber || d.caregiverPhone || payload.caregiverContact || ''; // 15 Caregiver Contact
-  row[15] = d.fullAddress || payload.address || ''; // 16 Address
-  row[16] = d.state || payload.state || 'Maharashtra'; // 17 State
-  row[17] = d.district || payload.district || 'Pune'; // 18 District
-  row[18] = b.bankAccountHolderName || b.accountHolderName || payload.bankAccountHolderName || ''; // 19 Bank Account Holder Name
-  row[19] = b.bankAccountNumber || b.accountNumber || payload.bankAccountNumber || ''; // 20 Bank Account Number
-  row[20] = b.bankIfscCode || b.ifscCode || payload.bankIfscCode || ''; // 21 Bank IFSC Code
-  row[21] = b.bankLinkedMobileNumber || payload.bankLinkedMobileNumber || ''; // 22 Bank Linked Mobile Number
-  row[22] = b.childAadhaarNumber || d.childAadhaarNumber || payload.childAadhaarNumber || ''; // 23 Child Aadhaar Number
+  row[6] = d.dateOfFilling || payload.visitDate || now.split('T')[0]; // 7 Visit Date
+  row[7] = payload.interviewerName || f.formSubmittedBy || ''; // 8 Interviewer Name
+  row[8] = childName; // 9 Child Name
+  row[9] = d.dob || payload.dob || ''; // 10 Date of Birth
+  row[10] = d.calculatedAgeYears !== undefined ? d.calculatedAgeYears : (payload.age || ''); // 11 Age
+  row[11] = d.gender || payload.gender || 'Male'; // 12 Gender
+  row[12] = d.orphanStatus || payload.orphanStatus || ''; // 13 Orphan Status
+  row[13] = d.caregiverName || payload.caregiverFullName || payload.caregiverName || ''; // 14 Caregiver Full Name
+  row[14] = d.caregiverRelationship || payload.caregiverRelation || ''; // 15 Caregiver Relation
+  row[15] = d.contactNumber || d.caregiverPhone || payload.caregiverContact || ''; // 16 Caregiver Contact
+  row[16] = d.fullAddress || payload.address || ''; // 17 Address
+  row[17] = d.state || payload.state || 'Maharashtra'; // 18 State
+  row[18] = d.district || payload.district || 'Pune'; // 19 District
+  row[19] = b.bankAccountHolderName || b.accountHolderName || payload.bankAccountHolderName || ''; // 20 Bank Account Holder Name
+  row[20] = b.bankAccountNumber || b.accountNumber || payload.bankAccountNumber || ''; // 21 Bank Account Number
+  row[21] = b.bankIfscCode || b.ifscCode || payload.bankIfscCode || ''; // 22 Bank IFSC Code
+  row[22] = b.bankLinkedMobileNumber || payload.bankLinkedMobileNumber || ''; // 23 Bank Linked Mobile Number
+  row[23] = b.childAadhaarNumber || d.childAadhaarNumber || payload.childAadhaarNumber || ''; // 24 Child Aadhaar Number
 
-  // KYC Image Links (Cols 24, 25, 26) — Stored in child folder, formatted as in-cell formula
-  row[23] = processDocumentUpload_(b.passbookPhotoUrl || d.passbookPhotoUrl || payload.passbookFrontPageLink || payload.passbookPhotoUrl, childFolder, 'Passbook', uniqueId);
-  row[24] = processDocumentUpload_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, childFolder, 'Aadhaar', uniqueId);
-  row[25] = processDocumentUpload_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, childFolder, 'Child_Photo', uniqueId);
+  // KYC Image Links (Cols 25, 26, 27) — In-cell embedded formulas
+  row[24] = processDocumentUpload_(b.passbookPhotoUrl || d.passbookPhotoUrl || payload.passbookFrontPageLink || payload.passbookPhotoUrl, childFolder, 'Passbook', uniqueId);
+  row[25] = processDocumentUpload_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, childFolder, 'Aadhaar', uniqueId);
+  row[26] = processDocumentUpload_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, childFolder, 'Child_Photo', uniqueId);
 
-  row[26] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || 4); // 27 Household Members
-  row[27] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || 2); // 28 No of Children
-  row[28] = payload.householdFinancial ? payload.householdFinancial.monthlyIncomeRs : (payload.monthlyIncome || 0); // 29 Monthly Income
-  row[29] = payload.householdFinancial ? payload.householdFinancial.mainSourceOfIncome : (payload.incomeSource || 'Daily wage labour'); // 30 Income Source
-  row[30] = h.weightKg || n.weightKg || payload.currentWeightKg || 0; // 31 Current Weight (kg)
-  row[31] = h.heightCm || n.heightCm || payload.currentHeightCm || 0; // 32 Current Height (cm)
-  row[32] = h.bmi || n.bmi || payload.bmi || 0; // 33 BMI
-  row[33] = h.bmiCategory || payload.bmiCategory || (h.nutritionStatus || n.nutritionStatus || 'Normal'); // 34 BMI Category
-  row[34] = h.haemoglobinGdl !== undefined ? h.haemoglobinGdl : (payload.hemoglobinGdl || ''); // 35 Hemoglobin (g/dL)
-  row[35] = h.hbCategory || payload.hbCategory || 'Normal'; // 36 Hb Category
-  row[36] = Array.isArray(h.otherHealthConditions) ? h.otherHealthConditions.join(', ') : (payload.comorbidities || ''); // 37 Comorbidities
-  row[37] = h.otherHealthConditionSpecify || payload.comorbiditiesOther || ''; // 38 Comorbidities Other
-  row[38] = h.artStatus || payload.artStatus || 'On ART'; // 39 ART Status
-  row[39] = h.artRegistrationDate || payload.artRegistrationDate || ''; // 40 ART Registration Date
-  row[40] = h.artIdNumber || payload.artIdNumber || ''; // 41 ART ID Number
-  row[41] = h.vlStatus || payload.vlStatus || 'Tested in last 6 months'; // 42 VL Status
-  row[42] = h.vlDate || payload.vlDate || ''; // 43 VL Date
-  row[43] = h.viralLoad !== undefined ? String(h.viralLoad) : (payload.viralLoad || '< 50'); // 44 Viral Load
-  row[44] = h.vlCategory || payload.vlCategory || 'Undetectable (<50 copies/mL)'; // 45 VL Category
-  row[45] = n.appetite || payload.appetite || 'Good'; // 46 Appetite
-  row[46] = n.mealsPerDay || payload.mealsPerDay || 3; // 47 Meals per Day
-  row[47] = e.educationStatus || payload.educationStatus || 'Currently going to school'; // 48 Education Status
-  row[48] = e.educationStatusSpecify || payload.educationStatusOther || ''; // 49 Education Status Other
-  row[49] = e.schoolName || payload.schoolName || ''; // 50 School Name
-  row[50] = e.schoolSessionStartDate || payload.schoolSessionStartDate || ''; // 51 School Session Start Date
-  row[51] = e.schoolType || payload.schoolType || 'Government school'; // 52 School Type
-  row[52] = e.currentClass || payload.currentClass || ''; // 53 Current Class
-  row[53] = e.attendance || payload.attendanceStatus || 'Regular'; // 54 Attendance Status
-  row[54] = Number(exp.schoolFees) || 0; // 55 School Fees
-  row[55] = Number(exp.tuitionFees) || 0; // 56 Private Tuition Fee
-  row[56] = Number(exp.books) || 0; // 57 School Books
-  row[57] = Number(exp.stationery) || 0; // 58 School Stationery
-  row[58] = Number(exp.uniform) || 0; // 59 School Uniform
-  row[59] = Number(exp.transport) || 0; // 60 School Transport
-  row[60] = Number(exp.otherExpenses) || 0; // 61 School Other Expenses
-  row[61] = Number(exp.totalAnnualCost) || 0; // 62 Total Annual Education Cost
+  row[27] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || 4); // 28 Household Members
+  row[28] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || 2); // 29 No of Children
+  row[29] = payload.householdFinancial ? payload.householdFinancial.monthlyIncomeRs : (payload.monthlyIncome || 0); // 30 Monthly Income
+  row[30] = payload.householdFinancial ? payload.householdFinancial.mainSourceOfIncome : (payload.incomeSource || 'Daily wage labour'); // 31 Income Source
+  row[31] = h.weightKg || n.weightKg || payload.currentWeightKg || 0; // 32 Current Weight (kg)
+  row[32] = h.heightCm || n.heightCm || payload.currentHeightCm || 0; // 33 Current Height (cm)
+  row[33] = h.bmi || n.bmi || payload.bmi || 0; // 34 BMI
+  row[34] = h.bmiCategory || payload.bmiCategory || (h.nutritionStatus || n.nutritionStatus || 'Normal'); // 35 BMI Category
+  row[35] = h.haemoglobinGdl !== undefined ? h.haemoglobinGdl : (payload.hemoglobinGdl || ''); // 36 Hemoglobin (g/dL)
+  row[36] = h.hbCategory || payload.hbCategory || 'Normal'; // 37 Hb Category
+  row[37] = Array.isArray(h.otherHealthConditions) ? h.otherHealthConditions.join(', ') : (payload.comorbidities || ''); // 38 Comorbidities
+  row[38] = h.otherHealthConditionSpecify || payload.comorbiditiesOther || ''; // 39 Comorbidities Other
+  row[39] = h.artStatus || payload.artStatus || 'On ART'; // 40 ART Status
+  row[40] = h.artRegistrationDate || payload.artRegistrationDate || ''; // 41 ART Registration Date
+  row[41] = h.artIdNumber || payload.artIdNumber || ''; // 42 ART ID Number
+  row[42] = h.vlStatus || payload.vlStatus || 'Tested in last 6 months'; // 43 VL Status
+  row[43] = h.vlDate || payload.vlDate || ''; // 44 VL Date
+  row[44] = h.viralLoad !== undefined ? String(h.viralLoad) : (payload.viralLoad || '< 50'); // 45 Viral Load
+  row[45] = h.vlCategory || payload.vlCategory || 'Undetectable (<50 copies/mL)'; // 46 VL Category
+  row[46] = n.appetite || payload.appetite || 'Good'; // 47 Appetite
+  row[47] = n.mealsPerDay || payload.mealsPerDay || 3; // 48 Meals per Day
+  row[48] = e.educationStatus || payload.educationStatus || 'Currently going to school'; // 49 Education Status
+  row[49] = e.educationStatusSpecify || payload.educationStatusOther || ''; // 50 Education Status Other
+  row[50] = e.schoolName || payload.schoolName || ''; // 51 School Name
+  row[51] = e.schoolSessionStartDate || payload.schoolSessionStartDate || ''; // 52 School Session Start Date
+  row[52] = e.schoolType || payload.schoolType || 'Government school'; // 53 School Type
+  row[53] = e.currentClass || payload.currentClass || ''; // 54 Current Class
+  row[54] = e.attendance || payload.attendanceStatus || 'Regular'; // 55 Attendance Status
+  row[55] = Number(exp.schoolFees) || 0; // 56 School Fees
+  row[56] = Number(exp.tuitionFees) || 0; // 57 Private Tuition Fee
+  row[57] = Number(exp.books) || 0; // 58 School Books
+  row[58] = Number(exp.stationery) || 0; // 59 School Stationery
+  row[59] = Number(exp.uniform) || 0; // 60 School Uniform
+  row[60] = Number(exp.transport) || 0; // 61 School Transport
+  row[61] = Number(exp.otherExpenses) || 0; // 62 School Other Expenses
+  row[62] = Number(exp.totalAnnualCost) || 0; // 63 Total Annual Education Cost
 
-  // Education Photo Links (Cols 63, 64) — Stored in child folder, formatted as in-cell formula
-  row[62] = processDocumentUpload_(exp.feeReceiptPhotoUrl || e.feeReceiptPhotoUrl || payload.feeReceiptPhotoUrl || payload.schoolFeeReceiptLink, childFolder, 'Fee_Receipt', uniqueId);
-  row[63] = processDocumentUpload_(exp.marksheetPhotoUrl || e.marksheetPhotoUrl || payload.marksheetPhotoUrl || payload.marksheetPhotoLink, childFolder, 'Marksheet', uniqueId);
+  // Education Photo Links (Cols 64, 65) — In-cell embedded formulas
+  row[63] = processDocumentUpload_(exp.feeReceiptPhotoUrl || e.feeReceiptPhotoUrl || payload.feeReceiptPhotoUrl || payload.schoolFeeReceiptLink, childFolder, 'Fee_Receipt', uniqueId);
+  row[64] = processDocumentUpload_(exp.marksheetPhotoUrl || e.marksheetPhotoUrl || payload.marksheetPhotoUrl || payload.marksheetPhotoLink, childFolder, 'Marksheet', uniqueId);
 
-  row[64] = exp.remarks || payload.remarks || ''; // 65 Remarks (If Any)
-  row[65] = f.approvedAllianceIndia || payload.approvedAllianceIndia || 'Pending'; // 66 Approved Alliance India
-  row[66] = f.allInfoCorrect || payload.reviewConfirmed ? 'Yes' : 'No'; // 67 Review Confirmed
-  row[67] = f.organizationName || payload.organizationName || 'India HIV/AIDS Alliance'; // 68 Organization Name
-  row[68] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 69 Form Submitted By
-  row[69] = f.organizationEmail || payload.organizationEmail || ''; // 70 Organization Email
-  row[70] = payload.syncNeeded || 'NO'; // 71 Sync Needed
-  row[71] = payload.updatedAt || now; // 72 Last Updated
+  row[65] = exp.remarks || payload.remarks || ''; // 66 Remarks (If Any)
+  row[66] = f.approvedAllianceIndia || payload.approvedAllianceIndia || 'Pending'; // 67 Approved Alliance India
+  row[67] = f.allInfoCorrect || payload.reviewConfirmed ? 'Yes' : 'No'; // 68 Review Confirmed
+  row[68] = f.organizationName || payload.organizationName || 'India HIV/AIDS Alliance'; // 69 Organization Name
+  row[69] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 70 Form Submitted By
+  row[70] = f.organizationEmail || payload.organizationEmail || ''; // 71 Organization Email
+  row[71] = payload.syncNeeded || 'NO'; // 72 Sync Needed
+  row[72] = payload.updatedAt || now; // 73 Last Updated
 
   sheet.appendRow(row);
   var newRowIndex = sheet.getLastRow();
@@ -713,9 +721,10 @@ function handleCreate_(payload) {
       remoteSubmissionId: uniqueId,
       clientSubmissionId: uniqueId,
       uniqueId: uniqueId,
+      revisionNumber: 1,
+      version: 1,
       rowNumber: newRowIndex,
       totalColumns: COLUMN_HEADERS.length,
-      version: 1,
       updatedAt: now,
       isDuplicate: false,
     })
@@ -727,6 +736,14 @@ function handleUpdate_(payload) {
     for (var k in payload.data) {
       if (payload.data.hasOwnProperty(k) && !payload.hasOwnProperty(k)) {
         payload[k] = payload.data[k];
+      }
+    }
+  }
+
+  if (payload.patch && typeof payload.patch === 'object') {
+    for (var pk in payload.patch) {
+      if (payload.patch.hasOwnProperty(pk) && !payload.hasOwnProperty(pk)) {
+        payload[pk] = payload.patch[pk];
       }
     }
   }
@@ -760,109 +777,118 @@ function handleUpdate_(payload) {
   }
 
   var existingRow = sheet.getRange(foundRow, 1, 1, COLUMN_HEADERS.length).getValues()[0];
-  var colMap = ctx.colMap;
 
-  // OCC Version check if client sent baseVersion
-  if (payload.baseVersion !== undefined) {
-    var sheetVersion = 1;
-    if (colMap['version'] && existingRow[colMap['version'] - 1]) {
-      sheetVersion = parseInt(existingRow[colMap['version'] - 1], 10) || 1;
-    }
-    if (sheetVersion > payload.baseVersion) {
-      return ContentService.createTextOutput(
-        JSON.stringify({
-          status: 'error',
-          code: 'OCC_CONFLICT',
-          message: 'Concurrent modification conflict. Sheet has newer version ' + sheetVersion,
-          currentVersion: sheetVersion,
-        })
-      ).setMimeType(ContentService.MimeType.JSON);
-    }
+  // OCC Version & Revision Check
+  var currentRevision = 1;
+  var rawRev = sheet.getRange(foundRow, 2).getValue();
+  if (rawRev) {
+    currentRevision = parseInt(rawRev, 10) || 1;
   }
 
-  var childName = payload.childName || (payload.demographics && payload.demographics.childName) || existingRow[7] || '';
+  var expectedRev = payload.expectedRevision !== undefined ? payload.expectedRevision :
+                   (payload.expectedVersion !== undefined ? payload.expectedVersion : payload.baseVersion);
+  if (expectedRev !== undefined && currentRevision > expectedRev) {
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        status: 'error',
+        code: 'OCC_CONFLICT',
+        message: 'Concurrent modification conflict. Sheet has newer revision ' + currentRevision + ' (expected ' + expectedRev + ')',
+        currentRevision: currentRevision,
+        currentVersion: currentRevision,
+        expectedRevision: expectedRev,
+        expectedVersion: expectedRev,
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Increment Revision Number on Column 2
+  var nextRevision = currentRevision + 1;
+  sheet.getRange(foundRow, 2).setValue(nextRevision);
+
+  var childName = payload.childName || (payload.demographics && payload.demographics.childName) || existingRow[8] || '';
   var childFolder = getOrCreateChildFolder_(childName, targetId);
 
+  // Mappings shifted by +1 for 73-column layout
   var allowedDirectMap = {
-    childName: 8,
-    dob: 9,
-    age: 10,
-    gender: 11,
-    orphanStatus: 12,
-    caregiverName: 13,
-    caregiverFullName: 13,
-    caregiverRelationship: 14,
-    caregiverRelation: 14,
-    contactNumber: 15,
-    caregiverPhone: 15,
-    caregiverContact: 15,
-    fullAddress: 16,
-    address: 16,
-    state: 17,
-    district: 18,
-    bankAccountHolderName: 19,
-    bankAccountNumber: 20,
-    bankIfscCode: 21,
-    bankLinkedMobileNumber: 22,
-    childAadhaarNumber: 23,
-    totalFamilyMembers: 27,
-    householdMembers: 27,
-    numberOfChildrenUnder18: 28,
-    noOfChildren: 28,
-    monthlyIncomeRs: 29,
-    monthlyIncome: 29,
-    mainSourceOfIncome: 30,
-    incomeSource: 30,
-    weightKg: 31,
-    currentWeightKg: 31,
-    heightCm: 32,
-    currentHeightCm: 32,
-    bmi: 33,
-    bmiCategory: 34,
-    haemoglobinGdl: 35,
-    hemoglobinGdl: 35,
-    hbCategory: 36,
-    comorbidities: 37,
-    comorbiditiesOther: 38,
-    artStatus: 39,
-    artRegistrationDate: 40,
-    artIdNumber: 41,
-    vlStatus: 42,
-    vlDate: 43,
-    viralLoad: 44,
-    vlCategory: 45,
-    appetite: 46,
-    mealsPerDay: 47,
-    educationStatus: 48,
-    educationStatusSpecify: 49,
-    schoolName: 50,
-    schoolSessionStartDate: 51,
-    schoolType: 52,
-    currentClass: 53,
-    attendance: 54,
-    attendanceStatus: 54,
-    schoolFees: 55,
-    tuitionFees: 56,
-    privateTuitionFee: 56,
-    books: 57,
-    schoolBooks: 57,
-    stationery: 58,
-    schoolStationery: 58,
-    uniform: 59,
-    schoolUniform: 59,
-    transport: 60,
-    schoolTransport: 60,
-    otherExpenses: 61,
-    schoolOtherExpenses: 61,
-    totalAnnualCost: 62,
-    totalAnnualEducationCost: 62,
-    remarks: 65,
-    approvedAllianceIndia: 66,
-    reviewConfirmed: 67,
-    organizationName: 68,
-    formSubmittedBy: 69,
-    organizationEmail: 70,
-    syncNeeded: 71
+    childName: 9,
+    dob: 10,
+    age: 11,
+    gender: 12,
+    orphanStatus: 13,
+    caregiverName: 14,
+    caregiverFullName: 14,
+    caregiverRelationship: 15,
+    caregiverRelation: 15,
+    contactNumber: 16,
+    caregiverPhone: 16,
+    caregiverContact: 16,
+    fullAddress: 17,
+    address: 17,
+    state: 18,
+    district: 19,
+    bankAccountHolderName: 20,
+    bankAccountNumber: 21,
+    bankIfscCode: 22,
+    bankLinkedMobileNumber: 23,
+    childAadhaarNumber: 24,
+    totalFamilyMembers: 28,
+    householdMembers: 28,
+    numberOfChildrenUnder18: 29,
+    noOfChildren: 29,
+    monthlyIncomeRs: 30,
+    monthlyIncome: 30,
+    mainSourceOfIncome: 31,
+    incomeSource: 31,
+    weightKg: 32,
+    currentWeightKg: 32,
+    heightCm: 33,
+    currentHeightCm: 33,
+    bmi: 34,
+    bmiCategory: 35,
+    haemoglobinGdl: 36,
+    hemoglobinGdl: 36,
+    hbCategory: 37,
+    comorbidities: 38,
+    comorbiditiesOther: 39,
+    artStatus: 40,
+    artRegistrationDate: 41,
+    artIdNumber: 42,
+    vlStatus: 43,
+    vlDate: 44,
+    viralLoad: 45,
+    vlCategory: 46,
+    appetite: 47,
+    mealsPerDay: 48,
+    educationStatus: 49,
+    educationStatusSpecify: 50,
+    schoolName: 51,
+    schoolSessionStartDate: 52,
+    schoolType: 53,
+    currentClass: 54,
+    attendance: 55,
+    attendanceStatus: 55,
+    schoolFees: 56,
+    tuitionFees: 57,
+    privateTuitionFee: 57,
+    books: 58,
+    schoolBooks: 58,
+    stationery: 59,
+    schoolStationery: 59,
+    uniform: 60,
+    schoolUniform: 60,
+    transport: 61,
+    schoolTransport: 61,
+    otherExpenses: 62,
+    schoolOtherExpenses: 62,
+    totalAnnualCost: 63,
+    totalAnnualEducationCost: 63,
+    remarks: 66,
+    approvedAllianceIndia: 67,
+    reviewConfirmed: 68,
+    organizationName: 69,
+    formSubmittedBy: 70,
+    organizationEmail: 71,
+    syncNeeded: 72
   };
 
   // Direct mutations
@@ -880,27 +906,27 @@ function handleUpdate_(payload) {
   // Nested mutations
   var d = payload.demographics || payload.childProfile;
   if (d) {
-    if (d.childName !== undefined) sheet.getRange(foundRow, 8).setValue(d.childName);
-    if (d.dob !== undefined) sheet.getRange(foundRow, 9).setValue(d.dob);
-    if (d.calculatedAgeYears !== undefined) sheet.getRange(foundRow, 10).setValue(d.calculatedAgeYears);
-    if (d.gender !== undefined) sheet.getRange(foundRow, 11).setValue(d.gender);
-    if (d.orphanStatus !== undefined) sheet.getRange(foundRow, 12).setValue(d.orphanStatus);
-    if (d.caregiverName !== undefined) sheet.getRange(foundRow, 13).setValue(d.caregiverName);
-    if (d.caregiverRelationship !== undefined) sheet.getRange(foundRow, 14).setValue(d.caregiverRelationship);
-    if (d.contactNumber !== undefined) sheet.getRange(foundRow, 15).setValue(d.contactNumber);
-    if (d.fullAddress !== undefined) sheet.getRange(foundRow, 16).setValue(d.fullAddress);
-    if (d.state !== undefined) sheet.getRange(foundRow, 17).setValue(d.state);
-    if (d.district !== undefined) sheet.getRange(foundRow, 18).setValue(d.district);
-    if (d.childAadhaarNumber !== undefined) sheet.getRange(foundRow, 23).setValue(d.childAadhaarNumber);
+    if (d.childName !== undefined) sheet.getRange(foundRow, 9).setValue(d.childName);
+    if (d.dob !== undefined) sheet.getRange(foundRow, 10).setValue(d.dob);
+    if (d.calculatedAgeYears !== undefined) sheet.getRange(foundRow, 11).setValue(d.calculatedAgeYears);
+    if (d.gender !== undefined) sheet.getRange(foundRow, 12).setValue(d.gender);
+    if (d.orphanStatus !== undefined) sheet.getRange(foundRow, 13).setValue(d.orphanStatus);
+    if (d.caregiverName !== undefined) sheet.getRange(foundRow, 14).setValue(d.caregiverName);
+    if (d.caregiverRelationship !== undefined) sheet.getRange(foundRow, 15).setValue(d.caregiverRelationship);
+    if (d.contactNumber !== undefined) sheet.getRange(foundRow, 16).setValue(d.contactNumber);
+    if (d.fullAddress !== undefined) sheet.getRange(foundRow, 17).setValue(d.fullAddress);
+    if (d.state !== undefined) sheet.getRange(foundRow, 18).setValue(d.state);
+    if (d.district !== undefined) sheet.getRange(foundRow, 19).setValue(d.district);
+    if (d.childAadhaarNumber !== undefined) sheet.getRange(foundRow, 24).setValue(d.childAadhaarNumber);
   }
 
   var b = payload.bankingAndKyc || payload.bankDetails || payload.caregiverHousehold;
   if (b) {
-    if (b.bankAccountHolderName !== undefined) sheet.getRange(foundRow, 19).setValue(b.bankAccountHolderName);
-    if (b.bankAccountNumber !== undefined) sheet.getRange(foundRow, 20).setValue(b.bankAccountNumber);
-    if (b.bankIfscCode !== undefined) sheet.getRange(foundRow, 21).setValue(b.bankIfscCode);
-    if (b.bankLinkedMobileNumber !== undefined) sheet.getRange(foundRow, 22).setValue(b.bankLinkedMobileNumber);
-    if (b.childAadhaarNumber !== undefined) sheet.getRange(foundRow, 23).setValue(b.childAadhaarNumber);
+    if (b.bankAccountHolderName !== undefined) sheet.getRange(foundRow, 20).setValue(b.bankAccountHolderName);
+    if (b.bankAccountNumber !== undefined) sheet.getRange(foundRow, 21).setValue(b.bankAccountNumber);
+    if (b.bankIfscCode !== undefined) sheet.getRange(foundRow, 22).setValue(b.bankIfscCode);
+    if (b.bankLinkedMobileNumber !== undefined) sheet.getRange(foundRow, 23).setValue(b.bankLinkedMobileNumber);
+    if (b.childAadhaarNumber !== undefined) sheet.getRange(foundRow, 24).setValue(b.childAadhaarNumber);
   }
 
   // Document photo updates with obsolete file trashing
@@ -941,9 +967,9 @@ function handleUpdate_(payload) {
     sheet.getRange(foundRow, DOC_COLUMNS.MARKSHEET).setValue(processDocumentUpload_(mVal, childFolder, 'Marksheet', targetId, oldMark));
   }
 
-  // Update Last Updated column
+  // Update Last Updated column (Col 73)
   var now = new Date().toISOString();
-  sheet.getRange(foundRow, 72).setValue(now);
+  sheet.getRange(foundRow, 73).setValue(now);
 
   return ContentService.createTextOutput(
     JSON.stringify({
@@ -951,6 +977,8 @@ function handleUpdate_(payload) {
       acknowledged: true,
       remoteSubmissionId: targetId,
       uniqueId: targetId,
+      revisionNumber: nextRevision,
+      version: nextRevision,
       rowNumber: foundRow,
       updatedAt: now,
     })
@@ -986,7 +1014,13 @@ function handleRead_(params) {
         record[COLUMN_HEADERS[c]] = formulas[c] || values[c];
       }
       return ContentService.createTextOutput(
-        JSON.stringify({ status: 'success', data: record, rowNumber: rowIndex })
+        JSON.stringify({
+          status: 'success',
+          data: record,
+          rowNumber: rowIndex,
+          uniqueId: values[0],
+          revisionNumber: values[1],
+        })
       ).setMimeType(ContentService.MimeType.JSON);
     }
   }
@@ -1257,84 +1291,85 @@ function runSetupAndInsertSampleRows() {
 
     var r = new Array(COLUMN_HEADERS.length);
     r[0] = s.uniqueId;
-    r[1] = now;
-    r[2] = s.submittedBy;
-    r[3] = s.consent;
-    r[4] = processDocumentUpload_(PLACEHOLDER_DOCS.SIGNATURE, childFolder, 'Signature', s.uniqueId);
-    r[5] = s.visitDate;
-    r[6] = 'Field Caseworker';
-    r[7] = s.childName;
-    r[8] = s.dob;
-    r[9] = s.age;
-    r[10] = s.gender;
-    r[11] = s.orphanStatus;
-    r[12] = s.caregiverName;
-    r[13] = s.caregiverRelation;
-    r[14] = s.caregiverContact;
-    r[15] = s.address;
-    r[16] = s.state;
-    r[17] = s.district;
-    r[18] = s.accountHolder;
-    r[19] = s.accountNo;
-    r[20] = s.ifsc;
-    r[21] = s.bankMobile;
-    r[22] = s.aadhaarNo;
-    r[23] = processDocumentUpload_(PLACEHOLDER_DOCS.PASSBOOK, childFolder, 'Passbook', s.uniqueId);
-    r[24] = processDocumentUpload_(PLACEHOLDER_DOCS.AADHAAR, childFolder, 'Aadhaar', s.uniqueId);
-    r[25] = processDocumentUpload_(PLACEHOLDER_DOCS.CHILD_PHOTO, childFolder, 'Child_Photo', s.uniqueId);
-    r[26] = s.familyMembers;
-    r[27] = s.children;
-    r[28] = s.monthlyIncome;
-    r[29] = s.incomeSource;
-    r[30] = s.weight;
-    r[31] = s.height;
-    r[32] = s.bmi;
-    r[33] = s.bmiCat;
-    r[34] = s.hb;
-    r[35] = s.hbCat;
-    r[36] = s.comorbidities;
-    r[37] = s.comorbiditiesOther;
-    r[38] = s.artStatus;
-    r[39] = s.artRegDate;
-    r[40] = s.artId;
-    r[41] = s.vlStatus;
-    r[42] = s.vlDate;
-    r[43] = s.vlCopies;
-    r[44] = s.vlCat;
-    r[45] = s.appetite;
-    r[46] = s.meals;
-    r[47] = s.eduStatus;
-    r[48] = s.eduOther;
-    r[49] = s.schoolName;
-    r[50] = s.sessionStart;
-    r[51] = s.schoolType;
-    r[52] = s.currentClass;
-    r[53] = s.attendance;
-    r[54] = s.fees;
-    r[55] = s.tuition;
-    r[56] = s.books;
-    r[57] = s.stationery;
-    r[58] = s.uniform;
-    r[59] = s.transport;
-    r[60] = s.other;
-    r[61] = s.totalCost;
-    r[62] = processDocumentUpload_(PLACEHOLDER_DOCS.FEE_RECEIPT, childFolder, 'Fee_Receipt', s.uniqueId);
-    r[63] = processDocumentUpload_(PLACEHOLDER_DOCS.MARKSHEET, childFolder, 'Marksheet', s.uniqueId);
-    r[64] = s.remarks;
-    r[65] = s.approval;
-    r[66] = 'Yes';
-    r[67] = s.cbo;
-    r[68] = s.submitter;
-    r[69] = s.email;
-    r[70] = 'NO';
-    r[71] = now;
+    r[1] = 1; // Revision Number 1
+    r[2] = now;
+    r[3] = s.submittedBy;
+    r[4] = s.consent;
+    r[5] = processDocumentUpload_(PLACEHOLDER_DOCS.SIGNATURE, childFolder, 'Signature', s.uniqueId);
+    r[6] = s.visitDate;
+    r[7] = 'Field Caseworker';
+    r[8] = s.childName;
+    r[9] = s.dob;
+    r[10] = s.age;
+    r[11] = s.gender;
+    r[12] = s.orphanStatus;
+    r[13] = s.caregiverName;
+    r[14] = s.caregiverRelation;
+    r[15] = s.caregiverContact;
+    r[16] = s.address;
+    r[17] = s.state;
+    r[18] = s.district;
+    r[19] = s.accountHolder;
+    r[20] = s.accountNo;
+    r[21] = s.ifsc;
+    r[22] = s.bankMobile;
+    r[23] = s.aadhaarNo;
+    r[24] = processDocumentUpload_(PLACEHOLDER_DOCS.PASSBOOK, childFolder, 'Passbook', s.uniqueId);
+    r[25] = processDocumentUpload_(PLACEHOLDER_DOCS.AADHAAR, childFolder, 'Aadhaar', s.uniqueId);
+    r[26] = processDocumentUpload_(PLACEHOLDER_DOCS.CHILD_PHOTO, childFolder, 'Child_Photo', s.uniqueId);
+    r[27] = s.familyMembers;
+    r[28] = s.children;
+    r[29] = s.monthlyIncome;
+    r[30] = s.incomeSource;
+    r[31] = s.weight;
+    r[32] = s.height;
+    r[33] = s.bmi;
+    r[34] = s.bmiCat;
+    r[35] = s.hb;
+    r[36] = s.hbCat;
+    r[37] = s.comorbidities;
+    r[38] = s.comorbiditiesOther;
+    r[39] = s.artStatus;
+    r[40] = s.artRegDate;
+    r[41] = s.artId;
+    r[42] = s.vlStatus;
+    r[43] = s.vlDate;
+    r[44] = s.vlCopies;
+    r[45] = s.vlCat;
+    r[46] = s.appetite;
+    r[47] = s.meals;
+    r[48] = s.eduStatus;
+    r[49] = s.eduOther;
+    r[50] = s.schoolName;
+    r[51] = s.sessionStart;
+    r[52] = s.schoolType;
+    r[53] = s.currentClass;
+    r[54] = s.attendance;
+    r[55] = s.fees;
+    r[56] = s.tuition;
+    r[57] = s.books;
+    r[58] = s.stationery;
+    r[59] = s.uniform;
+    r[60] = s.transport;
+    r[61] = s.other;
+    r[62] = s.totalCost;
+    r[63] = processDocumentUpload_(PLACEHOLDER_DOCS.FEE_RECEIPT, childFolder, 'Fee_Receipt', s.uniqueId);
+    r[64] = processDocumentUpload_(PLACEHOLDER_DOCS.MARKSHEET, childFolder, 'Marksheet', s.uniqueId);
+    r[65] = s.remarks;
+    r[66] = s.approval;
+    r[67] = 'Yes';
+    r[68] = s.cbo;
+    r[69] = s.submitter;
+    r[70] = s.email;
+    r[71] = 'NO';
+    r[72] = now;
 
     sheet.appendRow(r);
     var rowIdx = sheet.getLastRow();
     formatDataRow_(sheet, rowIdx);
   }
 
-  return 'Successfully configured 72-column linelist with Drive child-namewise folders and in-cell images.';
+  return 'Successfully configured 73-column linelist with Revision Number, Drive child-namewise folders and in-cell images.';
 }
 
 function formatSheetLinelistDesign() {
