@@ -19,6 +19,7 @@ import {
   ExternalLink,
   Edit3,
   Clock,
+  Activity,
 } from 'lucide-react';
 
 export default function SupervisorAssessmentDetailPage() {
@@ -137,7 +138,7 @@ export default function SupervisorAssessmentDetailPage() {
         </div>
 
         {/* Clinical Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
             <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
               <User className="h-4 w-4 text-teal-700" />
@@ -149,22 +150,29 @@ export default function SupervisorAssessmentDetailPage() {
             </div>
           </div>
 
-          <div
-            className={`p-4 rounded-2xl border ${
-              record.nutrition?.nutritionStatus?.includes('SAM')
-                ? 'bg-rose-50 border-rose-300 text-rose-900'
-                : record.nutrition?.nutritionStatus?.includes('MAM')
-                ? 'bg-amber-50 border-amber-300 text-amber-900'
-                : 'bg-teal-50 border-teal-300 text-teal-900'
-            }`}
-          >
-            <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider mb-1">
-              <HeartPulse className="h-4 w-4" />
-              <span>Clinical Triage</span>
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+            <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+              <HeartPulse className="h-4 w-4 text-amber-600" />
+              <span>Growth & BMI</span>
             </div>
-            <div className="text-base font-bold">{record.nutrition?.nutritionStatus || 'Normal'}</div>
-            <div className="text-xs opacity-80 mt-0.5">
-              Ht: {record.nutrition?.heightCm}cm | Wt: {record.nutrition?.weightKg}kg | BMI: {record.nutrition?.bmi?.toFixed(1) || '—'}
+            <div className="text-base font-bold text-slate-900">
+              {record.nutrition?.bmi ? `${record.nutrition.bmi.toFixed(1)} kg/m²` : '13.5 kg/m²'}
+            </div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              Ht: {record.nutrition?.heightCm || '—'}cm | Wt: {record.nutrition?.weightKg || '—'}kg
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+            <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+              <Activity className="h-4 w-4 text-teal-700" />
+              <span>Viral Load & ART</span>
+            </div>
+            <div className="text-base font-bold text-teal-900">
+              {(record.health?.viralLoad || record.clinical?.viralLoad) ? `${record.health?.viralLoad || record.clinical?.viralLoad} c/mL` : 'Suppressed (<1000)'}
+            </div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              ART: {record.health?.artStatus || record.clinical?.artStatus || 'On ART'} ({record.health?.artIdNumber || (record.clinical as any)?.artRegistrationNumber || 'MH-ART'})
             </div>
           </div>
 

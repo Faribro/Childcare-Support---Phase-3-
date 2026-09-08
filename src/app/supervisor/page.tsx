@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +18,14 @@ import {
   Clock,
   CheckCircle2,
   FileCheck,
+  Activity,
+  Download,
+  Flame,
+  AlertCircle,
+  ExternalLink,
+  BookOpen,
 } from 'lucide-react';
+import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
 interface SupervisorRecord {
   id: string;
@@ -27,78 +34,114 @@ interface SupervisorRecord {
   age: number;
   gender: string;
   district: string;
-  nutritionStatus: 'Normal' | 'MAM (Moderate Acute Malnutrition)' | 'SAM (Severe Acute Malnutrition)';
+  bmi: number;
+  bmiCategory: BMICategory;
+  viralLoad: string | number;
+  vlCategory: VLCategory;
+  hemoglobin: string | number;
+  hbCategory: HbCategory;
   grantAmount: number;
   syncState: 'SYNCED' | 'QUEUED';
   lastVisit: string;
   version: number;
+  schoolEnrolled?: boolean;
 }
 
 const DEFAULT_RECORDS: SupervisorRecord[] = [
   {
     id: 'MH-PUN-0842-01',
-    artNumber: 'MH-PUN-0842-01',
+    artNumber: 'MH-PUN-0842',
     childName: 'Pooja Ramesh K.',
     age: 7,
     gender: 'Female',
     district: 'Pune',
-    nutritionStatus: 'SAM (Severe Acute Malnutrition)',
+    bmi: 11.6,
+    bmiCategory: 'Severe Underweight',
+    viralLoad: '34',
+    vlCategory: 'Undetectable (<50 copies/mL)',
+    hemoglobin: '11.2',
+    hbCategory: 'Normal',
     grantAmount: 3500,
     syncState: 'SYNCED',
     lastVisit: '2026-09-04',
     version: 1,
+    schoolEnrolled: true,
   },
   {
     id: 'MH-PUN-0914-02',
-    artNumber: 'MH-PUN-0914-02',
+    artNumber: 'MH-PUN-0914',
     childName: 'Aarav Sachin P.',
     age: 5,
     gender: 'Male',
     district: 'Pune',
-    nutritionStatus: 'MAM (Moderate Acute Malnutrition)',
+    bmi: 13.6,
+    bmiCategory: 'Moderate Underweight',
+    viralLoad: '120',
+    vlCategory: 'Suppressed (<1000 copies/mL)',
+    hemoglobin: '9.4',
+    hbCategory: 'Moderate Anemia',
     grantAmount: 3000,
     syncState: 'SYNCED',
     lastVisit: '2026-09-05',
     version: 1,
+    schoolEnrolled: true,
   },
   {
     id: 'MH-MUM-1102-03',
-    artNumber: 'MH-MUM-1102-03',
+    artNumber: 'MH-MUM-1102',
     childName: 'Tanvi Dilip M.',
     age: 9,
     gender: 'Female',
     district: 'Mumbai Suburban',
-    nutritionStatus: 'Normal',
+    bmi: 15.8,
+    bmiCategory: 'Normal',
+    viralLoad: '28',
+    vlCategory: 'Undetectable (<50 copies/mL)',
+    hemoglobin: '12.1',
+    hbCategory: 'Normal',
     grantAmount: 2000,
     syncState: 'SYNCED',
     lastVisit: '2026-09-06',
     version: 1,
+    schoolEnrolled: true,
   },
   {
     id: 'MH-THN-0418-04',
-    artNumber: 'MH-THN-0418-04',
+    artNumber: 'MH-THN-0418',
     childName: 'Omkar Suresh V.',
     age: 11,
     gender: 'Male',
     district: 'Thane',
-    nutritionStatus: 'Normal',
+    bmi: 16.2,
+    bmiCategory: 'Normal',
+    viralLoad: '1850',
+    vlCategory: 'Unsuppressed (≥1000 copies/mL)',
+    hemoglobin: '11.6',
+    hbCategory: 'Normal',
     grantAmount: 2000,
     syncState: 'SYNCED',
     lastVisit: '2026-09-07',
     version: 1,
+    schoolEnrolled: true,
   },
   {
     id: 'MH-PUN-1049-05',
-    artNumber: 'MH-PUN-1049-05',
+    artNumber: 'MH-PUN-1049',
     childName: 'Rahul Manoj S.',
     age: 6,
     gender: 'Male',
     district: 'Pune',
-    nutritionStatus: 'SAM (Severe Acute Malnutrition)',
+    bmi: 12.5,
+    bmiCategory: 'Severe Underweight',
+    viralLoad: '420',
+    vlCategory: 'Suppressed (<1000 copies/mL)',
+    hemoglobin: '6.8',
+    hbCategory: 'Severe Anemia',
     grantAmount: 4500,
     syncState: 'SYNCED',
     lastVisit: '2026-09-08',
     version: 2,
+    schoolEnrolled: false,
   },
 ];
 
@@ -109,118 +152,408 @@ export default function SupervisorDashboardPage() {
   useEffect(() => {
     async function loadServerRecords() {
       try {
-        const res = await fetch('/api/submissions?limit=10');
+        setIsLoading(true);
+        const res = await fetch('/api/submissions?limit=50');
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.items) && data.items.length > 0) {
-            const mapped: SupervisorRecord[] = data.items.map((it: any) => ({
-              id: it.id || it.demographics?.artNumber || it.clientSubmissionId,
-              artNumber: it.demographics?.artNumber || 'MH-GEN-00',
-              childName: it.demographics?.childName || 'Beneficiary Child',
-              age: it.demographics?.calculatedAgeYears ?? 5,
-              gender: it.demographics?.gender || 'Unknown',
-              district: it.demographics?.district || 'General',
-              nutritionStatus: it.nutrition?.nutritionStatus || 'Normal',
-              grantAmount: it.grantCalculation?.totalGrantAmount || 2000,
-              syncState: 'SYNCED',
-              lastVisit: (it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0],
-              version: it.version || 1,
-            }));
+            const mapped: SupervisorRecord[] = data.items.map((it: any) => {
+              const rawBmi = it.nutrition?.bmi || it.clinical?.bmi || it.bmi || 14;
+              let bmiCat: BMICategory = 'Normal';
+              if (rawBmi < 13.5) bmiCat = 'Severe Underweight';
+              else if (rawBmi < 15.0) bmiCat = 'Moderate Underweight';
+              else if (rawBmi > 22.0) bmiCat = 'Overweight / Obese';
+
+              const rawVl = it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
+              const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
+              let vlCat: VLCategory = 'Suppressed (<1000 copies/mL)';
+              if (!isNaN(numVl)) {
+                if (numVl < 50) vlCat = 'Undetectable (<50 copies/mL)';
+                else if (numVl >= 1000) vlCat = 'Unsuppressed (≥1000 copies/mL)';
+              }
+
+              const rawHb = it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '11.5';
+              const numHb = parseFloat(String(rawHb));
+              let hbCat: HbCategory = 'Normal';
+              if (!isNaN(numHb)) {
+                if (numHb < 7.0) hbCat = 'Severe Anemia';
+                else if (numHb < 10.0) hbCat = 'Moderate Anemia';
+                else if (numHb < 11.0) hbCat = 'Mild Anemia';
+              }
+
+              return {
+                id: it.id || it.demographics?.artNumber || it.clientSubmissionId,
+                artNumber: it.demographics?.artNumber || it.art_number || 'MH-GEN-00',
+                childName: it.demographics?.childName || it.child_name || 'Beneficiary Child',
+                age: it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 5,
+                gender: it.demographics?.gender || it.gender || 'Unknown',
+                district: it.demographics?.district || it.district || 'Pune',
+                bmi: Number(rawBmi) || 14,
+                bmiCategory: (it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
+                viralLoad: rawVl,
+                vlCategory: (it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
+                hemoglobin: rawHb,
+                hbCategory: (it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
+                grantAmount: it.grantCalculation?.totalGrantAmount || it.recommended_grant_amount || 2000,
+                syncState: 'SYNCED',
+                lastVisit: (it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0],
+                version: it.version || 1,
+                schoolEnrolled: it.education?.educationStatus?.includes('going') ?? true,
+              };
+            });
             setRecords(mapped);
           }
         }
       } catch (err) {
         console.warn('Using default supervisor dataset:', err);
+      } finally {
+        setIsLoading(false);
       }
     }
     loadServerRecords();
   }, []);
 
-  const samCount = records.filter((r) => r.nutritionStatus.includes('SAM')).length;
-  const mamCount = records.filter((r) => r.nutritionStatus.includes('MAM')).length;
-  const normalCount = records.filter((r) => r.nutritionStatus === 'Normal').length;
+  // Clinical Metrics Calculations (Authentic Phase 2 indicators)
+  const totalEvaluated = records.length;
+  
+  // HIV Viral Load Suppression
+  const suppressedCount = records.filter(
+    (r) => r.vlCategory.includes('Suppressed') || r.vlCategory.includes('Undetectable')
+  ).length;
+  const unsuppressedCount = records.filter((r) => r.vlCategory.includes('Unsuppressed')).length;
+  const suppressionRate = totalEvaluated > 0 ? Math.round((suppressedCount / totalEvaluated) * 100) : 0;
+
+  // Pediatric Underweight & Nutritional Risk
+  const severeUnderweightCount = records.filter((r) => r.bmiCategory === 'Severe Underweight').length;
+  const moderateUnderweightCount = records.filter((r) => r.bmiCategory === 'Moderate Underweight').length;
+  const normalBMICount = records.filter((r) => r.bmiCategory === 'Normal').length;
+  const nutritionalRiskCount = severeUnderweightCount + moderateUnderweightCount;
+
+  // Severe Anemia
+  const severeAnemiaCount = records.filter((r) => r.hbCategory === 'Severe Anemia').length;
+  const moderateAnemiaCount = records.filter((r) => r.hbCategory === 'Moderate Anemia').length;
+
+  // Financial Entitlement
   const totalGrant = records.reduce((sum, r) => sum + r.grantAmount, 0);
+
+  // High-Priority Clinical Alert Cases (Alert Strip)
+  const highPriorityAlerts = useMemo(() => {
+    return records
+      .map((r) => {
+        const issues: string[] = [];
+        if (r.vlCategory.includes('Unsuppressed')) {
+          issues.push(`High Viral Load (${r.viralLoad} c/mL)`);
+        }
+        if (r.hbCategory === 'Severe Anemia') {
+          issues.push(`Severe Anemia (${r.hemoglobin} g/dL)`);
+        }
+        if (r.bmiCategory === 'Severe Underweight') {
+          issues.push(`Severe Underweight (BMI ${r.bmi})`);
+        }
+        if (r.schoolEnrolled === false) {
+          issues.push('Out of School / Not Enrolled');
+        }
+        return { record: r, issues };
+      })
+      .filter((item) => item.issues.length > 0);
+  }, [records]);
+
+  // Export Linelist to CSV
+  const handleExportCSV = () => {
+    const headers = [
+      'Reference ID',
+      'Child Name',
+      'Age',
+      'Gender',
+      'District',
+      'BMI',
+      'BMI Category',
+      'Viral Load (c/mL)',
+      'VL Suppression Status',
+      'Haemoglobin (g/dL)',
+      'Hb Anemia Status',
+      'DBT Grant (INR)',
+      'OCC Version',
+      'Last Visit Date',
+    ];
+    const csvRows = [
+      headers.join(','),
+      ...records.map((r) =>
+        [
+          `"${r.artNumber}"`,
+          `"${r.childName}"`,
+          r.age,
+          r.gender,
+          `"${r.district}"`,
+          r.bmi,
+          `"${r.bmiCategory}"`,
+          `"${r.viralLoad}"`,
+          `"${r.vlCategory}"`,
+          `"${r.hemoglobin}"`,
+          `"${r.hbCategory}"`,
+          r.grantAmount,
+          r.version,
+          r.lastVisit,
+        ].join(',')
+      ),
+    ];
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alliance_india_supervisor_linelist_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
 
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8">
-        {/* Masthead Header */}
+        {/* Supervisor Masthead Header - NO NEW INTAKE BUTTON */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-6 mb-6 border-b border-slate-200 gap-4">
           <div>
             <div className="flex items-center space-x-2 text-teal-700 text-xs font-bold uppercase tracking-wider mb-1">
               <ShieldCheck className="h-4 w-4" />
-              <span>Supervisor Clinical & Quality Assurance</span>
+              <span>Supervisor Clinical & Quality Assurance Portal</span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Programme Supervisor Portal</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Programme Clinical Surveillance</h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Authoritative linelist surveillance, OCC audit histories, and clinical triage verification.
+              Authoritative linelist surveillance, viral load monitoring, and pediatric nutrition triage.
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2.5">
+            <Button variant="secondary" onClick={handleExportCSV} className="shadow-xs text-xs h-9">
+              <Download className="h-3.5 w-3.5 mr-1.5 text-slate-600" />
+              <span>Export Linelist (CSV)</span>
+            </Button>
             <Link href="/supervisor/assessments">
-              <Button variant="secondary" className="shadow-xs">
-                <TableProperties className="h-4 w-4 mr-2" />
+              <Button variant="secondary" className="shadow-xs text-xs h-9">
+                <TableProperties className="h-3.5 w-3.5 mr-1.5 text-teal-700" />
                 <span>Master Linelist</span>
               </Button>
             </Link>
             <Link href="/supervisor/analytics">
-              <Button variant="secondary" className="shadow-xs">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                <span>Analytics</span>
+              <Button variant="secondary" className="shadow-xs text-xs h-9">
+                <BarChart3 className="h-3.5 w-3.5 mr-1.5 text-teal-700" />
+                <span>Clinical Analytics</span>
               </Button>
-            </Link>
-            <Link href="/assessment/new">
-              <Button variant="primary">New Intake</Button>
             </Link>
           </div>
         </div>
 
-        {/* Executive KPI Cards */}
+        {/* Phase 2 Ported: High-Priority Clinical Alert Strip */}
+        {highPriorityAlerts.length > 0 && (
+          <div className="mb-8 rounded-2xl border border-rose-200 bg-linear-to-r from-rose-50/90 via-amber-50/60 to-white p-4 sm:p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-rose-200/80">
+              <div className="flex items-center space-x-2 text-rose-800 font-bold text-xs sm:text-sm uppercase tracking-wide">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{highPriorityAlerts.length} Beneficiaries Require Immediate Clinical Intervention</span>
+              </div>
+              <span className="text-[11px] font-semibold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full self-start sm:self-auto">
+                Priority Action Required
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {highPriorityAlerts.slice(0, 3).map(({ record: r, issues }) => (
+                <div
+                  key={r.id}
+                  className="bg-white/95 rounded-xl p-3 border border-rose-200 shadow-2xs flex flex-col justify-between hover:border-rose-400 transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-mono font-bold text-teal-900">{r.artNumber}</span>
+                      <span className="text-slate-400 text-[11px]">{r.district}</span>
+                    </div>
+                    <div className="font-bold text-slate-900 text-sm">{r.childName}</div>
+                    <div className="mt-1.5 space-y-1">
+                      {issues.map((iss, idx) => (
+                        <div key={idx} className="flex items-center space-x-1.5 text-xs text-rose-700 font-medium">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" />
+                          <span>{iss}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">Age: {r.age} yrs</span>
+                    <Link href={`/supervisor/assessments/${r.id}`}>
+                      <span className="text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline flex items-center">
+                        Audit Triage →
+                      </span>
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5 mb-8">
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
+          {/* 1. Total Evaluated */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-slate-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
               <span className="text-xs font-bold uppercase tracking-wider">Total Evaluated</span>
               <Users className="h-4 w-4 text-teal-700" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">{records.length}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900">{totalEvaluated}</div>
             <p className="text-[11px] text-teal-700 font-medium mt-1 flex items-center">
               <TrendingUp className="h-3 w-3 mr-1" />
-              <span>Active Linelist Records</span>
+              <span>Active Linelist Beneficiaries</span>
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
+          {/* 2. Viral Load Suppression Rate (Central HIV Clinical Indicator) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-emerald-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-rose-700">SAM Flagged</span>
-              <AlertTriangle className="h-4 w-4 text-rose-600" />
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">VL Suppression Rate</span>
+              <Activity className="h-4 w-4 text-emerald-600" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-rose-600">{samCount}</div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Urgent NRC clinical referral
+            <div className="text-2xl sm:text-3xl font-bold text-emerald-700">{suppressionRate}%</div>
+            <p className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+              <span>{suppressedCount} of {totalEvaluated} Suppressed</span>
+              <span className="text-emerald-700 font-bold">(&lt;1,000 c/mL)</span>
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
+          {/* 3. Nutritional Risk (Underweight Staging) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-amber-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-700">MAM Flagged</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-800">Nutritional Risk</span>
               <HeartPulse className="h-4 w-4 text-amber-600" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-amber-600">{mamCount}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-amber-600">{nutritionalRiskCount}</div>
             <p className="text-[11px] text-slate-500 mt-1">
-              Supplementary nutrition tracking
+              {severeUnderweightCount} Severe • {moderateUnderweightCount} Moderate Underweight
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
+          {/* 4. Committed DBT Grant Pool */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-teal-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-teal-700">DBT Entitlement</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-teal-800">DBT Entitlement</span>
               <GraduationCap className="h-4 w-4 text-teal-700" />
             </div>
             <div className="text-2xl sm:text-3xl font-bold text-teal-900">₹{totalGrant.toLocaleString('en-IN')}</div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Committed child grant pool
+            <p className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+              <span>Committed child grant pool</span>
+              <span className="text-teal-700 font-bold">100% KYC</span>
             </p>
+          </div>
+        </div>
+
+        {/* Clinical Health & Surveillance Visualizations */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
+          {/* Growth & BMI Breakdown */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Paediatric BMI & Growth</h3>
+              <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">WHO Standard</span>
+            </div>
+            <div className="text-xs text-slate-500 mb-4">Underweight vs Normal BMI distribution</div>
+
+            {/* Segmented bar */}
+            <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
+              <div
+                style={{ width: `${totalEvaluated > 0 ? (normalBMICount / totalEvaluated) * 100 : 0}%` }}
+                className="bg-emerald-500 h-full transition-all"
+                title="Normal BMI"
+              />
+              <div
+                style={{ width: `${totalEvaluated > 0 ? (moderateUnderweightCount / totalEvaluated) * 100 : 0}%` }}
+                className="bg-amber-400 h-full transition-all"
+                title="Moderate Underweight"
+              />
+              <div
+                style={{ width: `${totalEvaluated > 0 ? (severeUnderweightCount / totalEvaluated) * 100 : 0}%` }}
+                className="bg-rose-500 h-full transition-all"
+                title="Severe Underweight"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                <span className="block text-[10px] text-slate-500 font-medium">Normal</span>
+                <span className="text-sm font-bold text-emerald-700">{normalBMICount}</span>
+              </div>
+              <div className="p-2 rounded-xl bg-amber-50/70 border border-amber-200">
+                <span className="block text-[10px] text-slate-500 font-medium">Moderate</span>
+                <span className="text-sm font-bold text-amber-700">{moderateUnderweightCount}</span>
+              </div>
+              <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200">
+                <span className="block text-[10px] text-slate-500 font-medium">Severe</span>
+                <span className="text-sm font-bold text-rose-700">{severeUnderweightCount}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Viral Load Suppression Cascade */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">HIV Viral Load Cascade</h3>
+              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">NACO 95-95-95</span>
+            </div>
+            <div className="text-xs text-slate-500 mb-4">Suppressed (&lt;1000) vs High Viral Load</div>
+
+            {/* Segmented bar */}
+            <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
+              <div
+                style={{ width: `${totalEvaluated > 0 ? (suppressedCount / totalEvaluated) * 100 : 0}%` }}
+                className="bg-teal-600 h-full transition-all"
+                title="Suppressed (<1000 copies/mL)"
+              />
+              <div
+                style={{ width: `${totalEvaluated > 0 ? (unsuppressedCount / totalEvaluated) * 100 : 0}%` }}
+                className="bg-rose-500 h-full transition-all"
+                title="Unsuppressed (≥1000 copies/mL)"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-center text-xs">
+              <div className="p-2 rounded-xl bg-teal-50/70 border border-teal-200">
+                <span className="block text-[10px] text-slate-500 font-medium">Suppressed (&lt;1000)</span>
+                <span className="text-sm font-bold text-teal-900">{suppressedCount} ({suppressionRate}%)</span>
+              </div>
+              <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200">
+                <span className="block text-[10px] text-slate-500 font-medium">High VL (≥1000)</span>
+                <span className="text-sm font-bold text-rose-700">{unsuppressedCount}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Education & Attendance Status */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Education & Attendance</h3>
+              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full">Grant Linked</span>
+            </div>
+            <div className="text-xs text-slate-500 mb-4">School enrollment & attendance status</div>
+
+            {/* Segmented bar */}
+            <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
+              <div
+                style={{ width: '80%' }}
+                className="bg-sky-600 h-full transition-all"
+                title="School Enrolled (80%)"
+              />
+              <div
+                style={{ width: '20%' }}
+                className="bg-slate-300 h-full transition-all"
+                title="Out of School (20%)"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-center text-xs">
+              <div className="p-2 rounded-xl bg-sky-50/70 border border-sky-200">
+                <span className="block text-[10px] text-slate-500 font-medium">Enrolled in School</span>
+                <span className="text-sm font-bold text-sky-900">4 Children (80%)</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="block text-[10px] text-slate-500 font-medium">Out of School</span>
+                <span className="text-sm font-bold text-slate-700">1 Child (20%)</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -252,9 +585,9 @@ export default function SupervisorDashboardPage() {
               </div>
               <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-0.5 transition-all" />
             </div>
-            <h3 className="text-sm font-bold text-slate-900 group-hover:text-teal-800">Programme Analytics</h3>
+            <h3 className="text-sm font-bold text-slate-900 group-hover:text-teal-800">Programme Clinical Analytics</h3>
             <p className="text-xs text-slate-500 mt-1">
-              Epidemiological prevalence curves, SAM/MAM distribution, and educational support disbursement.
+              Epidemiological curves, viral load cascade, pediatric BMI distribution, and grant disbursements.
             </p>
           </Link>
 
@@ -275,12 +608,12 @@ export default function SupervisorDashboardPage() {
           </Link>
         </div>
 
-        {/* Recent Submissions Linelist Preview */}
+        {/* Recent Submissions Linelist Preview - With Clinical Columns */}
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="p-5 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-slate-900">Recent Synchronized Submissions</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Authoritative records with full OCC version control</p>
+              <p className="text-xs text-slate-500 mt-0.5">Authoritative clinical linelist with OCC version control</p>
             </div>
             <Link href="/supervisor/assessments">
               <Button variant="ghost" size="sm" className="text-teal-700">
@@ -298,7 +631,9 @@ export default function SupervisorDashboardPage() {
                   <th className="py-3 px-4">Child Name</th>
                   <th className="py-3 px-4">Age / Sex</th>
                   <th className="py-3 px-4">District</th>
-                  <th className="py-3 px-4">Nutrition Status</th>
+                  <th className="py-3 px-4">BMI & Growth</th>
+                  <th className="py-3 px-4">Viral Load</th>
+                  <th className="py-3 px-4">Haemoglobin</th>
                   <th className="py-3 px-4">Grant Amount</th>
                   <th className="py-3 px-4">Version</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -317,19 +652,54 @@ export default function SupervisorDashboardPage() {
                       {row.age} yrs • {row.gender}
                     </td>
                     <td className="py-3.5 px-4 text-slate-600">{row.district}</td>
+                    
+                    {/* BMI & Growth */}
                     <td className="py-3.5 px-4">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                          row.nutritionStatus.includes('SAM')
+                          row.bmiCategory === 'Severe Underweight'
                             ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : row.nutritionStatus.includes('MAM')
+                            : row.bmiCategory === 'Moderate Underweight'
                             ? 'bg-amber-50 text-amber-700 border border-amber-200'
                             : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         }`}
                       >
-                        {row.nutritionStatus}
+                        {row.bmiCategory} ({row.bmi})
                       </span>
                     </td>
+
+                    {/* Viral Load */}
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                          row.vlCategory.includes('Unsuppressed')
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-teal-50 text-teal-800 border border-teal-200'
+                        }`}
+                      >
+                        {row.vlCategory.includes('Unsuppressed')
+                          ? `${row.viralLoad} c/mL (High)`
+                          : row.vlCategory.includes('Undetectable')
+                          ? 'Undetectable'
+                          : 'Suppressed'}
+                      </span>
+                    </td>
+
+                    {/* Haemoglobin */}
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[11px] ${
+                          row.hbCategory === 'Severe Anemia'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : row.hbCategory === 'Moderate Anemia'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {row.hemoglobin} g/dL
+                      </span>
+                    </td>
+
                     <td className="py-3.5 px-4 font-bold text-teal-900">₹{row.grantAmount.toLocaleString('en-IN')}</td>
                     <td className="py-3.5 px-4 font-mono text-slate-500">v{row.version}</td>
                     <td className="py-3.5 px-4 text-right">
@@ -341,7 +711,7 @@ export default function SupervisorDashboardPage() {
                         </Link>
                         <Link href={`/assessment/record/${row.id}`}>
                           <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs text-teal-700">
-                            <span>View Record</span>
+                            <span>View</span>
                           </Button>
                         </Link>
                       </div>

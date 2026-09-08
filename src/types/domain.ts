@@ -53,6 +53,7 @@ export type NutritionStatus =
 export type BMICategory =
   | 'Normal'
   | 'Underweight'
+  | 'Moderate Underweight'
   | 'Severe Underweight'
   | 'Overweight / Obese';
 
@@ -321,6 +322,7 @@ export interface AssessmentRecord {
   demographics: DemographicsData;
   householdFinancial: HouseholdFinancialData;
   health: HealthData;
+  clinical?: HealthData;
   nutrition: NutritionData;
   educationStatus: EducationStatusData;
   educationExpenses: EducationCurrentExpensesData;
