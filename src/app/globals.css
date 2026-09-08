@@ -1,21 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --color-canvas: #f8fafc;
+  --color-canvas: hsl(40, 20%, 98%);
   --color-card: #ffffff;
-  --color-subtle: #f1f5f9;
-  --color-ink-900: #0f172a;
-  --color-ink-600: #475569;
-  --color-ink-400: #94a3b8;
-  --color-slate-300: #cbd5e1;
-  --color-brand: #1e3a8a;
-  --color-emerald: #047857;
-  --color-focus: #2563eb;
+  --color-subtle: hsl(215, 20%, 97%);
+  --color-ink-900: hsl(220, 15%, 15%);
+  --color-ink-600: hsl(215, 12%, 40%);
+  --color-ink-400: hsl(215, 12%, 50%);
+  --color-slate-300: hsl(215, 18%, 85%);
+  --color-brand: hsl(168, 76%, 36%);
+  --color-emerald: hsl(145, 65%, 38%);
+  --color-focus: hsl(210, 80%, 45%);
 }
 
-/* Global Mobile Viewport Constraints (docs/06_MOBILE_FIRST_EXPERIENCE_DOCUMENT.md) */
+/* Global Mobile Viewport Constraints */
 html,
 body {
   max-width: 100vw;
@@ -24,7 +26,8 @@ body {
   background-color: var(--color-canvas);
   color: var(--color-ink-900);
   -webkit-text-size-adjust: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
 }
 
 /* Safe area insets for notched devices & gesture bars */
@@ -51,3 +54,62 @@ body {
   min-height: 48px;
   min-width: 48px;
 }
+
+/* Pulsating Wave Ripple Effect for Start New Assessment (from reference project) */
+.waves-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.waves-block {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.waves {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background: hsla(168, 76%, 36%, 0.35);
+  opacity: 0;
+  animation: waves 2.8s ease-out infinite;
+}
+
+.wave-1 {
+  animation-delay: 0s;
+}
+
+.wave-2 {
+  animation-delay: 0.9s;
+}
+
+.wave-3 {
+  animation-delay: 1.8s;
+}
+
+@keyframes waves {
+  0% {
+    transform: translate(-50%, -50%) scale(0.85);
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.35, 1.7);
+    opacity: 0;
+  }
+}
+

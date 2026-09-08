@@ -1,27 +1,24 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
+import { DraftCard } from '@/components/forms/DraftCard';
 import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
-import {
-  Plus,
-  ArrowRight,
-  Trash2,
-  Clock,
-  FileText,
-} from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 export default function HomePage() {
+  const router = useRouter();
   const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
   const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
   const [serverSyncedCount, setServerSyncedCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [draftsData, queueData] = await Promise.all([
@@ -44,22 +41,30 @@ export default function HomePage() {
         }
       } catch (_) {}
     } catch (err) {
-      console.error('Failed to load local records:', err);
+      console.error('[HomePage] Failed to load local records:', err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('child_nutrition:sync_completed', handleSyncComplete);
+    return () => {
+      window.removeEventListener('child_nutrition:sync_completed', handleSyncComplete);
+    };
+  }, [loadData]);
 
-  const handleDeleteDraft = async (id?: number) => {
-    if (!id) return;
-    if (confirm('Are you sure you want to delete this saved draft?')) {
-      await deleteDraft(id);
-      await loadData();
-    }
+  const handleDeleteDraft = async (id: number) => {
+    await deleteDraft(id);
+    await loadData();
+  };
+
+  const handleResumeDraft = (id: string | number) => {
+    router.push(`/assessment/draft/${id}`);
   };
 
   const waitingCount = queueItems.filter(
@@ -71,139 +76,104 @@ export default function HomePage() {
 
   return (
     <AppShell pendingSyncCount={waitingCount}>
-      <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 sm:py-10 flex flex-col justify-between space-y-8">
+      <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 sm:py-10 flex flex-col justify-between space-y-8 animate-in fade-in duration-200">
         <div className="space-y-8">
-          {/* Top Hero Container Card Matching Reference */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 sm:p-8">
-            {/* Top Row: Title + Outer Pill Wrapper with Action Button */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
-                Child Nutrition &amp; Support Form
-              </h1>
+          {/* Featured Primary Form Card Matching Reference FormLibrary */}
+          <div className="p-6 md:p-8 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-6">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-[hsl(215,18%,90%)] pb-6">
+              <div className="space-y-2 max-w-2xl">
+                <h2 className="text-lg md:text-xl font-bold text-[hsl(220,15%,15%)] leading-snug">
+                  Child Nutrition &amp; Support Form
+                </h2>
+              </div>
 
-              <div className="self-start sm:self-auto p-1 bg-teal-50/80 rounded-2xl inline-flex">
+              <div className="waves-wrapper self-center md:self-start my-2 md:my-0">
+                <div className="waves-block">
+                  <div className="waves wave-1"></div>
+                  <div className="waves wave-2"></div>
+                  <div className="waves wave-3"></div>
+                </div>
                 <Link href="/assessment/new" className="block">
                   <Button
                     variant="primary"
-                    className="font-bold bg-[#0D9488] hover:bg-[#0F766E] text-white px-5 py-2.5 rounded-xl text-sm shadow-xs flex items-center space-x-2 transition-transform active:scale-[0.99]"
+                    size="lg"
+                    className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
                   >
-                    <Plus className="h-4 w-4 stroke-[2.5]" />
+                    <Plus className="w-5 h-5 stroke-[2.5]" />
                     <span>Start New Assessment</span>
                   </Button>
                 </Link>
               </div>
             </div>
 
-            {/* Bottom Row: 3-Column Metrics Grid Matching Reference */}
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Box 1: Local In-Progress Drafts */}
-              <div className="bg-slate-50/60 border border-slate-200/80 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
-                <span className="text-xs font-medium text-slate-500">
+            {/* Operational Statistics */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+              <div className="p-3.5 rounded-lg bg-[hsl(215,20%,97%)] border border-[hsl(215,18%,88%)]">
+                <span className="text-[11px] font-semibold text-[hsl(215,12%,45%)] block">
                   Local In-Progress Drafts
                 </span>
-                <span className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">
+                <span className="text-xl font-bold text-[hsl(220,15%,15%)] tabular-nums">
                   {isLoading ? '...' : drafts.length}
                 </span>
               </div>
 
-              {/* Box 2: Waiting to be Sent */}
               <Link
-                href="/assessment/sync?tab=outbox"
-                className="bg-blue-50/30 hover:bg-blue-50/60 border border-blue-100 rounded-xl p-4 sm:p-5 flex flex-col justify-between transition-colors cursor-pointer group"
+                href="/assessment/sync"
+                className="p-3.5 rounded-lg bg-[hsl(210,80%,98%)] border border-[hsl(210,80%,85%)] cursor-pointer hover:bg-[hsl(210,80%,95%)] transition-colors"
               >
-                <span className="text-xs font-medium text-slate-500 group-hover:text-blue-700 transition-colors">
+                <span className="text-[11px] font-semibold text-[hsl(210,80%,35%)] block">
                   Waiting to be Sent
                 </span>
-                <span className={`text-2xl sm:text-3xl font-bold mt-2 ${waitingCount > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
+                <span className="text-xl font-bold text-[hsl(210,80%,30%)] tabular-nums">
                   {isLoading ? '...' : waitingCount}
                 </span>
               </Link>
 
-              {/* Box 3: Submitted Surveys / Assessments */}
               <Link
-                href="/assessment/sync?tab=history"
-                className="bg-emerald-50/30 hover:bg-emerald-50/60 border border-emerald-100 rounded-xl p-4 sm:p-5 flex flex-col justify-between transition-colors cursor-pointer group"
+                href="/assessment/sync"
+                className="p-3.5 rounded-lg bg-[hsl(145,60%,97%)] border border-[hsl(145,50%,85%)] col-span-2 sm:col-span-1 cursor-pointer hover:bg-[hsl(145,60%,94%)] transition-colors"
               >
-                <span className="text-xs font-medium text-slate-500 group-hover:text-emerald-700 transition-colors">
+                <span className="text-[11px] font-semibold text-[hsl(145,65%,28%)] block">
                   Submitted Assessments
                 </span>
-                <span className="text-2xl sm:text-3xl font-bold text-emerald-600 mt-2">
+                <span className="text-xl font-bold text-[hsl(145,65%,25%)] tabular-nums">
                   {isLoading ? '...' : submittedCount}
                 </span>
               </Link>
             </div>
           </div>
 
-          {/* My In-Progress Drafts Section Matching Reference */}
-          <section className="space-y-3">
-            <h2 className="text-sm font-bold text-slate-800">
-              My In-Progress Drafts ({isLoading ? '0' : drafts.length})
-            </h2>
+          {/* In-Progress Drafts Section */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[hsl(220,15%,15%)]">
+                My In-Progress Drafts ({isLoading ? 0 : drafts.length})
+              </h3>
+            </div>
 
             {isLoading ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400 text-xs">
-                Loading drafts...
+              <div className="p-8 text-center text-xs text-[hsl(215,12%,50%)]">
+                Loading local drafts...
               </div>
             ) : drafts.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-dashed border-slate-200/90 p-10 sm:p-14 text-center">
-                <FileText className="h-8 w-8 text-slate-400 mx-auto mb-2.5 stroke-[1.5]" />
-                <h3 className="text-xs sm:text-sm font-bold text-slate-700">
-                  No active drafts on this device
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
+              <div className="p-8 rounded-xl border border-dashed border-[hsl(215,18%,85%)] text-center space-y-2 bg-white/50">
+                <svg className="w-8 h-8 text-[hsl(215,12%,60%)] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-xs font-semibold text-[hsl(220,15%,30%)]">No active drafts on this device</p>
+                <p className="text-[11px] text-[hsl(215,12%,50%)]">
                   When you start an assessment, your edits will autosave here so you can continue anytime.
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {drafts.map((draft) => (
-                  <div
-                    key={draft.uuid}
-                    className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs hover:border-teal-300 transition-all flex flex-col justify-between space-y-3"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs font-bold text-teal-900 bg-teal-50 border border-teal-200/80 px-2.5 py-0.5 rounded-md">
-                          {draft.demographics?.artNumber || 'NEW DRAFT'}
-                        </span>
-                        <span className="text-[11px] font-semibold text-slate-400 flex items-center space-x-1">
-                          <Clock className="h-3 w-3" />
-                          <span>
-                            {new Date(draft.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-bold text-slate-900 mt-2 truncate">
-                        {draft.demographics?.childName || 'Unnamed Assessment'}
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5 truncate">
-                        Caregiver: {draft.demographics?.caregiverName || 'Not recorded'}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDraft(draft.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors rounded-lg hover:bg-rose-50"
-                        title="Delete draft"
-                        aria-label="Delete draft"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-
-                      <Link href={`/assessment/draft/${draft.id || draft.uuid}`}>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="font-bold text-teal-800 hover:text-teal-900 border-slate-200 text-xs px-3.5 py-1.5"
-                        >
-                          <span>Resume Intake</span>
-                          <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                        </Button>
-                      </Link>
-                    </div>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {drafts.map((d) => (
+                  <DraftCard
+                    key={d.id || d.uuid}
+                    draft={d}
+                    onResume={handleResumeDraft}
+                    onDelete={handleDeleteDraft}
+                  />
                 ))}
               </div>
             )}

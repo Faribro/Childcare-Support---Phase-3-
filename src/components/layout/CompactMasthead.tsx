@@ -39,12 +39,12 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
 
   const navLinks = [
     { href: '/', label: 'Forms', icon: Home },
-    { href: '/assessment/sync', label: 'Sync Centre', icon: RefreshCw, badge: pendingSyncCount },
+    { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: pendingSyncCount },
     { href: '/supervisor', label: 'Supervisor', icon: Shield },
   ];
 
   return (
-    <header className="bg-white border-b border-slate-200 text-slate-800 shadow-xs select-none sticky top-0 z-30">
+    <header className="bg-white border-b border-[hsl(215,18%,88%)] text-slate-800 shadow-xs select-none sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16">
           {/* Brand & Platform Identity */}
@@ -66,7 +66,7 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
           </Link>
 
           {/* Clean Pill Navigation (Visible on md and above) */}
-          <nav className="hidden md:flex items-center space-x-1.5" aria-label="Main Navigation">
+          <nav className="hidden md:flex items-center space-x-1 sm:space-x-2" aria-label="Main Navigation">
             {navLinks.map((link) => {
               const isActive =
                 link.href === '/'
@@ -77,10 +77,10 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
                     isActive
-                      ? 'bg-slate-100 text-slate-900 border border-slate-300 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      ? 'bg-[hsl(210,80%,95%)] text-[hsl(210,80%,35%)]'
+                      : 'text-[hsl(220,15%,35%)] hover:bg-[hsl(215,20%,94%)]'
                   }`}
                 >
                   <span>{link.label}</span>
