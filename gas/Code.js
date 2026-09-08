@@ -142,6 +142,8 @@ function onOpen(e) {
   try {
     var ui = SpreadsheetApp.getUi();
     ui.createMenu('Child Nutrition PWA')
+      .addItem('Clear All Data Rows (Preserve Headers)', 'clearAllDataRows')
+      .addItem('Setup Clean 73-Column Linelist (Empty)', 'setupCleanSheet')
       .addItem('Setup 73 Rectified Headers & Insert Samples', 'runSetupAndInsertSampleRows')
       .addItem('Format Header Styles & In-Cell Images', 'formatSheetLinelistDesign')
       .addItem('Verify Google Drive Document Folders', 'verifyDriveDocumentFolders')
@@ -172,6 +174,20 @@ function doGet(e) {
     var result = runSetupAndInsertSampleRows();
     return ContentService.createTextOutput(
       JSON.stringify({ status: 'success', message: result })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'setupClean') {
+    var cleanResult = setupCleanSheet();
+    return ContentService.createTextOutput(
+      JSON.stringify(cleanResult)
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'clear' || action === 'clearData') {
+    var clearResult = clearAllDataRows();
+    return ContentService.createTextOutput(
+      JSON.stringify(clearResult)
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -223,6 +239,17 @@ function doPost(e) {
 
     if (action === 'update') {
       return handleUpdate_(payload);
+    }
+
+    if (action === 'delete') {
+      return handleDelete_(payload);
+    }
+
+    if (action === 'clear' || action === 'clearData') {
+      var clearPostResult = clearAllDataRows();
+      return ContentService.createTextOutput(
+        JSON.stringify(clearPostResult)
+      ).setMimeType(ContentService.MimeType.JSON);
     }
 
     return errorResponse_('Unsupported action: ' + action, 400);
@@ -1393,6 +1420,85 @@ function verifyDriveDocumentFolders() {
   }
   Logger.log('Drive Folders: ' + JSON.stringify(list));
   return list;
+}
+
+function clearAllDataRows() {
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var lastRow = sheet.getLastRow();
+  var count = 0;
+  if (lastRow >= 4) {
+    count = lastRow - 3;
+    sheet.deleteRows(4, count);
+  }
+  return {
+    status: 'success',
+    message: 'Successfully purged ' + count + ' data row(s). 73-column headers preserved.',
+    deletedCount: count,
+    remainingRows: sheet.getLastRow(),
+  };
+}
+
+function setupCleanSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  }
+  var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
+  sheet.setName(PRIMARY_SHEET_NAME);
+
+  // Clear existing content and initialize fresh 3-row layout without dummy rows
+  sheet.clear();
+  ensureHeaders_(sheet);
+
+  return {
+    status: 'success',
+    message: 'Successfully initialized clean 73-column linelist with 0 data rows.',
+    totalRows: sheet.getLastRow(),
+  };
+}
+
+function handleDelete_(payload) {
+  var targetId = payload.uniqueId || payload.artNumber || payload.uuid || payload.submissionId || payload.remoteSubmissionId;
+  if (!targetId) {
+    return errorResponse_('Missing uniqueId or submissionId for deletion.', 400);
+  }
+
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < 4) {
+    return errorResponse_('Record not found: Sheet has no data rows.', 404);
+  }
+
+  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+  var foundRow = -1;
+
+  for (var r = 0; r < ids.length; r++) {
+    var existingId = String(ids[r][0]).trim();
+    if (existingId === String(targetId).trim()) {
+      foundRow = 4 + r;
+      break;
+    }
+  }
+
+  if (foundRow === -1) {
+    return errorResponse_('Record not found with ID: ' + targetId, 404);
+  }
+
+  sheet.deleteRow(foundRow);
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      acknowledged: true,
+      message: 'Record ' + targetId + ' deleted successfully from sheet.',
+      deletedId: targetId,
+      deletedRow: foundRow,
+      remainingRows: sheet.getLastRow() - 3,
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
 }
 
 function errorResponse_(message, code) {

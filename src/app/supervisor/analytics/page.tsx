@@ -52,13 +52,13 @@ export default function AnalyticsDashboardPage() {
           const items = Array.isArray(json.data) ? json.data : Array.isArray(json.items) ? json.items : [];
           if (items.length > 0) {
             const mapped = items.map((it: any) => {
-              const rawBmi = Number(it.nutrition?.bmi || it.clinical?.bmi || it.bmi || 14.5);
+              const rawBmi = Number(it['34\nBMI'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? it.bmi ?? 14.5);
               let bmiCategory: BMICategory = 'Normal';
               if (rawBmi < 13.5) bmiCategory = 'Severe Underweight';
               else if (rawBmi < 15.0) bmiCategory = 'Moderate Underweight';
               else if (rawBmi > 22.0) bmiCategory = 'Overweight / Obese';
 
-              const rawVl = it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
+              const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
               const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
               let vlCategory: VLCategory = 'Suppressed (<1000 copies/mL)';
               if (String(rawVl).toLowerCase().includes('undetect') || numVl < 50) {
@@ -67,22 +67,27 @@ export default function AnalyticsDashboardPage() {
                 vlCategory = 'Unsuppressed (≥1000 copies/mL)';
               }
 
-              const rawHb = Number(it.clinical?.haemoglobinGdl || it.clinical?.hemoglobin || 11.5);
+              const rawHb = Number(it['36\nHemoglobin (g/dL)'] ?? it.clinical?.haemoglobinGdl ?? it.clinical?.hemoglobin ?? 11.5);
               let hbCategory: HbCategory = 'Normal';
               if (rawHb < 7.0) hbCategory = 'Severe Anemia';
               else if (rawHb < 10.0) hbCategory = 'Moderate Anemia';
               else if (rawHb < 11.0) hbCategory = 'Mild Anemia';
 
+              const id = it['1\nUnique ID'] || it.id || it._uuid || it.client_submission_id || it.demographics?.artNumber || it.clientSubmissionId;
+              const district = it['19\nDistrict'] || it.demographics?.district || it.district || 'Pune';
+              const grant = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? 2500);
+              const enrolled = it['49\nEducation Status'] ? !String(it['49\nEducation Status']).toLowerCase().includes('not') : (it.education?.educationStatus?.includes('going') ?? true);
+
               return {
-                id: it.id || it.demographics?.artNumber || it.clientSubmissionId,
-                district: it.demographics?.district || it.district || 'Pune',
+                id,
+                district,
                 bmi: rawBmi,
                 bmiCategory,
                 vlCategory,
                 hb: rawHb,
                 hbCategory,
-                grant: Number(it.grantCalculation?.totalGrantAmount || it.recommended_grant_amount || 2500),
-                enrolled: it.education?.educationStatus?.includes('going') ?? true,
+                grant,
+                enrolled,
               };
             });
             setLiveRecords(mapped);

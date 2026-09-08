@@ -66,53 +66,65 @@ export default function SupervisorDashboardPage() {
         const res = await fetch('/api/submissions?limit=50');
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.items) && data.items.length > 0) {
-            const mapped: SupervisorRecord[] = data.items.map((it: any) => {
-              const rawBmi = it.nutrition?.bmi || it.clinical?.bmi || it.bmi || 14;
-              let bmiCat: BMICategory = 'Normal';
-              if (rawBmi < 13.5) bmiCat = 'Severe Underweight';
-              else if (rawBmi < 15.0) bmiCat = 'Moderate Underweight';
-              else if (rawBmi > 22.0) bmiCat = 'Overweight / Obese';
+          const items = Array.isArray(data.data) ? data.data : Array.isArray(data.items) ? data.items : [];
+          const mapped: SupervisorRecord[] = items.map((it: any) => {
+            const rawBmi = it['34\nBMI'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? it.bmi ?? 14;
+            let bmiCat: BMICategory = 'Normal';
+            const numBmi = Number(rawBmi) || 14;
+            if (numBmi < 13.5) bmiCat = 'Severe Underweight';
+            else if (numBmi < 15.0) bmiCat = 'Moderate Underweight';
+            else if (numBmi > 22.0) bmiCat = 'Overweight / Obese';
 
-              const rawVl = it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
-              const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
-              let vlCat: VLCategory = 'Suppressed (<1000 copies/mL)';
-              if (!isNaN(numVl)) {
-                if (numVl < 50) vlCat = 'Undetectable (<50 copies/mL)';
-                else if (numVl >= 1000) vlCat = 'Unsuppressed (≥1000 copies/mL)';
-              }
+            const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
+            const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
+            let vlCat: VLCategory = 'Suppressed (<1000 copies/mL)';
+            if (String(rawVl).toLowerCase().includes('undetect') || numVl < 50) {
+              vlCat = 'Undetectable (<50 copies/mL)';
+            } else if (!isNaN(numVl) && numVl >= 1000) {
+              vlCat = 'Unsuppressed (≥1000 copies/mL)';
+            }
 
-              const rawHb = it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '11.5';
-              const numHb = parseFloat(String(rawHb));
-              let hbCat: HbCategory = 'Normal';
-              if (!isNaN(numHb)) {
-                if (numHb < 7.0) hbCat = 'Severe Anemia';
-                else if (numHb < 10.0) hbCat = 'Moderate Anemia';
-                else if (numHb < 11.0) hbCat = 'Mild Anemia';
-              }
+            const rawHb = it['36\nHemoglobin (g/dL)'] ?? it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '11.5';
+            const numHb = parseFloat(String(rawHb));
+            let hbCat: HbCategory = 'Normal';
+            if (!isNaN(numHb)) {
+              if (numHb < 7.0) hbCat = 'Severe Anemia';
+              else if (numHb < 10.0) hbCat = 'Moderate Anemia';
+              else if (numHb < 11.0) hbCat = 'Mild Anemia';
+            }
 
-              return {
-                id: it.id || it.demographics?.artNumber || it.clientSubmissionId,
-                artNumber: it.demographics?.artNumber || it.art_number || 'MH-GEN-00',
-                childName: it.demographics?.childName || it.child_name || 'Beneficiary Child',
-                age: it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 5,
-                gender: it.demographics?.gender || it.gender || 'Unknown',
-                district: it.demographics?.district || it.district || 'Pune',
-                bmi: Number(rawBmi) || 14,
-                bmiCategory: (it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
-                viralLoad: rawVl,
-                vlCategory: (it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
-                hemoglobin: rawHb,
-                hbCategory: (it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
-                grantAmount: it.grantCalculation?.totalGrantAmount || it.recommended_grant_amount || 2000,
-                syncState: 'SYNCED',
-                lastVisit: (it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0],
-                version: it.version || 1,
-                schoolEnrolled: it.education?.educationStatus?.includes('going') ?? true,
-              };
-            });
-            setRecords(mapped);
-          }
+            const id = it['1\nUnique ID'] || it.id || it._uuid || it.client_submission_id || it.remote_submission_id || it.clientSubmissionId || it.demographics?.artNumber;
+            const artNumber = it['42\nART ID Number'] || it['1\nUnique ID'] || it.art_number || it.demographics?.artNumber || id || 'MH-GEN-00';
+            const childName = it['9\nChild Name'] || it.child_name || it.demographics?.childName || 'Beneficiary Child';
+            const age = Number(it['11\nAge'] ?? it.calculated_age ?? it.demographics?.calculatedAgeYears ?? 5);
+            const gender = it['12\nGender'] || it.gender || it.demographics?.gender || 'Unknown';
+            const district = it['19\nDistrict'] || it.district || it.demographics?.district || 'Pune';
+            const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? 2000);
+            const lastVisit = (it['7\nVisit Date'] || it['73\nLast Updated'] || it['3\nSubmission Time'] || it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0];
+            const version = Number(it['2\nRevision Number'] ?? it.version ?? 1);
+            const schoolEnrolled = it['49\nEducation Status'] ? !String(it['49\nEducation Status']).toLowerCase().includes('not') : (it.education?.educationStatus?.includes('going') ?? true);
+
+            return {
+              id,
+              artNumber,
+              childName,
+              age,
+              gender,
+              district,
+              bmi: numBmi,
+              bmiCategory: (it['35\nBMI Category'] || it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
+              viralLoad: String(rawVl),
+              vlCategory: (it['46\nVL Category'] || it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
+              hemoglobin: String(rawHb),
+              hbCategory: (it['37\nHb Category'] || it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
+              grantAmount,
+              syncState: 'SYNCED',
+              lastVisit,
+              version,
+              schoolEnrolled,
+            };
+          });
+          setRecords(mapped);
         }
       } catch (err) {
         console.warn('Using default supervisor dataset:', err);

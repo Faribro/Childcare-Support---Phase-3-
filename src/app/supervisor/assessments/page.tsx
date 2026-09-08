@@ -62,18 +62,19 @@ export default function SupervisorAssessmentsPage() {
       const res = await fetch('/api/submissions?limit=100');
       if (res.ok) {
         const json = await res.json();
-        if (Array.isArray(json.data) || Array.isArray(json.items)) {
-          const rawItems = Array.isArray(json.data) ? json.data : json.items;
+        const rawItems = Array.isArray(json.data) ? json.data : Array.isArray(json.items) ? json.items : [];
+        if (rawItems.length >= 0) {
           const mapped: BeneficiaryRow[] = rawItems.map((it: any) => {
-            const rawBmi = it.nutrition?.bmi || it.clinical?.bmi || it.bmi || 0;
+            const rawBmi = it['34\nBMI'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? it.bmi ?? 0;
             let bmiCat: BMICategory = 'Normal';
-            if (rawBmi > 0) {
-              if (rawBmi < 13.5) bmiCat = 'Severe Underweight';
-              else if (rawBmi < 15.0) bmiCat = 'Moderate Underweight';
-              else if (rawBmi > 22.0) bmiCat = 'Overweight / Obese';
+            const numBmi = Number(rawBmi) || 0;
+            if (numBmi > 0) {
+              if (numBmi < 13.5) bmiCat = 'Severe Underweight';
+              else if (numBmi < 15.0) bmiCat = 'Moderate Underweight';
+              else if (numBmi > 22.0) bmiCat = 'Overweight / Obese';
             }
 
-            const rawVl = it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '';
+            const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '';
             const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
             let vlCat: VLCategory = 'Unknown / Pending';
             if (String(rawVl).toLowerCase().includes('undetect') || String(rawVl).includes('<50') || numVl < 50) {
@@ -83,7 +84,7 @@ export default function SupervisorAssessmentsPage() {
               else vlCat = 'Unsuppressed (≥1000 copies/mL)';
             }
 
-            const rawHb = it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '';
+            const rawHb = it['36\nHemoglobin (g/dL)'] ?? it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '';
             const numHb = parseFloat(String(rawHb));
             let hbCat: HbCategory = 'Normal';
             if (!isNaN(numHb) && numHb > 0) {
@@ -92,25 +93,37 @@ export default function SupervisorAssessmentsPage() {
               else if (numHb < 11.0) hbCat = 'Mild Anemia';
             }
 
+            const id = it['1\nUnique ID'] || it.id || it._uuid || it.client_submission_id || it.clientSubmissionId;
+            const artNumber = it['42\nART ID Number'] || it['1\nUnique ID'] || it.demographics?.artNumber || it.art_number || id || 'MH-BEN-00';
+            const childName = it['9\nChild Name'] || it.demographics?.childName || it.child_name || 'Beneficiary Child';
+            const age = Number(it['11\nAge'] ?? it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 0);
+            const gender = it['12\nGender'] || it.demographics?.gender || it.gender || '—';
+            const district = it['19\nDistrict'] || it.demographics?.district || it.district || 'General';
+            const schoolType = it['53\nSchool Type'] || it.educationStatus?.schoolType || it.education?.schoolType || it.school_type || 'Government school';
+            const orphanStatus = it['13\nOrphan Status'] || it.demographics?.orphanStatus || it.orphan_status || 'Both parents alive';
+            const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? it.educationExpenses?.totalRequiredSupport ?? 0);
+            const lastVisit = (it['7\nVisit Date'] || it['73\nLast Updated'] || it['3\nSubmission Time'] || it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0];
+            const version = Number(it['2\nRevision Number'] ?? it.version ?? 1);
+
             return {
-              id: it.id || it.demographics?.artNumber || it.clientSubmissionId || it._uuid,
-              artNumber: it.demographics?.artNumber || it.art_number || 'MH-BEN-00',
-              childName: it.demographics?.childName || it.child_name || 'Beneficiary Child',
-              age: it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 0,
-              gender: it.demographics?.gender || it.gender || '—',
-              district: it.demographics?.district || it.district || 'General',
-              schoolType: it.educationStatus?.schoolType || it.education?.schoolType || it.school_type || 'Government school',
-              orphanStatus: it.demographics?.orphanStatus || it.orphan_status || 'Both parents alive',
-              bmi: Number(rawBmi) || 0,
-              bmiCategory: (it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
-              viralLoad: rawVl || '—',
-              vlCategory: (it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
-              hemoglobin: rawHb || '—',
-              hbCategory: (it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
-              grantAmount: it.grantCalculation?.totalGrantAmount || it.recommended_grant_amount || it.educationExpenses?.totalRequiredSupport || 0,
+              id,
+              artNumber,
+              childName,
+              age,
+              gender,
+              district,
+              schoolType,
+              orphanStatus,
+              bmi: numBmi,
+              bmiCategory: (it['35\nBMI Category'] || it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
+              viralLoad: String(rawVl || '—'),
+              vlCategory: (it['46\nVL Category'] || it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
+              hemoglobin: String(rawHb || '—'),
+              hbCategory: (it['37\nHb Category'] || it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
+              grantAmount,
               syncState: 'SYNCED',
-              lastVisit: (it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0],
-              version: it.version || 1,
+              lastVisit,
+              version,
             };
           });
           setData(mapped);
