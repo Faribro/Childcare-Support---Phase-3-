@@ -109,6 +109,8 @@ export const caregiverConsentSchema = z.object({
   signatureRequired: z.boolean().default(true),
   signatureStatus: signatureStatusEnum.default('CAPTURED_LOCAL'),
   signatureAssetId: z.string().optional(),
+  signatureDataUrl: z.string().optional(),
+  signatureUrl: z.string().optional(),
 });
 
 // Banking & KYC Schema
@@ -225,6 +227,7 @@ export const finalReviewSchema = z.object({
 // Allowlisted Schema for PATCH Mutations with Optimistic Concurrency Control
 export const patchSubmissionSchema = z.object({
   expectedVersion: z.number().int().positive('expectedVersion must be a positive integer'),
+  uniqueId: z.string().optional(),
   caregiverName: z.string().min(2).optional(),
   caregiverRelationship: z.string().min(2).optional(),
   contactNumber: z.string().optional(),
@@ -261,13 +264,23 @@ export const patchSubmissionSchema = z.object({
   bankName: z.string().optional(),
   branchName: z.string().optional(),
   passbookPhotoCaptured: z.boolean().optional(),
+  passbookPhotoUrl: z.string().optional(),
+  aadhaarCardPhotoUrl: z.string().optional(),
+  childPhotoUrl: z.string().optional(),
+  feeReceiptPhotoUrl: z.string().optional(),
+  marksheetPhotoUrl: z.string().optional(),
+  signatureDataUrl: z.string().optional(),
+  signatureUrl: z.string().optional(),
 });
 
 // Complete Submission Schema for API Ingestion
 export const completeSubmissionSchema = z.object({
   uuid: z.string().uuid('Invalid client UUIDv4'),
   clientSubmissionId: z.string().uuid().optional(),
+  uniqueId: z.string().optional(),
   interviewerName: z.string().min(2).default('Caseworker'),
+  signatureDataUrl: z.string().optional(),
+  signatureUrl: z.string().optional(),
   demographics: demographicsSchema,
   caregiverConsent: caregiverConsentSchema.optional(),
   consent: z.object({

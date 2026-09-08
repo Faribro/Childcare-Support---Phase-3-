@@ -1,13 +1,13 @@
 /**
- * Google Apps Script Backend Adapter — Phase 3 Hardened OCC Architecture
- * Project ID: 1yXEgElXFb0Fb_CzTlQ8TDvRUuEYmq5dady7ialsqMnkAU1XX5SPJW8P3
+ * Google Apps Script Backend Adapter — Phase 3 Rectified Linelist Architecture
  * Target Sheet ID: 1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA
  *
  * Implements:
- * - Exact 73-column schema matching official CHILD_HIV_SUPPORT_FORM & linelist
- * - 3-Row Header Design (Row 1 Navy Banner + Row 2 Spacer + Row 3 Pastel Category Headers)
+ * - 72-Column Schema with "1\nUnique ID" replacing obsolete Kobo UUID & Kobo ID
+ * - Systematic Google Drive upload in child-namewise folders: "<ChildName> - <UniqueID>"
+ * - Automated deletion/trashing of old document files upon updating or changing files
  * - In-cell embedded images with hover-to-copy & click-to-open links (=HYPERLINK(url, IMAGE(url)))
- * - Automatic conversion of Drive file links & base64 image uploads to Google Drive files
+ * - 3-Row Header Linelist design (Row 1 Navy Banner + Row 2 Spacer + Row 3 Pastel Category Headers)
  * - Row height 60px for data rows, 90px for header row 3
  * - 30s LockService Mutex around dedupe and mutations
  * - Idempotent create (action: 'create') & OCC update (action: 'update')
@@ -21,143 +21,155 @@ var HEADER_ROW_INDEX = 3;
 var LOCK_TIMEOUT_MS = 30000;
 var BANNER_TITLE = 'CHILD HIV CARE & NUTRITION LINELIST';
 var DASHBOARD_URL = 'https://childcare-support-phase-3.onrender.com';
+var ROOT_DOCUMENTS_FOLDER_NAME = 'Child_Nutrition_Phase3_Documents';
 
-// Exact 73-Column Headers with Number on Top & Newline
+// Exact 72 Rectified Column Headers (Number on top + newline)
 var COLUMN_HEADERS = [
-  "1\nUUID",
-  "2\nKobo ID",
-  "3\nSubmission Time",
-  "4\nSubmitted By",
-  "5\nConsent Obtained",
-  "6\nSignature /\nThumb Impression",
-  "7\nVisit Date",
-  "8\nInterviewer Name",
-  "9\nChild Name",
-  "10\nDate of Birth",
-  "11\nAge",
-  "12\nGender",
-  "13\nOrphan Status",
-  "14\nCaregiver Full Name",
-  "15\nCaregiver Relation",
-  "16\nCaregiver Contact",
-  "17\nAddress",
-  "18\nState",
-  "19\nDistrict",
-  "20\nBank Account Holder Name",
-  "21\nBank Account Number",
-  "22\nBank IFSC Code",
-  "23\nBank Linked Mobile Number",
-  "24\nChild Aadhaar Number",
-  "25\nPassbook Front Page Link",
-  "26\nAadhaar Card Link",
-  "27\nPassport Size Photo Link",
-  "28\nHousehold Members",
-  "29\nNo of Children",
-  "30\nMonthly Income",
-  "31\nIncome Source",
-  "32\nCurrent Weight (kg)",
-  "33\nCurrent Height (cm)",
-  "34\nBMI",
-  "35\nBMI Category",
-  "36\nHemoglobin (g/dL)",
-  "37\nHb Category",
-  "38\nComorbidities",
-  "39\nComorbidities Other",
-  "40\nART Status",
-  "41\nART Registration Date",
-  "42\nART ID Number",
-  "43\nVL Status",
-  "44\nVL Date",
-  "45\nViral Load",
-  "46\nVL Category",
-  "47\nAppetite",
-  "48\nMeals per Day",
-  "49\nEducation Status",
-  "50\nEducation Status Other",
-  "51\nSchool Name",
-  "52\nSchool Session Start Date",
-  "53\nSchool Type",
-  "54\nCurrent Class",
-  "55\nAttendance Status",
-  "56\nSchool Fees",
-  "57\nPrivate Tuition Fee",
-  "58\nSchool Books",
-  "59\nSchool Stationery",
-  "60\nSchool Uniform",
-  "61\nSchool Transport",
-  "62\nSchool Other Expenses",
-  "63\nTotal Annual Education Cost",
-  "64\nSchool Fee Receipt Link",
-  "65\nMarksheet Photo Link",
-  "66\nRemarks (If Any)",
-  "67\nApproved Alliance India",
-  "68\nReview Confirmed",
-  "69\nOrganization Name",
-  "70\nForm Submitted By",
-  "71\nOrganization Email",
-  "72\nSync Needed",
-  "73\nLast Updated"
+  "1\nUnique ID",
+  "2\nSubmission Time",
+  "3\nSubmitted By",
+  "4\nConsent Obtained",
+  "5\nSignature /\nThumb Impression",
+  "6\nVisit Date",
+  "7\nInterviewer Name",
+  "8\nChild Name",
+  "9\nDate of Birth",
+  "10\nAge",
+  "11\nGender",
+  "12\nOrphan Status",
+  "13\nCaregiver Full Name",
+  "14\nCaregiver Relation",
+  "15\nCaregiver Contact",
+  "16\nAddress",
+  "17\nState",
+  "18\nDistrict",
+  "19\nBank Account Holder Name",
+  "20\nBank Account Number",
+  "21\nBank IFSC Code",
+  "22\nBank Linked Mobile Number",
+  "23\nChild Aadhaar Number",
+  "24\nPassbook Front Page Link",
+  "25\nAadhaar Card Link",
+  "26\nPassport Size Photo Link",
+  "27\nHousehold Members",
+  "28\nNo of Children",
+  "29\nMonthly Income",
+  "30\nIncome Source",
+  "31\nCurrent Weight (kg)",
+  "32\nCurrent Height (cm)",
+  "33\nBMI",
+  "34\nBMI Category",
+  "35\nHemoglobin (g/dL)",
+  "36\nHb Category",
+  "37\nComorbidities",
+  "38\nComorbidities Other",
+  "39\nART Status",
+  "40\nART Registration Date",
+  "41\nART ID Number",
+  "42\nVL Status",
+  "43\nVL Date",
+  "44\nViral Load",
+  "45\nVL Category",
+  "46\nAppetite",
+  "47\nMeals per Day",
+  "48\nEducation Status",
+  "49\nEducation Status Other",
+  "50\nSchool Name",
+  "51\nSchool Session Start Date",
+  "52\nSchool Type",
+  "53\nCurrent Class",
+  "54\nAttendance Status",
+  "55\nSchool Fees",
+  "56\nPrivate Tuition Fee",
+  "57\nSchool Books",
+  "58\nSchool Stationery",
+  "59\nSchool Uniform",
+  "60\nSchool Transport",
+  "61\nSchool Other Expenses",
+  "62\nTotal Annual Education Cost",
+  "63\nSchool Fee Receipt Link",
+  "64\nMarksheet Photo Link",
+  "65\nRemarks (If Any)",
+  "66\nApproved Alliance India",
+  "67\nReview Confirmed",
+  "68\nOrganization Name",
+  "69\nForm Submitted By",
+  "70\nOrganization Email",
+  "71\nSync Needed",
+  "72\nLast Updated"
 ];
 
-/**
- * Simple trigger that automatically executes whenever the Google Sheet is opened.
- * Formats 3-row headers and adds custom menu in the Sheet UI.
- */
+// Document Columns with 1-based indexing in the 72-column schema
+var DOC_COLUMNS = {
+  SIGNATURE: 5,
+  PASSBOOK: 24,
+  AADHAAR: 25,
+  CHILD_PHOTO: 26,
+  FEE_RECEIPT: 63,
+  MARKSHEET: 64
+};
+
+// Pastel Category Background Fills matching the reference sheet
+var HEADER_CATEGORIES = [
+  { start: 1, end: 7, color: '#D9E2F3' },   // Intake & Consent (Pale Blue)
+  { start: 8, end: 18, color: '#E2EFDA' },  // Child Demographics & Residence (Pale Green)
+  { start: 19, end: 26, color: '#FFF2CC' }, // Banking & KYC Documents (Pale Yellow)
+  { start: 27, end: 30, color: '#EDEDED' }, // Household & Socio-Economic (Pale Gray)
+  { start: 31, end: 45, color: '#FCE4D6' }, // Health, ART & Clinical (Pale Salmon/Rose)
+  { start: 46, end: 47, color: '#E2EFDA' }, // Nutrition & Habits (Pale Green)
+  { start: 48, end: 54, color: '#D9E2F3' }, // Education Status (Pale Blue)
+  { start: 55, end: 65, color: '#FFF2CC' }, // Education Expenses & Documents (Pale Orange)
+  { start: 66, end: 72, color: '#D9E2F3' }  // Programme Governance & Audit (Pale Blue/Slate)
+];
+
+// Fallback image URLs for sample rows
+var PLACEHOLDER_DOCS = {
+  SIGNATURE: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300&q=80',
+  PASSBOOK: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=300&q=80',
+  AADHAAR: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=300&q=80',
+  CHILD_PHOTO: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=300&q=80',
+  FEE_RECEIPT: 'https://images.unsplash.com/photo-1554224154-26032ffc0d07?w=300&q=80',
+  MARKSHEET: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=300&q=80'
+};
+
+// ============================================================================
+// ON OPEN & CUSTOM UI MENU
+// ============================================================================
+
 function onOpen(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      try { ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID); } catch (openErr) {}
-    }
-    if (ss) {
-      var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheetByName('Sheet1') || ss.getSheets()[0];
-      if (sheet) {
-        if (sheet.getName() === 'Sheet1') {
-          try { sheet.setName(PRIMARY_SHEET_NAME); } catch (rErr) {}
-        }
-        ensureHeaders_(sheet);
-      }
-    }
-  } catch (err) {
-    Logger.log('onOpen ensureHeaders error: ' + err);
-  }
-
-  try {
-    SpreadsheetApp.getUi()
-      .createMenu('Child Nutrition PWA')
-      .addItem('Setup 73 Headers & Insert Samples', 'runSetupAndInsertSampleRows')
-      .addItem('Re-apply Formatting & Colors', 'reapplySheetFormatting')
+    var ui = SpreadsheetApp.getUi();
+    ui.createMenu('Child Nutrition PWA')
+      .addItem('Setup 72 Rectified Headers & Insert Samples', 'runSetupAndInsertSampleRows')
+      .addItem('Format Header Styles & In-Cell Images', 'formatSheetLinelistDesign')
+      .addItem('Verify Google Drive Document Folders', 'verifyDriveDocumentFolders')
       .addToUi();
-  } catch (uiErr) {
-    Logger.log('onOpen menu error: ' + uiErr);
+  } catch (err) {
+    Logger.log('onOpen UI menu could not be created: ' + err);
   }
 }
 
-function doGet(e) {
-  var action = (e && e.parameter && e.parameter.action) || 'health';
+// ============================================================================
+// WEB APP API DISPATCHERS (GET / POST)
+// ============================================================================
 
-  if (action === 'health') {
+function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || 'read';
+
+  if (action === 'schema') {
     return ContentService.createTextOutput(
       JSON.stringify({
-        status: 'ok',
-        service: 'childcare-apps-script-bridge',
-        version: '3.2.0',
-        columns: COLUMN_HEADERS.length,
-        timestamp: new Date().toISOString(),
+        status: 'success',
+        totalColumns: COLUMN_HEADERS.length,
+        headers: COLUMN_HEADERS,
       })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  if (action === 'setupSheet') {
-    var ctx = getSheetAndColMap_();
-    ensureHeaders_(ctx.sheet);
+  if (action === 'setup') {
+    var result = runSetupAndInsertSampleRows();
     return ContentService.createTextOutput(
-      JSON.stringify({
-        status: 'ok',
-        message: 'Google Sheet 3-row headers verified and initialized successfully.',
-        totalColumns: COLUMN_HEADERS.length,
-        headers: COLUMN_HEADERS,
-      })
+      JSON.stringify({ status: 'success', message: result })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -174,9 +186,10 @@ function doGet(e) {
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
+  var hasLock = false;
   try {
-    var success = lock.waitLock(LOCK_TIMEOUT_MS);
-    if (!success) {
+    hasLock = lock.tryLock(LOCK_TIMEOUT_MS);
+    if (!hasLock) {
       return errorResponse_('Server concurrency lock busy. Please retry.', 503);
     }
 
@@ -214,13 +227,18 @@ function doPost(e) {
   } catch (err) {
     return errorResponse_('Internal Apps Script Error: ' + err.toString(), 500);
   } finally {
-    lock.releaseLock();
+    if (hasLock) {
+      try {
+        lock.releaseLock();
+      } catch (ignored) {}
+    }
   }
 }
 
-/**
- * Initializes Row 1 Title Banner, Row 2 Spacer, and Row 3 Grouped Headers
- */
+// ============================================================================
+// SHEET HEADER & LINELIST FORMATTING
+// ============================================================================
+
 function ensureHeaders_(sheet) {
   var maxCols = sheet.getMaxColumns();
   if (maxCols < COLUMN_HEADERS.length) {
@@ -245,192 +263,220 @@ function ensureHeaders_(sheet) {
   }
 
   if (needsInit) {
-    // --- ROW 1: Title Banner & Action Button ---
+    // --- ROW 1: Title Banner ---
     sheet.setRowHeight(1, 38);
-    var cellA1 = sheet.getRange(1, 1);
-    cellA1.setValue('=HYPERLINK("' + DASHBOARD_URL + '", "Open Dashboard ↗")');
-    cellA1.setFontWeight('bold');
-    cellA1.setFontSize(10);
-    cellA1.setBackground('#1E3A8A');
-    cellA1.setFontColor('#FFFFFF');
-    cellA1.setHorizontalAlignment('center');
-    cellA1.setVerticalAlignment('middle');
+    var bannerRange = sheet.getRange(1, 1, 1, COLUMN_HEADERS.length);
+    bannerRange.setBackground('#1B365D');
+    bannerRange.setFontColor('#FFFFFF');
+    bannerRange.setFontSize(13);
+    bannerRange.setFontWeight('bold');
+    bannerRange.setVerticalAlignment('middle');
 
-    // Merge B1 to BU1 (cols 2 to 73)
-    sheet.getRange(1, 2, 1, COLUMN_HEADERS.length - 1).merge();
-    var mergedBanner = sheet.getRange(1, 2);
-    mergedBanner.setValue(BANNER_TITLE);
-    mergedBanner.setFontWeight('bold');
-    mergedBanner.setFontSize(14);
-    mergedBanner.setBackground('#1B365D');
-    mergedBanner.setFontColor('#FFFFFF');
-    mergedBanner.setHorizontalAlignment('center');
-    mergedBanner.setVerticalAlignment('middle');
+    // Merge B1:BT1 (Columns 2 to 72)
+    var mergeRange = sheet.getRange(1, 2, 1, COLUMN_HEADERS.length - 1);
+    try {
+      mergeRange.merge();
+      mergeRange.setValue(BANNER_TITLE);
+      mergeRange.setHorizontalAlignment('left');
+    } catch (mErr) {
+      sheet.getRange(1, 1).setValue(BANNER_TITLE);
+    }
 
-    // --- ROW 2: Spacer Row ---
+    // --- ROW 2: Spacer ---
     sheet.setRowHeight(2, 12);
     var spacerRange = sheet.getRange(2, 1, 1, COLUMN_HEADERS.length);
     spacerRange.setBackground('#FFFFFF');
 
-    // --- ROW 3: Category-Grouped Column Headers ---
+    // --- ROW 3: Rectified 72 Headers ---
     sheet.setRowHeight(3, 90);
     var headerRange = sheet.getRange(HEADER_ROW_INDEX, 1, 1, COLUMN_HEADERS.length);
     headerRange.setValues([COLUMN_HEADERS]);
     headerRange.setFontWeight('bold');
-    headerRange.setFontSize(10);
-    headerRange.setFontColor('#0F172A');
-    headerRange.setHorizontalAlignment('center');
+    headerRange.setFontSize(9.5);
+    headerRange.setFontColor('#1E293B');
+    headerRange.setWrap(true);
     headerRange.setVerticalAlignment('middle');
-    headerRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+    headerRange.setHorizontalAlignment('center');
 
-    // Apply Pastel Category Colors to Row 3
-    applyHeaderCategoryColors_(sheet, HEADER_ROW_INDEX);
+    // Apply Pastel Category Colors
+    for (var c = 0; c < HEADER_CATEGORIES.length; c++) {
+      var cat = HEADER_CATEGORIES[c];
+      var count = cat.end - cat.start + 1;
+      sheet.getRange(HEADER_ROW_INDEX, cat.start, 1, count).setBackground(cat.color);
+    }
 
-    // Apply Column Widths
-    applyColumnWidths_(sheet);
+    // Borders on header row
+    headerRange.setBorder(true, true, true, true, true, true, '#CBD5E1', SpreadsheetApp.BorderStyle.SOLID);
 
-    // Freeze top 3 rows
+    // Freeze 3 header rows
     sheet.setFrozenRows(3);
+
+    // Apply column widths
+    applyColumnWidths_(sheet);
   }
 }
 
-/**
- * Applies exact pastel color grouping matching the reference linelist
- */
-function applyHeaderCategoryColors_(sheet, rowIdx) {
-  // Section 1: Submission & Consent (Cols 1-8) -> Lavender / Periwinkle
-  sheet.getRange(rowIdx, 1, 1, 8).setBackground('#D9E2F3');
-
-  // Section 2: Child & Caregiver Demographics (Cols 9-16) -> Sage Green
-  sheet.getRange(rowIdx, 9, 1, 8).setBackground('#E2EFDA');
-
-  // Section 3: Geographic / Location (Cols 17-19) -> Pale Cream / Yellow
-  sheet.getRange(rowIdx, 17, 1, 3).setBackground('#FFF2CC');
-
-  // Section 4: Banking & KYC Documents (Cols 20-27) -> Soft Sky Blue
-  sheet.getRange(rowIdx, 20, 1, 8).setBackground('#D0E0E3');
-
-  // Section 5: Household & Financial (Cols 28-31) -> Warm Peach
-  sheet.getRange(rowIdx, 28, 1, 4).setBackground('#FCE5CD');
-
-  // Section 6: Clinical & Health / ART (Cols 32-46) -> Soft Blush Rose
-  sheet.getRange(rowIdx, 32, 1, 15).setBackground('#F4CCCC');
-
-  // Section 7: Nutrition & Meals (Cols 47-48) -> Soft Butter Yellow
-  sheet.getRange(rowIdx, 47, 1, 2).setBackground('#FFF2CC');
-
-  // Section 8: Education & Expenses (Cols 49-65) -> Soft Celadon / Mint
-  sheet.getRange(rowIdx, 49, 1, 17).setBackground('#D9EAD3');
-
-  // Section 9: Alliance Review & Sign-off (Cols 66-73) -> Soft Slate Gray
-  sheet.getRange(rowIdx, 66, 1, 8).setBackground('#E6E8EA');
-
-  // Subtle clean borders on header row
-  sheet.getRange(rowIdx, 1, 1, COLUMN_HEADERS.length).setBorder(
-    true, true, true, true, true, true,
-    '#CBD5E1',
-    SpreadsheetApp.BorderStyle.SOLID
-  );
-}
-
-/**
- * Optimizes column widths so no headers are cramped or awkwardly truncated
- */
 function applyColumnWidths_(sheet) {
-  var widths = [
-    140, // 1 UUID
-    110, // 2 Kobo ID
-    140, // 3 Submission Time
-    130, // 4 Submitted By
-    90,  // 5 Consent Obtained
-    160, // 6 Signature / Thumb Impression (Image Thumbnail)
-    100, // 7 Visit Date
-    130, // 8 Interviewer Name
-    140, // 9 Child Name
-    100, // 10 Date of Birth
-    60,  // 11 Age
-    80,  // 12 Gender
-    130, // 13 Orphan Status
-    140, // 14 Caregiver Full Name
-    100, // 15 Caregiver Relation
-    120, // 16 Caregiver Contact
-    220, // 17 Address
-    110, // 18 State
-    110, // 19 District
-    160, // 20 Bank Account Holder Name
-    150, // 21 Bank Account Number
-    120, // 22 Bank IFSC Code
-    140, // 23 Bank Linked Mobile Number
-    140, // 24 Child Aadhaar Number
-    150, // 25 Passbook Front Page Link (Image Thumbnail)
-    150, // 26 Aadhaar Card Link (Image Thumbnail)
-    150, // 27 Passport Size Photo Link (Image Thumbnail)
-    100, // 28 Household Members
-    90,  // 29 No of Children
-    110, // 30 Monthly Income
-    140, // 31 Income Source
-    100, // 32 Current Weight (kg)
-    100, // 33 Current Height (cm)
-    70,  // 34 BMI
-    100, // 35 BMI Category
-    100, // 36 Hemoglobin (g/dL)
-    100, // 37 Hb Category
-    130, // 38 Comorbidities
-    130, // 39 Comorbidities Other
-    100, // 40 ART Status
-    110, // 41 ART Registration Date
-    120, // 42 ART ID Number
-    120, // 43 VL Status
-    100, // 44 VL Date
-    90,  // 45 Viral Load
-    150, // 46 VL Category
-    90,  // 47 Appetite
-    90,  // 48 Meals per Day
-    130, // 49 Education Status
-    130, // 50 Education Status Other
-    180, // 51 School Name
-    110, // 52 School Session Start Date
-    110, // 53 School Type
-    90,  // 54 Current Class
-    100, // 55 Attendance Status
-    100, // 56 School Fees
-    100, // 57 Private Tuition Fee
-    100, // 58 School Books
-    100, // 59 School Stationery
-    100, // 60 School Uniform
-    100, // 61 School Transport
-    100, // 62 School Other Expenses
-    120, // 63 Total Annual Education Cost
-    150, // 64 School Fee Receipt Link (Image Thumbnail)
-    150, // 65 Marksheet Photo Link (Image Thumbnail)
-    200, // 66 Remarks (If Any)
-    120, // 67 Approved Alliance India
-    100, // 68 Review Confirmed
-    160, // 69 Organization Name
-    130, // 70 Form Submitted By
-    160, // 71 Organization Email
-    90,  // 72 Sync Needed
-    140  // 73 Last Updated
-  ];
-
-  for (var i = 0; i < widths.length; i++) {
-    sheet.setColumnWidth(i + 1, widths[i]);
+  for (var i = 1; i <= COLUMN_HEADERS.length; i++) {
+    // Image columns
+    if (i === DOC_COLUMNS.SIGNATURE || i === DOC_COLUMNS.PASSBOOK || i === DOC_COLUMNS.AADHAAR ||
+        i === DOC_COLUMNS.CHILD_PHOTO || i === DOC_COLUMNS.FEE_RECEIPT || i === DOC_COLUMNS.MARKSHEET) {
+      sheet.setColumnWidth(i, 110);
+    } else if (i === 1) { // Unique ID
+      sheet.setColumnWidth(i, 160);
+    } else if (i === 8 || i === 13) { // Child Name / Caregiver Name
+      sheet.setColumnWidth(i, 150);
+    } else if (i === 16) { // Address
+      sheet.setColumnWidth(i, 220);
+    } else if (i === 50) { // School Name
+      sheet.setColumnWidth(i, 180);
+    } else if (i === 65) { // Remarks
+      sheet.setColumnWidth(i, 200);
+    } else {
+      sheet.setColumnWidth(i, 100);
+    }
   }
 }
 
-/**
- * Formats an image URL or Drive ID into =HYPERLINK(viewUrl, IMAGE(thumbnailUrl))
- * Displays the thumbnail neatly inside the cell, and enables Google Sheets hover card
- * with URL preview, Copy Link, and Open in New Tab functionality.
- */
-function formatCellImageFormula_(urlOrData, defaultName) {
-  if (!urlOrData || String(urlOrData).trim() === '') return '';
-  var val = String(urlOrData).trim();
+// ============================================================================
+// GOOGLE DRIVE SYSTEMATIC CHILD FOLDERS & CLEANUP
+// ============================================================================
 
-  // If already a formula
-  if (val.charAt(0) === '=') return val;
+function getOrCreateRootDocumentsFolder_() {
+  try {
+    var folders = DriveApp.getFoldersByName(ROOT_DOCUMENTS_FOLDER_NAME);
+    if (folders.hasNext()) {
+      return folders.next();
+    }
+    var root = DriveApp.createFolder(ROOT_DOCUMENTS_FOLDER_NAME);
+    root.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return root;
+  } catch (err) {
+    Logger.log('DriveApp root folder exception (pending authorization): ' + err);
+    return null;
+  }
+}
 
-  // Check if it's a Google Drive link
+function getOrCreateChildFolder_(childName, uniqueId) {
+  try {
+    var rootFolder = getOrCreateRootDocumentsFolder_();
+    if (!rootFolder) return null;
+
+    var safeName = (childName && String(childName).trim()) ? String(childName).trim() : 'Unnamed_Child';
+    var safeId = (uniqueId && String(uniqueId).trim()) ? String(uniqueId).trim() : 'ID_' + Utilities.getUuid();
+    var expectedFolderName = safeName + ' - ' + safeId;
+
+    // 1. Search for existing folder with exact name
+    var exactFolders = rootFolder.getFoldersByName(expectedFolderName);
+    if (exactFolders.hasNext()) {
+      return exactFolders.next();
+    }
+
+    // 2. Search for existing folder ending with " - " + safeId
+    var subFolders = rootFolder.getFolders();
+    var idSuffix = ' - ' + safeId;
+    while (subFolders.hasNext()) {
+      var folder = subFolders.next();
+      var fname = folder.getName();
+      if (fname.indexOf(idSuffix) !== -1 || fname === safeId) {
+        if (fname !== expectedFolderName) {
+          folder.setName(expectedFolderName);
+        }
+        return folder;
+      }
+    }
+
+    // 3. Create brand new child folder
+    var newFolder = rootFolder.createFolder(expectedFolderName);
+    newFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return newFolder;
+  } catch (err) {
+    Logger.log('DriveApp child folder exception: ' + err);
+    return null;
+  }
+}
+
+function deleteObsoleteDocumentFiles_(childFolder, docPrefix, oldFormulaOrUrl) {
+  if (!childFolder) return;
+
+  try {
+    // Check prefix matches (e.g. "Signature_", "Passbook_")
+    var files = childFolder.getFiles();
+    while (files.hasNext()) {
+      var file = files.next();
+      var name = file.getName();
+      if (name.indexOf(docPrefix + '_') === 0 || name.indexOf(docPrefix + '.') === 0) {
+        try {
+          file.setTrashed(true);
+        } catch (err) {
+          Logger.log('Could not trash file: ' + name + ', ' + err);
+        }
+      }
+    }
+
+    // Also check if oldFormulaOrUrl has a specific Drive File ID
+    if (oldFormulaOrUrl) {
+      var oldDriveId = extractDriveId_(oldFormulaOrUrl);
+      if (oldDriveId) {
+        try {
+          var oldFile = DriveApp.getFileById(oldDriveId);
+          if (oldFile) oldFile.setTrashed(true);
+        } catch (err) {
+          Logger.log('Could not trash old file by ID: ' + oldDriveId);
+        }
+      }
+    }
+  } catch (err) {
+    Logger.log('Exception in deleteObsoleteDocumentFiles_: ' + err);
+  }
+}
+
+function processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId, oldFormulaOrUrl) {
+  if (!inputVal) return '';
+  var val = String(inputVal).trim();
+  if (!val) return '';
+
+  // Handle Base64 Data URL
+  if (val.indexOf('data:') === 0 && val.indexOf(';base64,') !== -1) {
+    try {
+      var commaIdx = val.indexOf(',');
+      var meta = val.substring(5, commaIdx);
+      var base64Data = val.substring(commaIdx + 1);
+
+      var mimeType = 'image/png';
+      var ext = '.png';
+      if (meta.indexOf('image/jpeg') !== -1 || meta.indexOf('image/jpg') !== -1) {
+        mimeType = 'image/jpeg';
+        ext = '.jpg';
+      } else if (meta.indexOf('application/pdf') !== -1) {
+        mimeType = 'application/pdf';
+        ext = '.pdf';
+      }
+
+      // Delete obsolete files before saving replacement
+      if (childFolder) {
+        deleteObsoleteDocumentFiles_(childFolder, docPrefix, oldFormulaOrUrl);
+      }
+
+      var decodedBytes = Utilities.base64Decode(base64Data);
+      var timestamp = Utilities.formatDate(new Date(), 'GMT+5:30', 'yyyyMMdd_HHmmss');
+      var fileName = docPrefix + '_' + timestamp + ext;
+      var blob = Utilities.newBlob(decodedBytes, mimeType, fileName);
+
+      var newFile = childFolder ? childFolder.createFile(blob) : DriveApp.createFile(blob);
+      newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+      var fileId = newFile.getId();
+      var viewUrl = 'https://drive.google.com/uc?export=view&id=' + fileId;
+      var thumbUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w150';
+      return '=HYPERLINK("' + viewUrl + '", IMAGE("' + thumbUrl + '"))';
+    } catch (driveErr) {
+      Logger.log('DriveApp upload exception: ' + driveErr);
+      return 'DATA_URL_STORED_PENDING_AUTH';
+    }
+  }
+
+  // Handle Google Drive Link
   var driveId = extractDriveId_(val);
   if (driveId) {
     var viewUrl = 'https://drive.google.com/uc?export=view&id=' + driveId;
@@ -438,17 +484,7 @@ function formatCellImageFormula_(urlOrData, defaultName) {
     return '=HYPERLINK("' + viewUrl + '", IMAGE("' + thumbUrl + '"))';
   }
 
-  // If base64 image data URL (canvas signature or camera photo)
-  if (val.indexOf('data:image') === 0) {
-    var fileId = saveBase64ImageToDrive_(val, (defaultName || 'upload') + '_' + Date.now() + '.png');
-    if (fileId) {
-      var viewUrl = 'https://drive.google.com/uc?export=view&id=' + fileId;
-      var thumbUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w150';
-      return '=HYPERLINK("' + viewUrl + '", IMAGE("' + thumbUrl + '"))';
-    }
-  }
-
-  // If standard web image URL
+  // Handle standard web image URL
   if (val.indexOf('http://') === 0 || val.indexOf('https://') === 0) {
     return '=HYPERLINK("' + val + '", IMAGE("' + val + '", 1))';
   }
@@ -465,49 +501,18 @@ function extractDriveId_(url) {
   return m ? m[1] : null;
 }
 
-function saveBase64ImageToDrive_(base64Data, filename) {
-  try {
-    var parts = base64Data.split(',');
-    var meta = parts[0];
-    var data = parts[1];
-    var mimeType = 'image/png';
-    var mimeMatch = meta.match(/data:([^;]+);base64/);
-    if (mimeMatch) mimeType = mimeMatch[1];
-
-    var decoded = Utilities.base64Decode(data);
-    var blob = Utilities.newBlob(decoded, mimeType, filename);
-
-    var folderName = 'Child_Nutrition_Phase3_Uploads';
-    var folders = DriveApp.getFoldersByName(folderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-    folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-    var file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    return file.getId();
-  } catch (e) {
-    Logger.log('saveBase64ImageToDrive_ failed: ' + e);
-    return null;
-  }
-}
-
-/**
- * Formats an inserted data row (Row 4+) with height 60px, zebra striping, and subtle borders
- */
 function formatDataRow_(sheet, rowIndex) {
   sheet.setRowHeight(rowIndex, 60);
   var rowRange = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length);
   rowRange.setVerticalAlignment('middle');
   rowRange.setFontSize(10);
 
-  // Subtle alternating row striping
   if (rowIndex % 2 === 0) {
     rowRange.setBackground('#FFFFFF');
   } else {
     rowRange.setBackground('#F8FAFC');
   }
 
-  // Soft gridlines
   rowRange.setBorder(true, true, true, true, true, true, '#E2E8F0', SpreadsheetApp.BorderStyle.SOLID);
 }
 
@@ -547,21 +552,43 @@ function getSheetAndColMap_() {
   return { ss: ss, sheet: sheet, colMap: colMap };
 }
 
+// ============================================================================
+// CREATE & OCC UPDATE HANDLERS
+// ============================================================================
+
 function handleCreate_(payload) {
-  var submissionUuid = payload.uuid || payload._uuid;
-  if (!submissionUuid) {
-    return errorResponse_('Missing required field: uuid.', 422);
+  if (payload.data && typeof payload.data === 'object') {
+    for (var k in payload.data) {
+      if (payload.data.hasOwnProperty(k) && !payload.hasOwnProperty(k)) {
+        payload[k] = payload.data[k];
+      }
+    }
+  }
+
+  var d = payload.demographics || payload.childProfile || {};
+  var h = payload.health || payload.clinicalAssessment || {};
+  var n = payload.nutrition || (payload.clinicalAssessment && payload.clinicalAssessment.appetite ? payload.clinicalAssessment : {});
+  var e = payload.educationStatus || payload.educationSupport || {};
+  var exp = payload.educationExpenses || (payload.educationSupport && (payload.educationSupport.annualExpenses || payload.educationSupport)) || {};
+  var b = payload.bankingAndKyc || payload.bankDetails || payload.caregiverHousehold || {};
+  var f = payload.finalReview || payload.remarksReview || {};
+
+  // Unique ID generated by the system (e.g. WB-KOL-081255-01 or client UUID)
+  var uniqueId = payload.uniqueId || payload.artNumber || d.artNumber || payload.uuid || payload._uuid;
+  if (!uniqueId) {
+    return errorResponse_('Missing required field: uniqueId or uuid.', 422);
   }
 
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
 
-  // Idempotency check: Column 1 is UUID, data starts at row 4
+  // Idempotency check: Column 1 is Unique ID, data starts at row 4
   if (lastRow >= 4) {
-    var existingUuids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
-    for (var r = 0; r < existingUuids.length; r++) {
-      if (String(existingUuids[r][0]).trim() === String(submissionUuid).trim()) {
+    var existingIds = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+    for (var r = 0; r < existingIds.length; r++) {
+      var rowId = String(existingIds[r][0]).trim();
+      if (rowId === String(uniqueId).trim() || (payload.uuid && rowId === String(payload.uuid).trim())) {
         var rowIndex = 4 + r;
         var existingRow = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getValues()[0];
         return ContentService.createTextOutput(
@@ -569,7 +596,7 @@ function handleCreate_(payload) {
             status: 'success',
             acknowledged: true,
             remoteSubmissionId: String(existingRow[0]),
-            clientSubmissionId: submissionUuid,
+            clientSubmissionId: uniqueId,
             version: 1,
             isDuplicate: true,
             idempotencyNote: 'Duplicate recognized. Existing row confirmed in Sheet.',
@@ -580,100 +607,100 @@ function handleCreate_(payload) {
   }
 
   var now = new Date().toISOString();
-  var d = payload.demographics || {};
-  var h = payload.health || {};
-  var n = payload.nutrition || {};
-  var e = payload.educationStatus || {};
-  var exp = payload.educationExpenses || {};
-  var b = payload.bankingAndKyc || payload.bankDetails || {};
-  var f = payload.finalReview || {};
+  var childName = d.childName || payload.childName || '';
 
-  // Build the 73-value array matching COLUMN_HEADERS 1-to-1
+  // Get or create dedicated child folder in Drive: "<ChildName> - <UniqueID>"
+  var childFolder = getOrCreateChildFolder_(childName, uniqueId);
+
+  // Build the 72-value array matching COLUMN_HEADERS 1-to-1
   var row = new Array(COLUMN_HEADERS.length);
 
-  row[0] = submissionUuid; // 1 UUID
-  row[1] = payload.koboId || d.artNumber || payload.artNumber || ''; // 2 Kobo ID
-  row[2] = payload.submissionTime || payload.createdAt || now; // 3 Submission Time
-  row[3] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 4 Submitted By
-  row[4] = (payload.consent && payload.consent.agreeToParticipate) || payload.consentObtained === 'Yes' ? 'Yes' : 'No'; // 5 Consent Obtained
+  row[0] = uniqueId; // 1 Unique ID (Auto-Generated Assessment / Beneficiary ID)
+  row[1] = payload.submissionTime || payload.createdAt || now; // 2 Submission Time
+  row[2] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 3 Submitted By
+  row[3] = (payload.consent && (payload.consent.agreeToParticipate || payload.consent.consentGiven)) ||
+           payload.consentObtained === 'Yes' ? 'Yes' : 'No'; // 4 Consent Obtained
 
-  // 6 Signature / Thumb Impression — Embedded in-cell image with hover link
-  var sigInput = payload.signatureDataUrl || payload.signatureUrl || (payload.caregiverConsent && payload.caregiverConsent.signatureUrl) || payload.signatureStatus || '';
-  row[5] = formatCellImageFormula_(sigInput, 'signature');
+  // 5 Signature / Thumb Impression — Stored in child folder, formatted as in-cell formula
+  var sigVal = payload.signatureDataUrl || (payload.consent && payload.consent.signatureDataUrl) ||
+               (payload.caregiverConsent && payload.caregiverConsent.signatureDataUrl) ||
+               payload.signatureUrl || (payload.caregiverConsent && payload.caregiverConsent.signatureUrl) ||
+               payload.signatureStatus || '';
+  row[4] = sigVal ? processDocumentUpload_(sigVal, childFolder, 'Signature', uniqueId) : 'CAPTURED_LOCAL';
 
-  row[6] = d.dateOfFilling || payload.visitDate || now.split('T')[0]; // 7 Visit Date
-  row[7] = payload.interviewerName || f.formSubmittedBy || ''; // 8 Interviewer Name
-  row[8] = d.childName || payload.childName || ''; // 9 Child Name
-  row[9] = d.dob || payload.dob || ''; // 10 Date of Birth
-  row[10] = d.calculatedAgeYears !== undefined ? d.calculatedAgeYears : (payload.age || ''); // 11 Age
-  row[11] = d.gender || payload.gender || 'Male'; // 12 Gender
-  row[12] = d.orphanStatus || payload.orphanStatus || ''; // 13 Orphan Status
-  row[13] = d.caregiverName || payload.caregiverName || ''; // 14 Caregiver Full Name
-  row[14] = d.caregiverRelationship || payload.caregiverRelationship || ''; // 15 Caregiver Relation
-  row[15] = d.contactNumber || d.caregiverPhone || payload.caregiverContact || ''; // 16 Caregiver Contact
-  row[16] = d.fullAddress || payload.address || ''; // 17 Address
-  row[17] = d.state || payload.state || 'Maharashtra'; // 18 State
-  row[18] = d.district || payload.district || 'Pune'; // 19 District
-  row[19] = b.bankAccountHolderName || b.accountHolderName || payload.bankAccountHolderName || ''; // 20 Bank Account Holder Name
-  row[20] = b.bankAccountNumber || b.accountNumber || payload.bankAccountNumber || ''; // 21 Bank Account Number
-  row[21] = b.bankIfscCode || b.ifscCode || payload.bankIfscCode || ''; // 22 Bank IFSC Code
-  row[22] = b.bankLinkedMobileNumber || payload.bankLinkedMobileNumber || ''; // 23 Bank Linked Mobile Number
-  row[23] = b.childAadhaarNumber || d.childAadhaarNumber || payload.childAadhaarNumber || ''; // 24 Child Aadhaar Number
+  row[5] = d.dateOfFilling || payload.visitDate || now.split('T')[0]; // 6 Visit Date
+  row[6] = payload.interviewerName || f.formSubmittedBy || ''; // 7 Interviewer Name
+  row[7] = childName; // 8 Child Name
+  row[8] = d.dob || payload.dob || ''; // 9 Date of Birth
+  row[9] = d.calculatedAgeYears !== undefined ? d.calculatedAgeYears : (payload.age || ''); // 10 Age
+  row[10] = d.gender || payload.gender || 'Male'; // 11 Gender
+  row[11] = d.orphanStatus || payload.orphanStatus || ''; // 12 Orphan Status
+  row[12] = d.caregiverName || payload.caregiverFullName || payload.caregiverName || ''; // 13 Caregiver Full Name
+  row[13] = d.caregiverRelationship || payload.caregiverRelation || ''; // 14 Caregiver Relation
+  row[14] = d.contactNumber || d.caregiverPhone || payload.caregiverContact || ''; // 15 Caregiver Contact
+  row[15] = d.fullAddress || payload.address || ''; // 16 Address
+  row[16] = d.state || payload.state || 'Maharashtra'; // 17 State
+  row[17] = d.district || payload.district || 'Pune'; // 18 District
+  row[18] = b.bankAccountHolderName || b.accountHolderName || payload.bankAccountHolderName || ''; // 19 Bank Account Holder Name
+  row[19] = b.bankAccountNumber || b.accountNumber || payload.bankAccountNumber || ''; // 20 Bank Account Number
+  row[20] = b.bankIfscCode || b.ifscCode || payload.bankIfscCode || ''; // 21 Bank IFSC Code
+  row[21] = b.bankLinkedMobileNumber || payload.bankLinkedMobileNumber || ''; // 22 Bank Linked Mobile Number
+  row[22] = b.childAadhaarNumber || d.childAadhaarNumber || payload.childAadhaarNumber || ''; // 23 Child Aadhaar Number
 
-  // KYC Image Links — Embedded in-cell images with hover links
-  row[24] = formatCellImageFormula_(b.passbookPhotoUrl || payload.passbookFrontPageLink || '', 'passbook');
-  row[25] = formatCellImageFormula_(b.aadhaarCardPhotoUrl || payload.aadhaarCardLink || '', 'aadhaar');
-  row[26] = formatCellImageFormula_(b.childPhotoUrl || payload.passportSizePhotoLink || '', 'photo');
+  // KYC Image Links (Cols 24, 25, 26) — Stored in child folder, formatted as in-cell formula
+  row[23] = processDocumentUpload_(b.passbookPhotoUrl || d.passbookPhotoUrl || payload.passbookFrontPageLink || payload.passbookPhotoUrl, childFolder, 'Passbook', uniqueId);
+  row[24] = processDocumentUpload_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, childFolder, 'Aadhaar', uniqueId);
+  row[25] = processDocumentUpload_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, childFolder, 'Child_Photo', uniqueId);
 
-  row[27] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || 4); // 28 Household Members
-  row[28] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || 2); // 29 No of Children
-  row[29] = payload.householdFinancial ? payload.householdFinancial.monthlyIncomeRs : (payload.monthlyIncome || 0); // 30 Monthly Income
-  row[30] = payload.householdFinancial ? payload.householdFinancial.mainSourceOfIncome : (payload.incomeSource || 'Daily wage labour'); // 31 Income Source
-  row[31] = h.weightKg || n.weightKg || payload.currentWeightKg || 0; // 32 Current Weight (kg)
-  row[32] = h.heightCm || n.heightCm || payload.currentHeightCm || 0; // 33 Current Height (cm)
-  row[33] = h.bmi || n.bmi || payload.bmi || 0; // 34 BMI
-  row[34] = h.bmiCategory || payload.bmiCategory || (h.nutritionStatus || n.nutritionStatus || 'Normal'); // 35 BMI Category
-  row[35] = h.haemoglobinGdl !== undefined ? h.haemoglobinGdl : (payload.hemoglobinGdl || ''); // 36 Hemoglobin (g/dL)
-  row[36] = h.hbCategory || payload.hbCategory || 'Normal'; // 37 Hb Category
-  row[37] = Array.isArray(h.otherHealthConditions) ? h.otherHealthConditions.join(', ') : (payload.comorbidities || ''); // 38 Comorbidities
-  row[38] = h.otherHealthConditionSpecify || payload.comorbiditiesOther || ''; // 39 Comorbidities Other
-  row[39] = h.artStatus || payload.artStatus || 'On ART'; // 40 ART Status
-  row[40] = h.artRegistrationDate || payload.artRegistrationDate || ''; // 41 ART Registration Date
-  row[41] = h.artIdNumber || payload.artIdNumber || ''; // 42 ART ID Number
-  row[42] = h.vlStatus || payload.vlStatus || 'Tested in last 6 months'; // 43 VL Status
-  row[43] = h.vlDate || payload.vlDate || ''; // 44 VL Date
-  row[44] = h.viralLoad !== undefined ? String(h.viralLoad) : (payload.viralLoad || '< 50'); // 45 Viral Load
-  row[45] = h.vlCategory || payload.vlCategory || 'Undetectable (<50 copies/mL)'; // 46 VL Category
-  row[46] = n.appetite || payload.appetite || 'Good'; // 47 Appetite
-  row[47] = n.mealsPerDay || payload.mealsPerDay || 3; // 48 Meals per Day
-  row[48] = e.educationStatus || payload.educationStatus || 'Currently going to school'; // 49 Education Status
-  row[49] = e.educationStatusSpecify || payload.educationStatusOther || ''; // 50 Education Status Other
-  row[50] = e.schoolName || payload.schoolName || ''; // 51 School Name
-  row[51] = e.schoolSessionStartDate || payload.schoolSessionStartDate || ''; // 52 School Session Start Date
-  row[52] = e.schoolType || payload.schoolType || 'Government school'; // 53 School Type
-  row[53] = e.currentClass || payload.currentClass || ''; // 54 Current Class
-  row[54] = e.attendance || payload.attendanceStatus || 'Regular'; // 55 Attendance Status
-  row[55] = Number(exp.schoolFees) || 0; // 56 School Fees
-  row[56] = Number(exp.tuitionFees) || 0; // 57 Private Tuition Fee
-  row[57] = Number(exp.books) || 0; // 58 School Books
-  row[58] = Number(exp.stationery) || 0; // 59 School Stationery
-  row[59] = Number(exp.uniform) || 0; // 60 School Uniform
-  row[60] = Number(exp.transport) || 0; // 61 School Transport
-  row[61] = Number(exp.otherExpenses) || 0; // 62 School Other Expenses
-  row[62] = Number(exp.totalAnnualCost) || 0; // 63 Total Annual Education Cost
+  row[26] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || 4); // 27 Household Members
+  row[27] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || 2); // 28 No of Children
+  row[28] = payload.householdFinancial ? payload.householdFinancial.monthlyIncomeRs : (payload.monthlyIncome || 0); // 29 Monthly Income
+  row[29] = payload.householdFinancial ? payload.householdFinancial.mainSourceOfIncome : (payload.incomeSource || 'Daily wage labour'); // 30 Income Source
+  row[30] = h.weightKg || n.weightKg || payload.currentWeightKg || 0; // 31 Current Weight (kg)
+  row[31] = h.heightCm || n.heightCm || payload.currentHeightCm || 0; // 32 Current Height (cm)
+  row[32] = h.bmi || n.bmi || payload.bmi || 0; // 33 BMI
+  row[33] = h.bmiCategory || payload.bmiCategory || (h.nutritionStatus || n.nutritionStatus || 'Normal'); // 34 BMI Category
+  row[34] = h.haemoglobinGdl !== undefined ? h.haemoglobinGdl : (payload.hemoglobinGdl || ''); // 35 Hemoglobin (g/dL)
+  row[35] = h.hbCategory || payload.hbCategory || 'Normal'; // 36 Hb Category
+  row[36] = Array.isArray(h.otherHealthConditions) ? h.otherHealthConditions.join(', ') : (payload.comorbidities || ''); // 37 Comorbidities
+  row[37] = h.otherHealthConditionSpecify || payload.comorbiditiesOther || ''; // 38 Comorbidities Other
+  row[38] = h.artStatus || payload.artStatus || 'On ART'; // 39 ART Status
+  row[39] = h.artRegistrationDate || payload.artRegistrationDate || ''; // 40 ART Registration Date
+  row[40] = h.artIdNumber || payload.artIdNumber || ''; // 41 ART ID Number
+  row[41] = h.vlStatus || payload.vlStatus || 'Tested in last 6 months'; // 42 VL Status
+  row[42] = h.vlDate || payload.vlDate || ''; // 43 VL Date
+  row[43] = h.viralLoad !== undefined ? String(h.viralLoad) : (payload.viralLoad || '< 50'); // 44 Viral Load
+  row[44] = h.vlCategory || payload.vlCategory || 'Undetectable (<50 copies/mL)'; // 45 VL Category
+  row[45] = n.appetite || payload.appetite || 'Good'; // 46 Appetite
+  row[46] = n.mealsPerDay || payload.mealsPerDay || 3; // 47 Meals per Day
+  row[47] = e.educationStatus || payload.educationStatus || 'Currently going to school'; // 48 Education Status
+  row[48] = e.educationStatusSpecify || payload.educationStatusOther || ''; // 49 Education Status Other
+  row[49] = e.schoolName || payload.schoolName || ''; // 50 School Name
+  row[50] = e.schoolSessionStartDate || payload.schoolSessionStartDate || ''; // 51 School Session Start Date
+  row[51] = e.schoolType || payload.schoolType || 'Government school'; // 52 School Type
+  row[52] = e.currentClass || payload.currentClass || ''; // 53 Current Class
+  row[53] = e.attendance || payload.attendanceStatus || 'Regular'; // 54 Attendance Status
+  row[54] = Number(exp.schoolFees) || 0; // 55 School Fees
+  row[55] = Number(exp.tuitionFees) || 0; // 56 Private Tuition Fee
+  row[56] = Number(exp.books) || 0; // 57 School Books
+  row[57] = Number(exp.stationery) || 0; // 58 School Stationery
+  row[58] = Number(exp.uniform) || 0; // 59 School Uniform
+  row[59] = Number(exp.transport) || 0; // 60 School Transport
+  row[60] = Number(exp.otherExpenses) || 0; // 61 School Other Expenses
+  row[61] = Number(exp.totalAnnualCost) || 0; // 62 Total Annual Education Cost
 
-  // Education Photo Links — Embedded in-cell images with hover links
-  row[63] = formatCellImageFormula_(exp.feeReceiptPhotoUrl || payload.schoolFeeReceiptLink || '', 'fee_receipt');
-  row[64] = formatCellImageFormula_(exp.marksheetPhotoUrl || payload.marksheetPhotoLink || '', 'marksheet');
+  // Education Photo Links (Cols 63, 64) — Stored in child folder, formatted as in-cell formula
+  row[62] = processDocumentUpload_(exp.feeReceiptPhotoUrl || e.feeReceiptPhotoUrl || payload.feeReceiptPhotoUrl || payload.schoolFeeReceiptLink, childFolder, 'Fee_Receipt', uniqueId);
+  row[63] = processDocumentUpload_(exp.marksheetPhotoUrl || e.marksheetPhotoUrl || payload.marksheetPhotoUrl || payload.marksheetPhotoLink, childFolder, 'Marksheet', uniqueId);
 
-  row[65] = exp.remarks || payload.remarks || ''; // 66 Remarks (If Any)
-  row[66] = f.approvedAllianceIndia || payload.approvedAllianceIndia || 'Pending'; // 67 Approved Alliance India
-  row[67] = f.allInfoCorrect || payload.reviewConfirmed ? 'Yes' : 'No'; // 68 Review Confirmed
-  row[68] = f.organizationName || payload.organizationName || 'India HIV/AIDS Alliance'; // 69 Organization Name
-  row[69] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 70 Form Submitted By
-  row[70] = f.organizationEmail || payload.organizationEmail || ''; // 71 Organization Email
-  row[71] = payload.syncNeeded || 'NO'; // 72 Sync Needed
-  row[72] = payload.updatedAt || now; // 73 Last Updated
+  row[64] = exp.remarks || payload.remarks || ''; // 65 Remarks (If Any)
+  row[65] = f.approvedAllianceIndia || payload.approvedAllianceIndia || 'Pending'; // 66 Approved Alliance India
+  row[66] = f.allInfoCorrect || payload.reviewConfirmed ? 'Yes' : 'No'; // 67 Review Confirmed
+  row[67] = f.organizationName || payload.organizationName || 'India HIV/AIDS Alliance'; // 68 Organization Name
+  row[68] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 69 Form Submitted By
+  row[69] = f.organizationEmail || payload.organizationEmail || ''; // 70 Organization Email
+  row[70] = payload.syncNeeded || 'NO'; // 71 Sync Needed
+  row[71] = payload.updatedAt || now; // 72 Last Updated
 
   sheet.appendRow(row);
   var newRowIndex = sheet.getLastRow();
@@ -683,8 +710,9 @@ function handleCreate_(payload) {
     JSON.stringify({
       status: 'success',
       acknowledged: true,
-      remoteSubmissionId: submissionUuid,
-      clientSubmissionId: submissionUuid,
+      remoteSubmissionId: uniqueId,
+      clientSubmissionId: uniqueId,
+      uniqueId: uniqueId,
       rowNumber: newRowIndex,
       totalColumns: COLUMN_HEADERS.length,
       version: 1,
@@ -695,9 +723,17 @@ function handleCreate_(payload) {
 }
 
 function handleUpdate_(payload) {
-  var targetUuid = payload.uuid || payload.submissionId || payload.remoteSubmissionId;
-  if (!targetUuid) {
-    return errorResponse_('Missing uuid for update.', 400);
+  if (payload.data && typeof payload.data === 'object') {
+    for (var k in payload.data) {
+      if (payload.data.hasOwnProperty(k) && !payload.hasOwnProperty(k)) {
+        payload[k] = payload.data[k];
+      }
+    }
+  }
+
+  var targetId = payload.uniqueId || payload.artNumber || payload.uuid || payload.submissionId || payload.remoteSubmissionId;
+  if (!targetId) {
+    return errorResponse_('Missing uniqueId or uuid for update.', 400);
   }
 
   var ctx = getSheetAndColMap_();
@@ -705,21 +741,22 @@ function handleUpdate_(payload) {
   var lastRow = sheet.getLastRow();
 
   if (lastRow < 4) {
-    return errorResponse_('Record not found: Sheet is empty.', 404);
+    return errorResponse_('Record not found: Sheet has no data rows.', 404);
   }
 
-  var uuids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
   var foundRow = -1;
 
-  for (var r = 0; r < uuids.length; r++) {
-    if (String(uuids[r][0]).trim() === String(targetUuid).trim()) {
+  for (var r = 0; r < ids.length; r++) {
+    var existingId = String(ids[r][0]).trim();
+    if (existingId === String(targetId).trim()) {
       foundRow = 4 + r;
       break;
     }
   }
 
   if (foundRow === -1) {
-    return errorResponse_('Record not found with UUID: ' + targetUuid, 404);
+    return errorResponse_('Record not found with ID: ' + targetId, 404);
   }
 
   var existingRow = sheet.getRange(foundRow, 1, 1, COLUMN_HEADERS.length).getValues()[0];
@@ -736,50 +773,198 @@ function handleUpdate_(payload) {
         JSON.stringify({
           status: 'error',
           code: 'OCC_CONFLICT',
-          message: 'Conflict: The record has been modified by another supervisor. Refresh before saving.',
-          sheetVersion: sheetVersion,
-          clientVersion: payload.baseVersion,
+          message: 'Concurrent modification conflict. Sheet has newer version ' + sheetVersion,
+          currentVersion: sheetVersion,
         })
       ).setMimeType(ContentService.MimeType.JSON);
     }
   }
 
-  // Selective Field Updates
-  function updateCell(colKey, value) {
-    var c = colMap[colKey.toLowerCase()];
-    if (c) {
-      sheet.getRange(foundRow, c).setValue(value);
+  var childName = payload.childName || (payload.demographics && payload.demographics.childName) || existingRow[7] || '';
+  var childFolder = getOrCreateChildFolder_(childName, targetId);
+
+  var allowedDirectMap = {
+    childName: 8,
+    dob: 9,
+    age: 10,
+    gender: 11,
+    orphanStatus: 12,
+    caregiverName: 13,
+    caregiverFullName: 13,
+    caregiverRelationship: 14,
+    caregiverRelation: 14,
+    contactNumber: 15,
+    caregiverPhone: 15,
+    caregiverContact: 15,
+    fullAddress: 16,
+    address: 16,
+    state: 17,
+    district: 18,
+    bankAccountHolderName: 19,
+    bankAccountNumber: 20,
+    bankIfscCode: 21,
+    bankLinkedMobileNumber: 22,
+    childAadhaarNumber: 23,
+    totalFamilyMembers: 27,
+    householdMembers: 27,
+    numberOfChildrenUnder18: 28,
+    noOfChildren: 28,
+    monthlyIncomeRs: 29,
+    monthlyIncome: 29,
+    mainSourceOfIncome: 30,
+    incomeSource: 30,
+    weightKg: 31,
+    currentWeightKg: 31,
+    heightCm: 32,
+    currentHeightCm: 32,
+    bmi: 33,
+    bmiCategory: 34,
+    haemoglobinGdl: 35,
+    hemoglobinGdl: 35,
+    hbCategory: 36,
+    comorbidities: 37,
+    comorbiditiesOther: 38,
+    artStatus: 39,
+    artRegistrationDate: 40,
+    artIdNumber: 41,
+    vlStatus: 42,
+    vlDate: 43,
+    viralLoad: 44,
+    vlCategory: 45,
+    appetite: 46,
+    mealsPerDay: 47,
+    educationStatus: 48,
+    educationStatusSpecify: 49,
+    schoolName: 50,
+    schoolSessionStartDate: 51,
+    schoolType: 52,
+    currentClass: 53,
+    attendance: 54,
+    attendanceStatus: 54,
+    schoolFees: 55,
+    tuitionFees: 56,
+    privateTuitionFee: 56,
+    books: 57,
+    schoolBooks: 57,
+    stationery: 58,
+    schoolStationery: 58,
+    uniform: 59,
+    schoolUniform: 59,
+    transport: 60,
+    schoolTransport: 60,
+    otherExpenses: 61,
+    schoolOtherExpenses: 61,
+    totalAnnualCost: 62,
+    totalAnnualEducationCost: 62,
+    remarks: 65,
+    approvedAllianceIndia: 66,
+    reviewConfirmed: 67,
+    organizationName: 68,
+    formSubmittedBy: 69,
+    organizationEmail: 70,
+    syncNeeded: 71
+  };
+
+  // Direct mutations
+  for (var key in payload) {
+    if (payload.hasOwnProperty(key)) {
+      var colIdx = allowedDirectMap[key];
+      if (colIdx && colIdx <= COLUMN_HEADERS.length) {
+        var val = payload[key];
+        if (Array.isArray(val)) val = val.join(', ');
+        sheet.getRange(foundRow, colIdx).setValue(val);
+      }
     }
   }
 
-  if (payload.approvedAllianceIndia !== undefined) updateCell('approved alliance india', payload.approvedAllianceIndia);
-  if (payload.reviewConfirmed !== undefined) updateCell('review confirmed', payload.reviewConfirmed ? 'Yes' : 'No');
-  if (payload.remarks !== undefined) updateCell('remarks (if any)', payload.remarks);
-  if (payload.currentWeightKg !== undefined) updateCell('current weight (kg)', payload.currentWeightKg);
-  if (payload.currentHeightCm !== undefined) updateCell('current height (cm)', payload.currentHeightCm);
-  if (payload.bmi !== undefined) updateCell('bmi', payload.bmi);
-  if (payload.bmiCategory !== undefined) updateCell('bmi category', payload.bmiCategory);
-  if (payload.syncNeeded !== undefined) updateCell('sync needed', payload.syncNeeded);
+  // Nested mutations
+  var d = payload.demographics || payload.childProfile;
+  if (d) {
+    if (d.childName !== undefined) sheet.getRange(foundRow, 8).setValue(d.childName);
+    if (d.dob !== undefined) sheet.getRange(foundRow, 9).setValue(d.dob);
+    if (d.calculatedAgeYears !== undefined) sheet.getRange(foundRow, 10).setValue(d.calculatedAgeYears);
+    if (d.gender !== undefined) sheet.getRange(foundRow, 11).setValue(d.gender);
+    if (d.orphanStatus !== undefined) sheet.getRange(foundRow, 12).setValue(d.orphanStatus);
+    if (d.caregiverName !== undefined) sheet.getRange(foundRow, 13).setValue(d.caregiverName);
+    if (d.caregiverRelationship !== undefined) sheet.getRange(foundRow, 14).setValue(d.caregiverRelationship);
+    if (d.contactNumber !== undefined) sheet.getRange(foundRow, 15).setValue(d.contactNumber);
+    if (d.fullAddress !== undefined) sheet.getRange(foundRow, 16).setValue(d.fullAddress);
+    if (d.state !== undefined) sheet.getRange(foundRow, 17).setValue(d.state);
+    if (d.district !== undefined) sheet.getRange(foundRow, 18).setValue(d.district);
+    if (d.childAadhaarNumber !== undefined) sheet.getRange(foundRow, 23).setValue(d.childAadhaarNumber);
+  }
 
+  var b = payload.bankingAndKyc || payload.bankDetails || payload.caregiverHousehold;
+  if (b) {
+    if (b.bankAccountHolderName !== undefined) sheet.getRange(foundRow, 19).setValue(b.bankAccountHolderName);
+    if (b.bankAccountNumber !== undefined) sheet.getRange(foundRow, 20).setValue(b.bankAccountNumber);
+    if (b.bankIfscCode !== undefined) sheet.getRange(foundRow, 21).setValue(b.bankIfscCode);
+    if (b.bankLinkedMobileNumber !== undefined) sheet.getRange(foundRow, 22).setValue(b.bankLinkedMobileNumber);
+    if (b.childAadhaarNumber !== undefined) sheet.getRange(foundRow, 23).setValue(b.childAadhaarNumber);
+  }
+
+  // Document photo updates with obsolete file trashing
+  if (payload.signatureDataUrl || (payload.consent && payload.consent.signatureDataUrl)) {
+    var oldSig = sheet.getRange(foundRow, DOC_COLUMNS.SIGNATURE).getFormula() || sheet.getRange(foundRow, DOC_COLUMNS.SIGNATURE).getValue();
+    var sigVal = payload.signatureDataUrl || payload.consent.signatureDataUrl;
+    sheet.getRange(foundRow, DOC_COLUMNS.SIGNATURE).setValue(processDocumentUpload_(sigVal, childFolder, 'Signature', targetId, oldSig));
+  }
+
+  if (payload.passbookPhotoUrl || (b && b.passbookPhotoUrl)) {
+    var oldPassbook = sheet.getRange(foundRow, DOC_COLUMNS.PASSBOOK).getFormula() || sheet.getRange(foundRow, DOC_COLUMNS.PASSBOOK).getValue();
+    var pVal = payload.passbookPhotoUrl || b.passbookPhotoUrl;
+    sheet.getRange(foundRow, DOC_COLUMNS.PASSBOOK).setValue(processDocumentUpload_(pVal, childFolder, 'Passbook', targetId, oldPassbook));
+  }
+
+  if (payload.aadhaarCardPhotoUrl || (b && b.aadhaarCardPhotoUrl)) {
+    var oldAadhaar = sheet.getRange(foundRow, DOC_COLUMNS.AADHAAR).getFormula() || sheet.getRange(foundRow, DOC_COLUMNS.AADHAAR).getValue();
+    var aVal = payload.aadhaarCardPhotoUrl || b.aadhaarCardPhotoUrl;
+    sheet.getRange(foundRow, DOC_COLUMNS.AADHAAR).setValue(processDocumentUpload_(aVal, childFolder, 'Aadhaar', targetId, oldAadhaar));
+  }
+
+  if (payload.childPhotoUrl || (b && b.childPhotoUrl)) {
+    var oldPhoto = sheet.getRange(foundRow, DOC_COLUMNS.CHILD_PHOTO).getFormula() || sheet.getRange(foundRow, DOC_COLUMNS.CHILD_PHOTO).getValue();
+    var cVal = payload.childPhotoUrl || b.childPhotoUrl;
+    sheet.getRange(foundRow, DOC_COLUMNS.CHILD_PHOTO).setValue(processDocumentUpload_(cVal, childFolder, 'Child_Photo', targetId, oldPhoto));
+  }
+
+  var exp = payload.educationExpenses || (payload.educationSupport && (payload.educationSupport.annualExpenses || payload.educationSupport));
+  if (payload.feeReceiptPhotoUrl || (exp && exp.feeReceiptPhotoUrl)) {
+    var oldFee = sheet.getRange(foundRow, DOC_COLUMNS.FEE_RECEIPT).getFormula() || sheet.getRange(foundRow, DOC_COLUMNS.FEE_RECEIPT).getValue();
+    var fVal = payload.feeReceiptPhotoUrl || exp.feeReceiptPhotoUrl;
+    sheet.getRange(foundRow, DOC_COLUMNS.FEE_RECEIPT).setValue(processDocumentUpload_(fVal, childFolder, 'Fee_Receipt', targetId, oldFee));
+  }
+
+  if (payload.marksheetPhotoUrl || (exp && exp.marksheetPhotoUrl)) {
+    var oldMark = sheet.getRange(foundRow, DOC_COLUMNS.MARKSHEET).getFormula() || sheet.getRange(foundRow, DOC_COLUMNS.MARKSHEET).getValue();
+    var mVal = payload.marksheetPhotoUrl || exp.marksheetPhotoUrl;
+    sheet.getRange(foundRow, DOC_COLUMNS.MARKSHEET).setValue(processDocumentUpload_(mVal, childFolder, 'Marksheet', targetId, oldMark));
+  }
+
+  // Update Last Updated column
   var now = new Date().toISOString();
-  updateCell('last updated', now);
-  formatDataRow_(sheet, foundRow);
+  sheet.getRange(foundRow, 72).setValue(now);
 
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
       acknowledged: true,
-      remoteSubmissionId: targetUuid,
+      remoteSubmissionId: targetId,
+      uniqueId: targetId,
       rowNumber: foundRow,
       updatedAt: now,
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }
 
+// ============================================================================
+// READ & LIST HANDLERS
+// ============================================================================
+
 function handleRead_(params) {
-  var targetUuid = params.uuid || params.id;
-  if (!targetUuid) {
-    return errorResponse_('Missing uuid parameter.', 400);
+  var id = params.uniqueId || params.id || params.uuid || params.submissionId;
+  if (!id) {
+    return errorResponse_('Missing uniqueId or id parameter.', 400);
   }
 
   var ctx = getSheetAndColMap_();
@@ -787,35 +972,26 @@ function handleRead_(params) {
   var lastRow = sheet.getLastRow();
 
   if (lastRow < 4) {
-    return errorResponse_('Record not found: Sheet has no data.', 404);
+    return errorResponse_('Record not found.', 404);
   }
 
-  var uuids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
-  var targetRow = -1;
-
-  for (var r = 0; r < uuids.length; r++) {
-    if (String(uuids[r][0]).trim() === String(targetUuid).trim()) {
-      targetRow = 4 + r;
-      break;
+  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+  for (var r = 0; r < ids.length; r++) {
+    if (String(ids[r][0]).trim() === String(id).trim()) {
+      var rowIndex = 4 + r;
+      var values = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getValues()[0];
+      var formulas = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getFormulas()[0];
+      var record = {};
+      for (var c = 0; c < COLUMN_HEADERS.length; c++) {
+        record[COLUMN_HEADERS[c]] = formulas[c] || values[c];
+      }
+      return ContentService.createTextOutput(
+        JSON.stringify({ status: 'success', data: record, rowNumber: rowIndex })
+      ).setMimeType(ContentService.MimeType.JSON);
     }
   }
 
-  if (targetRow === -1) {
-    return errorResponse_('Record not found with UUID: ' + targetUuid, 404);
-  }
-
-  var rowVals = sheet.getRange(targetRow, 1, 1, COLUMN_HEADERS.length).getValues()[0];
-  var record = {};
-  for (var c = 0; c < COLUMN_HEADERS.length; c++) {
-    record[COLUMN_HEADERS[c]] = rowVals[c];
-  }
-
-  return ContentService.createTextOutput(
-    JSON.stringify({
-      status: 'success',
-      record: record,
-    })
-  ).setMimeType(ContentService.MimeType.JSON);
+  return errorResponse_('Record not found with ID: ' + id, 404);
 }
 
 function handleList_(params) {
@@ -825,57 +1001,363 @@ function handleList_(params) {
 
   if (lastRow < 4) {
     return ContentService.createTextOutput(
-      JSON.stringify({
-        status: 'success',
-        records: [],
-        total: 0,
-        hasMore: false,
-      })
+      JSON.stringify({ status: 'success', data: [], total: 0, cursor: null, hasMore: false })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  var totalDataRows = lastRow - 3;
   var limit = parseInt(params.limit, 10) || 50;
-  var cursor = parseInt(params.cursor, 10) || 0;
+  var cursor = parseInt(params.cursor, 10) || 4; // Start at Row 4
+  var endRow = Math.min(cursor + limit - 1, lastRow);
+  var numRows = endRow - cursor + 1;
 
-  var startOffset = cursor;
-  var fetchCount = Math.min(limit, totalDataRows - startOffset);
-
-  if (fetchCount <= 0) {
+  if (numRows <= 0) {
     return ContentService.createTextOutput(
-      JSON.stringify({
-        status: 'success',
-        records: [],
-        total: totalDataRows,
-        hasMore: false,
-      })
+      JSON.stringify({ status: 'success', data: [], total: lastRow - 3, cursor: null, hasMore: false })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  var startRow = 4 + startOffset;
-  var allValues = sheet.getRange(startRow, 1, fetchCount, COLUMN_HEADERS.length).getValues();
+  var dataBlock = sheet.getRange(cursor, 1, numRows, COLUMN_HEADERS.length).getValues();
+  var formulaBlock = sheet.getRange(cursor, 1, numRows, COLUMN_HEADERS.length).getFormulas();
   var records = [];
 
-  for (var r = 0; r < allValues.length; r++) {
-    var rowVals = allValues[r];
-    var obj = {};
+  for (var r = 0; r < dataBlock.length; r++) {
+    var rec = {};
     for (var c = 0; c < COLUMN_HEADERS.length; c++) {
-      obj[COLUMN_HEADERS[c]] = rowVals[c];
+      rec[COLUMN_HEADERS[c]] = formulaBlock[r][c] || dataBlock[r][c];
     }
-    records.push(obj);
+    records.push(rec);
   }
 
-  var nextCursor = startOffset + fetchCount < totalDataRows ? startOffset + fetchCount : null;
-
+  var nextCursor = endRow < lastRow ? endRow + 1 : null;
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
-      records: records,
-      total: totalDataRows,
+      data: records,
+      total: lastRow - 3,
       cursor: nextCursor,
       hasMore: nextCursor !== null,
     })
   ).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================================
+// SAMPLE DATA & 1-CLICK SHEET SETUP
+// ============================================================================
+
+function runSetupAndInsertSampleRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  }
+  var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
+  sheet.setName(PRIMARY_SHEET_NAME);
+
+  // Clear existing content and initialize fresh 3-row layout
+  sheet.clear();
+  ensureHeaders_(sheet);
+
+  // Sample real-world beneficiaries with generated IDs
+  var samples = [
+    {
+      uniqueId: 'WB-KOL-081200-01',
+      childName: 'Rohit Yadav',
+      submittedBy: 'Juli Yadav',
+      consent: 'Yes',
+      visitDate: '2026-06-25',
+      dob: '2010-04-14',
+      age: 16,
+      gender: 'Male',
+      orphanStatus: 'Both Alive',
+      caregiverName: 'Juli Yadav',
+      caregiverRelation: 'Mother',
+      caregiverContact: '9830192840',
+      address: '15/1, Sujendra Seth Lane, Kolkata - 700006',
+      state: 'West Bengal',
+      district: 'Kolkata',
+      accountHolder: 'Juli Yadav',
+      accountNo: '30928172645',
+      ifsc: 'SBIN0000166',
+      bankMobile: '9830192840',
+      aadhaarNo: 'XXXX-XXXX-2840',
+      familyMembers: 5,
+      children: 2,
+      monthlyIncome: 8000,
+      incomeSource: 'Domestic help & sewing',
+      weight: 48,
+      height: 160,
+      bmi: 18.8,
+      bmiCat: 'Normal',
+      hb: 13.0,
+      hbCat: 'Normal',
+      comorbidities: 'None',
+      comorbiditiesOther: '',
+      artStatus: 'On ART',
+      artRegDate: '2020-04-10',
+      artId: 'WB-KOL-7920',
+      vlStatus: 'Tested in last 6 months',
+      vlDate: '2026-03-15',
+      vlCopies: '< 50',
+      vlCat: 'Undetectable (<50 copies/mL)',
+      appetite: 'Reduced',
+      meals: 3,
+      eduStatus: 'School Going',
+      eduOther: '',
+      schoolName: 'S B Modern High School',
+      sessionStart: '2026-06-15',
+      schoolType: 'Government school',
+      currentClass: 'Class 11',
+      attendance: 'Irregular',
+      fees: 2100,
+      tuition: 7200,
+      books: 1000,
+      stationery: 1500,
+      uniform: 2000,
+      transport: 3200,
+      other: 1000,
+      totalCost: 18000,
+      remarks: 'Phase 3 educational aid recommended. Low income family.',
+      approval: 'Approved',
+      cbo: 'Amra Padatik',
+      submitter: 'Juli Yadav',
+      email: 'amrapadatik@gmail.com'
+    },
+    {
+      uniqueId: 'WB-KOL-081205-02',
+      childName: 'Puja Saha',
+      submittedBy: 'Asthi Saha',
+      consent: 'Yes',
+      visitDate: '2026-06-25',
+      dob: '2008-11-01',
+      age: 17,
+      gender: 'Female',
+      orphanStatus: 'Both Alive',
+      caregiverName: 'Asthi Saha',
+      caregiverRelation: 'Mother',
+      caregiverContact: '9003684983',
+      address: '15/1 Sujendra Seth lane, Kolkata - 700006',
+      state: 'West Bengal',
+      district: 'Kolkata',
+      accountHolder: 'Asthi Saha',
+      accountNo: '20491823901',
+      ifsc: 'CBIN0281045',
+      bankMobile: '9003684983',
+      aadhaarNo: 'XXXX-XXXX-4983',
+      familyMembers: 4,
+      children: 2,
+      monthlyIncome: 7500,
+      incomeSource: 'Tailoring & Domestic work',
+      weight: 42,
+      height: 152,
+      bmi: 18.2,
+      bmiCat: 'Normal',
+      hb: 11.8,
+      hbCat: 'Mild Anemia',
+      comorbidities: 'None',
+      comorbiditiesOther: '',
+      artStatus: 'On ART',
+      artRegDate: '2019-08-22',
+      artId: 'WB-KOL-8394',
+      vlStatus: 'Tested in last 6 months',
+      vlDate: '2026-04-10',
+      vlCopies: '< 50',
+      vlCat: 'Undetectable (<50 copies/mL)',
+      appetite: 'Good',
+      meals: 3,
+      eduStatus: 'School Going',
+      eduOther: '',
+      schoolName: 'Kolkata Girls High School',
+      sessionStart: '2026-06-15',
+      schoolType: 'Government school',
+      currentClass: 'Class 12',
+      attendance: 'Regular',
+      fees: 1800,
+      tuition: 6000,
+      books: 1200,
+      stationery: 800,
+      uniform: 1500,
+      transport: 2400,
+      other: 500,
+      totalCost: 14200,
+      remarks: 'Approved for nutrition ration basket and books grant.',
+      approval: 'Approved',
+      cbo: 'Amra Padatik',
+      submitter: 'Asthi Saha',
+      email: 'amrapadatik@gmail.com'
+    },
+    {
+      uniqueId: 'WB-KOL-081210-03',
+      childName: 'Neha Sinha',
+      submittedBy: 'Naresh Sinha',
+      consent: 'Yes',
+      visitDate: '2026-06-25',
+      dob: '2008-11-16',
+      age: 17,
+      gender: 'Female',
+      orphanStatus: 'Single Orphan',
+      caregiverName: 'Naresh Sinha',
+      caregiverRelation: 'Father',
+      caregiverContact: '9585888810',
+      address: '15/1, Sujendra seth lane, Kolkata 700006',
+      state: 'West Bengal',
+      district: 'Kolkata',
+      accountHolder: 'Naresh Sinha',
+      accountNo: '10928374619',
+      ifsc: 'PUNB0182700',
+      bankMobile: '9585888810',
+      aadhaarNo: 'XXXX-XXXX-8810',
+      familyMembers: 3,
+      children: 1,
+      monthlyIncome: 5500,
+      incomeSource: 'Tea stall vendor',
+      weight: 45,
+      height: 156,
+      bmi: 18.5,
+      bmiCat: 'Normal',
+      hb: 12.2,
+      hbCat: 'Normal',
+      comorbidities: 'None',
+      comorbiditiesOther: '',
+      artStatus: 'On ART',
+      artRegDate: '2021-02-14',
+      artId: 'WB-KOL-8522',
+      vlStatus: 'Tested in last 6 months',
+      vlDate: '2026-05-18',
+      vlCopies: '< 50',
+      vlCat: 'Undetectable (<50 copies/mL)',
+      appetite: 'Good',
+      meals: 3,
+      eduStatus: 'School Going',
+      eduOther: '',
+      schoolName: 'Seth Anandram Jaipuria College',
+      sessionStart: '2026-06-15',
+      schoolType: 'Government school',
+      currentClass: 'Class 12',
+      attendance: 'Regular',
+      fees: 2400,
+      tuition: 4800,
+      books: 1500,
+      stationery: 1000,
+      uniform: 1800,
+      transport: 1800,
+      other: 600,
+      totalCost: 13900,
+      remarks: 'Eligible for Phase 3 stationery and tuition grant.',
+      approval: 'Approved',
+      cbo: 'Amra Padatik',
+      submitter: 'Naresh Sinha',
+      email: 'amrapadatik@gmail.com'
+    }
+  ];
+
+  var now = new Date().toISOString();
+
+  for (var i = 0; i < samples.length; i++) {
+    var s = samples[i];
+    var childFolder = getOrCreateChildFolder_(s.childName, s.uniqueId);
+
+    var r = new Array(COLUMN_HEADERS.length);
+    r[0] = s.uniqueId;
+    r[1] = now;
+    r[2] = s.submittedBy;
+    r[3] = s.consent;
+    r[4] = processDocumentUpload_(PLACEHOLDER_DOCS.SIGNATURE, childFolder, 'Signature', s.uniqueId);
+    r[5] = s.visitDate;
+    r[6] = 'Field Caseworker';
+    r[7] = s.childName;
+    r[8] = s.dob;
+    r[9] = s.age;
+    r[10] = s.gender;
+    r[11] = s.orphanStatus;
+    r[12] = s.caregiverName;
+    r[13] = s.caregiverRelation;
+    r[14] = s.caregiverContact;
+    r[15] = s.address;
+    r[16] = s.state;
+    r[17] = s.district;
+    r[18] = s.accountHolder;
+    r[19] = s.accountNo;
+    r[20] = s.ifsc;
+    r[21] = s.bankMobile;
+    r[22] = s.aadhaarNo;
+    r[23] = processDocumentUpload_(PLACEHOLDER_DOCS.PASSBOOK, childFolder, 'Passbook', s.uniqueId);
+    r[24] = processDocumentUpload_(PLACEHOLDER_DOCS.AADHAAR, childFolder, 'Aadhaar', s.uniqueId);
+    r[25] = processDocumentUpload_(PLACEHOLDER_DOCS.CHILD_PHOTO, childFolder, 'Child_Photo', s.uniqueId);
+    r[26] = s.familyMembers;
+    r[27] = s.children;
+    r[28] = s.monthlyIncome;
+    r[29] = s.incomeSource;
+    r[30] = s.weight;
+    r[31] = s.height;
+    r[32] = s.bmi;
+    r[33] = s.bmiCat;
+    r[34] = s.hb;
+    r[35] = s.hbCat;
+    r[36] = s.comorbidities;
+    r[37] = s.comorbiditiesOther;
+    r[38] = s.artStatus;
+    r[39] = s.artRegDate;
+    r[40] = s.artId;
+    r[41] = s.vlStatus;
+    r[42] = s.vlDate;
+    r[43] = s.vlCopies;
+    r[44] = s.vlCat;
+    r[45] = s.appetite;
+    r[46] = s.meals;
+    r[47] = s.eduStatus;
+    r[48] = s.eduOther;
+    r[49] = s.schoolName;
+    r[50] = s.sessionStart;
+    r[51] = s.schoolType;
+    r[52] = s.currentClass;
+    r[53] = s.attendance;
+    r[54] = s.fees;
+    r[55] = s.tuition;
+    r[56] = s.books;
+    r[57] = s.stationery;
+    r[58] = s.uniform;
+    r[59] = s.transport;
+    r[60] = s.other;
+    r[61] = s.totalCost;
+    r[62] = processDocumentUpload_(PLACEHOLDER_DOCS.FEE_RECEIPT, childFolder, 'Fee_Receipt', s.uniqueId);
+    r[63] = processDocumentUpload_(PLACEHOLDER_DOCS.MARKSHEET, childFolder, 'Marksheet', s.uniqueId);
+    r[64] = s.remarks;
+    r[65] = s.approval;
+    r[66] = 'Yes';
+    r[67] = s.cbo;
+    r[68] = s.submitter;
+    r[69] = s.email;
+    r[70] = 'NO';
+    r[71] = now;
+
+    sheet.appendRow(r);
+    var rowIdx = sheet.getLastRow();
+    formatDataRow_(sheet, rowIdx);
+  }
+
+  return 'Successfully configured 72-column linelist with Drive child-namewise folders and in-cell images.';
+}
+
+function formatSheetLinelistDesign() {
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  ensureHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  for (var r = 4; r <= lastRow; r++) {
+    formatDataRow_(sheet, r);
+  }
+  return 'Linelist formatting complete.';
+}
+
+function verifyDriveDocumentFolders() {
+  var root = getOrCreateRootDocumentsFolder_();
+  var subFolders = root.getFolders();
+  var list = [];
+  while (subFolders.hasNext()) {
+    var f = subFolders.next();
+    list.push(f.getName() + ' (' + f.getUrl() + ')');
+  }
+  Logger.log('Drive Folders: ' + JSON.stringify(list));
+  return list;
 }
 
 function errorResponse_(message, code) {
@@ -887,329 +1369,4 @@ function errorResponse_(message, code) {
       timestamp: new Date().toISOString(),
     })
   ).setMimeType(ContentService.MimeType.JSON);
-}
-
-function reapplySheetFormatting() {
-  var ctx = getSheetAndColMap_();
-  var sheet = ctx.sheet;
-  ensureHeaders_(sheet);
-  var lastRow = sheet.getLastRow();
-  if (lastRow >= 4) {
-    for (var r = 4; r <= lastRow; r++) {
-      formatDataRow_(sheet, r);
-    }
-  }
-  return 'Formatting and category colors reapplied successfully!';
-}
-
-/**
- * Direct initialization and testing helper.
- * Populates all 3-row headers, category colors, and appends 3 realistic Phase 3 assessment records
- * with in-cell embedded signatures, photos, and hover-to-copy links!
- */
-function runSetupAndInsertSampleRows() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    try { ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID); } catch (e) {}
-  }
-  var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheetByName('Sheet1') || ss.getSheets()[0];
-  if (sheet.getName() === 'Sheet1') {
-    try { sheet.setName(PRIMARY_SHEET_NAME); } catch (rErr) {}
-  }
-
-  // Clear existing content and formats for a fresh, beautiful presentation
-  sheet.clear();
-
-  // 1. Ensure all 3 header rows and pastel colors are set
-  ensureHeaders_(sheet);
-
-  // 2. Realistic Phase 3 Beneficiaries with real Drive thumbnail hyperlinks
-  var samples = [
-    {
-      uuid: 'aab2349d-336a-48fd-8747-638eed645b22',
-      koboId: '792058493',
-      formSubmittedBy: 'Juli Yadav (Caseworker)',
-      interviewerName: 'Kobo Webhook',
-      visitDate: '2026-06-25',
-      signatureUrl: 'https://drive.google.com/uc?export=view&id=16orHeE3AVchZcxaI08Y8eGwkqP6j06eC',
-      demographics: {
-        childName: 'Rohit Yadav',
-        dob: '2009-06-26',
-        calculatedAgeYears: 17,
-        gender: 'Male',
-        orphanStatus: 'Single Orphan',
-        caregiverName: 'Juli yadav',
-        caregiverRelationship: 'Mother',
-        contactNumber: '7044465416',
-        fullAddress: '15/1, sujendra seth lane, Kolkata 700006',
-        state: 'West Bengal',
-        district: 'Kolkata',
-        childAadhaarNumber: 'XXXX-XXXX-5416',
-      },
-      caregiverConsent: {
-        consentObtained: 'Yes',
-        caregiverFullName: 'Juli yadav',
-        caregiverRelation: 'Mother',
-        signatureUrl: 'https://drive.google.com/uc?export=view&id=16orHeE3AVchZcxaI08Y8eGwkqP6j06eC',
-      },
-      bankingAndKyc: {
-        bankAccountHolderName: 'Juli Yadav',
-        bankAccountNumber: '30891048291',
-        bankIfscCode: 'SBIN0000108',
-        bankLinkedMobileNumber: '7044465416',
-        childAadhaarNumber: 'XXXX-XXXX-5416',
-        passbookPhotoUrl: 'https://drive.google.com/uc?export=view&id=1K0rU5wbrG_EsMFWW3AYTHCbE4x0AWJFU',
-        aadhaarCardPhotoUrl: 'https://drive.google.com/uc?export=view&id=1BhBJxIp9__0jCSu3Rm8Cet0kjhQ9-r_Z',
-        childPhotoUrl: 'https://drive.google.com/uc?export=view&id=12qt2evl6v-beZy_YxUFzBwvmuCjrZS5U',
-      },
-      householdFinancial: {
-        totalFamilyMembers: 3,
-        numberOfChildrenUnder18: 2,
-        monthlyIncomeRs: 6000,
-        mainSourceOfIncome: 'No Regular Income',
-      },
-      health: {
-        weightKg: 48,
-        heightCm: 160,
-        bmi: 18.8,
-        bmiCategory: 'Normal',
-        haemoglobinGdl: 13,
-        hbCategory: 'Normal',
-        otherHealthConditions: ['None'],
-        artStatus: 'On ART',
-        artRegistrationDate: '2020-04-10',
-        artIdNumber: 'WB-KOL-7920',
-        vlStatus: 'Tested in last 6 months',
-        vlDate: '2026-03-15',
-        viralLoad: '< 50',
-        vlCategory: 'Undetectable (<50 copies/mL)',
-      },
-      nutrition: {
-        appetite: 'Reduced',
-        mealsPerDay: 3,
-      },
-      educationStatus: {
-        educationStatus: 'School Going',
-        schoolName: 'S B Modern High School',
-        schoolSessionStartDate: '2026-06-15',
-        schoolType: 'Government school',
-        currentClass: 'Class 11',
-        attendance: 'Irregular',
-      },
-      educationExpenses: {
-        schoolFees: 2100,
-        tuitionFees: 7200,
-        books: 1000,
-        stationery: 1500,
-        uniform: 2000,
-        transport: 3200,
-        otherExpenses: 1000,
-        totalAnnualCost: 18000,
-        feeReceiptPhotoUrl: 'https://drive.google.com/uc?export=view&id=1s7_22iVd145fM2399_2N4w17sR2f2m4Q',
-        marksheetPhotoUrl: 'https://drive.google.com/uc?export=view&id=1s7_22iVd145fM2399_2N4w17sR2f2m4Q',
-        remarks: 'Phase 3 educational aid recommended. Low income family.',
-      },
-      finalReview: {
-        approvedAllianceIndia: 'Approved',
-        allInfoCorrect: true,
-        organizationName: 'Amra Padatik',
-        formSubmittedBy: 'Juli Yadav',
-        organizationEmail: 'amrapadatik@gmail.com',
-      },
-      syncNeeded: 'NO',
-    },
-    {
-      uuid: 'bb12349d-446a-48fd-8747-638eed645b33',
-      koboId: '792083945',
-      formSubmittedBy: 'Asthi Saha (Caseworker)',
-      interviewerName: 'Kobo Webhook',
-      visitDate: '2026-06-25',
-      signatureUrl: 'https://drive.google.com/uc?export=view&id=1SQu7TIGPEWj5yoTSC2Wl3PF8b4BJldpQ',
-      demographics: {
-        childName: 'Puja Saha',
-        dob: '2008-11-01',
-        calculatedAgeYears: 17,
-        gender: 'Female',
-        orphanStatus: 'Both Alive',
-        caregiverName: 'Asthi Saha',
-        caregiverRelationship: 'Mother',
-        contactNumber: '9003684983',
-        fullAddress: '15/1 Sujendra Seth lane, Kolkata - 700006',
-        state: 'West Bengal',
-        district: 'Kolkata',
-        childAadhaarNumber: 'XXXX-XXXX-4983',
-      },
-      caregiverConsent: {
-        consentObtained: 'Yes',
-        caregiverFullName: 'Asthi Saha',
-        caregiverRelation: 'Mother',
-        signatureUrl: 'https://drive.google.com/uc?export=view&id=1SQu7TIGPEWj5yoTSC2Wl3PF8b4BJldpQ',
-      },
-      bankingAndKyc: {
-        bankAccountHolderName: 'Asthi Saha',
-        bankAccountNumber: '20491823901',
-        bankIfscCode: 'CBIN0281045',
-        bankLinkedMobileNumber: '9003684983',
-        childAadhaarNumber: 'XXXX-XXXX-4983',
-        passbookPhotoUrl: 'https://drive.google.com/uc?export=view&id=1BhBJxIp9__0jCSu3Rm8Cet0kjhQ9-r_Z',
-        aadhaarCardPhotoUrl: 'https://drive.google.com/uc?export=view&id=1K0rU5wbrG_EsMFWW3AYTHCbE4x0AWJFU',
-        childPhotoUrl: 'https://drive.google.com/uc?export=view&id=16orHeE3AVchZcxaI08Y8eGwkqP6j06eC',
-      },
-      householdFinancial: {
-        totalFamilyMembers: 4,
-        numberOfChildrenUnder18: 2,
-        monthlyIncomeRs: 7500,
-        mainSourceOfIncome: 'Tailoring & Domestic work',
-      },
-      health: {
-        weightKg: 42,
-        heightCm: 152,
-        bmi: 18.2,
-        bmiCategory: 'Normal',
-        haemoglobinGdl: 11.8,
-        hbCategory: 'Mild Anemia',
-        otherHealthConditions: ['None'],
-        artStatus: 'On ART',
-        artRegistrationDate: '2019-08-22',
-        artIdNumber: 'WB-KOL-8394',
-        vlStatus: 'Tested in last 6 months',
-        vlDate: '2026-04-10',
-        viralLoad: '< 50',
-        vlCategory: 'Undetectable (<50 copies/mL)',
-      },
-      nutrition: {
-        appetite: 'Good',
-        mealsPerDay: 3,
-      },
-      educationStatus: {
-        educationStatus: 'School Going',
-        schoolName: 'Kolkata Girls High School',
-        schoolSessionStartDate: '2026-06-15',
-        schoolType: 'Government school',
-        currentClass: 'Class 12',
-        attendance: 'Regular',
-      },
-      educationExpenses: {
-        schoolFees: 1800,
-        tuitionFees: 6000,
-        books: 1200,
-        stationery: 800,
-        uniform: 1500,
-        transport: 2400,
-        otherExpenses: 500,
-        totalAnnualCost: 14200,
-        feeReceiptPhotoUrl: 'https://drive.google.com/uc?export=view&id=1BhBJxIp9__0jCSu3Rm8Cet0kjhQ9-r_Z',
-        marksheetPhotoUrl: 'https://drive.google.com/uc?export=view&id=1BhBJxIp9__0jCSu3Rm8Cet0kjhQ9-r_Z',
-        remarks: 'Approved for nutrition ration basket and books grant.',
-      },
-      finalReview: {
-        approvedAllianceIndia: 'Approved',
-        allInfoCorrect: true,
-        organizationName: 'Amra Padatik',
-        formSubmittedBy: 'Asthi Saha',
-        organizationEmail: 'amrapadatik@gmail.com',
-      },
-      syncNeeded: 'NO',
-    },
-    {
-      uuid: 'cc23459d-556a-48fd-8747-638eed645b44',
-      koboId: '792085225',
-      formSubmittedBy: 'Naresh Sinha (Caseworker)',
-      interviewerName: 'Kobo Webhook',
-      visitDate: '2026-06-25',
-      signatureUrl: 'https://drive.google.com/uc?export=view&id=1ZkIIz_4xiYBK-RIaDTYrGSarvYihxd7a',
-      demographics: {
-        childName: 'Neha Sinha',
-        dob: '2008-11-16',
-        calculatedAgeYears: 17,
-        gender: 'Female',
-        orphanStatus: 'Single Orphan',
-        caregiverName: 'Naresh Sinha',
-        caregiverRelationship: 'Father',
-        contactNumber: '9585888810',
-        fullAddress: '15/1, Sujendra seth lane, Kolkata 700006',
-        state: 'West Bengal',
-        district: 'Kolkata',
-        childAadhaarNumber: 'XXXX-XXXX-8810',
-      },
-      caregiverConsent: {
-        consentObtained: 'Yes',
-        caregiverFullName: 'Naresh Sinha',
-        caregiverRelation: 'Father',
-        signatureUrl: 'https://drive.google.com/uc?export=view&id=1ZkIIz_4xiYBK-RIaDTYrGSarvYihxd7a',
-      },
-      bankingAndKyc: {
-        bankAccountHolderName: 'Naresh Sinha',
-        bankAccountNumber: '10928374619',
-        bankIfscCode: 'PUNB0182700',
-        bankLinkedMobileNumber: '9585888810',
-        childAadhaarNumber: 'XXXX-XXXX-8810',
-        passbookPhotoUrl: 'https://drive.google.com/uc?export=view&id=12qt2evl6v-beZy_YxUFzBwvmuCjrZS5U',
-        aadhaarCardPhotoUrl: 'https://drive.google.com/uc?export=view&id=1SQu7TIGPEWj5yoTSC2Wl3PF8b4BJldpQ',
-        childPhotoUrl: 'https://drive.google.com/uc?export=view&id=16orHeE3AVchZcxaI08Y8eGwkqP6j06eC',
-      },
-      householdFinancial: {
-        totalFamilyMembers: 3,
-        numberOfChildrenUnder18: 1,
-        monthlyIncomeRs: 5500,
-        mainSourceOfIncome: 'Tea stall vendor',
-      },
-      health: {
-        weightKg: 45,
-        heightCm: 156,
-        bmi: 18.5,
-        bmiCategory: 'Normal',
-        haemoglobinGdl: 12.2,
-        hbCategory: 'Normal',
-        otherHealthConditions: ['None'],
-        artStatus: 'On ART',
-        artRegistrationDate: '2021-02-14',
-        artIdNumber: 'WB-KOL-8522',
-        vlStatus: 'Tested in last 6 months',
-        vlDate: '2026-05-18',
-        viralLoad: '< 50',
-        vlCategory: 'Undetectable (<50 copies/mL)',
-      },
-      nutrition: {
-        appetite: 'Good',
-        mealsPerDay: 3,
-      },
-      educationStatus: {
-        educationStatus: 'School Going',
-        schoolName: 'Seth Anandram Jaipuria College',
-        schoolSessionStartDate: '2026-06-15',
-        schoolType: 'Government school',
-        currentClass: 'Class 12',
-        attendance: 'Regular',
-      },
-      educationExpenses: {
-        schoolFees: 2400,
-        tuitionFees: 4800,
-        books: 1500,
-        stationery: 1000,
-        uniform: 1800,
-        transport: 1800,
-        otherExpenses: 600,
-        totalAnnualCost: 13900,
-        feeReceiptPhotoUrl: 'https://drive.google.com/uc?export=view&id=12qt2evl6v-beZy_YxUFzBwvmuCjrZS5U',
-        marksheetPhotoUrl: 'https://drive.google.com/uc?export=view&id=12qt2evl6v-beZy_YxUFzBwvmuCjrZS5U',
-        remarks: 'Eligible for Phase 3 stationery and tuition grant.',
-      },
-      finalReview: {
-        approvedAllianceIndia: 'Approved',
-        allInfoCorrect: true,
-        organizationName: 'Amra Padatik',
-        formSubmittedBy: 'Naresh Sinha',
-        organizationEmail: 'amrapadatik@gmail.com',
-      },
-      syncNeeded: 'NO',
-    }
-  ];
-
-  for (var s = 0; s < samples.length; s++) {
-    var res = handleCreate_(samples[s]);
-    Logger.log('Sample ' + (s + 1) + ' result: ' + res.getContent());
-  }
-
-  return 'Setup complete! 3-Row Header initialized and 3 sample records with embedded in-cell images inserted successfully!';
 }

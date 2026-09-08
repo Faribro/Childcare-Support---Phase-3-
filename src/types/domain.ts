@@ -153,6 +153,7 @@ export interface CaregiverConsent {
   signatureRequired: boolean;
   signatureStatus: SignatureStatus;
   signatureAssetId?: string;
+  signatureDataUrl?: string;
 }
 
 export interface ConsentData {
@@ -311,6 +312,7 @@ export interface AssessmentRecord {
   remoteSubmissionId?: string; // Canonical server-confirmed UUID
   version: number; // Optimistic Concurrency Control version (starts at 1)
   interviewerName: string;
+  uniqueId?: string; // Generated Reference / Beneficiary ID (e.g. WB-KOL-081255-01)
   stepIndex: number;
   
   // Official CHILD_HIV_SUPPORT_FORM Sections
@@ -329,6 +331,7 @@ export interface AssessmentRecord {
   approvedAllianceIndia?: string;
   reviewConfirmed?: boolean;
   syncNeeded?: 'YES' | 'NO';
+  signatureDataUrl?: string;
 
   // Backward compatibility convenience properties
   household?: HouseholdFinancialData;

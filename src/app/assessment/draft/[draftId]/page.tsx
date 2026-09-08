@@ -555,13 +555,30 @@ export default function ResumeDraftSinglePage() {
     setIsSubmitting(true);
 
     try {
+      // Convert locally stored signature blob to base64 Data URL for Google Drive upload
+      let signatureDataUrl: string | undefined = undefined;
+      try {
+        const storedSig = await getCaregiverSignatureBlob(clientUuid);
+        if (storedSig && storedSig.blob) {
+          signatureDataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(storedSig.blob);
+          });
+        }
+      } catch (sigErr) {
+        console.warn('Could not extract signature blob to DataURL:', sigErr);
+      }
+
       const finalRecord: AssessmentRecord = {
         uuid: clientUuid,
         clientSubmissionId: clientUuid,
+        uniqueId: formData.artNumber,
         version: 1,
         koboId: formData.koboId || formData.artNumber,
         interviewerName: formData.formSubmittedBy || 'Caseworker',
         stepIndex: 1,
+        signatureDataUrl: signatureDataUrl,
         demographics: {
           artNumber: formData.artNumber,
           dateOfFilling: formData.dateOfFilling,
@@ -582,6 +599,7 @@ export default function ResumeDraftSinglePage() {
         },
         consent: {
           agreeToParticipate: formData.agreeToParticipate,
+          signatureDataUrl: signatureDataUrl,
           signatureTimestamp: new Date().toISOString(),
         },
         caregiverConsent: {
@@ -591,7 +609,8 @@ export default function ResumeDraftSinglePage() {
           caregiverRelationship: formData.caregiverRelationship || 'Mother',
           consentCapturedAt: new Date().toISOString(),
           signatureRequired: true,
-          signatureStatus: hasSavedSignature ? 'CAPTURED_LOCAL' : 'PENDING',
+          signatureStatus: (hasSavedSignature || !!signatureDataUrl) ? 'CAPTURED_LOCAL' : 'PENDING',
+          signatureDataUrl: signatureDataUrl,
         },
         bankingAndKyc: {
           bankAccountHolderName: formData.bankAccountHolderName,
@@ -763,7 +782,7 @@ export default function ResumeDraftSinglePage() {
 
             <div className="flex items-center space-x-2.5">
               <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
-                <span className="text-slate-400">Ref ID:</span>
+                <span className="text-slate-400">Unique ID:</span>
                 <span className="font-bold text-teal-900">{formData.artNumber || 'Generating...'}</span>
               </div>
 
@@ -988,6 +1007,26 @@ export default function ResumeDraftSinglePage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {/* System Generated Unique ID Display */}
+            <div className="p-3 bg-teal-50/80 border border-teal-200/90 rounded-xl sm:col-span-2 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-teal-950 uppercase tracking-wide">
+                    Unique Beneficiary ID (Auto-Generated)
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-600 text-white rounded-md tracking-wider">
+                    SYSTEM ID
+                  </span>
+                </div>
+                <p className="text-[11px] text-teal-800/80 mt-0.5">
+                  Official non-stigmatising reference identifier systematically tied to child records, Drive folders, and Google Sheets
+                </p>
+              </div>
+              <div className="flex items-center space-x-2 bg-white px-3.5 py-2 rounded-lg border border-teal-300 font-mono text-sm font-bold text-teal-950 shadow-2xs w-fit">
+                <span>{formData.artNumber || 'Generating...'}</span>
+              </div>
+            </div>
+
             <Input
               label="Date of Filling Form (Visit Date) *"
               type="date"
