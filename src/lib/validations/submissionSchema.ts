@@ -93,6 +93,7 @@ export const demographicsSchema = z.object({
   district: z.string().min(2, 'District is required'),
   calculatedAgeYears: z.number().min(0).optional(),
   calculatedAgeMonths: z.number().min(0).optional(),
+  childAadhaarNumber: z.string().optional(),
   maskedAadhaar: z.string().optional(),
 });
 
@@ -108,6 +109,18 @@ export const caregiverConsentSchema = z.object({
   signatureRequired: z.boolean().default(true),
   signatureStatus: signatureStatusEnum.default('CAPTURED_LOCAL'),
   signatureAssetId: z.string().optional(),
+});
+
+// Banking & KYC Schema
+export const bankingAndKycSchema = z.object({
+  bankAccountHolderName: z.string().optional(),
+  bankAccountNumber: z.string().optional(),
+  bankIfscCode: z.string().optional(),
+  bankLinkedMobileNumber: z.string().optional(),
+  childAadhaarNumber: z.string().optional(),
+  passbookPhotoUrl: z.string().optional(),
+  aadhaarCardPhotoUrl: z.string().optional(),
+  childPhotoUrl: z.string().optional(),
 });
 
 // Step 3: Household & Financial Schema
@@ -129,9 +142,19 @@ export const healthSchema = z.object({
   weightKg: z.number().min(2, 'Weight must be at least 2 kg').max(150),
   heightCm: z.number().min(40, 'Height must be at least 40 cm').max(220),
   bmi: z.number().min(5).max(60),
+  bmiCategory: z.string().optional(),
   haemoglobinGdl: z.number().min(2).max(25).optional(),
+  hbCategory: z.string().optional(),
   otherHealthConditions: z.array(z.string()).default([]),
   otherHealthConditionSpecify: z.string().optional(),
+  // ART & Viral Load clinical tracking
+  artStatus: z.string().optional(),
+  artRegistrationDate: z.string().optional(),
+  artIdNumber: z.string().optional(),
+  vlStatus: z.string().optional(),
+  vlDate: z.string().optional(),
+  viralLoad: z.union([z.number(), z.string()]).optional(),
+  vlCategory: z.string().optional(),
   // Clinical
   muacMm: z.number().optional(),
   bilateralPittingOedema: z.boolean().default(false),
@@ -195,6 +218,8 @@ export const finalReviewSchema = z.object({
   formSubmittedBy: z.string().min(2, 'Submitter name is required'),
   organizationEmail: z.string().email().optional().or(z.literal('')),
   submissionDate: z.string().optional(),
+  approvedAllianceIndia: z.string().optional(),
+  reviewConfirmed: z.boolean().optional(),
 });
 
 // Allowlisted Schema for PATCH Mutations with Optimistic Concurrency Control
@@ -257,6 +282,11 @@ export const completeSubmissionSchema = z.object({
   educationExpenses: educationExpensesSchema.optional(),
   educationSupportRequired: educationSupportRequiredSchema.optional(),
   finalReview: finalReviewSchema.optional(),
+  bankingAndKyc: bankingAndKycSchema.optional(),
+  koboId: z.string().optional(),
+  approvedAllianceIndia: z.string().optional(),
+  reviewConfirmed: z.boolean().optional(),
+  syncNeeded: z.enum(['YES', 'NO']).optional(),
   // Legacy blocks
   household: z.any().optional(),
   education: z.any().optional(),

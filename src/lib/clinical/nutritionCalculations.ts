@@ -3,7 +3,13 @@
  * Based on WHO Child Growth Standards and National Health Mission (NHM) Paediatric Guidelines.
  */
 
-import { NutritionStatus, OrphanStatus } from '@/types/domain';
+import {
+  NutritionStatus,
+  OrphanStatus,
+  BMICategory,
+  HbCategory,
+  VLCategory,
+} from '@/types/domain';
 
 export interface AgeResult {
   years: number;
@@ -215,4 +221,71 @@ export function calculateGrantEntitlement(params: {
     recommendedGrantAmount: totalGrant,
     rationale: reasons.join('; '),
   };
+}
+
+/**
+ * Classifies Body Mass Index (BMI) Category for children and adolescents
+ */
+export function classifyBMICategory(bmi: number, ageYears: number = 5): BMICategory {
+  if (!bmi || bmi <= 0) return 'Normal';
+
+  // Pediatric cutoffs (WHO approximation)
+  if (ageYears <= 18) {
+    if (bmi < 13.5) return 'Severe Underweight';
+    if (bmi < 15.0) return 'Underweight';
+    if (bmi <= 22.0) return 'Normal';
+    return 'Overweight / Obese';
+  }
+
+  // Adult cutoffs
+  if (bmi < 16.0) return 'Severe Underweight';
+  if (bmi < 18.5) return 'Underweight';
+  if (bmi <= 24.9) return 'Normal';
+  return 'Overweight / Obese';
+}
+
+/**
+ * Classifies Hemoglobin (Hb) into anemia severity category based on WHO pediatric guidelines
+ */
+export function classifyHbCategory(haemoglobinGdl?: number | string, ageYears: number = 5): HbCategory {
+  const hb = Number(haemoglobinGdl);
+  if (!hb || isNaN(hb) || hb <= 0) return 'Normal';
+
+  if (hb < 7.0) return 'Severe Anemia';
+  if (hb < 10.0) return 'Moderate Anemia';
+
+  // Mild threshold depends on age group
+  let normalThreshold = 11.5;
+  if (ageYears < 5) normalThreshold = 11.0;
+  else if (ageYears >= 12) normalThreshold = 12.0;
+
+  if (hb < normalThreshold) return 'Mild Anemia';
+  return 'Normal';
+}
+
+/**
+ * Classifies HIV Viral Load (VL) suppression status based on NACO / WHO guidelines
+ */
+export function classifyVLCategory(viralLoad?: number | string): VLCategory {
+  if (viralLoad === undefined || viralLoad === null || String(viralLoad).trim() === '') {
+    return 'Unknown / Pending';
+  }
+
+  const str = String(viralLoad).trim().toLowerCase();
+  if (
+    str === '< 50' ||
+    str === '<50' ||
+    str === 'tnd' ||
+    str.includes('not detect') ||
+    str.includes('undetect')
+  ) {
+    return 'Undetectable (<50 copies/mL)';
+  }
+
+  const num = parseFloat(str.replace(/[^0-9.]/g, ''));
+  if (isNaN(num)) return 'Unknown / Pending';
+
+  if (num < 50) return 'Undetectable (<50 copies/mL)';
+  if (num < 1000) return 'Suppressed (<1000 copies/mL)';
+  return 'Unsuppressed (≥1000 copies/mL)';
 }

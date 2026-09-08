@@ -50,6 +50,42 @@ export type NutritionStatus =
   | 'SAM (Severe Acute Malnutrition)'
   | 'Overweight / Obese';
 
+export type BMICategory =
+  | 'Normal'
+  | 'Underweight'
+  | 'Severe Underweight'
+  | 'Overweight / Obese';
+
+export type HbCategory =
+  | 'Normal'
+  | 'Mild Anemia'
+  | 'Moderate Anemia'
+  | 'Severe Anemia';
+
+export type ARTStatus =
+  | 'On ART'
+  | 'Not on ART'
+  | 'Defaulted / Interrupted'
+  | 'Transferred In';
+
+export type VLStatus =
+  | 'Tested in last 6 months'
+  | 'Tested > 6 months ago'
+  | 'Awaiting results'
+  | 'Not tested';
+
+export type VLCategory =
+  | 'Suppressed (<1000 copies/mL)'
+  | 'Unsuppressed (≥1000 copies/mL)'
+  | 'Undetectable (<50 copies/mL)'
+  | 'Unknown / Pending';
+
+export type ApprovedAllianceStatus =
+  | 'Pending'
+  | 'Approved'
+  | 'Conditionally Approved'
+  | 'Rejected';
+
 export type SyncStatus =
   | 'draft'
   | 'queued'
@@ -140,6 +176,7 @@ export interface DemographicsData {
   fullAddress: string;
   state: string;
   district: string;
+  childAadhaarNumber?: string;
   // Backward compatibility
   caregiverPhone?: string;
   maskedAadhaar?: string;
@@ -162,9 +199,19 @@ export interface HealthData {
   weightKg: number;
   heightCm: number;
   bmi: number;
+  bmiCategory?: BMICategory;
   haemoglobinGdl?: number;
+  hbCategory?: HbCategory;
   otherHealthConditions: string[];
   otherHealthConditionSpecify?: string;
+  // ART & Viral Load clinical tracking
+  artStatus?: ARTStatus;
+  artRegistrationDate?: string;
+  artIdNumber?: string;
+  vlStatus?: VLStatus;
+  vlDate?: string;
+  viralLoad?: string | number;
+  vlCategory?: VLCategory;
   // Clinical triage
   bmiZScore?: number;
   nutritionStatus?: NutritionStatus;
@@ -232,6 +279,19 @@ export interface FinalReviewData {
   formSubmittedBy: string;
   organizationEmail?: string;
   submissionDate?: string;
+  approvedAllianceIndia?: ApprovedAllianceStatus | string;
+  reviewConfirmed?: boolean;
+}
+
+export interface BankingAndKycData {
+  bankAccountHolderName?: string;
+  bankAccountNumber?: string;
+  bankIfscCode?: string;
+  bankLinkedMobileNumber?: string;
+  childAadhaarNumber?: string;
+  passbookPhotoUrl?: string;
+  aadhaarCardPhotoUrl?: string;
+  childPhotoUrl?: string;
 }
 
 // Backward-compat BankDetails (optional in new form)
@@ -264,6 +324,11 @@ export interface AssessmentRecord {
   educationExpenses: EducationCurrentExpensesData;
   educationSupportRequired: EducationSupportRequiredData;
   finalReview: FinalReviewData;
+  bankingAndKyc?: BankingAndKycData;
+  koboId?: string;
+  approvedAllianceIndia?: string;
+  reviewConfirmed?: boolean;
+  syncNeeded?: 'YES' | 'NO';
 
   // Backward compatibility convenience properties
   household?: HouseholdFinancialData;

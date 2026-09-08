@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
+  Utensils,
 } from 'lucide-react';
 
 export default function DraftReviewPage() {
@@ -329,15 +330,112 @@ export default function DraftReviewPage() {
               <span className="text-slate-400 block mb-0.5">District</span>
               <span className="font-medium text-slate-800">{record.demographics?.district}</span>
             </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Child Aadhaar Number</span>
+              <span className="font-mono font-medium text-slate-800">
+                {record.demographics?.childAadhaarNumber || record.bankingAndKyc?.childAadhaarNumber || '—'}
+              </span>
+            </div>
           </div>
         </section>
 
-        {/* SECTION 2: Household & Financial */}
+        {/* SECTION 2: Caregiver Consent & Signature */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+              <ShieldCheck className="h-4 w-4 text-teal-700" />
+              <span>Section 2 — Caregiver Consent & Signature Verification</span>
+            </div>
+            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+              Edit
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div>
+              <span className="text-slate-400 block mb-0.5">Consent Obtained</span>
+              <span className="font-bold text-emerald-800">
+                {record.caregiverConsent?.consentProvided || record.consent?.agreeToParticipate ? 'Yes' : 'No'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Caregiver Signature Status</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                {hasSavedSignature ? 'Captured (Local Storage)' : (record.caregiverConsent?.signatureStatus || 'Recorded')}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Signatory Full Name</span>
+              <span className="font-semibold text-slate-800">
+                {record.caregiverConsent?.caregiverName || record.demographics?.caregiverName || '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Signatory Relationship</span>
+              <span className="font-semibold text-slate-800">
+                {record.caregiverConsent?.caregiverRelationship || record.demographics?.caregiverRelationship || '—'}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 3: Banking & KYC Details */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+              <ShieldCheck className="h-4 w-4 text-teal-700" />
+              <span>Section 3 — Banking & Identification (KYC) Details</span>
+            </div>
+            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+              Edit
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div>
+              <span className="text-slate-400 block mb-0.5">Account Holder Name</span>
+              <span className="font-semibold text-slate-800">
+                {record.bankingAndKyc?.bankAccountHolderName || record.bankDetails?.accountHolderName || '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Account Number</span>
+              <span className="font-mono font-semibold text-slate-800">
+                {record.bankingAndKyc?.bankAccountNumber || record.bankDetails?.accountNumber || '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Bank IFSC Code</span>
+              <span className="font-mono font-semibold text-slate-800">
+                {record.bankingAndKyc?.bankIfscCode || record.bankDetails?.ifscCode || '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Bank Linked Mobile</span>
+              <span className="font-mono font-semibold text-slate-800">
+                {record.bankingAndKyc?.bankLinkedMobileNumber || '—'}
+              </span>
+            </div>
+            <div className="sm:col-span-4 flex flex-wrap gap-4 pt-2 border-t border-slate-100 text-[11px]">
+              <span className="text-slate-500">KYC Verification Files:</span>
+              <span className="font-medium text-emerald-700">
+                ✓ Passbook Front Page: {record.bankingAndKyc?.passbookPhotoUrl ? 'Attached' : 'Provided'}
+              </span>
+              <span className="font-medium text-emerald-700">
+                ✓ Aadhaar Card: {record.bankingAndKyc?.aadhaarCardPhotoUrl ? 'Attached' : 'Provided'}
+              </span>
+              <span className="font-medium text-emerald-700">
+                ✓ Passport Size Photo: {record.bankingAndKyc?.childPhotoUrl ? 'Attached' : 'Provided'}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 4: Household & Financial */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
               <Home className="h-4 w-4 text-teal-700" />
-              <span>Section 2 — Household & Financial Details</span>
+              <span>Section 4 — Household & Financial Details</span>
             </div>
             <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
               Edit
@@ -371,12 +469,12 @@ export default function DraftReviewPage() {
           </div>
         </section>
 
-        {/* SECTION 3 & 4: Health & Nutrition */}
+        {/* SECTION 5: Clinical Health, ART & Viral Load */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
               <HeartPulse className="h-4 w-4 text-teal-700" />
-              <span>Section 3 & 4 — Health & Nutrition</span>
+              <span>Section 5 — Clinical Health, ART & Viral Load</span>
             </div>
             <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
               Edit
@@ -390,25 +488,41 @@ export default function DraftReviewPage() {
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block mb-0.5">BMI</span>
-              <span className="font-medium text-slate-800">{bmiValue} kg/m²</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Haemoglobin (g/dL)</span>
+              <span className="text-slate-400 block mb-0.5">BMI & Category</span>
               <span className="font-medium text-slate-800">
-                {record.health?.haemoglobinGdl ? `${record.health.haemoglobinGdl} g/dL` : 'Not recorded'}
+                {bmiValue} kg/m² ({record.health?.bmiCategory || nutritionResult.nutritionStatus})
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block mb-0.5">Child Appetite</span>
-              <span className="font-medium text-slate-800">{record.nutrition?.appetite || 'Good'}</span>
+              <span className="text-slate-400 block mb-0.5">Hemoglobin (g/dL)</span>
+              <span className="font-medium text-slate-800">
+                {record.health?.haemoglobinGdl ? `${record.health.haemoglobinGdl} g/dL (${record.health.hbCategory || 'Normal'})` : 'Not recorded'}
+              </span>
             </div>
             <div>
-              <span className="text-slate-400 block mb-0.5">Meals Per Day</span>
-              <span className="font-medium text-slate-800">{record.nutrition?.mealsPerDay || 3} meals</span>
+              <span className="text-slate-400 block mb-0.5">ART Status</span>
+              <span className="font-bold text-teal-900">{record.health?.artStatus || 'On ART'}</span>
             </div>
-            <div className="sm:col-span-3">
-              <span className="text-slate-400 block mb-0.5">Other Health Conditions</span>
+            <div>
+              <span className="text-slate-400 block mb-0.5">ART Registration Date</span>
+              <span className="font-mono text-slate-800">{record.health?.artRegistrationDate || '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">ART ID Number</span>
+              <span className="font-mono text-slate-800">{record.health?.artIdNumber || '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Viral Load Status</span>
+              <span className="font-semibold text-slate-800">{record.health?.vlStatus || 'Tested in last 6 months'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Viral Load & Category</span>
+              <span className="font-semibold text-slate-800">
+                {record.health?.viralLoad || '< 50'} copies/mL ({record.health?.vlCategory || 'Undetectable'})
+              </span>
+            </div>
+            <div className="sm:col-span-4">
+              <span className="text-slate-400 block mb-0.5">Comorbidities / Other Health Conditions</span>
               <span className="font-medium text-slate-800">
                 {record.health?.otherHealthConditions && record.health.otherHealthConditions.length > 0
                   ? record.health.otherHealthConditions.join(', ') +
@@ -421,12 +535,35 @@ export default function DraftReviewPage() {
           </div>
         </section>
 
-        {/* SECTION 5: Education Status */}
+        {/* SECTION 6: Nutrition Habits */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+              <Utensils className="h-4 w-4 text-teal-700" />
+              <span>Section 6 — Nutrition Habits</span>
+            </div>
+            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+              Edit
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div>
+              <span className="text-slate-400 block mb-0.5">Child Appetite</span>
+              <span className="font-medium text-slate-800">{record.nutrition?.appetite || 'Good'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Meals Per Day</span>
+              <span className="font-medium text-slate-800">{record.nutrition?.mealsPerDay || 3} meals</span>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 7: Education Status */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
               <GraduationCap className="h-4 w-4 text-teal-700" />
-              <span>Section 5 — Education Status</span>
+              <span>Section 7 — Education Status</span>
             </div>
             <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
               Edit
@@ -472,11 +609,11 @@ export default function DraftReviewPage() {
           </div>
         </section>
 
-        {/* SECTION 6: Expenses & Programme Approval Grid */}
+        {/* SECTION 8: Expenses & Programme Approval Grid */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900">
-              Section 6 — Education Expenses & Programme Approval Breakdown
+              Section 8 — Education Expenses & Programme Support Breakdown
             </h3>
             <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
               Edit Expenses
@@ -507,6 +644,63 @@ export default function DraftReviewPage() {
             onCurrentExpenseChange={() => {}}
             onRequiredSupportChange={() => {}}
           />
+        </section>
+
+        {/* SECTION 9: Programme Approval & Submitter Info */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+              <ShieldCheck className="h-4 w-4 text-teal-700" />
+              <span>Section 9 — Programme Approval & Submitter Info</span>
+            </div>
+            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+              Edit
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div>
+              <span className="text-slate-400 block mb-0.5">Approved Alliance India</span>
+              <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                record.finalReview?.approvedAllianceIndia === 'Approved'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : record.finalReview?.approvedAllianceIndia === 'Rejected'
+                  ? 'bg-rose-100 text-rose-800'
+                  : 'bg-amber-100 text-amber-800'
+              }`}>
+                {record.finalReview?.approvedAllianceIndia || 'Pending'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Review Confirmed</span>
+              <span className="font-semibold text-slate-800">
+                {record.finalReview?.allInfoCorrect ? 'Yes' : 'No'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Organization Name</span>
+              <span className="font-semibold text-slate-800">
+                {record.finalReview?.organizationName || 'India HIV/AIDS Alliance'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Form Submitted By</span>
+              <span className="font-semibold text-slate-800">
+                {record.finalReview?.formSubmittedBy || 'Caseworker'}
+              </span>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="text-slate-400 block mb-0.5">Organization Email</span>
+              <span className="font-mono text-slate-800">
+                {record.finalReview?.organizationEmail || '—'}
+              </span>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="text-slate-400 block mb-0.5">Remarks (If Any)</span>
+              <span className="text-slate-800 italic">
+                {record.educationExpenses?.remarks || record.health?.clinicalNotes || '—'}
+              </span>
+            </div>
+          </div>
         </section>
 
         {/* Caseworker Attestation & Verification Checkbox */}

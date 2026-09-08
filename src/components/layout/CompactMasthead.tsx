@@ -39,7 +39,6 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
 
   const navLinks = [
     { href: '/', label: 'Forms', icon: Home },
-    { href: '/assessment/new', label: 'New Assessment', icon: PlusCircle },
     { href: '/assessment/sync', label: 'Sync Centre', icon: RefreshCw, badge: pendingSyncCount },
     { href: '/supervisor', label: 'Supervisor', icon: Shield },
   ];
