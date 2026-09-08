@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-canvas: #f8fafc;
+  --color-card: #ffffff;
+  --color-subtle: #f1f5f9;
+  --color-ink-900: #0f172a;
+  --color-ink-600: #475569;
+  --color-ink-400: #94a3b8;
+  --color-slate-300: #cbd5e1;
+  --color-brand: #1e3a8a;
+  --color-emerald: #047857;
+  --color-focus: #2563eb;
+}
+
+/* Global Mobile Viewport Constraints (docs/06_MOBILE_FIRST_EXPERIENCE_DOCUMENT.md) */
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
+  background-color: var(--color-canvas);
+  color: var(--color-ink-900);
+  -webkit-text-size-adjust: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Safe area insets for notched devices & gesture bars */
+.safe-padding-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-padding-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.sticky-bottom-bar {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Accessible focus ring */
+*:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* Touch target helper */
+.touch-target-48 {
+  min-height: 48px;
+  min-width: 48px;
+}

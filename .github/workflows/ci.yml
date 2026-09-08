@@ -1,0 +1,68 @@
+name: Continuous Integration (CI)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  quality-gate:
+    name: Code Quality & Automated Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript Static Typecheck
+        run: npm run typecheck
+
+      - name: Run Vitest Unit Test Suite
+        run: npm run test
+
+      - name: Run Next.js Production Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_APP_ENV: production
+          NODE_ENV: production
+
+  render-deploy:
+    name: Trigger Render Deployment
+    needs: quality-gate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger Deploy via Render API or Deploy Hook
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK" ]; then
+            echo "Triggering deployment via Render Deploy Hook..."
+            curl -f -s -X POST "$RENDER_DEPLOY_HOOK"
+          elif [ -n "$RENDER_API_KEY" ] && [ -n "$RENDER_SERVICE_ID" ]; then
+            echo "Triggering deployment via Render API..."
+            curl -f -s -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json"
+          else
+            echo "No Render credentials configured in GitHub Secrets yet. Skipping automated webhook trigger."
+          fi

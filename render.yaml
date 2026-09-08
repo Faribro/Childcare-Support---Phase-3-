@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: childcare-support-phase-3
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_APP_ENV
+        value: production
+      - key: APPS_SCRIPT_URL
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
