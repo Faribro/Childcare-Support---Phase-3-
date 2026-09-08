@@ -85,6 +85,31 @@ export async function GET(
               interviewer_name: raw['4\nSubmitted By'] || raw['8\nInterviewer Name'] || '',
               grant_recommended: true,
               recommended_grant_amount: Number(raw['63\nTotal Annual Education Cost'] || 0),
+              passbook_photo_url: raw['25\nPassbook Front Page Link'] || raw['25\\nPassbook Front Page Link'] || raw['Passbook Front Page Link'] || raw.passbook_photo_url || raw.passbookPhotoUrl || '',
+              aadhaar_card_photo_url: raw['26\nAadhaar Card Link'] || raw['26\\nAadhaar Card Link'] || raw['Aadhaar Card Link'] || raw.aadhaar_card_photo_url || raw.aadhaarCardPhotoUrl || '',
+              child_photo_url: raw['27\nPassport Size Photo Link'] || raw['27\\nPassport Size Photo Link'] || raw['Passport Size Photo Link'] || raw.child_photo_url || raw.childPhotoUrl || '',
+              fee_receipt_photo_url: raw['64\nSchool Fee Receipt Link'] || raw['64\\nSchool Fee Receipt Link'] || raw['School Fee Receipt Link'] || raw.fee_receipt_photo_url || raw.feeReceiptPhotoUrl || '',
+              marksheet_photo_url: raw['65\nMarksheet Photo Link'] || raw['65\\nMarksheet Photo Link'] || raw['Marksheet Photo Link'] || raw.marksheet_photo_url || raw.marksheetPhotoUrl || '',
+              signature_data_url: raw['72\nSignature Link'] || raw['72\\nSignature Link'] || raw['Signature Link'] || raw.signature_data_url || raw.signatureDataUrl || '',
+              passbookPhotoUrl: raw['25\nPassbook Front Page Link'] || raw['25\\nPassbook Front Page Link'] || raw['Passbook Front Page Link'] || raw.passbook_photo_url || raw.passbookPhotoUrl || '',
+              aadhaarCardPhotoUrl: raw['26\nAadhaar Card Link'] || raw['26\\nAadhaar Card Link'] || raw['Aadhaar Card Link'] || raw.aadhaar_card_photo_url || raw.aadhaarCardPhotoUrl || '',
+              childPhotoUrl: raw['27\nPassport Size Photo Link'] || raw['27\\nPassport Size Photo Link'] || raw['Passport Size Photo Link'] || raw.child_photo_url || raw.childPhotoUrl || '',
+              feeReceiptPhotoUrl: raw['64\nSchool Fee Receipt Link'] || raw['64\\nSchool Fee Receipt Link'] || raw['School Fee Receipt Link'] || raw.fee_receipt_photo_url || raw.feeReceiptPhotoUrl || '',
+              marksheetPhotoUrl: raw['65\nMarksheet Photo Link'] || raw['65\\nMarksheet Photo Link'] || raw['Marksheet Photo Link'] || raw.marksheet_photo_url || raw.marksheetPhotoUrl || '',
+              signatureDataUrl: raw['72\nSignature Link'] || raw['72\\nSignature Link'] || raw['Signature Link'] || raw.signature_data_url || raw.signatureDataUrl || '',
+              bankingAndKyc: {
+                bankAccountHolderName: raw['20\nBank Account Holder Name'] || '',
+                bankAccountNumber: raw['21\nBank Account Number'] ? String(raw['21\nBank Account Number']) : '',
+                bankIfscCode: raw['22\nBank IFSC Code'] || '',
+                bankLinkedMobileNumber: raw['23\nBank Linked Mobile Number'] ? String(raw['23\nBank Linked Mobile Number']) : '',
+                passbookPhotoUrl: raw['25\nPassbook Front Page Link'] || raw['25\\nPassbook Front Page Link'] || raw['Passbook Front Page Link'] || raw.passbook_photo_url || raw.passbookPhotoUrl || '',
+                aadhaarCardPhotoUrl: raw['26\nAadhaar Card Link'] || raw['26\\nAadhaar Card Link'] || raw['Aadhaar Card Link'] || raw.aadhaar_card_photo_url || raw.aadhaarCardPhotoUrl || '',
+                childPhotoUrl: raw['27\nPassport Size Photo Link'] || raw['27\\nPassport Size Photo Link'] || raw['Passport Size Photo Link'] || raw.child_photo_url || raw.childPhotoUrl || '',
+              },
+              educationExpenses: {
+                feeReceiptPhotoUrl: raw['64\nSchool Fee Receipt Link'] || raw['64\\nSchool Fee Receipt Link'] || raw['School Fee Receipt Link'] || raw.fee_receipt_photo_url || raw.feeReceiptPhotoUrl || '',
+                marksheetPhotoUrl: raw['65\nMarksheet Photo Link'] || raw['65\\nMarksheet Photo Link'] || raw['Marksheet Photo Link'] || raw.marksheet_photo_url || raw.marksheetPhotoUrl || '',
+              },
             };
             return NextResponse.json({ ...data, data: enriched }, { status: 200 });
           }
@@ -107,10 +132,40 @@ export async function GET(
       );
     }
 
+    const raw = (record.raw_payload as any) || {};
+    const passbookPhotoUrl = record.passbookPhotoUrl || record.passbook_photo_url || raw.bankingAndKyc?.passbookPhotoUrl || raw.passbookPhotoUrl || '';
+    const aadhaarCardPhotoUrl = record.aadhaarCardPhotoUrl || record.aadhaar_card_photo_url || raw.bankingAndKyc?.aadhaarCardPhotoUrl || raw.aadhaarCardPhotoUrl || '';
+    const childPhotoUrl = record.childPhotoUrl || record.child_photo_url || raw.bankingAndKyc?.childPhotoUrl || raw.childPhotoUrl || '';
+    const feeReceiptPhotoUrl = record.feeReceiptPhotoUrl || record.fee_receipt_photo_url || raw.educationExpenses?.feeReceiptPhotoUrl || raw.feeReceiptPhotoUrl || '';
+    const marksheetPhotoUrl = record.marksheetPhotoUrl || record.marksheet_photo_url || raw.educationExpenses?.marksheetPhotoUrl || raw.marksheetPhotoUrl || '';
+    const signatureDataUrl = record.signatureDataUrl || record.signature_data_url || raw.caregiverConsent?.signatureDataUrl || raw.consent?.signatureDataUrl || raw.signatureDataUrl || '';
+
+    const enrichedRecord = {
+      ...raw,
+      ...record,
+      passbookPhotoUrl,
+      aadhaarCardPhotoUrl,
+      childPhotoUrl,
+      feeReceiptPhotoUrl,
+      marksheetPhotoUrl,
+      signatureDataUrl,
+      bankingAndKyc: {
+        ...(raw.bankingAndKyc || raw.bankDetails || {}),
+        passbookPhotoUrl,
+        aadhaarCardPhotoUrl,
+        childPhotoUrl,
+      },
+      educationExpenses: {
+        ...(raw.educationExpenses || {}),
+        feeReceiptPhotoUrl,
+        marksheetPhotoUrl,
+      },
+    };
+
     return NextResponse.json(
       {
         status: 'success',
-        data: record,
+        data: enrichedRecord,
       },
       { status: 200 }
     );

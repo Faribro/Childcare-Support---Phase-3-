@@ -46,6 +46,15 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
   const accountNumber = data['21\nBank Account Number'] || data.bank_account_number || banking.bankAccountNumber || banking.accountNumber || '••••••••';
   const ifscCode = data['22\nBank IFSC Code'] || data.ifsc_code || banking.bankIfscCode || banking.ifscCode || '—';
 
+  const passbookPhoto = data.passbookPhotoUrl || data.passbook_photo_url || banking.passbookPhotoUrl || data['25\nPassbook Front Page Link'] || data['25\\nPassbook Front Page Link'] || '';
+  const aadhaarPhoto = data.aadhaarCardPhotoUrl || data.aadhaar_card_photo_url || banking.aadhaarCardPhotoUrl || data['26\nAadhaar Card Link'] || data['26\\nAadhaar Card Link'] || '';
+  const childPhoto = data.childPhotoUrl || data.child_photo_url || banking.childPhotoUrl || data['27\nPassport Size Photo Link'] || data['27\\nPassport Size Photo Link'] || '';
+  const feeReceiptPhoto = data.feeReceiptPhotoUrl || data.fee_receipt_photo_url || education.feeReceiptPhotoUrl || data['64\nSchool Fee Receipt Link'] || data['64\\nSchool Fee Receipt Link'] || '';
+  const marksheetPhoto = data.marksheetPhotoUrl || data.marksheet_photo_url || education.marksheetPhotoUrl || data['65\nMarksheet Photo Link'] || data['65\\nMarksheet Photo Link'] || '';
+  const signatureData = data.signatureDataUrl || data.signature_data_url || (data.consent && data.consent.signatureDataUrl) || (data.caregiverConsent && data.caregiverConsent.signatureDataUrl) || data['72\nSignature Link'] || data['72\\nSignature Link'] || '';
+
+  const hasAnyDocs = !!(passbookPhoto || aadhaarPhoto || childPhoto || feeReceiptPhoto || marksheetPhoto || signatureData);
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-[hsl(215,18%,85%)] overflow-hidden">
@@ -217,6 +226,56 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
               </div>
             </div>
           </div>
+
+          {/* Section 5: Captured Documents & Proofs */}
+          {hasAnyDocs && (
+            <div className="pt-6">
+              <h3 className="text-sm font-bold text-[hsl(210,80%,35%)] mb-3 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-[hsl(210,80%,92%)] text-[hsl(210,80%,35%)] text-[11px] flex items-center justify-center font-bold">
+                  5
+                </span>
+                Uploaded Document Images &amp; Verification Proofs
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pl-7">
+                {passbookPhoto && (
+                  <div className="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center space-y-1">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase block truncate">Passbook</span>
+                    <img src={passbookPhoto} alt="Passbook" className="h-20 w-full object-cover rounded-lg border border-slate-300" />
+                  </div>
+                )}
+                {aadhaarPhoto && (
+                  <div className="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center space-y-1">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase block truncate">Aadhaar Card</span>
+                    <img src={aadhaarPhoto} alt="Aadhaar Card" className="h-20 w-full object-cover rounded-lg border border-slate-300" />
+                  </div>
+                )}
+                {childPhoto && (
+                  <div className="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center space-y-1">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase block truncate">Child Photo</span>
+                    <img src={childPhoto} alt="Child Beneficiary" className="h-20 w-full object-cover rounded-lg border border-slate-300" />
+                  </div>
+                )}
+                {feeReceiptPhoto && (
+                  <div className="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center space-y-1">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase block truncate">Fee Receipt</span>
+                    <img src={feeReceiptPhoto} alt="Fee Receipt" className="h-20 w-full object-cover rounded-lg border border-slate-300" />
+                  </div>
+                )}
+                {marksheetPhoto && (
+                  <div className="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center space-y-1">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase block truncate">Marksheet</span>
+                    <img src={marksheetPhoto} alt="Marksheet" className="h-20 w-full object-cover rounded-lg border border-slate-300" />
+                  </div>
+                )}
+                {signatureData && (
+                  <div className="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center space-y-1">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase block truncate">Caregiver Signature</span>
+                    <img src={signatureData} alt="Caregiver Signature" className="h-20 w-full object-contain rounded-lg border border-slate-300 bg-white" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

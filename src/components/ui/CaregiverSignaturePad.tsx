@@ -20,6 +20,8 @@ interface CaregiverSignaturePadProps {
   submissionUuid: string;
   caregiverName: string;
   caregiverRelationship: string;
+  initialSignatureUrl?: string;
+  fallbackUuid?: string;
   onSignatureSaved?: (blob: Blob) => void;
   onSignatureCleared?: () => void;
   isSaved?: boolean;
@@ -29,6 +31,8 @@ export function CaregiverSignaturePad({
   submissionUuid,
   caregiverName,
   caregiverRelationship,
+  initialSignatureUrl,
+  fallbackUuid,
   onSignatureSaved,
   onSignatureCleared,
   isSaved: externalIsSaved,
@@ -40,34 +44,75 @@ export function CaregiverSignaturePad({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Load existing signature blob from IndexedDB if present
+  // Load existing signature blob from IndexedDB or initialSignatureUrl
   useEffect(() => {
     let active = true;
     async function loadExisting() {
-      if (!submissionUuid) return;
       try {
-        const stored = await getCaregiverSignatureBlob(submissionUuid);
+        let stored = submissionUuid ? await getCaregiverSignatureBlob(submissionUuid) : undefined;
+        if (!stored && fallbackUuid) {
+          stored = await getCaregiverSignatureBlob(fallbackUuid);
+        }
+
         if (stored && stored.blob && active) {
           setIsSavedLocal(true);
           setHasStrokes(true);
           const url = URL.createObjectURL(stored.blob);
           setPreviewUrl(url);
+
+          // Render onto canvas
+          const img = new Image();
+          img.onload = () => {
+            if (!active) return;
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              }
+            }
+          };
+          img.src = url;
+
           if (onSignatureSaved) {
             onSignatureSaved(stored.blob);
           }
+          return;
+        }
+
+        // If no indexedDB blob exists, check initialSignatureUrl (e.g. data URL from server/draft)
+        if (initialSignatureUrl && active) {
+          setIsSavedLocal(true);
+          setHasStrokes(true);
+          setPreviewUrl(initialSignatureUrl);
+
+          const img = new Image();
+          img.onload = () => {
+            if (!active) return;
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              }
+            }
+          };
+          img.src = initialSignatureUrl;
         }
       } catch (err) {
-        console.error('Failed to load caregiver signature from IndexedDB:', err);
+        console.error('Failed to load caregiver signature:', err);
       }
     }
     loadExisting();
     return () => {
       active = false;
-      if (previewUrl) {
+      if (previewUrl && previewUrl.startsWith('blob:')) {
         URL.revokeObjectURL(previewUrl);
       }
     };
-  }, [submissionUuid]);
+  }, [submissionUuid, fallbackUuid, initialSignatureUrl]);
 
   // Canvas stroke setup
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {

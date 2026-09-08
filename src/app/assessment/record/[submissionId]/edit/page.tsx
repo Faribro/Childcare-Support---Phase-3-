@@ -65,6 +65,8 @@ export default function EditRecordPage() {
   const [currentVersion, setCurrentVersion] = useState<number>(1);
   const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
+  const [existingSignatureUrl, setExistingSignatureUrl] = useState<string>('');
+  const [fallbackSigUuid, setFallbackSigUuid] = useState<string>('');
 
   // Form State covering all 73 Linelist & Google Sheet fields
   const [formData, setFormData] = useState({
@@ -160,7 +162,7 @@ export default function EditRecordPage() {
     setIsLoading(true);
     setConflictError(null);
     try {
-      let foundRecord: any = null;
+      let localRecord: any = null;
 
       // 1. Check local Dexie sync queue
       try {
@@ -168,11 +170,15 @@ export default function EditRecordPage() {
         const queued = queue.find(
           (q) =>
             q.submissionUuid === submissionId ||
+            q.payload?.uuid === submissionId ||
+            q.payload?.clientSubmissionId === submissionId ||
             q.payload?.demographics?.artNumber === submissionId ||
+            (q.payload as any)?.artNumber === submissionId ||
+            q.payload?.uniqueId === submissionId ||
             String(q.id) === submissionId
         );
         if (queued && queued.payload) {
-          foundRecord = queued.payload;
+          localRecord = queued.payload;
           if (queued.expectedVersion) {
             setCurrentVersion(queued.expectedVersion);
           }
@@ -180,29 +186,113 @@ export default function EditRecordPage() {
       } catch (_) {}
 
       // 2. Check local Dexie drafts
-      if (!foundRecord) {
+      if (!localRecord) {
         try {
           const drafts = await getAllDrafts();
           const draft = drafts.find(
             (d) =>
               d.uuid === submissionId ||
+              d.clientSubmissionId === submissionId ||
               d.demographics?.artNumber === submissionId ||
+              (d as any).artNumber === submissionId ||
               String(d.id) === submissionId
           );
-          if (draft) foundRecord = draft;
+          if (draft) localRecord = draft;
         } catch (_) {}
       }
 
       // 3. Check remote API
+      let remoteRecord: any = null;
       try {
         const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
         if (res.ok) {
           const body = await res.json();
           if (body.data) {
-            foundRecord = body.data;
+            remoteRecord = body.data;
           }
         }
       } catch (_) {}
+
+      // If remote wasn't found by submissionId, try altId from localRecord if available
+      if (!remoteRecord && localRecord) {
+        const altId = localRecord.demographics?.artNumber || localRecord.uuid || localRecord.clientSubmissionId;
+        if (altId && altId !== submissionId) {
+          try {
+            const res2 = await fetch(`/api/submissions/${encodeURIComponent(altId)}`);
+            if (res2.ok) {
+              const body2 = await res2.json();
+              if (body2.data) {
+                remoteRecord = body2.data;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      // If localRecord was not found by submissionId, but remoteRecord was loaded, lookup local Dexie by remote identifiers
+      if (!localRecord && remoteRecord) {
+        const candidates = [
+          remoteRecord.art_number,
+          remoteRecord.uniqueId,
+          remoteRecord.client_submission_id,
+          remoteRecord._uuid,
+          remoteRecord['1\nUnique ID'],
+        ].filter(Boolean);
+
+        try {
+          const queue = await getAllQueueItems();
+          const queued = queue.find((q) =>
+            candidates.some(
+              (c) =>
+                q.submissionUuid === c ||
+                q.payload?.uuid === c ||
+                q.payload?.clientSubmissionId === c ||
+                q.payload?.demographics?.artNumber === c ||
+                (q.payload as any)?.artNumber === c
+            )
+          );
+          if (queued && queued.payload) localRecord = queued.payload;
+        } catch (_) {}
+
+        if (!localRecord) {
+          try {
+            const drafts = await getAllDrafts();
+            const draft = drafts.find((d) =>
+              candidates.some(
+                (c) =>
+                  d.uuid === c ||
+                  d.clientSubmissionId === c ||
+                  d.demographics?.artNumber === c
+              )
+            );
+            if (draft) localRecord = draft;
+          } catch (_) {}
+        }
+      }
+
+      // Merge records so local high-res Base64 images and drafts are never erased
+      const foundRecord: any = (remoteRecord || localRecord)
+        ? {
+            ...(remoteRecord || {}),
+            ...(localRecord || {}),
+            bankingAndKyc: {
+              ...(remoteRecord?.bankingAndKyc || remoteRecord?.bankDetails || {}),
+              ...(localRecord?.bankingAndKyc || localRecord?.bankDetails || {}),
+            },
+            educationExpenses: {
+              ...(remoteRecord?.educationExpenses || {}),
+              ...(localRecord?.educationExpenses || {}),
+            },
+            demographics: {
+              ...(remoteRecord?.demographics || {}),
+              ...(localRecord?.demographics || {}),
+            },
+            consent: {
+              ...(remoteRecord?.consent || remoteRecord?.caregiverConsent || {}),
+              ...(localRecord?.consent || localRecord?.caregiverConsent || {}),
+            },
+          }
+        : null;
 
       if (foundRecord) {
         const d = foundRecord.demographics || foundRecord;
@@ -233,6 +323,97 @@ export default function EditRecordPage() {
           '';
         setAmendmentReason(reason);
 
+        // Comprehensive document photo extraction across all potential storage keys
+        const passbookPhoto =
+          b.passbookPhotoUrl ||
+          b.passbook_photo_url ||
+          foundRecord.passbookPhotoUrl ||
+          foundRecord.passbook_photo_url ||
+          localRecord?.bankingAndKyc?.passbookPhotoUrl ||
+          localRecord?.passbookPhotoUrl ||
+          remoteRecord?.bankingAndKyc?.passbookPhotoUrl ||
+          remoteRecord?.passbookPhotoUrl ||
+          remoteRecord?.passbook_photo_url ||
+          foundRecord['25\nPassbook Front Page Link'] ||
+          '';
+
+        const aadhaarPhoto =
+          b.aadhaarCardPhotoUrl ||
+          b.aadhaar_card_photo_url ||
+          foundRecord.aadhaarCardPhotoUrl ||
+          foundRecord.aadhaar_card_photo_url ||
+          localRecord?.bankingAndKyc?.aadhaarCardPhotoUrl ||
+          localRecord?.aadhaarCardPhotoUrl ||
+          remoteRecord?.bankingAndKyc?.aadhaarCardPhotoUrl ||
+          remoteRecord?.aadhaarCardPhotoUrl ||
+          remoteRecord?.aadhaar_card_photo_url ||
+          foundRecord['26\nAadhaar Card Link'] ||
+          '';
+
+        const childPhoto =
+          b.childPhotoUrl ||
+          b.child_photo_url ||
+          foundRecord.childPhotoUrl ||
+          foundRecord.child_photo_url ||
+          localRecord?.bankingAndKyc?.childPhotoUrl ||
+          localRecord?.childPhotoUrl ||
+          remoteRecord?.bankingAndKyc?.childPhotoUrl ||
+          remoteRecord?.childPhotoUrl ||
+          remoteRecord?.child_photo_url ||
+          foundRecord['27\nPassport Size Photo Link'] ||
+          '';
+
+        const feeReceiptPhoto =
+          exp.feeReceiptPhotoUrl ||
+          exp.fee_receipt_photo_url ||
+          foundRecord.feeReceiptPhotoUrl ||
+          foundRecord.fee_receipt_photo_url ||
+          localRecord?.educationExpenses?.feeReceiptPhotoUrl ||
+          localRecord?.feeReceiptPhotoUrl ||
+          remoteRecord?.educationExpenses?.feeReceiptPhotoUrl ||
+          remoteRecord?.feeReceiptPhotoUrl ||
+          remoteRecord?.fee_receipt_photo_url ||
+          foundRecord['64\nSchool Fee Receipt Link'] ||
+          '';
+
+        const marksheetPhoto =
+          exp.marksheetPhotoUrl ||
+          exp.marksheet_photo_url ||
+          foundRecord.marksheetPhotoUrl ||
+          foundRecord.marksheet_photo_url ||
+          localRecord?.educationExpenses?.marksheetPhotoUrl ||
+          localRecord?.marksheetPhotoUrl ||
+          remoteRecord?.educationExpenses?.marksheetPhotoUrl ||
+          remoteRecord?.marksheetPhotoUrl ||
+          remoteRecord?.marksheet_photo_url ||
+          foundRecord['65\nMarksheet Photo Link'] ||
+          '';
+
+        const sigDataUrl =
+          c.signatureDataUrl ||
+          c.signatureUrl ||
+          c.signature_data_url ||
+          foundRecord.signatureDataUrl ||
+          foundRecord.signature_data_url ||
+          localRecord?.caregiverConsent?.signatureDataUrl ||
+          localRecord?.consent?.signatureDataUrl ||
+          remoteRecord?.caregiverConsent?.signatureDataUrl ||
+          remoteRecord?.consent?.signatureDataUrl ||
+          remoteRecord?.signatureDataUrl ||
+          remoteRecord?.signature_data_url ||
+          foundRecord['72\nSignature Link'] ||
+          '';
+
+        if (sigDataUrl) {
+          setExistingSignatureUrl(sigDataUrl);
+          setHasSavedSignature(true);
+        }
+
+        const fbUuid = localRecord?.uuid || localRecord?.clientSubmissionId || foundRecord.uuid || '';
+        if (fbUuid) {
+          setFallbackSigUuid(fbUuid);
+        }
+
         setFormData({
           artNumber: d.artNumber || foundRecord['1\nUnique ID'] || foundRecord.uniqueId || submissionId,
           koboId: foundRecord.koboId || d.artNumber || '',
@@ -255,9 +436,9 @@ export default function EditRecordPage() {
           bankAccountNumber: b.bankAccountNumber || b.accountNumber || foundRecord['21\nBank Account Number'] || foundRecord.bank_account_number || '',
           bankIfscCode: b.bankIfscCode || b.ifscCode || foundRecord['22\nBank IFSC Code'] || foundRecord.ifsc_code || '',
           bankLinkedMobileNumber: b.bankLinkedMobileNumber || foundRecord['23\nBank Linked Mobile Number'] || '',
-          passbookPhotoUrl: b.passbookPhotoUrl || foundRecord['25\nPassbook Front Page Link'] || '',
-          aadhaarCardPhotoUrl: b.aadhaarCardPhotoUrl || foundRecord['26\nAadhaar Card Link'] || '',
-          childPhotoUrl: b.childPhotoUrl || foundRecord['27\nPassport Size Photo Link'] || '',
+          passbookPhotoUrl: passbookPhoto,
+          aadhaarCardPhotoUrl: aadhaarPhoto,
+          childPhotoUrl: childPhoto,
 
           totalFamilyMembers: Number(hf.totalFamilyMembers || foundRecord['28\nHousehold Members'] || 4),
           numberOfChildrenUnder18: Number(hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children'] || 2),
@@ -294,8 +475,8 @@ export default function EditRecordPage() {
           uniform: Number(exp.uniform || foundRecord['60\nSchool Uniform'] || 0),
           transport: Number(exp.transport || foundRecord['61\nSchool Transport'] || 0),
           otherExpenses: Number(exp.otherExpenses || foundRecord['62\nSchool Other Expenses'] || 0),
-          feeReceiptPhotoUrl: exp.feeReceiptPhotoUrl || foundRecord['64\nSchool Fee Receipt Link'] || '',
-          marksheetPhotoUrl: exp.marksheetPhotoUrl || foundRecord['65\nMarksheet Photo Link'] || '',
+          feeReceiptPhotoUrl: feeReceiptPhoto,
+          marksheetPhotoUrl: marksheetPhoto,
           remarks: exp.remarks || foundRecord['66\nRemarks (If Any)'] || '',
 
           requiredSchoolFees: Number(req.requiredSchoolFees || 0),
@@ -314,8 +495,11 @@ export default function EditRecordPage() {
 
         // Check local signature
         try {
-          const sig = await getCaregiverSignatureBlob(submissionId);
-          setHasSavedSignature(!!sig);
+          const sig = (await getCaregiverSignatureBlob(submissionId)) ||
+            (fbUuid ? await getCaregiverSignatureBlob(fbUuid) : undefined);
+          if (sig) {
+            setHasSavedSignature(true);
+          }
         } catch (_) {}
       }
     } catch (err) {
@@ -867,6 +1051,8 @@ export default function EditRecordPage() {
 
               <CaregiverSignaturePad
                 submissionUuid={submissionId}
+                fallbackUuid={fallbackSigUuid || submissionId}
+                initialSignatureUrl={existingSignatureUrl}
                 caregiverName={formData.caregiverName}
                 caregiverRelationship={formData.caregiverRelationship || 'Caregiver'}
                 onSignatureSaved={() => setHasSavedSignature(true)}

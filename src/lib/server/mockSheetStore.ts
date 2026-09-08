@@ -51,6 +51,18 @@ export interface StoredSheetRecord {
   bank_name: string;
   branch_name: string;
   passbook_photo_captured: boolean;
+  passbook_photo_url?: string;
+  aadhaar_card_photo_url?: string;
+  child_photo_url?: string;
+  fee_receipt_photo_url?: string;
+  marksheet_photo_url?: string;
+  signature_data_url?: string;
+  passbookPhotoUrl?: string;
+  aadhaarCardPhotoUrl?: string;
+  childPhotoUrl?: string;
+  feeReceiptPhotoUrl?: string;
+  marksheetPhotoUrl?: string;
+  signatureDataUrl?: string;
   caseworker_name: string;
   declaration_date: string;
   sync_state: 'SYNCED';
@@ -398,6 +410,18 @@ export const MockSheetStore = {
       bank_name: payload.bankDetails?.bankName || 'State Bank of India',
       branch_name: payload.bankDetails?.branchName || 'Main',
       passbook_photo_captured: !!payload.bankingAndKyc?.passbookPhotoUrl || payload.bankDetails?.passbookPhotoCaptured || true,
+      passbook_photo_url: payload.bankingAndKyc?.passbookPhotoUrl || (payload as any).passbookPhotoUrl || '',
+      aadhaar_card_photo_url: payload.bankingAndKyc?.aadhaarCardPhotoUrl || (payload as any).aadhaarCardPhotoUrl || '',
+      child_photo_url: payload.bankingAndKyc?.childPhotoUrl || (payload as any).childPhotoUrl || '',
+      fee_receipt_photo_url: payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl || '',
+      marksheet_photo_url: payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl || '',
+      signature_data_url: payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl || '',
+      passbookPhotoUrl: payload.bankingAndKyc?.passbookPhotoUrl || (payload as any).passbookPhotoUrl || '',
+      aadhaarCardPhotoUrl: payload.bankingAndKyc?.aadhaarCardPhotoUrl || (payload as any).aadhaarCardPhotoUrl || '',
+      childPhotoUrl: payload.bankingAndKyc?.childPhotoUrl || (payload as any).childPhotoUrl || '',
+      feeReceiptPhotoUrl: payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl || '',
+      marksheetPhotoUrl: payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl || '',
+      signatureDataUrl: payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl || '',
       caseworker_name: payload.finalReview?.formSubmittedBy || payload.declaration?.caseworkerName || payload.interviewerName || 'Caseworker',
       declaration_date: payload.declaration?.declarationDate || now.split('T')[0],
       sync_state: 'SYNCED',
@@ -625,6 +649,36 @@ export const MockSheetStore = {
     if (patch.passbookPhotoCaptured !== undefined && patch.passbookPhotoCaptured !== existing.passbook_photo_captured) {
       existing.passbook_photo_captured = patch.passbookPhotoCaptured;
       changedFields.push('passbookPhotoCaptured');
+    }
+    if (patch.passbookPhotoUrl !== undefined) {
+      existing.passbook_photo_url = patch.passbookPhotoUrl;
+      existing.passbookPhotoUrl = patch.passbookPhotoUrl;
+      changedFields.push('passbookPhotoUrl');
+    }
+    if (patch.aadhaarCardPhotoUrl !== undefined) {
+      existing.aadhaar_card_photo_url = patch.aadhaarCardPhotoUrl;
+      existing.aadhaarCardPhotoUrl = patch.aadhaarCardPhotoUrl;
+      changedFields.push('aadhaarCardPhotoUrl');
+    }
+    if (patch.childPhotoUrl !== undefined) {
+      existing.child_photo_url = patch.childPhotoUrl;
+      existing.childPhotoUrl = patch.childPhotoUrl;
+      changedFields.push('childPhotoUrl');
+    }
+    if (patch.feeReceiptPhotoUrl !== undefined) {
+      existing.fee_receipt_photo_url = patch.feeReceiptPhotoUrl;
+      existing.feeReceiptPhotoUrl = patch.feeReceiptPhotoUrl;
+      changedFields.push('feeReceiptPhotoUrl');
+    }
+    if (patch.marksheetPhotoUrl !== undefined) {
+      existing.marksheet_photo_url = patch.marksheetPhotoUrl;
+      existing.marksheetPhotoUrl = patch.marksheetPhotoUrl;
+      changedFields.push('marksheetPhotoUrl');
+    }
+    if (patch.signatureDataUrl !== undefined) {
+      existing.signature_data_url = patch.signatureDataUrl;
+      existing.signatureDataUrl = patch.signatureDataUrl;
+      changedFields.push('signatureDataUrl');
     }
 
     // Recompute clinical triage and grant if anthropometry or education changed
