@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
@@ -12,7 +12,6 @@ import {
   markConflict,
   acquireSyncLock,
   releaseSyncLock,
-  isSyncLocked,
 } from '@/lib/db/syncQueueRepository';
 import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import type { SyncQueueItem, AssessmentRecord } from '@/types/domain';
@@ -27,6 +26,10 @@ import {
   ArrowRight,
   ShieldCheck,
   Check,
+  Search,
+  Eye,
+  FileCheck2,
+  Edit,
 } from 'lucide-react';
 
 function SyncCenterContent() {
@@ -38,19 +41,42 @@ function SyncCenterContent() {
   const [activeTab, setActiveTab] = useState<'outbox' | 'drafts' | 'history'>(initialTab);
   const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
   const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
+  const [serverSubmissions, setServerSubmissions] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
 
-  const loadAll = async () => {
-    setIsLoading(true);
+  // Sync activeTab when query param changes
+  const tabParam = searchParams.get('tab') as 'outbox' | 'drafts' | 'history' | null;
+  useEffect(() => {
+    if (tabParam && (tabParam === 'outbox' || tabParam === 'drafts' || tabParam === 'history')) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
+  const loadAll = async (isManualRefresh = false) => {
+    if (isManualRefresh) setIsRefreshing(true);
+    else setIsLoading(true);
+
     try {
-      const [q, d] = await Promise.all([getAllQueueItems(), getAllDrafts()]);
-      setQueueItems(q);
-      setDrafts(d);
+      const [q, d, serverRes] = await Promise.allSettled([
+        getAllQueueItems(),
+        getAllDrafts(),
+        fetch('/api/submissions?limit=100').then((r) => (r.ok ? r.json() : null)),
+      ]);
+
+      if (q.status === 'fulfilled') setQueueItems(q.value);
+      if (d.status === 'fulfilled') setDrafts(d.value);
+      if (serverRes.status === 'fulfilled' && serverRes.value) {
+        const records = serverRes.value.data || [];
+        setServerSubmissions(records);
+      }
     } catch (err) {
       console.error('Failed to load sync data:', err);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -131,12 +157,115 @@ function SyncCenterContent() {
     (i) => i.status === 'queued' || i.status === 'syncing' || i.status === 'failed'
   ).length;
 
-  const syncedItems = queueItems.filter((i) => i.status === 'synced');
+  // Unified History merging both remote server submissions and local synced receipts
+  const historyItems = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        id: string;
+        uuid: string;
+        childName: string;
+        caregiverName: string;
+        revision: number;
+        submissionTime: string;
+        district?: string;
+        state?: string;
+        source: 'remote' | 'local';
+      }
+    >();
+
+    // 1. Remote Submissions from central Google Sheets / backend
+    serverSubmissions.forEach((r: any) => {
+      const id =
+        r['1\nUnique ID'] ||
+        r.uniqueId ||
+        r.art_number ||
+        r.artNumber ||
+        r.client_submission_id ||
+        r._uuid ||
+        'BENEFICIARY';
+      const uuid = r._uuid || r.remote_submission_id || r.client_submission_id || id;
+      const childName = r['9\nChild Name'] || r.child_name || r.childName || 'Child Beneficiary';
+      const caregiverName =
+        r['14\nCaregiver Full Name'] || r.caregiver_name || r.caregiverName || 'Caregiver';
+      const revision = Number(r['2\nRevision Number'] || r.revision || r.version || 1);
+      const submissionTime =
+        r['3\nSubmission Time'] || r.submissionTime || r.created_at || r.updated_at || r.lastUpdated || '';
+      const district = r['19\nDistrict'] || r.district || '';
+      const state = r['18\nState'] || r.state || '';
+
+      map.set(id, {
+        id,
+        uuid,
+        childName,
+        caregiverName,
+        revision,
+        submissionTime,
+        district,
+        state,
+        source: 'remote',
+      });
+    });
+
+    // 2. Local Synced Queue Items
+    queueItems
+      .filter((i) => i.status === 'synced')
+      .forEach((i) => {
+        const id = i.payload?.demographics?.artNumber || i.submissionUuid;
+        const uuid = i.submissionUuid;
+        const childName = i.payload?.demographics?.childName || 'Child Beneficiary';
+        const caregiverName = i.payload?.demographics?.caregiverName || 'Caregiver';
+        const revision = (i as any).version || i.payload?.version || i.expectedVersion || 1;
+        const submissionTime = i.lastAttempt
+          ? new Date(i.lastAttempt).toISOString()
+          : new Date().toISOString();
+        const district = i.payload?.demographics?.district || '';
+        const state = i.payload?.demographics?.state || '';
+
+        if (map.has(id)) {
+          const existing = map.get(id)!;
+          if (revision > existing.revision) {
+            map.set(id, { ...existing, revision, submissionTime, source: 'local' });
+          }
+        } else {
+          map.set(id, {
+            id,
+            uuid,
+            childName,
+            caregiverName,
+            revision,
+            submissionTime,
+            district,
+            state,
+            source: 'local',
+          });
+        }
+      });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = a.submissionTime ? new Date(a.submissionTime).getTime() : 0;
+      const timeB = b.submissionTime ? new Date(b.submissionTime).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [serverSubmissions, queueItems]);
+
+  const filteredHistory = useMemo(() => {
+    if (!historySearch.trim()) return historyItems;
+    const q = historySearch.toLowerCase();
+    return historyItems.filter(
+      (item) =>
+        item.id.toLowerCase().includes(q) ||
+        item.childName.toLowerCase().includes(q) ||
+        item.caregiverName.toLowerCase().includes(q) ||
+        (item.district && item.district.toLowerCase().includes(q)) ||
+        (item.state && item.state.toLowerCase().includes(q))
+    );
+  }, [historyItems, historySearch]);
 
   return (
     <AppShell pendingSyncCount={pendingCount}>
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 lg:py-10 space-y-6">
-        {/* Just Submitted Toast */}
+        {/* Just Submitted Notification */}
         {justSubmitted && (
           <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 sm:p-5 flex items-start space-x-3.5 shadow-xs">
             <div className="bg-emerald-600 text-white p-2 rounded-xl shrink-0">
@@ -201,8 +330,8 @@ function SyncCenterContent() {
               }`}
             >
               <span>Sync History</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">
-                {syncedItems.length}
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700 font-semibold">
+                {isLoading && historyItems.length === 0 ? '...' : historyItems.length}
               </span>
             </button>
           </div>
@@ -375,49 +504,127 @@ function SyncCenterContent() {
           </div>
         )}
 
-        {/* Tab 3: Sync History */}
+        {/* Tab 3: Sync History (Unified Server + Local) */}
         {activeTab === 'history' && (
           <div className="space-y-4">
-            {syncedItems.length === 0 ? (
+            {/* Top Toolbar: Search + Refresh */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/60 p-3 rounded-2xl border border-slate-200/80">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by Child Name, ID, or District..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-slate-800 placeholder-slate-400"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => loadAll(true)}
+                  disabled={isRefreshing}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl flex items-center space-x-1.5 shadow-2xs transition-colors cursor-pointer"
+                  title="Reload submitted records from Google Sheets"
+                >
+                  <RefreshCw className={`h-3 w-3 text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                </button>
+              </div>
+            </div>
+
+            {isLoading && historyItems.length === 0 ? (
+              <div className="text-center py-12 text-xs text-slate-400">
+                Loading submitted records from Google Sheets...
+              </div>
+            ) : historyItems.length === 0 ? (
               <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center">
                 <CheckCircle2 className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-                <h3 className="text-sm font-bold text-slate-800">No Synced Submissions on this Device</h3>
-                <p className="text-xs text-slate-500 mt-1">Confirmed sync receipts will appear here.</p>
+                <h3 className="text-sm font-bold text-slate-800">No Synced Submissions Yet</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Completed assessments will appear here once synchronized with Google Sheets.
+                </p>
+              </div>
+            ) : filteredHistory.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-xs text-slate-500">
+                No submitted assessments match &quot;{historySearch}&quot;
               </div>
             ) : (
               <div className="space-y-3">
-                {syncedItems.map((item) => (
+                {filteredHistory.map((item) => (
                   <div
-                    key={item.submissionUuid}
-                    className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    key={item.id}
+                    className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs hover:border-teal-300 transition-all flex flex-col md:flex-row md:items-center md:justify-between gap-4"
                   >
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono text-xs font-bold text-teal-900 bg-teal-50 px-2 py-0.5 rounded">
-                          {item.payload?.demographics?.artNumber}
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-teal-900 bg-teal-50 border border-teal-200/80 px-2.5 py-0.5 rounded-md">
+                          {item.id}
                         </span>
-                        <span className="text-xs font-bold text-slate-900">
-                          {item.payload?.demographics?.childName}
+                        <span className="text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                          Rev {item.revision}
                         </span>
-                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.2 rounded-full">
-                          Server Confirmed
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                          <CheckCircle2 className="h-3 w-3 mr-1 text-emerald-600" />
+                          <span>Synced to Google Sheets</span>
                         </span>
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
-                        UUID: {item.submissionUuid} • Last Synced:{' '}
-                        {new Date(item.lastAttempt || Date.now()).toLocaleTimeString()}
+
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                        {item.childName}
+                      </h3>
+
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>
+                          Caregiver: <strong className="text-slate-700 font-medium">{item.caregiverName}</strong>
+                        </span>
+                        {(item.district || item.state) && (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span>
+                              {item.district}
+                              {item.district && item.state ? ', ' : ''}
+                              {item.state}
+                            </span>
+                          </>
+                        )}
+                        {item.submissionTime && (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span>
+                              {new Date(item.submissionTime).toLocaleDateString(undefined, {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 shrink-0">
-                      <Link href={`/assessment/record/${item.submissionUuid}`}>
-                        <Button variant="secondary" size="sm">
-                          View Record
+                    <div className="flex flex-wrap items-center gap-2 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 shrink-0">
+                      <Link href={`/assessment/record/${encodeURIComponent(item.id)}`}>
+                        <Button variant="secondary" size="sm" className="text-xs font-semibold text-slate-700 hover:text-slate-900">
+                          <Eye className="h-3.5 w-3.5 mr-1 text-slate-500" />
+                          <span>View Record</span>
                         </Button>
                       </Link>
-                      <Link href={`/assessment/record/${item.submissionUuid}/receipt`}>
-                        <Button variant="secondary" size="sm">
-                          Receipt
+                      <Link href={`/assessment/record/${encodeURIComponent(item.id)}/receipt`}>
+                        <Button variant="secondary" size="sm" className="text-xs font-semibold text-slate-700 hover:text-slate-900">
+                          <FileCheck2 className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                          <span>Receipt</span>
+                        </Button>
+                      </Link>
+                      <Link href={`/assessment/record/${encodeURIComponent(item.id)}/edit`}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="text-xs font-semibold text-teal-800 bg-teal-50/80 hover:bg-teal-100/80 border-teal-200/80"
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1 text-teal-700" />
+                          <span>Revise</span>
                         </Button>
                       </Link>
                     </div>

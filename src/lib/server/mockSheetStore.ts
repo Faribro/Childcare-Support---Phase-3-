@@ -442,7 +442,11 @@ export const MockSheetStore = {
    * Find record by remoteSubmissionId, clientSubmissionId, or _uuid
    */
   findRecord(id: string): StoredSheetRecord | undefined {
-    return recordsByRemoteId.get(id) || recordsByUuid.get(id);
+    const direct = recordsByRemoteId.get(id) || recordsByUuid.get(id);
+    if (direct) return direct;
+    return Array.from(recordsByRemoteId.values()).find(
+      (r) => r.art_number === id || r.client_submission_id === id || r._uuid === id
+    );
   },
 
   /**

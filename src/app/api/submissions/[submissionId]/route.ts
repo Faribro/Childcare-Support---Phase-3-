@@ -37,6 +37,57 @@ export async function GET(
 
         if (gasRes.ok) {
           const data = await gasRes.json();
+          if (data.status === 'success' && data.data) {
+            const raw = data.data;
+            const enriched = {
+              ...raw,
+              _uuid: raw['1\nUnique ID'] || data.uniqueId || submissionId,
+              client_submission_id: raw['1\nUnique ID'] || data.uniqueId || submissionId,
+              remote_submission_id: raw['1\nUnique ID'] || data.uniqueId || submissionId,
+              uniqueId: raw['1\nUnique ID'] || data.uniqueId || submissionId,
+              art_number: raw['1\nUnique ID'] || raw['42\nART ID Number'] || data.uniqueId || submissionId,
+              child_name: raw['9\nChild Name'] || '',
+              dob: raw['10\nDate of Birth'] || '',
+              calculated_age: Number(raw['11\nAge'] || 0),
+              gender: raw['12\nGender'] || '',
+              caregiver_name: raw['14\nCaregiver Full Name'] || '',
+              caregiver_relationship: raw['15\nCaregiver Relation'] || '',
+              caregiverPhone: raw['16\nCaregiver Contact'] ? String(raw['16\nCaregiver Contact']) : '',
+              caregiver_phone: raw['16\nCaregiver Contact'] ? String(raw['16\nCaregiver Contact']) : '',
+              address: raw['17\nAddress'] || '',
+              state: raw['18\nState'] || '',
+              district: raw['19\nDistrict'] || '',
+              account_holder_name: raw['20\nBank Account Holder Name'] || '',
+              bank_account_number: raw['21\nBank Account Number'] ? String(raw['21\nBank Account Number']) : '',
+              ifsc_code: raw['22\nBank IFSC Code'] || '',
+              monthly_household_income: Number(raw['30\nMonthly Income'] || 0),
+              primary_caregiver_occupation: raw['31\nIncome Source'] || '',
+              weight_kg: Number(raw['32\nCurrent Weight (kg)'] || 0),
+              height_cm: Number(raw['33\nCurrent Height (cm)'] || 0),
+              bmi: Number(raw['34\nBMI'] || 0),
+              nutrition_status: raw['35\nBMI Category'] || '',
+              clinical_notes: raw['38\nComorbidities'] || raw['66\nRemarks (If Any)'] || '',
+              school_enrolled: raw['49\nEducation Status'] !== 'Not In School',
+              school_type: raw['53\nSchool Type'] || '',
+              school_grade: raw['54\nCurrent Class'] || '',
+              attendance_percentage: raw['55\nAttendance Status'] === 'Regular' ? 90 : 60,
+              school_fees: Number(raw['56\nSchool Fees'] || 0),
+              tuition_fees: Number(raw['57\nPrivate Tuition Fee'] || 0),
+              books: Number(raw['58\nSchool Books'] || 0),
+              stationery: Number(raw['59\nSchool Stationery'] || 0),
+              uniform: Number(raw['60\nSchool Uniform'] || 0),
+              transport: Number(raw['61\nSchool Transport'] || 0),
+              other_expenses: Number(raw['62\nSchool Other Expenses'] || 0),
+              version: Number(raw['2\nRevision Number'] || data.revisionNumber || 1),
+              revision: Number(raw['2\nRevision Number'] || data.revisionNumber || 1),
+              created_at: raw['3\nSubmission Time'] || new Date().toISOString(),
+              updated_at: raw['73\nLast Updated'] || raw['3\nSubmission Time'] || new Date().toISOString(),
+              interviewer_name: raw['4\nSubmitted By'] || raw['8\nInterviewer Name'] || '',
+              grant_recommended: true,
+              recommended_grant_amount: Number(raw['63\nTotal Annual Education Cost'] || 0),
+            };
+            return NextResponse.json({ ...data, data: enriched }, { status: 200 });
+          }
           return NextResponse.json(data, { status: 200 });
         }
       } catch (gasErr) {

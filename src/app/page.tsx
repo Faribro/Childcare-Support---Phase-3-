@@ -107,24 +107,30 @@ export default function HomePage() {
               </div>
 
               {/* Box 2: Waiting to be Sent */}
-              <div className="bg-blue-50/30 border border-blue-100 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
-                <span className="text-xs font-medium text-slate-500">
+              <Link
+                href="/assessment/sync?tab=outbox"
+                className="bg-blue-50/30 hover:bg-blue-50/60 border border-blue-100 rounded-xl p-4 sm:p-5 flex flex-col justify-between transition-colors cursor-pointer group"
+              >
+                <span className="text-xs font-medium text-slate-500 group-hover:text-blue-700 transition-colors">
                   Waiting to be Sent
                 </span>
                 <span className={`text-2xl sm:text-3xl font-bold mt-2 ${waitingCount > 0 ? 'text-amber-600' : 'text-blue-600'}`}>
                   {isLoading ? '...' : waitingCount}
                 </span>
-              </div>
+              </Link>
 
               {/* Box 3: Submitted Surveys / Assessments */}
-              <div className="bg-emerald-50/30 border border-emerald-100 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
-                <span className="text-xs font-medium text-slate-500">
+              <Link
+                href="/assessment/sync?tab=history"
+                className="bg-emerald-50/30 hover:bg-emerald-50/60 border border-emerald-100 rounded-xl p-4 sm:p-5 flex flex-col justify-between transition-colors cursor-pointer group"
+              >
+                <span className="text-xs font-medium text-slate-500 group-hover:text-emerald-700 transition-colors">
                   Submitted Assessments
                 </span>
                 <span className="text-2xl sm:text-3xl font-bold text-emerald-600 mt-2">
                   {isLoading ? '...' : submittedCount}
                 </span>
-              </div>
+              </Link>
             </div>
           </div>
 

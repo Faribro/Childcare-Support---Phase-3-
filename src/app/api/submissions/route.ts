@@ -35,7 +35,17 @@ export async function GET(req: NextRequest) {
 
         if (gasRes.ok) {
           const data = await gasRes.json();
-          return NextResponse.json(data, { status: 200 });
+          const totalCount = data.total ?? data.data?.length ?? 0;
+          return NextResponse.json(
+            {
+              ...data,
+              pagination: {
+                totalCount,
+                hasMore: false,
+              },
+            },
+            { status: 200 }
+          );
         }
       } catch (gasErr) {
         console.error('Apps Script list forwarding error:', gasErr);
