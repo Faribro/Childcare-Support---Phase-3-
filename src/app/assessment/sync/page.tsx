@@ -153,81 +153,70 @@ function SyncCenterContent() {
           </div>
         )}
 
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-200 gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Data & Sync Operations Centre
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Manage pending outbox transmissions, local drafts, and verified sync receipts.
-            </p>
-          </div>
-
-          <div className="flex items-center space-x-2.5">
-            <Button
-              variant="primary"
-              onClick={handleSyncAll}
-              isLoading={isSyncing}
-              disabled={pendingCount === 0 || isSyncing}
-              className="bg-teal-700 hover:bg-teal-800 text-white font-bold shadow-xs"
-            >
-              <CloudUpload className="h-4 w-4 mr-2" />
-              <span>Sync All ({pendingCount})</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabs Bar */}
-        <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 text-xs font-bold">
-          <button
-            type="button"
-            onClick={() => setActiveTab('outbox')}
-            className={`px-3.5 py-2 rounded-xl transition-all flex items-center space-x-1.5 ${
-              activeTab === 'outbox'
-                ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <span>Outbox Queue</span>
-            <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                pendingCount > 0 ? 'bg-amber-500 text-white font-bold' : 'bg-slate-200 text-slate-700'
+        {/* Streamlined Sync Controls Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-200">
+          {/* Tabs Bar */}
+          <div className="flex items-center space-x-2 text-xs font-bold overflow-x-auto pb-1 sm:pb-0">
+            <button
+              type="button"
+              onClick={() => setActiveTab('outbox')}
+              className={`px-3.5 py-2 rounded-xl transition-all flex items-center space-x-1.5 shrink-0 ${
+                activeTab === 'outbox'
+                  ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              {pendingCount}
-            </span>
-          </button>
+              <span>Outbox Queue</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  pendingCount > 0 ? 'bg-amber-500 text-white font-bold' : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {pendingCount}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('drafts')}
-            className={`px-3.5 py-2 rounded-xl transition-all flex items-center space-x-1.5 ${
-              activeTab === 'drafts'
-                ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <span>Saved Drafts</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">
-              {drafts.length}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('drafts')}
+              className={`px-3.5 py-2 rounded-xl transition-all flex items-center space-x-1.5 shrink-0 ${
+                activeTab === 'drafts'
+                  ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <span>Saved Drafts</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">
+                {drafts.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`px-3.5 py-2 rounded-xl transition-all flex items-center space-x-1.5 ${
-              activeTab === 'history'
-                ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className={`px-3.5 py-2 rounded-xl transition-all flex items-center space-x-1.5 shrink-0 ${
+                activeTab === 'history'
+                  ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <span>Sync History</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">
+                {syncedItems.length}
+              </span>
+            </button>
+          </div>
+
+          <Button
+            variant="primary"
+            onClick={handleSyncAll}
+            isLoading={isSyncing}
+            disabled={pendingCount === 0 || isSyncing}
+            className="bg-teal-700 hover:bg-teal-800 text-white font-bold shadow-xs shrink-0 self-end sm:self-auto"
           >
-            <span>Sync History</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700">
-              {syncedItems.length}
-            </span>
-          </button>
+            <CloudUpload className="h-4 w-4 mr-2" />
+            <span>Sync All ({pendingCount})</span>
+          </Button>
         </div>
 
         {/* Tab 1: Outbox Queue */}

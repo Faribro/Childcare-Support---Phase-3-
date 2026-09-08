@@ -12,10 +12,7 @@ import {
   ArrowRight,
   Trash2,
   Clock,
-  FileSpreadsheet,
-  Database,
-  ShieldCheck,
-  Zap,
+  FileText,
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -57,53 +54,29 @@ export default function HomePage() {
 
   return (
     <AppShell pendingSyncCount={waitingCount}>
-      <div className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-9 flex flex-col justify-between space-y-6">
+      <div className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-8 flex flex-col justify-between space-y-6">
         <div className="space-y-6">
-          {/* Primary Intake Linelist Card (Hero Action) */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:border-teal-300 transition-all p-5 sm:p-6 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start space-x-3.5">
+          {/* Primary Intake Form Card */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:border-teal-300 transition-all p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center space-x-3.5">
                 <div className="h-11 w-11 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 shrink-0">
-                  <FileSpreadsheet className="h-6 w-6" />
+                  <FileText className="h-6 w-6" />
                 </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
-                      Child Nutrition & Education Support
-                    </h2>
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
-                    Single-page intake linelist: demographics, clinical vitals, ART tracking, education expenses, and KYC documentation.
-                  </p>
+                <div className="flex items-center space-x-2.5">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
+                    Child Nutrition & Support Form
+                  </h2>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 uppercase tracking-wider">
+                    Phase 3
+                  </span>
                 </div>
               </div>
-              <span className="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 uppercase tracking-wider">
-                Phase 3
-              </span>
-            </div>
 
-            {/* Feature Metadata Pills */}
-            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
-              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-medium text-slate-600">
-                <Database className="h-3 w-3 text-teal-600" />
-                <span>73 Standard Columns</span>
-              </span>
-              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-medium text-slate-600">
-                <Zap className="h-3 w-3 text-amber-500" />
-                <span>Offline Auto-Save</span>
-              </span>
-              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-medium text-slate-600">
-                <ShieldCheck className="h-3 w-3 text-emerald-600" />
-                <span>Auto ID Generator</span>
-              </span>
-            </div>
-
-            {/* Primary Action Button */}
-            <div className="pt-2">
-              <Link href="/assessment/new" className="block w-full">
+              <Link href="/assessment/new" className="shrink-0 w-full sm:w-auto">
                 <Button
                   variant="primary"
-                  className="w-full font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl shadow-xs py-3 text-sm flex items-center justify-center space-x-2 transition-transform active:scale-[0.99]"
+                  className="w-full sm:w-auto font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl shadow-xs px-5 py-2.5 text-sm flex items-center justify-center space-x-2 transition-transform active:scale-[0.99]"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Start New Assessment</span>
