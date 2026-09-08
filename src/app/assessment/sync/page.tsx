@@ -359,7 +359,7 @@ function SyncCentreContent() {
             <div className="flex items-center gap-2.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
               <p className="text-xs sm:text-sm text-emerald-950 font-semibold">
-                Assessment recorded! Reference: <strong className="font-mono">{submittedRef || 'Saved'}</strong>
+                Survey recorded! Reference: <strong className="font-mono">{submittedRef || 'Saved'}</strong>
               </p>
             </div>
             <span className="text-[11px] text-emerald-700 font-medium">Saved to device</span>
@@ -371,14 +371,14 @@ function SyncCentreContent() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h1 className="text-base sm:text-lg font-bold text-[hsl(220,15%,15%)]">
-                Submitted Assessments ({filteredItems.length})
+                Submitted Surveys ({filteredItems.length})
               </h1>
               <p className="text-xs text-[hsl(215,12%,45%)] mt-0.5">
-                {syncedCount} added to the report • {pendingCount} waiting
+                {syncedCount} synchronized • {pendingCount} waiting
               </p>
             </div>
 
-            {/* Top Action: Send Pending Assessments (Hidden when 0 waiting) */}
+            {/* Top Action: Send Pending Surveys (Hidden when 0 waiting) */}
             {pendingCount > 0 && (
               <Button
                 variant="primary"
@@ -392,10 +392,10 @@ function SyncCentreContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    Sending assessments…
+                    Sending surveys…
                   </span>
                 ) : (
-                  `Send ${pendingCount} Pending Assessment${pendingCount === 1 ? '' : 's'}`
+                  `Send ${pendingCount} Pending Survey${pendingCount === 1 ? '' : 's'}`
                 )}
               </Button>
             )}
@@ -457,245 +457,189 @@ function SyncCentreContent() {
           )}
         </div>
 
-        {/* Your Assessments List */}
+        {/* Your Surveys List */}
         <section className="space-y-3">
           {filteredItems.length === 0 ? (
             <div className="p-8 rounded-xl border border-dashed border-[hsl(215,18%,85%)] text-center space-y-1.5 bg-white">
               <p className="text-xs font-semibold text-[hsl(220,15%,25%)]">
-                {searchQuery || fromDate || toDate ? 'No assessments match your search or date filter' : 'No submitted assessments yet'}
+                {searchQuery || fromDate || toDate ? 'No surveys match your search or date filter' : 'No submitted surveys yet'}
               </p>
               <p className="text-[11px] text-[hsl(215,12%,50%)] max-w-md mx-auto">
                 {searchQuery || fromDate || toDate
                   ? 'Try clearing or changing your search criteria.'
-                  : 'When you complete an assessment, it will appear here so you can check that it has been safely sent for reporting.'}
+                  : 'When you complete a survey, it will appear here so you can check that it has been safely sent for reporting.'}
               </p>
             </div>
           ) : (
             <div className="space-y-3">
               {filteredItems.map((item) => {
                 const isExpanded = expandedId === item.localId;
-                const isServerAccepted = item.serverStatus === 'accepted' || item.status === 'synced';
-                const isSheetsExported = item.sheetsStatus === 'exported';
                 const isFailed = item.status === 'failed_requires_attention' || item.status === 'failed_retryable' || item.sheetsStatus === 'failed';
                 const isSending = item.status === 'syncing' || item.serverStatus === 'syncing' || item.sheetsStatus === 'exporting' || isSyncing;
 
                 const revisionCount = item.revisionNumber || 1;
                 const isAmended = revisionCount > 1;
 
-                // Operational helper text for ART Centre staff
-                let helperText = 'This assessment is saved on this device and will be sent when internet is available.';
-                if (isSheetsExported && isServerAccepted) {
-                  helperText = 'The latest assessment information is now available in the reporting sheet.';
-                } else if (item.status === 'failed_retryable' || item.sheetsStatus === 'failed') {
-                  helperText = 'Your assessment is safe. We will try again automatically.';
-                } else if (item.status === 'failed_requires_attention') {
-                  helperText = 'Please open this assessment and follow the instructions to complete sending.';
-                } else if (isServerAccepted && !isSheetsExported) {
-                  helperText = 'The assessment is saved securely. It will appear in the reporting sheet shortly.';
-                }
-
                 return (
                   <div
                     key={item.localId}
-                    className="p-4 sm:p-5 bg-white rounded-xl border border-[hsl(215,18%,85%)] hover:border-[hsl(215,18%,75%)] transition-colors shadow-2xs space-y-3"
+                    className="flex bg-white rounded-xl border border-[hsl(215,18%,85%)] hover:border-[hsl(215,18%,75%)] transition-colors shadow-2xs overflow-hidden"
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                      <div className="space-y-2 flex-1">
-                        {/* Top Row Badges & Assessment Reference */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {/* 1. Server Security Status Badge */}
-                          <span
-                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1.5 border ${
-                              isServerAccepted
-                                ? 'bg-[hsl(145,60%,94%)] text-[hsl(145,65%,25%)] border-[hsl(145,60%,80%)]'
-                                : isSending
-                                  ? 'bg-[hsl(210,80%,94%)] text-[hsl(210,80%,30%)] border-[hsl(210,80%,80%)]'
-                                  : isFailed
-                                    ? 'bg-[hsl(0,72%,94%)] text-[hsl(0,72%,35%)] border-[hsl(0,72%,80%)]'
-                                    : 'bg-[hsl(40,90%,94%)] text-[hsl(40,90%,30%)] border-[hsl(40,90%,80%)]'
-                            }`}
-                          >
-                            <span
-                              className={`w-2 h-2 rounded-full ${
-                                isServerAccepted
-                                  ? 'bg-[hsl(145,65%,45%)]'
-                                  : isSending
-                                    ? 'bg-[hsl(210,80%,50%)] animate-ping'
-                                    : isFailed
-                                      ? 'bg-[hsl(0,72%,50%)]'
-                                      : 'bg-[hsl(40,90%,50%)]'
-                              }`}
-                            />
-                            {isServerAccepted ? 'Saved securely' : isSending ? 'Sending…' : isFailed ? 'Could not update' : 'Saved on this device'}
-                          </span>
-
-                          {/* 2. Reporting Sheet Status Badge */}
-                          <span
-                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1.5 border ${
-                              isSheetsExported
-                                ? 'bg-[hsl(160,60%,94%)] text-[hsl(160,70%,25%)] border-[hsl(160,60%,80%)]'
-                                : isSending
-                                  ? 'bg-[hsl(210,80%,94%)] text-[hsl(210,80%,30%)] border-[hsl(210,80%,80%)]'
-                                  : item.sheetsStatus === 'failed'
-                                    ? 'bg-[hsl(0,72%,94%)] text-[hsl(0,72%,35%)] border-[hsl(0,72%,80%)]'
-                                    : 'bg-[hsl(215,20%,94%)] text-[hsl(215,15%,35%)] border-[hsl(215,18%,80%)]'
-                            }`}
-                          >
-                            <span
-                              className={`w-2 h-2 rounded-full ${
-                                isSheetsExported
-                                  ? 'bg-[hsl(160,70%,40%)]'
-                                  : isSending
-                                    ? 'bg-[hsl(210,80%,50%)] animate-pulse'
-                                    : item.sheetsStatus === 'failed'
-                                      ? 'bg-[hsl(0,72%,50%)]'
-                                      : 'bg-[hsl(215,15%,60%)]'
-                              }`}
-                            />
-                            {isSheetsExported
-                              ? 'Added to the report'
-                              : isSending
-                                ? 'Sending…'
-                                : item.sheetsStatus === 'failed'
-                                  ? 'Could not update the report'
-                                  : 'Waiting to appear in the report'}
-                          </span>
-
-                          {/* 3. Revision Text */}
-                          {isAmended && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[hsl(210,80%,92%)] text-[hsl(210,80%,30%)] border border-[hsl(210,80%,85%)]">
-                              Updated {revisionCount} times
-                            </span>
-                          )}
-
-                          {/* 4. Assessment Reference */}
-                          <span className="text-xs font-semibold text-[hsl(220,15%,25%)]">
-                            Assessment reference: <strong className="font-bold text-[hsl(220,15%,15%)] font-mono">{item.id}</strong>
-                          </span>
-                        </div>
-
-                        {/* Beneficiary Details */}
-                        <div className="text-xs text-slate-700">
-                          <span className="font-bold text-slate-900">{item.childName}</span>
-                          <span className="text-slate-400 mx-1.5">•</span>
-                          <span>Caregiver: <strong>{item.caregiverName}</strong></span>
-                          {item.district && (
-                            <>
-                              <span className="text-slate-400 mx-1.5">•</span>
-                              <span className="text-slate-500">{item.district}{item.state ? `, ${item.state}` : ''}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Operational Helper Text */}
-                        <p className="text-xs text-[hsl(215,12%,40%)] leading-relaxed">
-                          {helperText}
-                        </p>
-
-                        {/* Timestamps */}
-                        <p className="text-[11px] text-[hsl(215,12%,50%)]">
-                          Saved on {new Date(item.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
-                          at {new Date(item.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
-                          {item.lastEditedAt && (
-                            <span>
-                              {' '}• Last updated on {new Date(item.lastEditedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
-                              at {new Date(item.lastEditedAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-
-                      {/* Action Buttons: View, Edit, History */}
-                      <div className="flex items-center gap-2 flex-wrap self-start lg:self-center">
-                        <button
-                          type="button"
-                          onClick={() => setViewingItem(item)}
-                          className="text-xs h-8 px-3.5 font-semibold bg-white border border-[hsl(215,18%,82%)] hover:bg-[hsl(215,20%,97%)] text-[hsl(220,15%,20%)] rounded-lg transition-colors cursor-pointer"
-                        >
-                          View
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleEditSubmission(item)}
-                          className="text-xs h-8 px-3.5 font-semibold bg-white border border-[hsl(215,18%,82%)] hover:bg-[hsl(215,20%,97%)] text-[hsl(220,15%,20%)] rounded-lg transition-colors cursor-pointer"
-                        >
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(isExpanded ? null : item.localId)}
-                          className="text-xs h-8 px-2.5 text-[hsl(215,12%,45%)] hover:text-slate-800 transition-colors cursor-pointer"
-                        >
-                          {isExpanded ? 'Hide' : 'History'}
-                        </button>
+                    {/* Left Vertical ID Column */}
+                    <div className="w-12 sm:w-14 bg-slate-50 border-r border-slate-200/80 flex items-center justify-center shrink-0 py-3.5 select-all">
+                      <div className="flex items-center gap-1.5 [writing-mode:vertical-rl] rotate-180">
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                          Id
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className="font-mono font-bold text-teal-800 text-xs tracking-wider">
+                          {item.id}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Expandable Technical Details & History Drawer */}
-                    {isExpanded && (
-                      <div className="p-3.5 rounded-lg bg-[hsl(215,20%,97%)] border border-[hsl(215,18%,88%)] text-xs space-y-2.5 pt-3">
-                        <div className="flex items-center justify-between pb-1.5 border-b border-[hsl(215,18%,90%)]">
-                          <span className="font-bold text-[hsl(220,15%,20%)] text-[11px] uppercase tracking-wider">
-                            Technical details &amp; History
-                          </span>
-                          <span className="text-[10px] text-[hsl(215,12%,50%)]">
-                            Reference: {item.id}
-                          </span>
+                    {/* Main Card Content */}
+                    <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                              {item.childName}
+                            </h3>
+                            <span className="text-slate-400">•</span>
+                            <span className="text-xs text-slate-600">
+                              Caregiver: <strong className="text-slate-800">{item.caregiverName}</strong>
+                            </span>
+                            {item.district && (
+                              <>
+                                <span className="text-slate-400">•</span>
+                                <span className="text-xs text-slate-500">
+                                  {item.district}{item.state ? `, ${item.state}` : ''}
+                                </span>
+                              </>
+                            )}
+                            {isAmended && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                Updated {revisionCount} times
+                              </span>
+                            )}
+                            {isSending && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
+                                Sending…
+                              </span>
+                            )}
+                            {isFailed && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                                Could not update
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Timestamps */}
+                          <p className="text-[11px] text-[hsl(215,12%,50%)]">
+                            Saved on {new Date(item.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
+                            at {new Date(item.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                            {item.lastEditedAt && (
+                              <span>
+                                {' '}• Last updated on {new Date(item.lastEditedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
+                                at {new Date(item.lastEditedAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                              </span>
+                            )}
+                          </p>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                          <div>
-                            <span className="font-semibold text-[hsl(215,12%,45%)] block">
-                              Full Submission ID:
+                        {/* Action Buttons: View, Edit, History */}
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                          <button
+                            type="button"
+                            onClick={() => setViewingItem(item)}
+                            className="text-xs h-8 px-3.5 font-semibold bg-white border border-[hsl(215,18%,82%)] hover:bg-[hsl(215,20%,97%)] text-[hsl(220,15%,20%)] rounded-lg transition-colors cursor-pointer"
+                          >
+                            View
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleEditSubmission(item)}
+                            className="text-xs h-8 px-3.5 font-semibold bg-white border border-[hsl(215,18%,82%)] hover:bg-[hsl(215,20%,97%)] text-[hsl(220,15%,20%)] rounded-lg transition-colors cursor-pointer"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(isExpanded ? null : item.localId)}
+                            className="text-xs h-8 px-2.5 text-[hsl(215,12%,45%)] hover:text-slate-800 transition-colors cursor-pointer"
+                          >
+                            {isExpanded ? 'Hide' : 'History'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expandable Technical Details & History Drawer */}
+                      {isExpanded && (
+                        <div className="p-3.5 rounded-lg bg-[hsl(215,20%,97%)] border border-[hsl(215,18%,88%)] text-xs space-y-2.5 pt-3">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-[hsl(215,18%,90%)]">
+                            <span className="font-bold text-[hsl(220,15%,20%)] text-[11px] uppercase tracking-wider">
+                              Technical details &amp; History
                             </span>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="font-mono text-[hsl(220,15%,20%)] break-all select-all font-medium">
-                                {item.submissionId}
+                            <span className="text-[10px] text-[hsl(215,12%,50%)]">
+                              Id: {item.id}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                            <div>
+                              <span className="font-semibold text-[hsl(215,12%,45%)] block">
+                                Full Submission ID:
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => handleCopyId(item.submissionId)}
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(215,20%,90%)] hover:bg-[hsl(215,20%,85%)] text-[hsl(220,15%,25%)] font-semibold transition-colors flex-shrink-0 cursor-pointer"
-                              >
-                                {copiedId === item.submissionId ? 'Copied' : 'Copy'}
-                              </button>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono text-[hsl(220,15%,20%)] break-all select-all font-medium">
+                                  {item.submissionId}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(item.submissionId)}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(215,20%,90%)] hover:bg-[hsl(215,20%,85%)] text-[hsl(220,15%,25%)] font-semibold transition-colors flex-shrink-0 cursor-pointer"
+                                >
+                                  {copiedId === item.submissionId ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className="font-semibold text-[hsl(215,12%,45%)] block">
+                                Revision Number:
+                              </span>
+                              <span className="font-medium text-[hsl(220,15%,20%)]">
+                                Revision {revisionCount} {isAmended ? `(Updated ${revisionCount} times)` : '(Original submission)'}
+                              </span>
                             </div>
                           </div>
 
-                          <div>
-                            <span className="font-semibold text-[hsl(215,12%,45%)] block">
-                              Revision Number:
-                            </span>
-                            <span className="font-medium text-[hsl(220,15%,20%)]">
-                              Revision {revisionCount} {isAmended ? `(Updated ${revisionCount} times)` : '(Original submission)'}
+                          {item.editReason && (
+                            <div className="p-2.5 rounded bg-[hsl(210,80%,97%)] border border-[hsl(210,80%,85%)] text-[hsl(210,80%,25%)] text-[11px]">
+                              <span className="font-bold block">Reason for Update (Revision {item.revisionNumber}):</span>
+                              <span>{item.editReason}</span>
+                            </div>
+                          )}
+
+                          {item.lastError && (
+                            <div className="p-2.5 rounded bg-[hsl(0,72%,96%)] border border-[hsl(0,72%,80%)] text-[hsl(0,72%,35%)] text-[11px]">
+                              <span className="font-bold block">Status Note:</span>
+                              <span>{item.lastError}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between text-[11px] font-semibold text-[hsl(215,12%,40%)] pt-1 border-t border-[hsl(215,18%,90%)]">
+                            <span>Form Version: 3.0.0</span>
+                            <span>
+                              {item.sheetRow ? `Report Row: ${item.sheetRow}` : 'Report Status: In queue'}
                             </span>
                           </div>
                         </div>
-
-                        {item.editReason && (
-                          <div className="p-2.5 rounded bg-[hsl(210,80%,97%)] border border-[hsl(210,80%,85%)] text-[hsl(210,80%,25%)] text-[11px]">
-                            <span className="font-bold block">Reason for Update (Revision {item.revisionNumber}):</span>
-                            <span>{item.editReason}</span>
-                          </div>
-                        )}
-
-                        {item.lastError && (
-                          <div className="p-2.5 rounded bg-[hsl(0,72%,96%)] border border-[hsl(0,72%,80%)] text-[hsl(0,72%,35%)] text-[11px]">
-                            <span className="font-bold block">Status Note:</span>
-                            <span>{item.lastError}</span>
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between text-[11px] font-semibold text-[hsl(215,12%,40%)] pt-1 border-t border-[hsl(215,18%,90%)]">
-                          <span>Form Version: 3.0.0</span>
-                          <span>
-                            {item.sheetRow ? `Report Row: ${item.sheetRow}` : 'Report Status: In queue'}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 );
               })}

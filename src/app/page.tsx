@@ -100,7 +100,7 @@ export default function HomePage() {
                     className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
                   >
                     <Plus className="w-5 h-5 stroke-[2.5]" />
-                    <span>Start New Assessment</span>
+                    <span>Start New Survey</span>
                   </Button>
                 </Link>
               </div>
@@ -134,7 +134,7 @@ export default function HomePage() {
                 className="p-3.5 rounded-lg bg-[hsl(145,60%,97%)] border border-[hsl(145,50%,85%)] col-span-2 sm:col-span-1 cursor-pointer hover:bg-[hsl(145,60%,94%)] transition-colors"
               >
                 <span className="text-[11px] font-semibold text-[hsl(145,65%,28%)] block">
-                  Submitted Assessments
+                  Submitted Surveys
                 </span>
                 <span className="text-xl font-bold text-[hsl(145,65%,25%)] tabular-nums">
                   {isLoading ? '...' : submittedCount}
@@ -162,7 +162,7 @@ export default function HomePage() {
                 </svg>
                 <p className="text-xs font-semibold text-[hsl(220,15%,30%)]">No active drafts on this device</p>
                 <p className="text-[11px] text-[hsl(215,12%,50%)]">
-                  When you start an assessment, your edits will autosave here so you can continue anytime.
+                  When you start a survey, your edits will autosave here so you can continue anytime.
                 </p>
               </div>
             ) : (

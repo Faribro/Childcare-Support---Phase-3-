@@ -303,3 +303,53 @@ export async function PATCH(
     );
   }
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { submissionId: string } }
+) {
+  try {
+    const submissionId = params.submissionId;
+    if (!submissionId) {
+      return NextResponse.json(
+        { status: 'error', message: 'Missing submissionId parameter' },
+        { status: 400 }
+      );
+    }
+
+    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+
+    if (appsScriptUrl && appsScriptUrl.startsWith('https://script.google.com')) {
+      try {
+        await fetch(appsScriptUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+          },
+          body: JSON.stringify({
+            action: 'delete',
+            submissionId,
+            secret: webhookSecret,
+          }),
+        });
+      } catch (gasErr) {
+        console.warn('Apps Script delete error (continuing local removal):', gasErr);
+      }
+    }
+
+    MockSheetStore.deleteRecord(submissionId);
+
+    return NextResponse.json(
+      { status: 'success', message: `Record ${submissionId} deleted successfully` },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error('DELETE /api/submissions/[submissionId] error:', err);
+    return NextResponse.json(
+      { status: 'error', message: 'Internal server error deleting record' },
+      { status: 500 }
+    );
+  }
+}

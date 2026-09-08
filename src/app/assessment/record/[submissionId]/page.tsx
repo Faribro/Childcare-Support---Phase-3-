@@ -125,7 +125,7 @@ export default function RecordDetailPage() {
               className="inline-flex items-center text-xs font-semibold text-slate-500 hover:text-slate-800 mb-1"
             >
               <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-              <span>Back to Assessments</span>
+              <span>Back to Surveys</span>
             </Link>
             <div className="flex items-center space-x-2">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{childName}</h1>

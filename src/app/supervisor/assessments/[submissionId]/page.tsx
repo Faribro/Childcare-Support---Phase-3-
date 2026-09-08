@@ -68,7 +68,7 @@ export default function SupervisorAssessmentDetailPage() {
     return (
       <AppShell>
         <div className="max-w-md mx-auto py-16 text-center text-xs text-slate-500">
-          Loading supervisor assessment audit...
+          Loading supervisor survey audit...
         </div>
       </AppShell>
     );
@@ -79,9 +79,9 @@ export default function SupervisorAssessmentDetailPage() {
       <AppShell>
         <div className="max-w-md mx-auto py-16 px-4 text-center">
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
-            <h2 className="text-base font-bold text-slate-900">Assessment Not Found</h2>
+            <h2 className="text-base font-bold text-slate-900">Survey Not Found</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Could not locate assessment record &quot;{submissionId}&quot;.
+              Could not locate survey record &quot;{submissionId}&quot;.
             </p>
             <div className="mt-6">
               <Link href="/supervisor/assessments">

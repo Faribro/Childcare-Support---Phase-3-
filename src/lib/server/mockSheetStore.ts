@@ -105,224 +105,34 @@ const recordsByUuid = new Map<string, StoredSheetRecord>();
 const idempotencyMap = new Map<string, { remoteId: string; response: CreateRecordResult }>();
 const auditLogsByRemoteId = new Map<string, SheetAuditEvent[]>();
 
-// Pre-populate with 5 baseline synthetic records matching linelist
-const SEED_RECORDS: Array<Partial<StoredSheetRecord> & { _uuid: string; art_number: string; child_name: string }> = [
-  {
-    _uuid: 'e0111111-1111-4111-8111-111111111111',
-    client_submission_id: 'e0111111-1111-4111-8111-111111111111',
-    remote_submission_id: 'rem-001-pune',
-    version: 1,
-    art_number: 'MH-PUN-0842',
-    child_name: 'Pooja Ramesh K.',
-    dob: '2019-02-15',
-    calculated_age: 7,
-    gender: 'Female',
-    district: 'Pune',
-    caregiver_name: 'Ramesh K.',
-    caregiver_relationship: 'Father',
-    caregiverPhone: '9822011223',
-    height_cm: 108,
-    weight_kg: 13.5,
-    muac_mm: 114,
-    bilateral_pitting_oedema: false,
-    bmi: 11.6,
-    bmi_z_score: -3.2,
-    nutrition_status: 'SAM (Severe Acute Malnutrition)',
-    school_enrolled: true,
-    school_grade: 'Standard 2',
-    grant_recommended: true,
-    recommended_grant_amount: 3500,
-    sync_state: 'SYNCED',
-    created_at: '2026-09-04T10:00:00.000Z',
-    updated_at: '2026-09-04T10:00:00.000Z',
-  },
-  {
-    _uuid: 'e0222222-2222-4222-8222-222222222222',
-    client_submission_id: 'e0222222-2222-4222-8222-222222222222',
-    remote_submission_id: 'rem-002-pune',
-    version: 1,
-    art_number: 'MH-PUN-0914',
-    child_name: 'Aarav Sachin P.',
-    dob: '2021-04-10',
-    calculated_age: 5,
-    gender: 'Male',
-    district: 'Pune',
-    caregiver_name: 'Kavita P.',
-    caregiver_relationship: 'Mother',
-    caregiverPhone: '9822022334',
-    height_cm: 102,
-    weight_kg: 14.1,
-    muac_mm: 121,
-    bilateral_pitting_oedema: false,
-    bmi: 13.6,
-    bmi_z_score: -2.1,
-    nutrition_status: 'MAM (Moderate Acute Malnutrition)',
-    school_enrolled: true,
-    school_grade: 'Standard 1',
-    grant_recommended: true,
-    recommended_grant_amount: 3000,
-    sync_state: 'SYNCED',
-    created_at: '2026-09-05T11:30:00.000Z',
-    updated_at: '2026-09-05T11:30:00.000Z',
-  },
-  {
-    _uuid: 'e0333333-3333-4333-8333-333333333333',
-    client_submission_id: 'e0333333-3333-4333-8333-333333333333',
-    remote_submission_id: 'rem-003-mum',
-    version: 1,
-    art_number: 'MH-MUM-1102',
-    child_name: 'Tanvi Dilip M.',
-    dob: '2017-08-20',
-    calculated_age: 9,
-    gender: 'Female',
-    district: 'Mumbai Suburban',
-    caregiver_name: 'Dilip M.',
-    caregiver_relationship: 'Father',
-    caregiverPhone: '9822033445',
-    height_cm: 125,
-    weight_kg: 24.5,
-    muac_mm: 148,
-    bilateral_pitting_oedema: false,
-    bmi: 15.7,
-    bmi_z_score: 0.1,
-    nutrition_status: 'Normal',
-    school_enrolled: true,
-    school_grade: 'Standard 4',
-    grant_recommended: true,
-    recommended_grant_amount: 2000,
-    sync_state: 'SYNCED',
-    created_at: '2026-09-06T09:15:00.000Z',
-    updated_at: '2026-09-06T09:15:00.000Z',
-  },
-  {
-    _uuid: 'e0444444-4444-4444-8444-444444444444',
-    client_submission_id: 'e0444444-4444-4444-8444-444444444444',
-    remote_submission_id: 'rem-004-thn',
-    version: 1,
-    art_number: 'MH-THN-0418',
-    child_name: 'Omkar Suresh V.',
-    dob: '2015-11-05',
-    calculated_age: 11,
-    gender: 'Male',
-    district: 'Thane',
-    caregiver_name: 'Sunita V.',
-    caregiver_relationship: 'Mother',
-    caregiverPhone: '9822044556',
-    height_cm: 138,
-    weight_kg: 31.0,
-    muac_mm: 162,
-    bilateral_pitting_oedema: false,
-    bmi: 16.3,
-    bmi_z_score: 0.2,
-    nutrition_status: 'Normal',
-    school_enrolled: true,
-    school_grade: 'Standard 6',
-    grant_recommended: true,
-    recommended_grant_amount: 2000,
-    sync_state: 'SYNCED',
-    created_at: '2026-09-07T14:45:00.000Z',
-    updated_at: '2026-09-07T14:45:00.000Z',
-  },
-  {
-    _uuid: 'e0555555-5555-4555-8555-555555555555',
-    client_submission_id: 'e0555555-5555-4555-8555-555555555555',
-    remote_submission_id: 'rem-005-pune',
-    version: 1,
-    art_number: 'MH-PUN-1049',
-    child_name: 'Rahul Manoj S.',
-    dob: '2020-03-22',
-    calculated_age: 6,
-    gender: 'Male',
-    district: 'Pune',
-    caregiver_name: 'Manoj S.',
-    caregiver_relationship: 'Father',
-    caregiverPhone: '9822055667',
-    height_cm: 105,
-    weight_kg: 13.8,
-    muac_mm: 112,
-    bilateral_pitting_oedema: false,
-    bmi: 12.5,
-    bmi_z_score: -3.0,
-    nutrition_status: 'SAM (Severe Acute Malnutrition)',
-    school_enrolled: false,
-    grant_recommended: true,
-    recommended_grant_amount: 4500,
-    sync_state: 'SYNCED',
-    created_at: '2026-09-08T08:00:00.000Z',
-    updated_at: '2026-09-08T08:00:00.000Z',
-  },
-];
-
-// Initialize seed data once
-for (const seed of SEED_RECORDS) {
-  const full: StoredSheetRecord = {
-    _uuid: seed._uuid!,
-    client_submission_id: seed.client_submission_id || seed._uuid!,
-    remote_submission_id: seed.remote_submission_id || `rem-${seed._uuid!.slice(0, 8)}`,
-    version: seed.version || 1,
-    idempotency_key: `seed-idem-${seed._uuid}`,
-    created_at: seed.created_at || new Date().toISOString(),
-    updated_at: seed.updated_at || new Date().toISOString(),
-    interviewer_name: 'System Seeder',
-    art_number: seed.art_number!,
-    child_name: seed.child_name!,
-    dob: seed.dob || '2019-01-01',
-    calculated_age: seed.calculated_age || 7,
-    gender: seed.gender || 'Female',
-    caregiver_name: seed.caregiver_name || 'Caregiver',
-    caregiver_relationship: seed.caregiver_relationship || 'Mother',
-    caregiverPhone: seed.caregiverPhone || '9876543210',
-    district: seed.district || 'Pune',
-    orphan_status: 'None',
-    primary_caregiver_occupation: 'Daily Wage',
-    monthly_household_income: 5000,
-    ration_card_type: 'BPL',
-    number_of_siblings: 1,
-    height_cm: seed.height_cm || 110,
-    weight_kg: seed.weight_kg || 16,
-    muac_mm: seed.muac_mm || 125,
-    bilateral_pitting_oedema: seed.bilateral_pitting_oedema || false,
-    bmi: seed.bmi || 13.2,
-    bmi_z_score: seed.bmi_z_score || -1.5,
-    nutrition_status: seed.nutrition_status || 'Normal',
-    school_enrolled: seed.school_enrolled ?? true,
-    school_grade: seed.school_grade || 'Standard 2',
-    grant_recommended: seed.grant_recommended ?? true,
-    recommended_grant_amount: seed.recommended_grant_amount || 3000,
-    support_materials_needed: ['Stationery'],
-    account_holder_name: seed.caregiver_name || 'Caregiver',
-    bank_account_number: '123456789012',
-    ifsc_code: 'SBIN0001234',
-    bank_name: 'State Bank of India',
-    branch_name: 'Main',
-    passbook_photo_captured: true,
-    passbook_photo_url: SAMPLE_PASSBOOK_SVG,
-    aadhaar_card_photo_url: SAMPLE_AADHAAR_SVG,
-    child_photo_url: SAMPLE_CHILD_PHOTO_SVG,
-    fee_receipt_photo_url: SAMPLE_FEE_RECEIPT_SVG,
-    marksheet_photo_url: SAMPLE_MARKSHEET_SVG,
-    signature_data_url: SAMPLE_CAREGIVER_SIGNATURE_SVG,
-    passbookPhotoUrl: SAMPLE_PASSBOOK_SVG,
-    aadhaarCardPhotoUrl: SAMPLE_AADHAAR_SVG,
-    childPhotoUrl: SAMPLE_CHILD_PHOTO_SVG,
-    feeReceiptPhotoUrl: SAMPLE_FEE_RECEIPT_SVG,
-    marksheetPhotoUrl: SAMPLE_MARKSHEET_SVG,
-    signatureDataUrl: SAMPLE_CAREGIVER_SIGNATURE_SVG,
-    masked_aadhaar: 'XXXX-XXXX-5566',
-    caseworker_name: 'Sunita Sharma',
-    declaration_date: '2026-09-04',
-    sync_state: 'SYNCED',
-  };
-
-  recordsByRemoteId.set(full.remote_submission_id, full);
-  recordsByUuid.set(full._uuid, full);
-  recordsByUuid.set(full.client_submission_id, full);
-}
 
 export const MockSheetStore = {
   /**
    * Reset store (useful between isolated tests)
    */
+  /**
+   * Delete Record
+   */
+  deleteRecord(id: string): boolean {
+    let found = false;
+    for (const [remoteId, rec] of recordsByRemoteId.entries()) {
+      if (
+        rec.remote_submission_id === id ||
+        rec._uuid === id ||
+        rec.client_submission_id === id ||
+        rec.art_number === id
+      ) {
+        recordsByRemoteId.delete(remoteId);
+        recordsByUuid.delete(rec._uuid);
+        recordsByUuid.delete(rec.client_submission_id);
+        auditLogsByRemoteId.delete(remoteId);
+        found = true;
+        break;
+      }
+    }
+    return found;
+  },
+
   reset() {
     recordsByRemoteId.clear();
     recordsByUuid.clear();

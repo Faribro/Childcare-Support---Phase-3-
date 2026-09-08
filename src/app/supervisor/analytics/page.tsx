@@ -6,6 +6,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import {
   BarChart3,
+  TableProperties,
   HeartPulse,
   AlertTriangle,
   GraduationCap,
@@ -67,24 +68,36 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           <div className="flex items-center space-x-3">
-            <Link href="/supervisor">
-              <Button variant="secondary" className="shadow-xs text-xs h-9">
-                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
-                <span>Dashboard</span>
-              </Button>
-            </Link>
-
-            <Link href="/supervisor/assessments">
-              <Button variant="secondary" className="shadow-xs text-xs h-9">
-                <span>View Master Linelist</span>
-              </Button>
-            </Link>
-
             <Button variant="primary" onClick={handleExportReport} className="text-xs h-9">
               <Download className="h-3.5 w-3.5 mr-1.5" />
               <span>Export Analytics (CSV)</span>
             </Button>
           </div>
+        </div>
+
+        {/* Exclusive Supervisor Tab Navigation */}
+        <div className="flex items-center space-x-1 border-b border-slate-200 mb-6 overflow-x-auto">
+          <Link
+            href="/supervisor"
+            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+          >
+            <Activity className="h-4 w-4" />
+            <span>Overview &amp; Surveillance</span>
+          </Link>
+          <Link
+            href="/supervisor/assessments"
+            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+          >
+            <TableProperties className="h-4 w-4" />
+            <span>Master Linelist</span>
+          </Link>
+          <Link
+            href="/supervisor/analytics"
+            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
+          >
+            <BarChart3 className="h-4 w-4 text-teal-600" />
+            <span>Clinical Analytics</span>
+          </Link>
         </div>
 
         {/* 4 Core Clinical Surveillance KPI Summary Cards (NO SAM / NO MAM) */}
@@ -362,74 +375,6 @@ export default function AnalyticsDashboardPage() {
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        {/* Section 4: Standardized Field Care Pathway & Triage Progression */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
-          <h3 className="text-sm sm:text-base font-bold text-slate-900 mb-1">
-            Standardized Field Care Pathway & Surveillance Milestones
-          </h3>
-          <p className="text-xs text-slate-500 mb-5">
-            End-to-end clinical workflow from ART centre linkage to educational DBT disbursement
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between font-bold text-slate-900 mb-1">
-                  <span>1. ART Outreach & Intake</span>
-                  <span className="text-teal-700 bg-teal-100 px-2 py-0.5 rounded text-[11px]">100%</span>
-                </div>
-                <p className="text-[11px] text-slate-500">Demographic registry, consent & caregiver verification.</p>
-              </div>
-              <div className="mt-3 text-[11px] text-emerald-700 font-bold flex items-center">
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                <span>142 Active Registrations</span>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between font-bold text-slate-900 mb-1">
-                  <span>2. Anthropometry & Growth</span>
-                  <span className="text-teal-700 bg-teal-100 px-2 py-0.5 rounded text-[11px]">100%</span>
-                </div>
-                <p className="text-[11px] text-slate-500">Height, weight, and automated BMI-for-age classification.</p>
-              </div>
-              <div className="mt-3 text-[11px] text-emerald-700 font-bold flex items-center">
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                <span>40 Nutritional Triage Flags</span>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between font-bold text-slate-900 mb-1">
-                  <span>3. Viral Load & Clinical</span>
-                  <span className="text-teal-700 bg-teal-100 px-2 py-0.5 rounded text-[11px]">92.3%</span>
-                </div>
-                <p className="text-[11px] text-slate-500">Viral load copies/mL & haemoglobin anemia monitoring.</p>
-              </div>
-              <div className="mt-3 text-[11px] text-emerald-700 font-bold flex items-center">
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                <span>120 Virally Suppressed</span>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between font-bold text-slate-900 mb-1">
-                  <span>4. Education & DBT Grant</span>
-                  <span className="text-teal-700 bg-teal-100 px-2 py-0.5 rounded text-[11px]">94.2%</span>
-                </div>
-                <p className="text-[11px] text-slate-500">Bank passbook verification and child education grant.</p>
-              </div>
-              <div className="mt-3 text-[11px] text-emerald-700 font-bold flex items-center">
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                <span>₹3,48,500 Disbursed</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>

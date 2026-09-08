@@ -24,6 +24,10 @@ import {
   AlertCircle,
   ExternalLink,
   BookOpen,
+  Eye,
+  Pencil,
+  Trash2,
+  Inbox,
 } from 'lucide-react';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
@@ -47,106 +51,12 @@ interface SupervisorRecord {
   schoolEnrolled?: boolean;
 }
 
-const DEFAULT_RECORDS: SupervisorRecord[] = [
-  {
-    id: 'MH-PUN-0842-01',
-    artNumber: 'MH-PUN-0842',
-    childName: 'Pooja Ramesh K.',
-    age: 7,
-    gender: 'Female',
-    district: 'Pune',
-    bmi: 11.6,
-    bmiCategory: 'Severe Underweight',
-    viralLoad: '34',
-    vlCategory: 'Undetectable (<50 copies/mL)',
-    hemoglobin: '11.2',
-    hbCategory: 'Normal',
-    grantAmount: 3500,
-    syncState: 'SYNCED',
-    lastVisit: '2026-09-04',
-    version: 1,
-    schoolEnrolled: true,
-  },
-  {
-    id: 'MH-PUN-0914-02',
-    artNumber: 'MH-PUN-0914',
-    childName: 'Aarav Sachin P.',
-    age: 5,
-    gender: 'Male',
-    district: 'Pune',
-    bmi: 13.6,
-    bmiCategory: 'Moderate Underweight',
-    viralLoad: '120',
-    vlCategory: 'Suppressed (<1000 copies/mL)',
-    hemoglobin: '9.4',
-    hbCategory: 'Moderate Anemia',
-    grantAmount: 3000,
-    syncState: 'SYNCED',
-    lastVisit: '2026-09-05',
-    version: 1,
-    schoolEnrolled: true,
-  },
-  {
-    id: 'MH-MUM-1102-03',
-    artNumber: 'MH-MUM-1102',
-    childName: 'Tanvi Dilip M.',
-    age: 9,
-    gender: 'Female',
-    district: 'Mumbai Suburban',
-    bmi: 15.8,
-    bmiCategory: 'Normal',
-    viralLoad: '28',
-    vlCategory: 'Undetectable (<50 copies/mL)',
-    hemoglobin: '12.1',
-    hbCategory: 'Normal',
-    grantAmount: 2000,
-    syncState: 'SYNCED',
-    lastVisit: '2026-09-06',
-    version: 1,
-    schoolEnrolled: true,
-  },
-  {
-    id: 'MH-THN-0418-04',
-    artNumber: 'MH-THN-0418',
-    childName: 'Omkar Suresh V.',
-    age: 11,
-    gender: 'Male',
-    district: 'Thane',
-    bmi: 16.2,
-    bmiCategory: 'Normal',
-    viralLoad: '1850',
-    vlCategory: 'Unsuppressed (≥1000 copies/mL)',
-    hemoglobin: '11.6',
-    hbCategory: 'Normal',
-    grantAmount: 2000,
-    syncState: 'SYNCED',
-    lastVisit: '2026-09-07',
-    version: 1,
-    schoolEnrolled: true,
-  },
-  {
-    id: 'MH-PUN-1049-05',
-    artNumber: 'MH-PUN-1049',
-    childName: 'Rahul Manoj S.',
-    age: 6,
-    gender: 'Male',
-    district: 'Pune',
-    bmi: 12.5,
-    bmiCategory: 'Severe Underweight',
-    viralLoad: '420',
-    vlCategory: 'Suppressed (<1000 copies/mL)',
-    hemoglobin: '6.8',
-    hbCategory: 'Severe Anemia',
-    grantAmount: 4500,
-    syncState: 'SYNCED',
-    lastVisit: '2026-09-08',
-    version: 2,
-    schoolEnrolled: false,
-  },
-];
+const DEFAULT_RECORDS: SupervisorRecord[] = [];
 
 export default function SupervisorDashboardPage() {
   const [records, setRecords] = useState<SupervisorRecord[]>(DEFAULT_RECORDS);
+  const [deleteModalRecord, setDeleteModalRecord] = useState<SupervisorRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -213,6 +123,25 @@ export default function SupervisorDashboardPage() {
     loadServerRecords();
   }, []);
 
+  const handleDelete = async () => {
+    if (!deleteModalRecord) return;
+    try {
+      setIsDeleting(true);
+      const res = await fetch(`/api/submissions/${encodeURIComponent(deleteModalRecord.id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 404) {
+        throw new Error('Failed to delete submission');
+      }
+      setRecords((prev) => prev.filter((r) => r.id !== deleteModalRecord.id));
+      setDeleteModalRecord(null);
+    } catch (err: any) {
+      alert(err.message || 'Error deleting record');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Clinical Metrics Calculations (Authentic Phase 2 indicators)
   const totalEvaluated = records.length;
   
@@ -236,29 +165,7 @@ export default function SupervisorDashboardPage() {
   // Financial Entitlement
   const totalGrant = records.reduce((sum, r) => sum + r.grantAmount, 0);
 
-  // High-Priority Clinical Alert Cases (Alert Strip)
-  const highPriorityAlerts = useMemo(() => {
-    return records
-      .map((r) => {
-        const issues: string[] = [];
-        if (r.vlCategory.includes('Unsuppressed')) {
-          issues.push(`High Viral Load (${r.viralLoad} c/mL)`);
-        }
-        if (r.hbCategory === 'Severe Anemia') {
-          issues.push(`Severe Anemia (${r.hemoglobin} g/dL)`);
-        }
-        if (r.bmiCategory === 'Severe Underweight') {
-          issues.push(`Severe Underweight (BMI ${r.bmi})`);
-        }
-        if (r.schoolEnrolled === false) {
-          issues.push('Out of School / Not Enrolled');
-        }
-        return { record: r, issues };
-      })
-      .filter((item) => item.issues.length > 0);
-  }, [records]);
-
-  // Export Linelist to CSV
+    // Export Linelist to CSV
   const handleExportCSV = () => {
     const headers = [
       'Reference ID',
@@ -326,70 +233,35 @@ export default function SupervisorDashboardPage() {
               <Download className="h-3.5 w-3.5 mr-1.5 text-slate-600" />
               <span>Export Linelist (CSV)</span>
             </Button>
-            <Link href="/supervisor/assessments">
-              <Button variant="secondary" className="shadow-xs text-xs h-9">
-                <TableProperties className="h-3.5 w-3.5 mr-1.5 text-teal-700" />
-                <span>Master Linelist</span>
-              </Button>
-            </Link>
-            <Link href="/supervisor/analytics">
-              <Button variant="secondary" className="shadow-xs text-xs h-9">
-                <BarChart3 className="h-3.5 w-3.5 mr-1.5 text-teal-700" />
-                <span>Clinical Analytics</span>
-              </Button>
-            </Link>
           </div>
         </div>
 
-        {/* Phase 2 Ported: High-Priority Clinical Alert Strip */}
-        {highPriorityAlerts.length > 0 && (
-          <div className="mb-8 rounded-2xl border border-rose-200 bg-linear-to-r from-rose-50/90 via-amber-50/60 to-white p-4 sm:p-5 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-rose-200/80">
-              <div className="flex items-center space-x-2 text-rose-800 font-bold text-xs sm:text-sm uppercase tracking-wide">
-                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
-                <span>{highPriorityAlerts.length} Beneficiaries Require Immediate Clinical Intervention</span>
-              </div>
-              <span className="text-[11px] font-semibold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full self-start sm:self-auto">
-                Priority Action Required
-              </span>
-            </div>
+        {/* Exclusive Supervisor Tab Navigation */}
+        <div className="flex items-center space-x-1 border-b border-slate-200 mb-6 overflow-x-auto">
+          <Link
+            href="/supervisor"
+            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
+          >
+            <Activity className="h-4 w-4 text-teal-600" />
+            <span>Overview &amp; Surveillance</span>
+          </Link>
+          <Link
+            href="/supervisor/assessments"
+            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+          >
+            <TableProperties className="h-4 w-4" />
+            <span>Master Linelist</span>
+          </Link>
+          <Link
+            href="/supervisor/analytics"
+            className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+          >
+            <BarChart3 className="h-4 w-4" />
+            <span>Clinical Analytics</span>
+          </Link>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {highPriorityAlerts.slice(0, 3).map(({ record: r, issues }) => (
-                <div
-                  key={r.id}
-                  className="bg-white/95 rounded-xl p-3 border border-rose-200 shadow-2xs flex flex-col justify-between hover:border-rose-400 transition-colors"
-                >
-                  <div>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-mono font-bold text-teal-900">{r.artNumber}</span>
-                      <span className="text-slate-400 text-[11px]">{r.district}</span>
-                    </div>
-                    <div className="font-bold text-slate-900 text-sm">{r.childName}</div>
-                    <div className="mt-1.5 space-y-1">
-                      {issues.map((iss, idx) => (
-                        <div key={idx} className="flex items-center space-x-1.5 text-xs text-rose-700 font-medium">
-                          <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" />
-                          <span>{iss}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">Age: {r.age} yrs</span>
-                    <Link href={`/supervisor/assessments/${r.id}`}>
-                      <span className="text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline flex items-center">
-                        Audit Triage →
-                      </span>
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
+                {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5 mb-8">
           {/* 1. Total Evaluated */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-slate-300 transition-all">
@@ -557,63 +429,12 @@ export default function SupervisorDashboardPage() {
           </div>
         </div>
 
-        {/* Navigation Quick Links */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Link
-            href="/supervisor/assessments"
-            className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs hover:border-teal-500 hover:shadow-sm transition-all group"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2.5 bg-teal-50 text-teal-700 rounded-xl">
-                <TableProperties className="h-5 w-5" />
-              </div>
-              <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-0.5 transition-all" />
-            </div>
-            <h3 className="text-sm font-bold text-slate-900 group-hover:text-teal-800">Master Line-List Repository</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Search, filter, and inspect verified field records across all administrative districts.
-            </p>
-          </Link>
-
-          <Link
-            href="/supervisor/analytics"
-            className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs hover:border-teal-500 hover:shadow-sm transition-all group"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2.5 bg-teal-50 text-teal-700 rounded-xl">
-                <BarChart3 className="h-5 w-5" />
-              </div>
-              <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-0.5 transition-all" />
-            </div>
-            <h3 className="text-sm font-bold text-slate-900 group-hover:text-teal-800">Programme Clinical Analytics</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Epidemiological curves, viral load cascade, pediatric BMI distribution, and grant disbursements.
-            </p>
-          </Link>
-
-          <Link
-            href="/assessment/sync"
-            className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs hover:border-teal-500 hover:shadow-sm transition-all group"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2.5 bg-teal-50 text-teal-700 rounded-xl">
-                <RefreshCw className="h-5 w-5" />
-              </div>
-              <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-0.5 transition-all" />
-            </div>
-            <h3 className="text-sm font-bold text-slate-900 group-hover:text-teal-800">Field Sync Centre</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Inspect device outbox queues, offline sync state, and retry transient errors with jitter.
-            </p>
-          </Link>
-        </div>
-
-        {/* Recent Submissions Linelist Preview - With Clinical Columns */}
+                {/* Recent Submissions Linelist Preview - With Clinical Columns */}
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="p-5 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Recent Synchronized Submissions</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Authoritative clinical linelist with OCC version control</p>
+              <h2 className="text-base font-bold text-slate-900">Recent Synchronized Surveys</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Authoritative clinical survey linelist</p>
             </div>
             <Link href="/supervisor/assessments">
               <Button variant="ghost" size="sm" className="text-teal-700">
@@ -631,97 +452,169 @@ export default function SupervisorDashboardPage() {
                   <th className="py-3 px-4">Child Name</th>
                   <th className="py-3 px-4">Age / Sex</th>
                   <th className="py-3 px-4">District</th>
-                  <th className="py-3 px-4">BMI & Growth</th>
+                  <th className="py-3 px-4">BMI &amp; Growth</th>
                   <th className="py-3 px-4">Viral Load</th>
                   <th className="py-3 px-4">Haemoglobin</th>
                   <th className="py-3 px-4">Grant Amount</th>
-                  <th className="py-3 px-4">Version</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {records.slice(0, 5).map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-teal-800">
-                      <Link href={`/supervisor/assessments/${row.id}`} className="hover:underline">
-                        {row.artNumber}
-                      </Link>
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900">{row.childName}</td>
-                    <td className="py-3.5 px-4 text-slate-600">
-                      {row.age} yrs • {row.gender}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600">{row.district}</td>
-                    
-                    {/* BMI & Growth */}
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                          row.bmiCategory === 'Severe Underweight'
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : row.bmiCategory === 'Moderate Underweight'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        }`}
-                      >
-                        {row.bmiCategory} ({row.bmi})
-                      </span>
-                    </td>
-
-                    {/* Viral Load */}
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                          row.vlCategory.includes('Unsuppressed')
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : 'bg-teal-50 text-teal-800 border border-teal-200'
-                        }`}
-                      >
-                        {row.vlCategory.includes('Unsuppressed')
-                          ? `${row.viralLoad} c/mL (High)`
-                          : row.vlCategory.includes('Undetectable')
-                          ? 'Undetectable'
-                          : 'Suppressed'}
-                      </span>
-                    </td>
-
-                    {/* Haemoglobin */}
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[11px] ${
-                          row.hbCategory === 'Severe Anemia'
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : row.hbCategory === 'Moderate Anemia'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {row.hemoglobin} g/dL
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 font-bold text-teal-900">₹{row.grantAmount.toLocaleString('en-IN')}</td>
-                    <td className="py-3.5 px-4 font-mono text-slate-500">v{row.version}</td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        <Link href={`/supervisor/assessments/${row.id}`}>
-                          <Button variant="secondary" size="sm" className="h-8 px-2.5 text-xs">
-                            <span>Audit</span>
-                          </Button>
-                        </Link>
-                        <Link href={`/assessment/record/${row.id}`}>
-                          <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs text-teal-700">
-                            <span>View</span>
-                          </Button>
-                        </Link>
+                {records.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <Inbox className="w-8 h-8 text-slate-300" />
+                        <p className="text-xs font-semibold text-slate-700">No Survey Records Found</p>
+                        <p className="text-[11px] text-slate-400">
+                          Real-time survey submissions from field caseworkers will appear here once synchronized.
+                        </p>
                       </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  records.slice(0, 5).map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3.5 px-4 font-mono font-bold text-teal-800">
+                        <Link href={`/assessment/record/${row.id}`} className="hover:underline">
+                          {row.artNumber}
+                        </Link>
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-slate-900">{row.childName}</td>
+                      <td className="py-3.5 px-4 text-slate-600">
+                        {row.age} yrs • {row.gender}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600">{row.district}</td>
+                      
+                      {/* BMI & Growth */}
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                            row.bmiCategory === 'Severe Underweight'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : row.bmiCategory === 'Moderate Underweight'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}
+                        >
+                          {row.bmiCategory} ({row.bmi})
+                        </span>
+                      </td>
+
+                      {/* Viral Load */}
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                            row.vlCategory.includes('Unsuppressed')
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-teal-50 text-teal-800 border border-teal-200'
+                          }`}
+                        >
+                          {row.vlCategory.includes('Unsuppressed')
+                            ? `${row.viralLoad} c/mL (High)`
+                            : row.vlCategory.includes('Undetectable')
+                            ? 'Undetectable'
+                            : 'Suppressed'}
+                        </span>
+                      </td>
+
+                      {/* Haemoglobin */}
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[11px] ${
+                            row.hbCategory === 'Severe Anemia'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : row.hbCategory === 'Moderate Anemia'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {row.hemoglobin} g/dL
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 font-bold text-teal-900">₹{row.grantAmount.toLocaleString('en-IN')}</td>
+                      
+                      {/* Actions Column with Premium Icons */}
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end space-x-1">
+                          {/* 1. View Survey */}
+                          <Link
+                            href={`/assessment/record/${row.id}`}
+                            title="View Survey"
+                            className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Link>
+
+                          {/* 2. Edit Survey */}
+                          <Link
+                            href={`/assessment/record/${row.id}/edit`}
+                            title="Edit Survey"
+                            className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+
+                          {/* 3. Delete Survey */}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteModalRecord(row)}
+                            title="Delete Survey"
+                            className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {deleteModalRecord && (
+          <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-start space-x-3">
+                <div className="p-2.5 rounded-full bg-rose-100 text-rose-600 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Delete Survey?</h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Are you sure you want to permanently delete the survey record for{' '}
+                    <strong className="text-slate-800">{deleteModalRecord.childName}</strong> (ART:{' '}
+                    <span className="font-mono text-teal-800">{deleteModalRecord.artNumber}</span>)?
+                    This cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setDeleteModalRecord(null)}
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

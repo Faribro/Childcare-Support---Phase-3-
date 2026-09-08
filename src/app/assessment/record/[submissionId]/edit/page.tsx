@@ -910,40 +910,26 @@ export default function EditRecordPage() {
 
         {/* Complete 9-Section Comprehensive Intake Edit Form matching New Assessment */}
         <form onSubmit={handleSaveRevision} className="space-y-6">
+          {/* Unified Single Survey Entity Container (Zero Gaps) */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-          <section
-            id="sec-consent"
-            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
-              <div className="flex items-center space-x-3">
-                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
-                  1
-                </div>
-                <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
-                    Caregiver Consent &amp; Signature
-                  </h2>
-                  <p className="text-[11px] text-slate-500">
-                    Informed caregiver authorization and signature prior to child intake
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
-                <ShieldCheck className="w-3.5 h-3.5 mr-1 text-teal-600" />
-                <span>Mandatory Consent Gate</span>
-              </div>
+          <section id="sec-consent" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+              <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
+                01
+              </span>
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Caregiver Consent &amp; Signature
+              </h2>
             </div>
 
             <div className="space-y-4">
               {/* Consent Decision Radio Buttons */}
               <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2">
                 <label className="text-xs font-bold text-slate-900 block">
-                  DO YOU AGREE TO PARTICIPATE IN THIS ASSESSMENT? (INFORMED CONSENT) *
+                  DO YOU AGREE TO PARTICIPATE IN THIS SURVEY? (INFORMED CONSENT) *
                 </label>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  I voluntarily agree to provide demographic, nutritional, clinical, and banking information for my child to receive education and nutrition support under the India HIV/AIDS Alliance programme.
-                </p>
+                
 
                 <div className="flex items-center space-x-3 pt-1">
                   <label
@@ -989,7 +975,7 @@ export default function EditRecordPage() {
                   required
                   value={formData.caregiverName}
                   onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
-                  helperText="Primary caregiver giving consent."
+                  
                   placeholder="e.g. Manoj S."
                 />
 
@@ -1010,7 +996,7 @@ export default function EditRecordPage() {
                       </option>
                     ))}
                   </select>
-                  <span className="text-[11px] text-slate-400 block">Caregiver legal relation</span>
+                  
                 </div>
 
                 <Input
@@ -1022,7 +1008,7 @@ export default function EditRecordPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
                   }
-                  helperText="10-digit Indian mobile number."
+                  
                   placeholder="e.g. 9822055667"
                 />
               </div>
@@ -1094,9 +1080,7 @@ export default function EditRecordPage() {
                       SYSTEM ID
                     </span>
                   </div>
-                  <p className="text-[11px] text-teal-800/80 mt-0.5">
-                    Official non-stigmatising reference identifier systematically tied to child records, Drive folders, and Google Sheets
-                  </p>
+                  
                 </div>
                 <div className="flex items-center space-x-2 bg-white px-3.5 py-2 rounded-lg border border-teal-300 font-mono text-sm font-bold text-teal-950 shadow-2xs w-fit">
                   <span>{formData.artNumber || submissionId}</span>
@@ -1109,7 +1093,7 @@ export default function EditRecordPage() {
                 required
                 value={formData.dateOfFilling}
                 onChange={(e) => setFormData({ ...formData, dateOfFilling: e.target.value })}
-                helperText="Field visit date"
+                
               />
 
               <Input
@@ -1117,7 +1101,7 @@ export default function EditRecordPage() {
                 required
                 value={formData.childName}
                 onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-                helperText="As per school or birth certificate"
+                
                 placeholder="e.g. Rahul Manoj S."
               />
 
@@ -1127,7 +1111,7 @@ export default function EditRecordPage() {
                 required
                 value={formData.dob}
                 onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                helperText={`Calculated Age: ${ageResult.years} yrs (${ageResult.months} mos)`}
+                
               />
 
               <div className="space-y-1.5">
@@ -1190,7 +1174,7 @@ export default function EditRecordPage() {
                 label="Child Aadhaar Number"
                 value={formData.childAadhaarNumber}
                 onChange={(e) => setFormData({ ...formData, childAadhaarNumber: e.target.value })}
-                helperText="12-digit UIDAI number (optional)"
+                
                 placeholder="e.g. 123456789012"
               />
 
@@ -1200,7 +1184,7 @@ export default function EditRecordPage() {
                   required
                   value={formData.fullAddress}
                   onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                  helperText="House no., street, landmark, village/ward"
+                  
                   placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
                 />
               </div>
@@ -1223,7 +1207,7 @@ export default function EditRecordPage() {
                 required
                 value={formData.district}
                 onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                helperText="District name"
+                
                 placeholder="e.g. Pune"
               />
             </div>
@@ -1266,21 +1250,21 @@ export default function EditRecordPage() {
                 label="BANK ACCOUNT NUMBER"
                 value={formData.bankAccountNumber}
                 onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-                helperText="Full bank account number"
+                
                 placeholder="e.g. 10023456789"
               />
               <Input
                 label="BANK IFSC CODE"
                 value={formData.bankIfscCode}
                 onChange={(e) => setFormData({ ...formData, bankIfscCode: e.target.value.toUpperCase() })}
-                helperText="11-character IFSC code"
+                
                 placeholder="e.g. SBIN0001234"
               />
               <Input
                 label="BANK LINKED MOBILE NUMBER"
                 value={formData.bankLinkedMobileNumber}
                 onChange={(e) => setFormData({ ...formData, bankLinkedMobileNumber: e.target.value })}
-                helperText="Mobile linked to bank account"
+                
                 placeholder="e.g. 9822012345"
               />
             </div>
@@ -1288,13 +1272,13 @@ export default function EditRecordPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
               <PhotoUpload
                 label="PASSBOOK FRONT PAGE PHOTO"
-                helperText="Clear photo showing account number & IFSC"
+                
                 value={formData.passbookPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
               />
               <PhotoUpload
                 label="AADHAAR CARD PHOTO"
-                helperText="Front page photo of child / caregiver Aadhaar"
+                
                 value={formData.aadhaarCardPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
               />
@@ -1340,7 +1324,7 @@ export default function EditRecordPage() {
                 required
                 value={formData.totalFamilyMembers}
                 onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
-                helperText="Number of people in household."
+                
               />
               <Input
                 label="NO OF CHILDREN (≤18 YRS) *"
@@ -1349,7 +1333,7 @@ export default function EditRecordPage() {
                 required
                 value={formData.numberOfChildrenUnder18}
                 onChange={(e) => setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })}
-                helperText="Children in family under 18."
+                
               />
               <Input
                 label="MONTHLY INCOME (RS.) *"
@@ -1359,7 +1343,7 @@ export default function EditRecordPage() {
                 unit="₹"
                 value={formData.monthlyIncomeRs}
                 onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
-                helperText="Total family monthly income."
+                
               />
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">INCOME SOURCE *</label>
@@ -1413,7 +1397,7 @@ export default function EditRecordPage() {
                 unit="kg"
                 value={formData.weightKg}
                 onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
-                helperText="Measured weight."
+                
               />
               <Input
                 label="CURRENT HEIGHT (CM) *"
@@ -1423,7 +1407,7 @@ export default function EditRecordPage() {
                 unit="cm"
                 value={formData.heightCm}
                 onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
-                helperText="Measured height."
+                
               />
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-500 block">BMI &amp; CATEGORY</span>
@@ -1464,13 +1448,13 @@ export default function EditRecordPage() {
                 type="date"
                 value={formData.artRegistrationDate}
                 onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
-                helperText="Date of enrolment in ART program"
+                
               />
               <Input
                 label="ART ID NUMBER"
                 value={formData.artIdNumber}
                 onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
-                helperText="Official NACO ART green card ID"
+                
                 placeholder="e.g. MH-PUN-00123"
               />
             </div>
@@ -1494,7 +1478,7 @@ export default function EditRecordPage() {
                 type="date"
                 value={formData.vlDate}
                 onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
-                helperText="Date of most recent VL test"
+                
               />
               <Input
                 label="VIRAL LOAD (COPIES/ML)"
@@ -1592,34 +1576,20 @@ export default function EditRecordPage() {
                 required
                 value={formData.mealsPerDay}
                 onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
-                helperText="Full meals eaten daily."
+                
               />
             </div>
           </section>
 
           {/* SECTION 7: Education Status */}
-          <section
-            id="sec-education"
-            className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
-              <div className="flex items-center space-x-3">
-                <div className="h-8 w-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
-                  7
-                </div>
-                <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
-                    Education Status
-                  </h2>
-                  <p className="text-[11px] text-slate-500">
-                    School enrolment status, grade level, and attendance continuity
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 w-fit">
-                <GraduationCap className="w-3.5 h-3.5 mr-1 text-teal-600" />
-                <span>Schooling Profile</span>
-              </div>
+          <section id="sec-education" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+              <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
+                07
+              </span>
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Education Status
+              </h2>
             </div>
 
             <div className="space-y-4">
@@ -1661,7 +1631,7 @@ export default function EditRecordPage() {
                     label="SCHOOL NAME"
                     value={formData.schoolName}
                     onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
-                    helperText="Full name of the school."
+                    
                     placeholder="e.g. Pune Zilla Parishad Primary School"
                   />
                 </div>
@@ -1670,7 +1640,7 @@ export default function EditRecordPage() {
                   type="date"
                   value={formData.schoolSessionStartDate}
                   onChange={(e) => setFormData({ ...formData, schoolSessionStartDate: e.target.value })}
-                  helperText="Session start date"
+                  
                 />
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">SCHOOL TYPE</label>
@@ -1894,6 +1864,7 @@ export default function EditRecordPage() {
               </div>
             </div>
           </section>
+          </div>
 
           {/* Form Action Footer */}
           <div className="flex items-center justify-between pt-4 pb-12">
