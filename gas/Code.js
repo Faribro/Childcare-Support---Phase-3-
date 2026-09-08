@@ -97,6 +97,43 @@ var COLUMN_HEADERS = [
   "Last Updated"                    // 73
 ];
 
+/**
+ * Simple trigger that automatically executes whenever the Google Sheet is opened.
+ * Formats row 1 headers and adds a custom menu in the Sheet UI.
+ */
+function onOpen(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      try { ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID); } catch (openErr) {}
+    }
+    if (ss) {
+      var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
+      if (sheet) {
+        ensureHeaders_(sheet);
+        if (sheet.getLastRow() <= 1) {
+          try {
+            runSetupAndInsertSampleRows();
+          } catch (sampleErr) {
+            Logger.log('Sample insertion in onOpen error: ' + sampleErr);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    Logger.log('onOpen ensureHeaders error: ' + err);
+  }
+
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('Child Nutrition PWA')
+      .addItem('Setup 73 Headers & Insert Samples', 'runSetupAndInsertSampleRows')
+      .addToUi();
+  } catch (uiErr) {
+    Logger.log('onOpen menu error: ' + uiErr);
+  }
+}
+
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || 'health';
 
@@ -196,21 +233,28 @@ function ensureHeaders_(sheet) {
   }
 
   if (needsInit) {
+    var maxCols = sheet.getMaxColumns();
+    if (maxCols < COLUMN_HEADERS.length) {
+      sheet.insertColumnsAfter(maxCols, COLUMN_HEADERS.length - maxCols);
+    }
     var headerRange = sheet.getRange(1, 1, 1, COLUMN_HEADERS.length);
     headerRange.setValues([COLUMN_HEADERS]);
     headerRange.setFontWeight('bold');
     headerRange.setBackground('#0D9488');
     headerRange.setFontColor('#FFFFFF');
+    headerRange.setHorizontalAlignment('center');
     sheet.setFrozenRows(1);
   }
 }
 
 function getSheetAndColMap_() {
-  var ss;
-  try {
-    ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-  } catch (err) {
-    ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    try {
+      ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+    } catch (err) {
+      Logger.log('Could not openById: ' + err);
+    }
   }
 
   if (!ss) {
@@ -550,6 +594,10 @@ function runSetupAndInsertSampleRows() {
   var sheet = ctx.sheet;
 
   // 1. Ensure all 73 headers are in Row 1
+  var maxCols = sheet.getMaxColumns();
+  if (maxCols < COLUMN_HEADERS.length) {
+    sheet.insertColumnsAfter(maxCols, COLUMN_HEADERS.length - maxCols);
+  }
   var headerRange = sheet.getRange(1, 1, 1, COLUMN_HEADERS.length);
   headerRange.setValues([COLUMN_HEADERS]);
   headerRange.setFontWeight('bold');
