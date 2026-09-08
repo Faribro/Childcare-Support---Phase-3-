@@ -9,12 +9,13 @@ import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import {
   Plus,
-  FileText,
   ArrowRight,
   Trash2,
   Clock,
-  CheckCircle2,
-  RefreshCw,
+  FileSpreadsheet,
+  Database,
+  ShieldCheck,
+  Zap,
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -56,65 +57,69 @@ export default function HomePage() {
 
   return (
     <AppShell pendingSyncCount={waitingCount}>
-      <div className="flex-1 w-full max-w-3xl mx-auto px-4 py-5 sm:py-7 flex flex-col justify-between space-y-6">
+      <div className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-9 flex flex-col justify-between space-y-6">
         <div className="space-y-6">
-          {/* Minimalist Clean Header */}
-          <div className="pb-1 border-b border-slate-100">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Forms & Assessments
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Select a form to start data collection or continue working on offline drafts.
-            </p>
-          </div>
-
-          {/* Primary Available Form Card */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:border-teal-400/80 transition-all p-4 sm:p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          {/* Primary Intake Linelist Card (Hero Action) */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:border-teal-300 transition-all p-5 sm:p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-start space-x-3.5">
-                <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 shrink-0">
-                  <FileText className="h-5 w-5 sm:h-6 sm:w-6" />
+                <div className="h-11 w-11 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 shrink-0">
+                  <FileSpreadsheet className="h-6 w-6" />
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h2 className="text-base font-bold text-slate-900">
-                      Child Nutrition & Support Linelist
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
+                      Child Nutrition & Education Support
                     </h2>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
-                      Phase 3
-                    </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 max-w-lg leading-relaxed">
-                    Single-page comprehensive intake: Demographics, Clinical & ART status, Education expenses, and KYC documents.
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
+                    Single-page intake linelist: demographics, clinical vitals, ART tracking, education expenses, and KYC documentation.
                   </p>
-                  <div className="flex items-center space-x-3 text-[11px] text-slate-400 mt-2 font-medium">
-                    <span>• 73 Columns</span>
-                    <span>• Offline Capable</span>
-                    <span>• Auto ID Generation</span>
-                  </div>
                 </div>
               </div>
+              <span className="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 uppercase tracking-wider">
+                Phase 3
+              </span>
+            </div>
 
-              <Link href="/assessment/new" className="shrink-0">
+            {/* Feature Metadata Pills */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-medium text-slate-600">
+                <Database className="h-3 w-3 text-teal-600" />
+                <span>73 Standard Columns</span>
+              </span>
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-medium text-slate-600">
+                <Zap className="h-3 w-3 text-amber-500" />
+                <span>Offline Auto-Save</span>
+              </span>
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-medium text-slate-600">
+                <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                <span>Auto ID Generator</span>
+              </span>
+            </div>
+
+            {/* Primary Action Button */}
+            <div className="pt-2">
+              <Link href="/assessment/new" className="block w-full">
                 <Button
                   variant="primary"
-                  className="w-full sm:w-auto font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl shadow-2xs px-4 py-2 text-xs sm:text-sm"
+                  className="w-full font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl shadow-xs py-3 text-sm flex items-center justify-center space-x-2 transition-transform active:scale-[0.99]"
                 >
-                  <Plus className="h-4 w-4 mr-1.5" />
-                  <span>Start New Intake</span>
+                  <Plus className="h-4 w-4" />
+                  <span>Start New Assessment</span>
                 </Button>
               </Link>
             </div>
           </div>
 
-          {/* In-Progress Drafts Section */}
+          {/* Saved Drafts Section */}
           <section className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between px-0.5">
               <div className="flex items-center space-x-2">
-                <h2 className="text-sm font-bold text-slate-800">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Saved Drafts
-                </h2>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200/60">
                   {isLoading ? '...' : drafts.length}
                 </span>
               </div>
@@ -123,20 +128,20 @@ export default function HomePage() {
                   href="/assessment/sync?tab=drafts"
                   className="text-xs font-semibold text-teal-700 hover:text-teal-800"
                 >
-                  Manage in Sync Centre →
+                  Manage All →
                 </Link>
               )}
             </div>
 
             {isLoading ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-5 text-center text-slate-400 text-xs">
-                Loading saved drafts...
+              <div className="bg-white rounded-xl border border-slate-200/70 p-5 text-center text-slate-400 text-xs">
+                Loading drafts...
               </div>
             ) : drafts.length === 0 ? (
-              <div className="bg-white rounded-xl border border-dashed border-slate-200 p-6 text-center">
-                <p className="text-xs font-semibold text-slate-600">No saved drafts on this device</p>
+              <div className="bg-white/60 rounded-xl border border-dashed border-slate-200 p-5 text-center">
+                <p className="text-xs text-slate-500 font-medium">No saved drafts on this device</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Click &ldquo;Start New Intake&rdquo; above to begin a new assessment.
+                  Submissions in progress will appear here automatically.
                 </p>
               </div>
             ) : (
@@ -148,12 +153,12 @@ export default function HomePage() {
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center space-x-2">
-                        <span className="font-mono text-xs font-bold text-teal-900 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                        <span className="font-mono text-xs font-bold text-teal-900 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded">
                           {draft.demographics?.artNumber || 'NEW DRAFT'}
                         </span>
-                        <h3 className="text-sm font-bold text-slate-900 truncate">
+                        <h4 className="text-sm font-bold text-slate-900 truncate">
                           {draft.demographics?.childName || 'Unnamed Assessment'}
-                        </h3>
+                        </h4>
                       </div>
 
                       <div className="flex items-center space-x-3 text-xs text-slate-500 mt-1">
@@ -195,37 +200,12 @@ export default function HomePage() {
               </div>
             )}
           </section>
-
-          {/* Slim Sync Status Banner */}
-          <Link
-            href="/assessment/sync"
-            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-slate-100 transition-colors text-xs text-slate-600 group"
-          >
-            <div className="flex items-center space-x-2">
-              {waitingCount > 0 ? (
-                <RefreshCw className="h-3.5 w-3.5 text-amber-600" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
-              )}
-              <span>
-                {waitingCount > 0 ? (
-                  <strong className="text-amber-700">{waitingCount} assessment(s) waiting in outbox queue</strong>
-                ) : (
-                  <span>All assessments synchronized to Google Sheets</span>
-                )}
-              </span>
-            </div>
-            <span className="text-teal-700 font-bold group-hover:underline flex items-center space-x-0.5">
-              <span>Sync Centre ({waitingCount})</span>
-              <ArrowRight className="h-3 w-3 ml-0.5" />
-            </span>
-          </Link>
         </div>
 
-        {/* Minimal Clean Footer */}
-        <footer className="pt-4 pb-2 border-t border-slate-100 text-center">
+        {/* Discreet Minimal Footer */}
+        <footer className="pt-6 pb-2 text-center border-t border-slate-100">
           <p className="text-[11px] text-slate-400">
-            India HIV/AIDS Alliance • Paediatric Support Platform • Phase 3 Linelist Standard
+            India HIV/AIDS Alliance • Paediatric Support Platform • Phase 3
           </p>
         </footer>
       </div>
