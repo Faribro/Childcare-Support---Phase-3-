@@ -82,17 +82,17 @@ export default function NewSinglePageAssessment() {
     { value: 'Double orphan (both parents deceased)', label: 'Double orphan', tooltip: 'Both parents deceased' },
   ];
 
-  // ── Premium per-section colour palettes ───────────────────────────────────
+  // ── Premium per-section colour palettes (+ neon glow data) ───────────────
   const SC: Record<string, SectionColorScheme> = {
-    consent:    { bg:'bg-rose-50/60',   border:'border-rose-200',   badge:'bg-rose-800',   text:'text-rose-900' },
-    demo:       { bg:'bg-indigo-50/60', border:'border-indigo-200', badge:'bg-indigo-800', text:'text-indigo-900' },
-    banking:    { bg:'bg-amber-50/60',  border:'border-amber-200',  badge:'bg-amber-800',  text:'text-amber-900' },
-    household:  { bg:'bg-teal-50/60',   border:'border-teal-200',   badge:'bg-teal-800',   text:'text-teal-900' },
-    clinical:   { bg:'bg-sky-50/60',    border:'border-sky-200',    badge:'bg-sky-800',    text:'text-sky-900' },
-    nutrition:  { bg:'bg-lime-50/60',   border:'border-lime-200',   badge:'bg-lime-800',   text:'text-lime-900' },
-    education:  { bg:'bg-violet-50/60', border:'border-violet-200', badge:'bg-violet-800', text:'text-violet-900' },
-    expenses:   { bg:'bg-orange-50/60', border:'border-orange-200', badge:'bg-orange-800', text:'text-orange-900' },
-    review:     { bg:'bg-emerald-50/60',border:'border-emerald-200',badge:'bg-emerald-800',text:'text-emerald-900' },
+    consent:   { bg:'bg-rose-50/60',   border:'border-rose-200',   badge:'bg-rose-800',   text:'text-rose-900',   neonMid:'rgba(251,113,133,0.40)', neonFar:'rgba(251,113,133,0.10)', neonBorder:'rgba(251,113,133,0.50)' },
+    demo:      { bg:'bg-indigo-50/60', border:'border-indigo-200', badge:'bg-indigo-800', text:'text-indigo-900', neonMid:'rgba(129,140,248,0.40)', neonFar:'rgba(129,140,248,0.10)', neonBorder:'rgba(129,140,248,0.50)' },
+    banking:   { bg:'bg-amber-50/60',  border:'border-amber-200',  badge:'bg-amber-800',  text:'text-amber-900',  neonMid:'rgba(251,191,36,0.40)',  neonFar:'rgba(251,191,36,0.10)',  neonBorder:'rgba(251,191,36,0.55)'  },
+    household: { bg:'bg-teal-50/60',   border:'border-teal-200',   badge:'bg-teal-800',   text:'text-teal-900',   neonMid:'rgba(45,212,191,0.40)',  neonFar:'rgba(45,212,191,0.10)',  neonBorder:'rgba(45,212,191,0.50)'  },
+    clinical:  { bg:'bg-sky-50/60',    border:'border-sky-200',    badge:'bg-sky-800',    text:'text-sky-900',    neonMid:'rgba(56,189,248,0.40)',  neonFar:'rgba(56,189,248,0.10)',  neonBorder:'rgba(56,189,248,0.50)'  },
+    nutrition: { bg:'bg-lime-50/60',   border:'border-lime-200',   badge:'bg-lime-800',   text:'text-lime-900',   neonMid:'rgba(163,230,53,0.45)',  neonFar:'rgba(163,230,53,0.11)',  neonBorder:'rgba(132,204,22,0.55)'  },
+    education: { bg:'bg-violet-50/60', border:'border-violet-200', badge:'bg-violet-800', text:'text-violet-900', neonMid:'rgba(167,139,250,0.40)', neonFar:'rgba(167,139,250,0.10)', neonBorder:'rgba(167,139,250,0.50)' },
+    expenses:  { bg:'bg-orange-50/60', border:'border-orange-200', badge:'bg-orange-800', text:'text-orange-900', neonMid:'rgba(251,146,60,0.40)',  neonFar:'rgba(251,146,60,0.10)',  neonBorder:'rgba(251,146,60,0.50)'  },
+    review:    { bg:'bg-emerald-50/60',border:'border-emerald-200',badge:'bg-emerald-800',text:'text-emerald-900',neonMid:'rgba(52,211,153,0.40)',  neonFar:'rgba(52,211,153,0.10)',  neonBorder:'rgba(52,211,153,0.50)'  },
   };
 
   // Form State strictly covering all 73 official linelist & Sheet fields
@@ -709,9 +709,9 @@ export default function NewSinglePageAssessment() {
         )}
 
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
+        <div className="flex flex-col gap-3">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`}>
+        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
 
           <div className="space-y-4">
@@ -839,7 +839,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 2: Child Demographics & Residence */}
-        <section id="sec-child" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`}>
+        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -1005,7 +1005,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`}>
+        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1074,7 +1074,7 @@ export default function NewSinglePageAssessment() {
 
         {/* SECTION 4: Household & Financial Details */}
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`}>
+        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1142,7 +1142,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`}>
+        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1343,7 +1343,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`}>
+        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1390,7 +1390,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`}>
+        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
 
           <div className="space-y-4">
@@ -1516,7 +1516,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`}>
+        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
 
           <ExpensesAndApprovalGrid
@@ -1553,7 +1553,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`}>
+        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
 
           <div className="space-y-4">

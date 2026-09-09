@@ -3,10 +3,16 @@
 import React from 'react';
 
 export interface SectionColorScheme {
-  bg: string;       // e.g. 'bg-rose-50/70'
-  border: string;   // e.g. 'border-rose-200'
-  badge: string;    // e.g. 'bg-rose-700'
-  text: string;     // e.g. 'text-rose-800'
+  bg: string;
+  border: string;
+  badge: string;
+  text: string;
+  /** RGBA string for the inner/close neon halo, e.g. 'rgba(251,113,133,0.45)' */
+  neonMid: string;
+  /** RGBA string for the far neon halo, e.g. 'rgba(251,113,133,0.12)' */
+  neonFar: string;
+  /** Solid color for border-color CSS var, e.g. 'rgba(251,113,133,0.55)' */
+  neonBorder: string;
 }
 
 interface SectionVerticalTitleProps {
