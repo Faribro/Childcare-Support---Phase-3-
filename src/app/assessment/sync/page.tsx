@@ -641,6 +641,18 @@ function SyncCentreContent() {
           )}
         </section>
       </div>
+
+      {viewingItem && (
+        <SubmissionViewModal
+          item={viewingItem}
+          onClose={() => setViewingItem(null)}
+          onEdit={() => {
+            const item = viewingItem;
+            setViewingItem(null);
+            handleEditSubmission(item);
+          }}
+        />
+      )}
     </AppShell>
   );
 }

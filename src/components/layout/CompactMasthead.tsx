@@ -15,7 +15,6 @@ import {
   Globe,
   Lock,
   Unlock,
-  BookOpen,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
@@ -91,7 +90,6 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
   const navLinks = [
     { href: '/app', label: 'Forms', icon: Home },
     { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: pendingSyncCount },
-    { href: '/', label: 'Field Guide', icon: BookOpen },
   ];
 
   return (

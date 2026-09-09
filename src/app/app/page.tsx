@@ -9,7 +9,7 @@ import { DraftCard } from '@/components/forms/DraftCard';
 import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
-import { Plus, BookOpen } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 
@@ -155,13 +155,6 @@ export default function FieldWorkspacePage() {
               <h3 className="text-base font-bold text-[hsl(220,15%,15%)]">
                 My In-Progress Drafts ({isLoading ? 0 : drafts.length})
               </h3>
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100/80 px-2.5 py-1 rounded-lg border border-teal-200 transition-colors"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Field Guide</span>
-              </Link>
             </div>
 
             {isLoading ? (
