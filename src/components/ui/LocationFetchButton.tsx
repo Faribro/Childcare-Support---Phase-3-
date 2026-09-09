@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Loader2, CheckCircle2, AlertCircle, Navigation, MapPin, Crosshair } from 'lucide-react';
-import { PrecisionLocationModal } from './PrecisionLocationModal';
+import { Loader2, CheckCircle2, AlertCircle, Navigation } from 'lucide-react';
 
 export interface LocationResult {
   fullAddress: string;
@@ -85,7 +84,131 @@ function cleanDistrict(raw: string): string {
   return raw.replace(/\s+(District|district|Division|division)$/, '').trim();
 }
 
-// ── 1. ESRI ArcGIS World Geocoder (High-Precision Parcel, Street & House Numbers in India) ──
+// ── GPS Acquisition with Satellite Lock Filtering ──
+// Uses watchPosition so the browser GNSS receiver has time to acquire
+// true high-accuracy satellite lock (<= 15m) instead of snapping to a coarse cell/ISP fix.
+async function acquireHighPrecisionGps(timeoutMs = 10000, targetAccuracy = 15): Promise<GeolocationPosition> {
+  if (!navigator.geolocation) {
+    throw new Error('Geolocation is not supported by your browser.');
+  }
+
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    let bestPos: GeolocationPosition | null = null;
+    let watchId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      if (bestPos) {
+        resolve(bestPos);
+      } else {
+        // Fallback: Attempt single direct fix before giving up
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve(pos),
+          (err) => reject(err),
+          { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }
+        );
+      }
+    }, timeoutMs);
+
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+            bestPos = pos;
+          }
+          // High-precision threshold reached (e.g. <= 15m) -> resolve immediately
+          if (pos.coords.accuracy <= targetAccuracy) {
+            cleanup();
+            resolve(pos);
+          }
+        },
+        (err) => {
+          if (bestPos) {
+            cleanup();
+            resolve(bestPos);
+          } else {
+            cleanup();
+            reject(err);
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: timeoutMs,
+          maximumAge: 0,
+        }
+      );
+    } catch (e) {
+      cleanup();
+      reject(e);
+    }
+  });
+}
+
+// ── 1. Optional Self-Hosted Open-Source Geocoder (Photon / Pelias / Traccar / Addok Docker) ──
+async function reverseGeocodeWithSelfHosted(lat: number, lng: number): Promise<any | null> {
+  const localEndpoint = process.env.NEXT_PUBLIC_GEOCODER_URL || process.env.NEXT_PUBLIC_LOCAL_GEOCODER_URL;
+  if (!localEndpoint) return null;
+
+  try {
+    const url = `${localEndpoint.replace(/\/+$/, '')}/reverse?lat=${lat}&lon=${lng}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ── 2. Photon Public API (Komoot / Elasticsearch OSM Reverse Geocoder down to house numbers) ──
+async function reverseGeocodeWithPhoton(lat: number, lng: number): Promise<any | null> {
+  try {
+    const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ChildCareSupportPWA/3.0',
+        'Accept': 'application/json',
+      },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.features?.[0]?.properties || null;
+  } catch {
+    return null;
+  }
+}
+
+// ── 3. OpenStreetMap Nominatim (High-Accuracy Address Hierarchy, Landmarks & POIs) ──
+async function reverseGeocodeWithNominatim(lat: number, lng: number): Promise<any | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1&extratags=1&namedetails=1`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'ChildCareSupportPWA/3.0 (India HIV/AIDS Alliance; public health assessment)',
+        'Accept': 'application/json',
+      },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ── 4. ESRI ArcGIS World Geocoder (Building Footprints, POIs, Subaddresses & Street Names) ──
 async function reverseGeocodeWithEsri(lat: number, lng: number): Promise<any | null> {
   try {
     const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode?location=${lng},${lat}&featureTypes=PointAddress,Subaddress,StreetAddress,POI,StreetName&distance=100&f=json`;
@@ -98,59 +221,7 @@ async function reverseGeocodeWithEsri(lat: number, lng: number): Promise<any | n
   }
 }
 
-// ── 2. OpenStreetMap Nominatim (High-Accuracy Address Hierarchy, Landmarks & POIs) ──
-async function reverseGeocodeWithNominatim(lat: number, lng: number): Promise<any | null> {
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1&extratags=1&namedetails=1`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 ChildCareSupportApp/3.0 (India HIV/AIDS Alliance)' },
-      signal: AbortSignal.timeout(7000),
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-// ── 3. Photon Fallback ──
-async function reverseGeocodeWithPhoton(lat: number, lng: number): Promise<LocationResult | null> {
-  try {
-    const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const p = data.features?.[0]?.properties;
-    if (!p) return null;
-
-    const state = normaliseState(p.state || '');
-    const district = cleanDistrict(p.county || p.district || p.city || '');
-    const pincode = p.postcode || '';
-    const locality = p.city || p.locality || '';
-    const subLocality = p.locality || p.district || '';
-
-    const parts: string[] = [];
-    const houseStreet = [p.housenumber, p.street || p.name].filter(Boolean).join(' ');
-    if (houseStreet) parts.push(houseStreet);
-    if (p.locality && !parts.includes(p.locality)) parts.push(p.locality);
-    if (p.district && !parts.includes(p.district)) parts.push(p.district);
-    if (p.city && !parts.includes(p.city)) parts.push(p.city);
-    if (pincode) parts.push(pincode);
-
-    return {
-      fullAddress: parts.join(', '),
-      state,
-      district,
-      pincode,
-      subLocality,
-      locality,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// ── 4. BigDataCloud Fallback ──
+// ── 5. BigDataCloud Fallback (Reliable Global Locality Hierarchy) ──
 async function reverseGeocodeWithBDC(lat: number, lng: number): Promise<LocationResult | null> {
   try {
     const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
@@ -186,28 +257,31 @@ async function reverseGeocodeWithBDC(lat: number, lng: number): Promise<Location
   }
 }
 
-// ── Multi-Source High-Precision Synthesizer ──
-function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
+// ── Multi-Source High-Precision Synthesizer (Photon + Nominatim + ESRI) ──
+function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): LocationResult | null {
   const e = esriAddr || {};
   const n = nomData?.address || {};
+  const p = photonProps || {};
 
-  // Extract house number / flat / plot
+  // Extract house / flat / plot number
   const rawHouseNum =
     e.AddNum ||
     e.StrucDet ||
     n.house_number ||
     n['addr:housenumber'] ||
+    p.housenumber ||
     n['addr:flats'] ||
     n['addr:unit'] ||
     n['addr:door_number'] ||
     n['addr:plot_number'] ||
     '';
 
-  // Extract landmark / building / society / commercial POI
+  // Extract landmark / building / society / POI
   const rawLandmark =
+    p.name ||
     e.PlaceName ||
-    n.house_name ||
     n.building ||
+    n.house_name ||
     n.amenity ||
     n.shop ||
     n.office ||
@@ -215,9 +289,10 @@ function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
 
   // Extract street / road name
   const rawStreet =
-    e.Address ||
     n.road ||
     n.street ||
+    p.street ||
+    e.Address ||
     n.pedestrian ||
     n.footway ||
     '';
@@ -232,19 +307,22 @@ function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
   // Extract colony / neighbourhood
   const rawColony =
     n.neighbourhood ||
+    p.locality ||
     e.Sector ||
     n.subdivision ||
     n.quarter ||
     '';
 
-  // Extract locality / suburb
+  // Extract suburb / sub-locality
   const rawSuburb =
     n.suburb ||
+    p.district ||
     e.District ||
     '';
 
-  // Extract district & city
+  // Extract city & district
   const rawCity =
+    p.city ||
     e.City ||
     n.city ||
     n.town ||
@@ -254,15 +332,17 @@ function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
 
   const rawDistrict =
     e.Subregion ||
+    p.district ||
     n.state_district ||
     n.district ||
     rawCity ||
     '';
 
   // Extract state & pincode
-  const state = normaliseState(e.Region || n.state || n.state_district || '');
+  const rawState = p.state || e.Region || n.state || n.state_district || '';
+  const state = normaliseState(rawState);
   const district = cleanDistrict(rawDistrict);
-  const pincode = e.Postal || n.postcode || '';
+  const pincode = p.postcode || e.Postal || n.postcode || '';
 
   if (!state && !district && !rawCity) return null;
 
@@ -275,45 +355,53 @@ function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
       ? rawHouseNum
       : `House No. ${rawHouseNum}`;
     parts.push(formatted);
-  } else if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase()) {
-    parts.push(rawLandmark.startsWith('Near') ? rawLandmark : `Near ${rawLandmark}`);
   }
 
-  // 2. Block
-  if (rawBlock && !parts.some(p => p.toLowerCase().includes(rawBlock.toLowerCase()))) {
+  // 2. Specific Building / Society / Landmark
+  if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase() && !parts.includes(rawLandmark)) {
+    parts.push(rawLandmark);
+  }
+
+  // 3. Block / Sector
+  if (rawBlock && !parts.some((pt) => pt.toLowerCase().includes(rawBlock.toLowerCase()))) {
     parts.push(/(block|sector)/i.test(rawBlock) ? rawBlock : `Block ${rawBlock}`);
   }
 
-  // 3. Street / Road (e.g. Kailash Market Road)
-  if (rawStreet && !parts.some(p => p.toLowerCase().includes(rawStreet.toLowerCase()))) {
+  // 4. Street / Road (e.g. O.P. Sharda Marg)
+  if (rawStreet && !parts.some((pt) => pt.toLowerCase().includes(rawStreet.toLowerCase()))) {
     parts.push(rawStreet);
   }
 
-  // 4. Colony / Sector (e.g. Kailash Colony)
-  if (rawColony && !parts.some(p => p.toLowerCase().includes(rawColony.toLowerCase()))) {
+  // 5. Colony / Sector / Neighbourhood (e.g. Greater Kailash I)
+  if (rawColony && !parts.some((pt) => pt.toLowerCase().includes(rawColony.toLowerCase()))) {
     parts.push(rawColony);
   }
 
-  // 5. Suburb / Sub-locality (e.g. Greater Kailash)
-  if (rawSuburb && !parts.some(p => p.toLowerCase().includes(rawSuburb.toLowerCase()))) {
+  // 6. Suburb / Sub-locality (e.g. Greater Kailash)
+  if (rawSuburb && !parts.some((pt) => pt.toLowerCase().includes(rawSuburb.toLowerCase()))) {
     parts.push(rawSuburb);
   }
 
-  // 6. City (e.g. Delhi / South Delhi)
-  if (rawCity && !parts.some(p => p.toLowerCase().includes(rawCity.toLowerCase()))) {
-    parts.push(rawCity);
-  } else if (district && !parts.some(p => p.toLowerCase().includes(district.toLowerCase()))) {
+  // 7. City / District (e.g. South Delhi)
+  if (district && !parts.some((pt) => pt.toLowerCase().includes(district.toLowerCase()))) {
     parts.push(district);
+  } else if (rawCity && !parts.some((pt) => pt.toLowerCase().includes(rawCity.toLowerCase()))) {
+    parts.push(rawCity);
   }
 
-  // 7. Pincode
+  // 8. State
+  if (state && !parts.some((pt) => pt.toLowerCase().includes(state.toLowerCase()))) {
+    parts.push(state);
+  }
+
+  // 9. Pincode
   if (pincode && !parts.includes(pincode)) {
     parts.push(pincode);
   }
 
   let fullAddress = parts.join(', ');
 
-  // If address has less than 2 parts, use clean display_name from Nominatim
+  // Fallback to display_name if parts are too brief
   if (parts.length < 2 && nomData?.display_name) {
     const tokens = nomData.display_name.split(',').map((s: string) => s.trim()).filter(Boolean);
     if (tokens.length > 1 && tokens[tokens.length - 1].toLowerCase() === 'india') {
@@ -337,9 +425,9 @@ function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
 
 const STATUS_MSG: Record<FetchStatus, string> = {
   idle: 'Fetch Live Address',
-  requesting: 'Getting GPS Coords…',
-  geocoding: 'Pinpointing House & Street…',
-  success: 'Accurate Address Located!',
+  requesting: 'Acquiring Satellite GPS Fix…',
+  geocoding: 'Pinpointing Exact Doorstep & Street…',
+  success: 'Exact Address Located!',
   error: 'Retry GPS Fetch',
 };
 
@@ -348,8 +436,6 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
   const [errorMsg, setErrorMsg] = useState('');
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [locatedDetail, setLocatedDetail] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [lastCoords, setLastCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const handleFetch = useCallback(async () => {
     if (disabled) return;
@@ -360,66 +446,65 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
     setLocatedDetail(null);
     setStatus('requesting');
 
-    // ── 1. Request GPS with maximum hardware satellite accuracy ──
+    // ── 1. Acquire high-precision GPS via satellite lock filtering ──
     let coords: GeolocationCoordinates;
     try {
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0,
-        });
-      });
+      const pos = await acquireHighPrecisionGps(10000, 15);
       coords = pos.coords;
       const acc = Math.round(pos.coords.accuracy);
       setAccuracy(acc);
-      setLastCoords({ lat: coords.latitude, lng: coords.longitude });
     } catch (err) {
       const geoErr = err as GeolocationPositionError;
       const msg =
         geoErr.code === 1
-          ? 'Location access denied. Please allow location permissions or use 10m Pinpoint.'
+          ? 'Location access denied. Please allow location permissions in your browser.'
           : geoErr.code === 2
-          ? 'GPS position unavailable. You can pinpoint your address using the 10m Pinpoint button.'
-          : 'GPS request timed out. Please try again or use 10m Pinpoint.';
+          ? 'GPS position unavailable. Please ensure GPS/location services are enabled.'
+          : 'GPS request timed out. Please try again with clear view of the sky.';
       setErrorMsg(msg);
       setStatus('error');
       return;
     }
 
-    // ── 2. Multi-tier High-Precision Geocoding: ESRI + OSM Nominatim in parallel ──
+    // ── 2. Multi-tier High-Precision Geocoding in parallel (Photon + Nominatim + ESRI) ──
     setStatus('geocoding');
     let result: LocationResult | null = null;
 
     try {
-      const [esriRes, nomRes] = await Promise.allSettled([
-        reverseGeocodeWithEsri(coords.latitude, coords.longitude),
+      const [selfHostedRes, photonRes, nomRes, esriRes] = await Promise.allSettled([
+        reverseGeocodeWithSelfHosted(coords.latitude, coords.longitude),
+        reverseGeocodeWithPhoton(coords.latitude, coords.longitude),
         reverseGeocodeWithNominatim(coords.latitude, coords.longitude),
+        reverseGeocodeWithEsri(coords.latitude, coords.longitude),
       ]);
 
+      const selfData = selfHostedRes.status === 'fulfilled' ? selfHostedRes.value : null;
+      const photonData = photonRes.status === 'fulfilled' ? photonRes.value : (selfData?.features?.[0]?.properties || null);
+      const nomData = nomRes.status === 'fulfilled' ? nomRes.value : (selfData?.address ? selfData : null);
       const esriData = esriRes.status === 'fulfilled' ? esriRes.value : null;
-      const nomData = nomRes.status === 'fulfilled' ? nomRes.value : null;
 
-      result = synthesizeAddress(esriData, nomData);
+      result = synthesizeAddress(esriData, nomData, photonData);
       if (result) {
         result.lat = coords.latitude;
         result.lng = coords.longitude;
         result.accuracyMeters = accuracy !== null ? accuracy : undefined;
       }
     } catch (e) {
-      console.warn('Primary geocoding exception:', e);
+      console.warn('Geocoding synthesis error:', e);
     }
 
-    // ── 3. Fallbacks if primary synthesis yielded insufficient data ──
-    if (!result || !result.state) {
-      result = await reverseGeocodeWithPhoton(coords.latitude, coords.longitude);
-    }
+    // ── 3. Fallback to BigDataCloud if primary engines yielded no state ──
     if (!result || !result.state) {
       result = await reverseGeocodeWithBDC(coords.latitude, coords.longitude);
+      if (result) {
+        result.lat = coords.latitude;
+        result.lng = coords.longitude;
+        result.accuracyMeters = accuracy !== null ? accuracy : undefined;
+      }
     }
 
     if (!result || !result.state) {
-      setErrorMsg('Could not detect address. Check internet connectivity or use 10m Pinpoint.');
+      setErrorMsg('Could not detect address. Please check your internet connectivity and try again.');
       setStatus('error');
       return;
     }
@@ -441,25 +526,6 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
     }, 8000);
   }, [disabled, onLocationFetched, status, accuracy]);
 
-  const handleModalLocationSelected = (res: LocationResult) => {
-    onLocationFetched(res);
-    setStatus('success');
-    setAccuracy(res.accuracyMeters || 5);
-    setLastCoords(res.lat && res.lng ? { lat: res.lat, lng: res.lng } : null);
-
-    const detailText = res.houseNumber
-      ? `House ${res.houseNumber}, ${res.road || res.colony || ''}`
-      : res.road && res.colony
-      ? `${res.road}, ${res.colony}`
-      : res.colony || res.fullAddress.split(',')[0];
-
-    setLocatedDetail(detailText);
-    setTimeout(() => {
-      setStatus('idle');
-      setLocatedDetail(null);
-    }, 8000);
-  };
-
   const isLoading = status === 'requesting' || status === 'geocoding';
 
   const bgClass =
@@ -471,106 +537,64 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
       ? 'bg-indigo-50 border-indigo-300 text-indigo-900 shadow-[0_0_16px_rgba(129,140,248,0.35)] animate-pulse'
       : 'bg-gradient-to-r from-indigo-50 via-purple-50 to-blue-50 border-indigo-300/90 text-indigo-950 hover:from-indigo-100 hover:to-purple-100 hover:border-indigo-400 hover:shadow-[0_0_14px_rgba(99,102,241,0.25)] active:scale-[0.98]';
 
-  const isRoughGps = accuracy !== null && accuracy > 50;
-
   return (
-    <>
-      <div className={`w-full flex flex-col items-start gap-1.5 ${className || ''}`}>
-        <div className="w-full flex items-stretch gap-1.5">
+    <div className={`w-full flex flex-col items-start gap-1.5 ${className || ''}`}>
+      <div className="w-full flex items-stretch">
+        <button
+          type="button"
+          onClick={handleFetch}
+          disabled={disabled || isLoading}
+          title={
+            status === 'success' && accuracy
+              ? `GPS accuracy: ±${accuracy}m`
+              : 'Pinpoint exact house, street, colony & city from live GPS'
+          }
+          className={`
+            w-full h-11 px-4 rounded-xl border font-bold text-xs
+            flex items-center justify-center gap-2
+            transition-all duration-200 cursor-pointer select-none shadow-2xs
+            ${bgClass}
+            ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+          `}
+        >
+          {isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin shrink-0 text-indigo-700" />
+          ) : status === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />
+          ) : status === 'error' ? (
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+          ) : (
+            <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
+          )}
+          <span className="truncate">{STATUS_MSG[status]}</span>
+        </button>
+      </div>
+
+      {/* Accuracy & Pinpointed Location Badge */}
+      {status === 'success' && (
+        <div className="w-full flex items-center justify-between px-1 text-[10.5px] text-emerald-800 font-semibold animate-fadeIn">
+          <span className="truncate">✓ Located: {locatedDetail || 'Exact address'}</span>
+          {accuracy !== null && (
+            <span className="shrink-0 bg-emerald-100/90 px-1.5 py-0.5 rounded font-mono text-[9.5px]">
+              ±{accuracy}m
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Error detail with quick retry */}
+      {status === 'error' && errorMsg && (
+        <div className="w-full flex items-center justify-between px-1">
+          <p className="text-[10.5px] text-rose-600 font-medium">{errorMsg}</p>
           <button
             type="button"
             onClick={handleFetch}
-            disabled={disabled || isLoading}
-            title={
-              status === 'success' && accuracy
-                ? `GPS accuracy: ±${accuracy}m`
-                : 'Pinpoint exact house, street, colony & city from live GPS'
-            }
-            className={`
-              flex-1 h-11 px-3.5 rounded-xl border font-bold text-xs
-              flex items-center justify-center gap-2
-              transition-all duration-200 cursor-pointer select-none shadow-2xs
-              ${bgClass}
-              ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-            `}
+            className="text-[10.5px] font-bold text-indigo-700 hover:underline cursor-pointer ml-2 shrink-0"
           >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-            ) : status === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />
-            ) : status === 'error' ? (
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-            ) : (
-              <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
-            )}
-            <span className="truncate">{STATUS_MSG[status]}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            disabled={disabled}
-            title="Open 10-meter Doorstep Pinpoint Map (Search Gali / Building)"
-            className="h-11 px-3 rounded-xl border border-purple-300 bg-purple-50/90 hover:bg-purple-100 text-purple-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer shrink-0 hover:border-purple-400 hover:shadow-sm"
-          >
-            <Crosshair className="w-4 h-4 text-purple-700 shrink-0" />
-            <span className="hidden sm:inline">10m Pinpoint</span>
+            Retry Now →
           </button>
         </div>
-
-        {/* Warning if GPS accuracy is rough (e.g. desktop Wi-Fi router) */}
-        {isRoughGps && (
-          <div className="w-full p-2 rounded-xl bg-amber-50 border border-amber-300/80 text-amber-900 text-[11px] flex items-center justify-between gap-2 shadow-2xs animate-fadeIn">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span className="truncate">
-                Wi-Fi GPS is ±{accuracy > 1000 ? `${(accuracy / 1000).toFixed(1)}km` : `${accuracy}m`}. Tap to lock 10m doorstep:
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="px-2 py-0.5 rounded-lg bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold text-[10.5px] shrink-0 cursor-pointer shadow-2xs transition-colors flex items-center gap-1"
-            >
-              <span>🎯 Pinpoint 10m</span>
-            </button>
-          </div>
-        )}
-
-        {/* Accuracy & Pinpointed Location Micro Badge */}
-        {status === 'success' && (
-          <div className="w-full flex items-center justify-between px-1 text-[10.5px] text-emerald-800 font-semibold animate-fadeIn">
-            <span className="truncate">✓ Located: {locatedDetail || 'Exact address'}</span>
-            {accuracy !== null && (
-              <span className="shrink-0 bg-emerald-100/90 px-1.5 py-0.5 rounded font-mono text-[9.5px]">
-                ±{accuracy}m
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Error detail */}
-        {status === 'error' && errorMsg && (
-          <div className="w-full flex items-center justify-between px-1">
-            <p className="text-[10.5px] text-rose-600 font-medium">{errorMsg}</p>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="text-[10.5px] font-bold text-purple-700 hover:underline cursor-pointer ml-2 shrink-0"
-            >
-              Open 10m Map Pinpoint →
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 10-Meter Precision Doorstep Locator Modal */}
-      <PrecisionLocationModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onLocationSelected={handleModalLocationSelected}
-        initialCoords={lastCoords}
-      />
-    </>
+      )}
+    </div>
   );
 }
