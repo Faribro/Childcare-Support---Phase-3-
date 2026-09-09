@@ -169,7 +169,10 @@ export function CaregiverSignaturePad({
       syncCanvasDimensions();
     };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
   }, [syncCanvasDimensions]);
 
   // Load existing signature from IndexedDB or initialSignatureUrl
@@ -284,6 +287,48 @@ export function CaregiverSignaturePad({
     redraw();
   };
 
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Save signature to offline Dexie DB (used for both manual and auto-save)
+  const saveSignatureInternal = useCallback(async (silent = true) => {
+    const canvas = canvasRef.current;
+    if (!canvas || strokesRef.current.length === 0) return;
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        if (!silent) setStatusMessage('Failed to render signature image.');
+        return;
+      }
+      try {
+        if (submissionUuid) {
+          await saveCaregiverSignatureBlob(
+            submissionUuid,
+            blob,
+            caregiverName || 'Caregiver',
+            caregiverRelationship || 'Approved Caregiver'
+          );
+        }
+        if (fallbackUuid && fallbackUuid !== submissionUuid) {
+          await saveCaregiverSignatureBlob(
+            fallbackUuid,
+            blob,
+            caregiverName || 'Caregiver',
+            caregiverRelationship || 'Approved Caregiver'
+          );
+        }
+        setIsSavedLocal(true);
+        if (!silent) {
+          setStatusMessage('Signature captured & saved securely to offline database.');
+        }
+        if (onSignatureSaved) onSignatureSaved(blob);
+        if (onSignatureChange) onSignatureChange(canvas.toDataURL('image/png'));
+      } catch (err) {
+        console.error('Error saving signature Blob:', err);
+        if (!silent) setStatusMessage('Error saving signature to local storage.');
+      }
+    }, 'image/png');
+  }, [submissionUuid, fallbackUuid, caregiverName, caregiverRelationship, onSignatureSaved, onSignatureChange]);
+
   const finishDrawing = () => {
     if (!isDrawing) return;
     setIsDrawing(false);
@@ -301,6 +346,12 @@ export function CaregiverSignaturePad({
           onSignatureChange(dataUrl);
         } catch (_) {}
       }
+
+      // Auto-save signature seamlessly on stroke completion
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+        saveSignatureInternal(true);
+      }, 300);
     }
   };
 
@@ -328,10 +379,20 @@ export function CaregiverSignaturePad({
     if (canvas && onSignatureChange) {
       onSignatureChange(strokesRef.current.length > 0 ? canvas.toDataURL('image/png') : '');
     }
+
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if (strokesRef.current.length > 0) {
+      autoSaveTimerRef.current = setTimeout(() => {
+        saveSignatureInternal(true);
+      }, 300);
+    } else {
+      handleClear();
+    }
   };
 
   // Clear all strokes
   const handleClear = async () => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     strokesRef.current = [];
     currentStrokeRef.current = null;
     setStrokeCount(0);
@@ -346,43 +407,13 @@ export function CaregiverSignaturePad({
     if (onSignatureChange) onSignatureChange('');
   };
 
-  // Save signature to offline Dexie DB
+  // Manual trigger for saving
   const handleSaveSignature = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || strokeCount === 0) {
+    if (strokeCount === 0) {
       setStatusMessage('Please draw a signature before saving.');
       return;
     }
-
-    canvas.toBlob(async (blob) => {
-      if (!blob) {
-        setStatusMessage('Failed to render signature image.');
-        return;
-      }
-      try {
-        await saveCaregiverSignatureBlob(
-          submissionUuid,
-          blob,
-          caregiverName || 'Caregiver',
-          caregiverRelationship || 'Approved Caregiver'
-        );
-        if (fallbackUuid && fallbackUuid !== submissionUuid) {
-          await saveCaregiverSignatureBlob(
-            fallbackUuid,
-            blob,
-            caregiverName || 'Caregiver',
-            caregiverRelationship || 'Approved Caregiver'
-          );
-        }
-        setIsSavedLocal(true);
-        setStatusMessage('Signature captured & saved securely to offline database.');
-        if (onSignatureSaved) onSignatureSaved(blob);
-        if (onSignatureChange) onSignatureChange(canvas.toDataURL('image/png'));
-      } catch (err) {
-        console.error('Error saving signature Blob:', err);
-        setStatusMessage('Error saving signature to local storage.');
-      }
-    }, 'image/png');
+    await saveSignatureInternal(false);
   };
 
   const hasContent = strokeCount > 0;
@@ -427,7 +458,6 @@ export function CaregiverSignaturePad({
           <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center text-slate-400">
             <PenTool className="h-6 w-6 mb-1 opacity-30 animate-pulse" />
             <span className="text-xs font-semibold text-slate-400">Sign on the line above</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">High-precision cursor tracking active</span>
           </div>
         )}
 

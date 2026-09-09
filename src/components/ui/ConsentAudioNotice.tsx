@@ -98,16 +98,6 @@ export function ConsentAudioNotice({
           <div className="flex items-center justify-center w-7 h-7 rounded-xl bg-purple-600 text-white shadow-xs shrink-0">
             <ShieldCheck className="w-4 h-4" />
           </div>
-          <div>
-            <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 tracking-tight">
-              {t('consent_notice_title', currentLanguage)}
-            </h4>
-            <p className="text-[10px] sm:text-[11px] text-purple-700 font-medium">
-              {currentLanguage === 'hi'
-                ? 'आधिकारिक रिकॉर्ड किया गया सहमति विवरण (ऑडियो उपलब्ध)'
-                : 'Official recorded consent statement (Audio Available)'}
-            </p>
-          </div>
         </div>
 
         <button

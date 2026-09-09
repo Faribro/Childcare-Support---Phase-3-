@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Loader2, CheckCircle2, AlertCircle, Navigation, MapPin } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Navigation, MapPin, Crosshair } from 'lucide-react';
+import { PrecisionLocationModal } from './PrecisionLocationModal';
 
 export interface LocationResult {
   fullAddress: string;
@@ -13,6 +14,9 @@ export interface LocationResult {
   houseNumber?: string;
   road?: string;
   colony?: string;
+  lat?: number;
+  lng?: number;
+  accuracyMeters?: number;
 }
 
 interface LocationFetchButtonProps {
@@ -344,6 +348,8 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
   const [errorMsg, setErrorMsg] = useState('');
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [locatedDetail, setLocatedDetail] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [lastCoords, setLastCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const handleFetch = useCallback(async () => {
     if (disabled) return;
@@ -367,14 +373,15 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
       coords = pos.coords;
       const acc = Math.round(pos.coords.accuracy);
       setAccuracy(acc);
+      setLastCoords({ lat: coords.latitude, lng: coords.longitude });
     } catch (err) {
       const geoErr = err as GeolocationPositionError;
       const msg =
         geoErr.code === 1
-          ? 'Location access denied. Please allow location permissions in your browser.'
+          ? 'Location access denied. Please allow location permissions or use 10m Pinpoint.'
           : geoErr.code === 2
-          ? 'GPS position unavailable. Try moving near a window or outdoors.'
-          : 'GPS request timed out. Please try again.';
+          ? 'GPS position unavailable. You can pinpoint your address using the 10m Pinpoint button.'
+          : 'GPS request timed out. Please try again or use 10m Pinpoint.';
       setErrorMsg(msg);
       setStatus('error');
       return;
@@ -394,6 +401,11 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
       const nomData = nomRes.status === 'fulfilled' ? nomRes.value : null;
 
       result = synthesizeAddress(esriData, nomData);
+      if (result) {
+        result.lat = coords.latitude;
+        result.lng = coords.longitude;
+        result.accuracyMeters = accuracy !== null ? accuracy : undefined;
+      }
     } catch (e) {
       console.warn('Primary geocoding exception:', e);
     }
@@ -407,7 +419,7 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
     }
 
     if (!result || !result.state) {
-      setErrorMsg('Could not detect address. Check internet connectivity.');
+      setErrorMsg('Could not detect address. Check internet connectivity or use 10m Pinpoint.');
       setStatus('error');
       return;
     }
@@ -426,8 +438,27 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
     setTimeout(() => {
       setStatus('idle');
       setLocatedDetail(null);
-    }, 6000);
-  }, [disabled, onLocationFetched, status]);
+    }, 8000);
+  }, [disabled, onLocationFetched, status, accuracy]);
+
+  const handleModalLocationSelected = (res: LocationResult) => {
+    onLocationFetched(res);
+    setStatus('success');
+    setAccuracy(res.accuracyMeters || 5);
+    setLastCoords(res.lat && res.lng ? { lat: res.lat, lng: res.lng } : null);
+
+    const detailText = res.houseNumber
+      ? `House ${res.houseNumber}, ${res.road || res.colony || ''}`
+      : res.road && res.colony
+      ? `${res.road}, ${res.colony}`
+      : res.colony || res.fullAddress.split(',')[0];
+
+    setLocatedDetail(detailText);
+    setTimeout(() => {
+      setStatus('idle');
+      setLocatedDetail(null);
+    }, 8000);
+  };
 
   const isLoading = status === 'requesting' || status === 'geocoding';
 
@@ -440,53 +471,106 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
       ? 'bg-indigo-50 border-indigo-300 text-indigo-900 shadow-[0_0_16px_rgba(129,140,248,0.35)] animate-pulse'
       : 'bg-gradient-to-r from-indigo-50 via-purple-50 to-blue-50 border-indigo-300/90 text-indigo-950 hover:from-indigo-100 hover:to-purple-100 hover:border-indigo-400 hover:shadow-[0_0_14px_rgba(99,102,241,0.25)] active:scale-[0.98]';
 
+  const isRoughGps = accuracy !== null && accuracy > 50;
+
   return (
-    <div className={`w-full flex flex-col items-start gap-1 ${className || ''}`}>
-      <button
-        type="button"
-        onClick={handleFetch}
-        disabled={disabled || isLoading}
-        title={
-          status === 'success' && accuracy
-            ? `GPS accuracy: ±${accuracy}m`
-            : 'Pinpoint exact house, street, colony & city from live GPS'
-        }
-        className={`
-          w-full h-11 px-3.5 rounded-xl border font-bold text-xs
-          flex items-center justify-center gap-2
-          transition-all duration-200 cursor-pointer select-none shadow-2xs
-          ${bgClass}
-          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-        `}
-      >
-        {isLoading ? (
-          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-        ) : status === 'success' ? (
-          <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />
-        ) : status === 'error' ? (
-          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-        ) : (
-          <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
-        )}
-        <span>{STATUS_MSG[status]}</span>
-      </button>
+    <>
+      <div className={`w-full flex flex-col items-start gap-1.5 ${className || ''}`}>
+        <div className="w-full flex items-stretch gap-1.5">
+          <button
+            type="button"
+            onClick={handleFetch}
+            disabled={disabled || isLoading}
+            title={
+              status === 'success' && accuracy
+                ? `GPS accuracy: ±${accuracy}m`
+                : 'Pinpoint exact house, street, colony & city from live GPS'
+            }
+            className={`
+              flex-1 h-11 px-3.5 rounded-xl border font-bold text-xs
+              flex items-center justify-center gap-2
+              transition-all duration-200 cursor-pointer select-none shadow-2xs
+              ${bgClass}
+              ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : status === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />
+            ) : status === 'error' ? (
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+            ) : (
+              <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
+            )}
+            <span className="truncate">{STATUS_MSG[status]}</span>
+          </button>
 
-      {/* Accuracy & Pinpointed Location Micro Badge */}
-      {status === 'success' && (
-        <div className="w-full flex items-center justify-between px-1 text-[10px] text-emerald-800 font-semibold animate-fadeIn">
-          <span className="truncate">✓ Located: {locatedDetail || 'Pinpoint address'}</span>
-          {accuracy !== null && (
-            <span className="shrink-0 bg-emerald-100/90 px-1.5 py-0.5 rounded font-mono text-[9.5px]">
-              ±{accuracy}m
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            disabled={disabled}
+            title="Open 10-meter Doorstep Pinpoint Map (Search Gali / Building)"
+            className="h-11 px-3 rounded-xl border border-purple-300 bg-purple-50/90 hover:bg-purple-100 text-purple-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer shrink-0 hover:border-purple-400 hover:shadow-sm"
+          >
+            <Crosshair className="w-4 h-4 text-purple-700 shrink-0" />
+            <span className="hidden sm:inline">10m Pinpoint</span>
+          </button>
         </div>
-      )}
 
-      {/* Error detail */}
-      {status === 'error' && errorMsg && (
-        <p className="text-[10.5px] text-rose-600 px-1 font-medium">{errorMsg}</p>
-      )}
-    </div>
+        {/* Warning if GPS accuracy is rough (e.g. desktop Wi-Fi router) */}
+        {isRoughGps && (
+          <div className="w-full p-2 rounded-xl bg-amber-50 border border-amber-300/80 text-amber-900 text-[11px] flex items-center justify-between gap-2 shadow-2xs animate-fadeIn">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="truncate">
+                Wi-Fi GPS is ±{accuracy > 1000 ? `${(accuracy / 1000).toFixed(1)}km` : `${accuracy}m`}. Tap to lock 10m doorstep:
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="px-2 py-0.5 rounded-lg bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold text-[10.5px] shrink-0 cursor-pointer shadow-2xs transition-colors flex items-center gap-1"
+            >
+              <span>🎯 Pinpoint 10m</span>
+            </button>
+          </div>
+        )}
+
+        {/* Accuracy & Pinpointed Location Micro Badge */}
+        {status === 'success' && (
+          <div className="w-full flex items-center justify-between px-1 text-[10.5px] text-emerald-800 font-semibold animate-fadeIn">
+            <span className="truncate">✓ Located: {locatedDetail || 'Exact address'}</span>
+            {accuracy !== null && (
+              <span className="shrink-0 bg-emerald-100/90 px-1.5 py-0.5 rounded font-mono text-[9.5px]">
+                ±{accuracy}m
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Error detail */}
+        {status === 'error' && errorMsg && (
+          <div className="w-full flex items-center justify-between px-1">
+            <p className="text-[10.5px] text-rose-600 font-medium">{errorMsg}</p>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="text-[10.5px] font-bold text-purple-700 hover:underline cursor-pointer ml-2 shrink-0"
+            >
+              Open 10m Map Pinpoint →
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 10-Meter Precision Doorstep Locator Modal */}
+      <PrecisionLocationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onLocationSelected={handleModalLocationSelected}
+        initialCoords={lastCoords}
+      />
+    </>
   );
 }

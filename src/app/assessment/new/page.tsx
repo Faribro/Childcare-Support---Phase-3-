@@ -685,24 +685,6 @@ export default function NewSinglePageAssessment() {
               <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">ID</span>
               <span className="font-bold text-slate-900">{formData.artNumber || 'Pending'}</span>
             </div>
-
-            <div
-              className={`text-xs px-2.5 py-1 rounded-xl font-bold flex items-center space-x-1.5 border ${
-                saveStatus === 'saving'
-                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              }`}
-              title={saveStatus === 'saving' ? 'Auto-saving locally to IndexedDB' : 'Changes saved offline'}
-            >
-              <div
-                className={`h-2 w-2 rounded-full ${
-                  saveStatus === 'saving' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
-                }`}
-              />
-              <span className="text-[11px] font-semibold">
-                {saveStatus === 'saving' ? 'Saving...' : 'Saved Offline'}
-              </span>
-            </div>
           </div>
         </div>
 
@@ -1194,7 +1176,7 @@ export default function NewSinglePageAssessment() {
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
 
           <div className="space-y-4">
-            {/* Sub-Card 1: Anthropometry & Growth (WHO Standards) */}
+            {/* Sub-Card 1: Growth & Measurements */}
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-sky-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
               <div className="flex items-center justify-between border-b border-sky-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -1203,14 +1185,10 @@ export default function NewSinglePageAssessment() {
                   </div>
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                      Child Anthropometry &amp; Growth Assessment
+                      Child Growth &amp; Nutrition Assessment
                     </h4>
-                    <p className="text-[11px] text-slate-500">WHO child growth benchmarks and calculated nutritional status</p>
                   </div>
                 </div>
-                <span className="hidden sm:inline-flex text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
-                  WHO Standards
-                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-stretch">
@@ -1323,14 +1301,10 @@ export default function NewSinglePageAssessment() {
                   </div>
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                      HIV Clinical Care &amp; ART Regimen
+                      HIV Care &amp; Treatment Details
                     </h4>
-                    <p className="text-[11px] text-slate-500">Antiretroviral treatment verification and ART center registration</p>
                   </div>
                 </div>
-                <span className="hidden sm:inline-flex text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                  NACO Protocol
-                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1379,14 +1353,10 @@ export default function NewSinglePageAssessment() {
                   </div>
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                      Laboratory Diagnostics &amp; Biomarkers
+                      Blood Tests &amp; Lab Reports
                     </h4>
-                    <p className="text-[11px] text-slate-500">Hemoglobin anemia staging and HIV viral load suppression tracking</p>
                   </div>
                 </div>
-                <span className="hidden sm:inline-flex text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
-                  Lab Diagnostics
-                </span>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

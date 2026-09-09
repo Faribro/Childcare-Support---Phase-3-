@@ -290,37 +290,31 @@ body {
 /* =========================================================================
    Section Header Typewriter Animation with CSS steps()
    ========================================================================= */
-.line-1 {
-  position: relative;
-  width: fit-content;
-  max-width: 100%;
-  border-right: 2.5px solid currentColor;
-  white-space: nowrap;
-  overflow: hidden;
+.typewriter-active {
+  opacity: 1 !important;
   display: inline-block;
-  vertical-align: middle;
+  animation: typewriterReveal 2.2s steps(38, end) both;
 }
 
-.anim-typewriter {
-  animation: typewriter 2.8s steps(44) 0.15s 1 normal both,
-             blinkTextCursor 500ms steps(44) infinite normal;
-}
-
-@keyframes typewriter {
+@keyframes typewriterReveal {
   from {
-    width: 0;
+    max-width: 0;
   }
   to {
-    width: 100%;
+    max-width: 65ch;
   }
 }
 
-@keyframes blinkTextCursor {
-  from {
-    border-right-color: currentColor;
+.typewriter-cursor {
+  animation: typewriterCursorBlink 0.5s steps(2, start) infinite;
+}
+
+@keyframes typewriterCursorBlink {
+  0%, 100% {
+    opacity: 1;
   }
-  to {
-    border-right-color: transparent;
+  50% {
+    opacity: 0;
   }
 }
 

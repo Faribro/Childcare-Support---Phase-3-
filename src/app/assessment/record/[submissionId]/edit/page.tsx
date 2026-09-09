@@ -1424,14 +1424,10 @@ export default function EditRecordPage() {
                     </div>
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                        Child Anthropometry &amp; Growth Assessment
+                        Child Growth &amp; Nutrition Assessment
                       </h4>
-                      <p className="text-[11px] text-slate-500">WHO child growth benchmarks and calculated nutritional status</p>
                     </div>
                   </div>
-                  <span className="hidden sm:inline-flex text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                    WHO Standards
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-stretch">
@@ -1519,14 +1515,10 @@ export default function EditRecordPage() {
                     </div>
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                        HIV Clinical Care &amp; ART Regimen
+                        HIV Care &amp; Treatment Details
                       </h4>
-                      <p className="text-[11px] text-slate-500">Antiretroviral treatment verification and ART center registration</p>
                     </div>
                   </div>
-                  <span className="hidden sm:inline-flex text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                    NACO Protocol
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1570,14 +1562,10 @@ export default function EditRecordPage() {
                     </div>
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                        Laboratory Diagnostics &amp; Biomarkers
+                        Blood Tests &amp; Lab Reports
                       </h4>
-                      <p className="text-[11px] text-slate-500">Hemoglobin anemia staging and HIV viral load suppression tracking</p>
                     </div>
                   </div>
-                  <span className="hidden sm:inline-flex text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                    Lab Diagnostics
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
