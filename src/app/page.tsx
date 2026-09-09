@@ -78,8 +78,8 @@ export default function HomePage() {
 
   return (
     <AppShell pendingSyncCount={waitingCount} submittedCount={submittedCount}>
-      <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 sm:py-10 flex flex-col justify-between space-y-8 animate-in fade-in duration-200">
-        <div className="space-y-6">
+      <div className="flex-1 w-full max-w-4xl mx-auto px-4 pt-2 pb-8 sm:pt-2.5 sm:pb-10 flex flex-col justify-between space-y-6 animate-in fade-in duration-200">
+        <div className="space-y-3 sm:space-y-3.5">
           {/* Miniature Children Garden Playground (Physics-based live interactive garden) */}
           <MiniatureGardenPlayground />
 
