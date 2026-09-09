@@ -142,6 +142,10 @@ export const MockSheetStore = {
     auditLogsByRemoteId.clear();
   },
 
+  resetStore() {
+    this.reset();
+  },
+
   /**
    * Idempotent Create
    */

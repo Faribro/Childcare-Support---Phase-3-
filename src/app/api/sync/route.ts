@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { completeSubmissionSchema, patchSubmissionSchema } from '@/lib/validations/submissionSchema';
-import { MockSheetStore } from '@/lib/server/mockSheetStore';
+import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +16,20 @@ interface SyncBatchItem {
 export async function POST(req: NextRequest) {
   const requestId = `batch-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
+    // Fail-closed verification in production/staging
+    const configCheck = canonicalSubmissionAdapter.checkConfiguration('write');
+    if (!configCheck.valid && configCheck.errorResponse) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: configCheck.errorResponse.code,
+          message: configCheck.errorResponse.message,
+          batchRequestId: requestId,
+        },
+        { status: configCheck.errorResponse.statusCode }
+      );
+    }
+
     let body;
     try {
       body = await req.json();
@@ -59,19 +73,34 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const res = MockSheetStore.createRecord(parsed.data, item.idempotencyKey, itemReqId);
-        results.push({
-          submissionUuid: item.submissionUuid,
-          status: 'synced',
-          statusCode: 200,
-          remoteSubmissionId: res.remoteSubmissionId,
-          version: res.version,
-          updatedAt: res.updatedAt,
+        const res = await canonicalSubmissionAdapter.createSubmission({
+          payload: parsed.data,
+          idempotencyKey: item.idempotencyKey || `idem-${item.submissionUuid}`,
+          requestId: itemReqId,
         });
+
+        if (res.status === 'error') {
+          results.push({
+            submissionUuid: item.submissionUuid,
+            status: 'failed',
+            statusCode: res.statusCode,
+            error: res.message || 'Upstream creation error',
+            code: res.code,
+          });
+        } else {
+          results.push({
+            submissionUuid: item.submissionUuid,
+            status: 'synced',
+            statusCode: res.statusCode,
+            remoteSubmissionId: res.remoteSubmissionId,
+            version: res.version,
+            updatedAt: res.updatedAt,
+          });
+        }
       } else if (item.operationType === 'UPDATE') {
         const patchData = {
-          expectedVersion: item.expectedVersion || item.payload.expectedVersion || 1,
-          ...item.payload,
+          expectedVersion: item.expectedVersion || (item.payload && (item.payload.expectedVersion || item.payload.version)) || 1,
+          ...(typeof item.payload === 'object' ? item.payload : {}),
         };
         const parsed = patchSubmissionSchema.safeParse(patchData);
         if (!parsed.success) {
@@ -80,34 +109,44 @@ export async function POST(req: NextRequest) {
             status: 'failed',
             statusCode: 422,
             error: 'Patch validation failed',
+            issues: parsed.error.issues.map((i) => i.message),
           });
           continue;
         }
 
-        const res = MockSheetStore.updateRecord(item.submissionUuid, parsed.data, 'Caseworker-Batch', itemReqId);
-        if ('conflict' in res) {
+        const res = await canonicalSubmissionAdapter.updateSubmission({
+          submissionId: item.submissionUuid,
+          patch: parsed.data,
+          expectedVersion: patchData.expectedVersion,
+          idempotencyKey: item.idempotencyKey || `update-${item.submissionUuid}-${patchData.expectedVersion}`,
+          requestId: itemReqId,
+        });
+
+        if (res.status === 'conflict') {
           results.push({
             submissionUuid: item.submissionUuid,
             status: 'conflict',
             statusCode: 409,
             currentVersion: res.currentVersion,
             expectedVersion: res.expectedVersion,
+            error: res.message || 'Concurrent edit conflict',
           });
-        } else if ('notFound' in res) {
+        } else if (res.status === 'error') {
           results.push({
             submissionUuid: item.submissionUuid,
             status: 'failed',
-            statusCode: 404,
-            error: 'Target record not found for update',
+            statusCode: res.statusCode,
+            error: res.message || 'Update failed',
+            code: res.code,
           });
         } else {
           results.push({
             submissionUuid: item.submissionUuid,
             status: 'synced',
             statusCode: 200,
-            remoteSubmissionId: res.record.remote_submission_id,
+            remoteSubmissionId: res.remoteSubmissionId,
             version: res.version,
-            updatedAt: res.record.updated_at,
+            updatedAt: res.updatedAt,
           });
         }
       } else {
@@ -129,7 +168,7 @@ export async function POST(req: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error('POST /api/sync batch error:', err);
     return NextResponse.json(
       { status: 'error', code: 'INTERNAL_ERROR', message: 'Failed to process sync batch' },

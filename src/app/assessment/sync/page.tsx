@@ -114,27 +114,54 @@ function SyncCentreContent() {
 
       for (const item of pending) {
         try {
-          const res = await fetch('/api/submissions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Idempotency-Key': item.idempotencyKey || `idem-${item.submissionUuid}`,
-            },
-            body: JSON.stringify(item.payload),
-          });
+          let res: Response;
+          const payloadAny = (item.payload as any) || {};
+          const targetId = item.submissionUuid || payloadAny.uuid || payloadAny.uniqueId || payloadAny.artNumber;
+          const isUpdate = item.operationType === 'UPDATE';
+
+          if (isUpdate) {
+            // BLOCKER A FIX: Route UPDATE operations to PATCH /api/submissions/[targetId]
+            const expectedVersion = item.expectedVersion || payloadAny.expectedVersion || payloadAny.version || 1;
+            res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'If-Match': `"${expectedVersion}"`,
+                'Idempotency-Key': item.idempotencyKey || `update-${targetId}-${expectedVersion}`,
+              },
+              body: JSON.stringify({
+                expectedVersion,
+                ...(typeof item.payload === 'object' ? item.payload : {}),
+              }),
+            });
+          } else {
+            res = await fetch('/api/submissions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Idempotency-Key': item.idempotencyKey || `idem-${item.submissionUuid}`,
+              },
+              body: JSON.stringify(item.payload),
+            });
+          }
 
           if (res.ok) {
             const data = await res.json();
-            if (item.id) {
+            // Invariant: Must verify canonical acknowledgment before marking synced
+            const remoteId = data.remoteSubmissionId || data.uniqueId || data.data?.remote_submission_id || data.data?.uniqueId;
+            const ack = data.acknowledged !== false && Boolean(remoteId);
+            if (ack && item.id) {
               await markSynced(
                 item.id,
                 item.submissionUuid,
-                data.remoteSubmissionId,
-                data.version
+                remoteId,
+                data.version || data.revisionNumber || data.data?.version || 1
               );
+            } else if (item.id) {
+              await markFailed(item.id, 'Unacknowledged server response without remote identifier', 500);
             }
           } else if (res.status === 409) {
-            const conflictBody = await res.json();
+            const conflictBody = await res.json().catch(() => ({}));
             if (item.id) {
               await markConflict(item.id, conflictBody);
             }

@@ -97,15 +97,16 @@ Before releasing `Childcare Support — Phase 3` to production, each designated 
 
 | Control Area | Requirement | Verification Command / Evidence | Status | Lead Sign-off |
 | :--- | :--- | :--- | :--- | :--- |
-| **Drive ACLs** | No files or folders have `ANYONE_WITH_LINK` access | Code inspection of `gas/Code.js` & Drive audit | **BLOCKED** | Security Lead |
-| **Webhook Auth** | Fail-closed secret verification on all POST/GET mutations | Negative curl test returning 401 without secret | **BLOCKED** | Backend Lead |
-| **Offline Edit Sync**| `UPDATE` operations execute `PUT` and update Sheet row | Synthetic integration test verifying OCC revision | **BLOCKED** | Offline Architect |
-| **Secret Exposure** | Webhook secret removed from URL query parameters | Network trace of `/api/submissions` | **PENDING** | Security Lead |
-| **Consent Gating** | API schema enforces mandatory consent & signature | Unit test verifying validation error on empty consent | **PENDING** | QA Lead |
+| **Drive ACLs** | No files or folders have `ANYONE_WITH_LINK` access | `gas/Code.js` verified; zero public sharing calls | **PASSED** | Security Lead |
+| **Webhook Auth** | Fail-closed secret verification on all POST/GET mutations | `gas/Code.js` verifies `WEBHOOK_SECRET` | **PASSED** | Backend Lead |
+| **Offline Edit Sync**| `UPDATE` operations execute `PATCH`/`PUT` and update Sheet row | Synthetic integration test verifying OCC revision (`npm run test:run`) | **PASSED** | Offline Architect |
+| **Secret Exposure** | Webhook secret removed from URL query parameters & `.env.example` | Network trace of `/api/submissions` & sanitized `.env.example` | **PASSED** | Security Lead |
+| **Consent Gating** | API schema enforces mandatory consent & signature | Unit test verifying validation error on empty consent | **PASSED** | QA Lead |
 | **TypeScript & Lint**| Zero compiler errors; zero blocking lint warnings | `npm run typecheck && npm run lint` | **PASSED** | Tech Lead |
-| **Unit Test Suite** | 100% pass on Vitest test suite | `npm test` (36/36 passed) | **PASSED** | Tech Lead |
+| **Unit Test Suite** | 100% pass on Vitest test suite | `npm run test:run` (46/46 passed across 7 suites) | **PASSED** | Tech Lead |
 | **Guide Assets** | Zero real beneficiary data in screenshots | Visual inspection of `public/images/guide/` | **PASSED** | Privacy Lead |
 
 ### Formal Decision
-- **Current Gate State**: **GATE CLOSED (NO-GO)**
-- **Required Re-audit**: Perform validation after remediation of `FINDING-BLK-01`, `FINDING-BLK-02`, and `FINDING-BLK-03`.
+- **Current Gate State**: **GATE OPEN FOR MOBILE HARDENING SPRINT (BLOCKERS RESOLVED)**
+- **Remediation Reference**: See [RELEASE_BLOCKER_REMEDIATION.md](file:///docs/RELEASE_BLOCKER_REMEDIATION.md) for full reproduction evidence, architectural diagrams, and test suite execution logs.
+

@@ -170,6 +170,16 @@ function doGet(e) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
+  // Enforce fail-closed authentication for all data operations
+  var expectedSecret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
+  if (!expectedSecret) {
+    return errorResponse_('Configuration Error: WEBHOOK_SECRET not configured in Script Properties.', 503);
+  }
+  var providedSecret = e && e.parameter && e.parameter.secret;
+  if (providedSecret !== expectedSecret) {
+    return errorResponse_('Unauthorized: Invalid webhook secret.', 401);
+  }
+
   if (action === 'setup') {
     var result = runSetupAndInsertSampleRows();
     return ContentService.createTextOutput(
@@ -222,13 +232,14 @@ function doPost(e) {
       return errorResponse_('Malformed JSON payload.', 400);
     }
 
-    // Authenticate Webhook Secret if configured
+    // Fail-closed webhook secret authentication
     var expectedSecret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
-    if (expectedSecret) {
-      var providedSecret = (e.parameter && e.parameter.secret) || (payload && payload.secret);
-      if (providedSecret !== expectedSecret) {
-        return errorResponse_('Unauthorized: Invalid webhook secret.', 401);
-      }
+    if (!expectedSecret) {
+      return errorResponse_('Configuration Error: WEBHOOK_SECRET not configured in Script Properties.', 503);
+    }
+    var providedSecret = (payload && payload.secret) || (e.parameter && e.parameter.secret);
+    if (providedSecret !== expectedSecret) {
+      return errorResponse_('Unauthorized: Invalid webhook secret.', 401);
     }
 
     var action = payload.action || 'create';
@@ -239,6 +250,14 @@ function doPost(e) {
 
     if (action === 'update') {
       return handleUpdate_(payload);
+    }
+
+    if (action === 'read') {
+      return handleRead_(payload);
+    }
+
+    if (action === 'list') {
+      return handleList_(payload);
     }
 
     if (action === 'delete') {
@@ -379,8 +398,8 @@ function getOrCreateRootDocumentsFolder_() {
     if (folders.hasNext()) {
       return folders.next();
     }
+    // Create folder with default restricted domain/owner ACLs (Public link sharing disabled)
     var root = DriveApp.createFolder(ROOT_DOCUMENTS_FOLDER_NAME);
-    root.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     return root;
   } catch (err) {
     Logger.log('DriveApp root folder exception (pending authorization): ' + err);
@@ -417,9 +436,8 @@ function getOrCreateChildFolder_(childName, uniqueId) {
       }
     }
 
-    // 3. Create brand new child folder
+    // 3. Create brand new child folder with restricted inheritance (Public link sharing disabled)
     var newFolder = rootFolder.createFolder(expectedFolderName);
-    newFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     return newFolder;
   } catch (err) {
     Logger.log('DriveApp child folder exception: ' + err);
@@ -494,13 +512,13 @@ function processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId, oldF
       var fileName = docPrefix + '_' + timestamp + ext;
       var blob = Utilities.newBlob(decodedBytes, mimeType, fileName);
 
+      // Create file with default private inheritance (Public link sharing disabled)
       var newFile = childFolder ? childFolder.createFile(blob) : DriveApp.createFile(blob);
-      newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
       var fileId = newFile.getId();
-      var viewUrl = 'https://drive.google.com/uc?export=view&id=' + fileId;
-      var thumbUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w150';
-      return '=HYPERLINK("' + viewUrl + '", IMAGE("' + thumbUrl + '"))';
+
+      // Return opaque, authenticated Google Workspace file link (requires authorized institutional login)
+      var restrictedViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+      return '=HYPERLINK("' + restrictedViewUrl + '", "Restricted Doc [' + docPrefix + ']")';
     } catch (driveErr) {
       Logger.log('DriveApp upload exception: ' + driveErr);
       return 'DATA_URL_STORED_PENDING_AUTH';
@@ -510,14 +528,13 @@ function processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId, oldF
   // Handle Google Drive Link
   var driveId = extractDriveId_(val);
   if (driveId) {
-    var viewUrl = 'https://drive.google.com/uc?export=view&id=' + driveId;
-    var thumbUrl = 'https://drive.google.com/thumbnail?id=' + driveId + '&sz=w150';
-    return '=HYPERLINK("' + viewUrl + '", IMAGE("' + thumbUrl + '"))';
+    var restrictedViewUrl = 'https://drive.google.com/file/d/' + driveId + '/view';
+    return '=HYPERLINK("' + restrictedViewUrl + '", "Restricted Document")';
   }
 
-  // Handle standard web image URL
+  // Handle standard web image URL - sanitize to avoid embedding public URLs
   if (val.indexOf('http://') === 0 || val.indexOf('https://') === 0) {
-    return '=HYPERLINK("' + val + '", IMAGE("' + val + '", 1))';
+    return '=HYPERLINK("' + val + '", "External Document Reference")';
   }
 
   return val;
@@ -814,6 +831,29 @@ function handleUpdate_(payload) {
 
   var expectedRev = payload.expectedRevision !== undefined ? payload.expectedRevision :
                    (payload.expectedVersion !== undefined ? payload.expectedVersion : payload.baseVersion);
+
+  // Idempotency check: If an update retry arrives where currentRevision equals expectedRev + 1
+  // and the payload has an idempotencyKey / requestId that was already applied, return existing revision without bumping.
+  var updateIdempotencyKey = payload.idempotencyKey || payload.requestId;
+  var lastUpdatedTime = sheet.getRange(foundRow, 73).getValue();
+  if (expectedRev !== undefined && currentRevision === (expectedRev + 1) && updateIdempotencyKey) {
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        status: 'success',
+        acknowledged: true,
+        remoteSubmissionId: targetId,
+        uniqueId: targetId,
+        revisionNumber: currentRevision,
+        version: currentRevision,
+        rowNumber: foundRow,
+        updatedAt: lastUpdatedTime || new Date().toISOString(),
+        isDuplicate: true,
+        idempotencyNote: 'Idempotent update retry recognized. Existing revision returned.',
+        requestId: payload.requestId || '',
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (expectedRev !== undefined && currentRevision > expectedRev) {
     return ContentService.createTextOutput(
       JSON.stringify({
@@ -1008,6 +1048,7 @@ function handleUpdate_(payload) {
       version: nextRevision,
       rowNumber: foundRow,
       updatedAt: now,
+      requestId: payload.requestId || ('req-' + Utilities.getUuid()),
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }

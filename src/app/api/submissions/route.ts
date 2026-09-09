@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
-import { MockSheetStore } from '@/lib/server/mockSheetStore';
+import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,65 +12,36 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') || undefined;
     const updatedAfter = searchParams.get('updatedAfter') || undefined;
 
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
-    const webhookSecret = process.env.WEBHOOK_SECRET;
+    const result = await canonicalSubmissionAdapter.listSubmissions({
+      cursor,
+      limit,
+      status,
+      updatedAfter,
+    });
 
-    if (appsScriptUrl && appsScriptUrl.startsWith('https://script.google.com')) {
-      try {
-        const gasUrl = new URL(appsScriptUrl);
-        gasUrl.searchParams.set('action', 'list');
-        if (cursor) gasUrl.searchParams.set('cursor', cursor);
-        gasUrl.searchParams.set('limit', String(limit));
-        if (status) gasUrl.searchParams.set('status', status);
-        if (updatedAfter) gasUrl.searchParams.set('updatedAfter', updatedAfter);
-        if (webhookSecret) gasUrl.searchParams.set('secret', webhookSecret);
-
-        const gasRes = await fetch(gasUrl.toString(), {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
-          },
-        });
-
-        if (gasRes.ok) {
-          const data = await gasRes.json();
-          const totalCount = data.total ?? data.data?.length ?? 0;
-          return NextResponse.json(
-            {
-              ...data,
-              pagination: {
-                totalCount,
-                hasMore: false,
-              },
-            },
-            { status: 200 }
-          );
-        }
-      } catch (gasErr) {
-        console.error('Apps Script list forwarding error:', gasErr);
-        return NextResponse.json(
-          { status: 'error', code: 'UPSTREAM_GATEWAY_ERROR', message: 'Failed to contact central Google Sheets bridge' },
-          { status: 502 }
-        );
-      }
+    if (result.status === 'error') {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: result.code || 'UPSTREAM_FAILURE',
+          message: result.message || 'Failed to list submissions',
+        },
+        { status: result.statusCode || 502 }
+      );
     }
 
-    // Default to In-Memory Staging Store
-    const result = MockSheetStore.listRecords({ cursor, limit, status, updatedAfter });
     return NextResponse.json(
       {
         status: 'success',
-        data: result.records,
-        pagination: {
-          nextCursor: result.nextCursor,
-          hasMore: result.hasMore,
-          totalCount: result.totalCount,
+        data: result.data || [],
+        pagination: result.pagination || {
+          totalCount: Array.isArray(result.data) ? result.data.length : 0,
+          hasMore: false,
         },
       },
       { status: 200 }
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error('GET /api/submissions error:', err);
     return NextResponse.json(
       { status: 'error', code: 'INTERNAL_ERROR', message: 'Failed to list submissions' },
@@ -104,7 +75,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Strict Zod schema validation (enforcing artCenter absence)
+    // Strict Zod schema validation
     const validation = completeSubmissionSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json(
@@ -121,58 +92,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const payload = validation.data;
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
-    const webhookSecret = process.env.WEBHOOK_SECRET;
+    const result = await canonicalSubmissionAdapter.createSubmission({
+      payload: validation.data,
+      idempotencyKey,
+      requestId,
+    });
 
-    // External Apps Script forwarding if configured
-    if (appsScriptUrl && appsScriptUrl.startsWith('https://script.google.com')) {
-      try {
-        const gasResponse = await fetch(appsScriptUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Idempotency-Key': idempotencyKey,
-            ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
-          },
-          body: JSON.stringify({
-            action: 'create',
-            idempotencyKey,
-            secret: webhookSecret,
-            ...payload,
-          }),
-        });
-
-        if (!gasResponse.ok) {
-          return NextResponse.json(
-            {
-              status: 'error',
-              code: 'UPSTREAM_FAILURE',
-              message: `Central Google Sheets bridge rejected submission (${gasResponse.status})`,
-            },
-            { status: gasResponse.status >= 500 ? 502 : gasResponse.status }
-          );
-        }
-
-        const gasData = await gasResponse.json();
-        return NextResponse.json(gasData, { status: 200 });
-      } catch (gasErr) {
-        console.error('Apps Script forwarding network exception:', gasErr);
-        return NextResponse.json(
-          {
-            status: 'error',
-            code: 'GATEWAY_TIMEOUT',
-            message: 'Unable to connect to Google Sheets backend. Item remains safely queued in outbox.',
-          },
-          { status: 504 }
-        );
-      }
+    if (result.status === 'error') {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: result.code || 'UPSTREAM_FAILURE',
+          message: result.message || 'Error processing submission',
+          requestId,
+        },
+        { status: result.statusCode || 502 }
+      );
     }
 
-    // Staging / Local Store Execution
-    const result = MockSheetStore.createRecord(payload, idempotencyKey, requestId);
-    return NextResponse.json(result, { status: result.isDuplicate ? 200 : 201 });
-  } catch (err) {
+    return NextResponse.json(
+      {
+        status: 'success',
+        acknowledged: true,
+        remoteSubmissionId: result.remoteSubmissionId,
+        uniqueId: result.uniqueId,
+        version: result.version,
+        revisionNumber: result.revisionNumber,
+        updatedAt: result.updatedAt,
+        isDuplicate: result.isDuplicate,
+        requestId: result.requestId,
+        data: result.data,
+      },
+      { status: result.statusCode || (result.isDuplicate ? 200 : 201) }
+    );
+  } catch (err: any) {
     console.error('API submission ingestion error:', err);
     return NextResponse.json(
       {
