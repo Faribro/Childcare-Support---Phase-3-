@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { CaregiverSignaturePad } from '@/components/ui/CaregiverSignaturePad';
 import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
-import { SectionVerticalTitle } from '@/components/ui/SectionVerticalTitle';
+import { SectionVerticalTitle, type SectionColorScheme } from '@/components/ui/SectionVerticalTitle';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
@@ -72,14 +72,28 @@ export default function NewSinglePageAssessment() {
 
   const getHighlightClass = (id: string) =>
     activeReadingId === id
-      ? 'ring-2 ring-amber-400 bg-amber-50/70 rounded-xl p-1 -m-1 transition-all duration-300 shadow-sm'
+      ? 'ring-2 ring-purple-400 bg-purple-50/70 rounded-xl p-1 -m-1 transition-all duration-300 shadow-[0_0_18px_rgba(168,85,247,0.35)]'
       : 'transition-all duration-200';
+
 
   const ORPHAN_OPTIONS: { value: OrphanStatus; label: string; tooltip: string }[] = [
     { value: 'Both parents alive', label: 'Both parents alive', tooltip: 'Both biological parents are alive' },
     { value: 'Single orphan (one parent deceased)', label: 'Single orphan', tooltip: 'One parent deceased' },
     { value: 'Double orphan (both parents deceased)', label: 'Double orphan', tooltip: 'Both parents deceased' },
   ];
+
+  // ── Premium per-section colour palettes ───────────────────────────────────
+  const SC: Record<string, SectionColorScheme> = {
+    consent:    { bg:'bg-rose-50/60',   border:'border-rose-200',   badge:'bg-rose-800',   text:'text-rose-900' },
+    demo:       { bg:'bg-indigo-50/60', border:'border-indigo-200', badge:'bg-indigo-800', text:'text-indigo-900' },
+    banking:    { bg:'bg-amber-50/60',  border:'border-amber-200',  badge:'bg-amber-800',  text:'text-amber-900' },
+    household:  { bg:'bg-teal-50/60',   border:'border-teal-200',   badge:'bg-teal-800',   text:'text-teal-900' },
+    clinical:   { bg:'bg-sky-50/60',    border:'border-sky-200',    badge:'bg-sky-800',    text:'text-sky-900' },
+    nutrition:  { bg:'bg-lime-50/60',   border:'border-lime-200',   badge:'bg-lime-800',   text:'text-lime-900' },
+    education:  { bg:'bg-violet-50/60', border:'border-violet-200', badge:'bg-violet-800', text:'text-violet-900' },
+    expenses:   { bg:'bg-orange-50/60', border:'border-orange-200', badge:'bg-orange-800', text:'text-orange-900' },
+    review:     { bg:'bg-emerald-50/60',border:'border-emerald-200',badge:'bg-emerald-800',text:'text-emerald-900' },
+  };
 
   // Form State strictly covering all 73 official linelist & Sheet fields
   const [formData, setFormData] = useState({
@@ -652,6 +666,8 @@ export default function NewSinglePageAssessment() {
               onLanguageChange={setCurrentLanguage}
               activeReadingId={activeReadingId}
               onReadingChange={setActiveReadingId}
+              formData={formData as unknown as Record<string, unknown>}
+              hasSavedSignature={hasSavedSignature}
             />
           </div>
 
@@ -695,9 +711,8 @@ export default function NewSinglePageAssessment() {
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} />
+        <section id="sec-consent" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`}>
+          <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
 
           <div className="space-y-4">
             {/* Consent Decision */}
@@ -824,8 +839,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 2: Child Demographics & Residence */}
-        <section id="sec-child" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} />
+        <section id="sec-child" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`}>
+          <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* System Generated Unique ID Display: Unique ID directly in place of NACO REGISTRY */}
@@ -990,8 +1005,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} />
+        <section id="sec-banking" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`}>
+          <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-bank-holder" className={`sm:col-span-2 ${getHighlightClass('q-bank-holder')}`}>
@@ -1059,8 +1074,8 @@ export default function NewSinglePageAssessment() {
 
         {/* SECTION 4: Household & Financial Details */}
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} />
+        <section id="sec-household" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`}>
+          <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-hh-members" className={getHighlightClass('q-hh-members')}>
@@ -1127,8 +1142,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} />
+        <section id="sec-health" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`}>
+          <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
@@ -1328,8 +1343,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} />
+        <section id="sec-nutrition" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`}>
+          <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div id="q-nut-appetite" className={`sm:col-span-2 space-y-1.5 ${getHighlightClass('q-nut-appetite')}`}>
@@ -1375,8 +1390,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} />
+        <section id="sec-education" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`}>
+          <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
 
           <div className="space-y-4">
             <div id="q-edu-status" className={`space-y-1.5 ${getHighlightClass('q-edu-status')}`}>
@@ -1501,8 +1516,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} />
+        <section id="sec-expenses" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`}>
+          <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
 
           <ExpensesAndApprovalGrid
             currentExpenses={{
@@ -1538,8 +1553,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
-          <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} />
+        <section id="sec-review" className={`relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`}>
+          <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
 
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1673,9 +1688,7 @@ export default function NewSinglePageAssessment() {
                 type="button"
                 variant="primary"
                 size="sm"
-                onClick={handleSubmit}
-                isLoading={isSubmitting}
-                className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold"
+                id="btn-submit-survey" onClick={handleSubmit} isLoading={isSubmitting} className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold"
               >
                 <Send className="h-4 w-4 mr-1.5" />
                 <span>{t('submit_survey', currentLanguage)}</span>
@@ -1687,3 +1700,4 @@ export default function NewSinglePageAssessment() {
     </AppShell>
   );
 }
+
