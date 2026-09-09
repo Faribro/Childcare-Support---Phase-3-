@@ -31,6 +31,7 @@ import {
   Lock,
   ChevronDown,
 } from 'lucide-react';
+import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
 
@@ -565,40 +566,20 @@ export default function SupervisorAssessmentsPage() {
           </div>
         )}
 
-        {/* Exclusive Supervisor Tab Navigation */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-3 sm:mb-4 gap-3">
-          <div className="flex items-center space-x-1 overflow-x-auto">
-            <Link
-              href="/supervisor"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
+        {/* Supervisor Tab Navigation with Smooth Animations */}
+        <SupervisorTabNav
+          rightAction={
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={fetchSubmissions}
+              className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl"
             >
-              <Activity className="h-4 w-4" />
-              <span>Overview &amp; Surveillance</span>
-            </Link>
-            <Link
-              href="/supervisor/assessments"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
-            >
-              <TableProperties className="h-4 w-4 text-teal-600" />
-              <span>Beneficiary Linelist</span>
-            </Link>
-            <Link
-              href="/supervisor/analytics"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
-            >
-              <BarChart3 className="h-4 w-4" />
-              <span>Clinical Analytics</span>
-            </Link>
-          </div>
-
-          {/* Supervisor Tools */}
-          <div className="flex items-center space-x-2 pb-2 sm:pb-0">
-            <Button variant="ghost" size="sm" onClick={fetchSubmissions} className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl">
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
               <span>Refresh</span>
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Precision Command Ribbon: Search, Smart Filter Suite, Open GIS & CSV Export */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 mb-5 shadow-xs transition-all">

@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/Input';
 import { CaregiverSignaturePad } from '@/components/ui/CaregiverSignaturePad';
 import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
+import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
+import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { getAllQueueItems, enqueueSubmission } from '@/lib/db/syncQueueRepository';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
@@ -51,6 +53,10 @@ import {
   History,
   Home,
   FileCheck,
+  Scale,
+  Pill,
+  Microscope,
+  Activity,
 } from 'lucide-react';
 
 export default function EditRecordPage() {
@@ -1183,13 +1189,12 @@ export default function EditRecordPage() {
                 placeholder="e.g. 123456789012"
               />
 
-              <div className="sm:col-span-2 md:col-span-3">
+              <div className="sm:col-span-2">
                 <Input
                   label="Full Residential Address *"
                   required
                   value={formData.fullAddress}
                   onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                  
                   placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
                 />
               </div>
@@ -1199,7 +1204,7 @@ export default function EditRecordPage() {
                 <select
                   value={formData.state}
                   onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
                   {INDIAN_STATES_AND_UTS.map((st) => (
                     <option key={st} value={st}>{st}</option>
@@ -1212,9 +1217,23 @@ export default function EditRecordPage() {
                 required
                 value={formData.district}
                 onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                
                 placeholder="e.g. Pune"
               />
+
+              <div className="flex flex-col space-y-1.5">
+                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-indigo-600 block flex items-center justify-between">
+                  <span>GPS Location</span>
+                  <span className="text-[9px] font-bold text-indigo-600/90 bg-indigo-100/70 px-1.5 py-0.5 rounded uppercase">Live Satellite</span>
+                </label>
+                <LocationFetchButton
+                  onLocationFetched={(loc) => setFormData((prev) => ({
+                    ...prev,
+                    fullAddress: loc.fullAddress || prev.fullAddress,
+                    state: loc.state || prev.state,
+                    district: loc.district || prev.district,
+                  }))}
+                />
+              </div>
             </div>
           </section>
 
@@ -1323,22 +1342,20 @@ export default function EditRecordPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="HOUSEHOLD MEMBERS (TOTAL FAMILY) *"
+                label="Total Family Members *"
                 type="number"
                 min="1"
                 required
-                value={formData.totalFamilyMembers}
-                onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
-                
+                value={formData.totalFamilyMembers || ''}
+                onChange={(e) => setFormData({ ...formData, totalFamilyMembers: e.target.value === '' ? ('' as any) : Number(e.target.value) })}
               />
               <Input
                 label="NO OF CHILDREN (≤18 YRS) *"
                 type="number"
                 min="0"
                 required
-                value={formData.numberOfChildrenUnder18}
-                onChange={(e) => setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })}
-                
+                value={(formData.numberOfChildrenUnder18 as any) !== '' && formData.numberOfChildrenUnder18 !== undefined ? formData.numberOfChildrenUnder18 : ''}
+                onChange={(e) => setFormData({ ...formData, numberOfChildrenUnder18: e.target.value === '' ? ('' as any) : Number(e.target.value) })}
               />
               <Input
                 label="MONTHLY INCOME (RS.) *"
@@ -1346,9 +1363,8 @@ export default function EditRecordPage() {
                 min="0"
                 required
                 unit="₹"
-                value={formData.monthlyIncomeRs}
-                onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
-                
+                value={(formData.monthlyIncomeRs as any) !== '' && formData.monthlyIncomeRs !== undefined ? formData.monthlyIncomeRs : ''}
+                onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: e.target.value === '' ? ('' as any) : Number(e.target.value) })}
               />
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">INCOME SOURCE *</label>
@@ -1393,130 +1409,311 @@ export default function EditRecordPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input
-                label="CURRENT WEIGHT (KG) *"
-                type="number"
-                step="0.1"
-                required
-                unit="kg"
-                value={formData.weightKg}
-                onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
-                
-              />
-              <Input
-                label="CURRENT HEIGHT (CM) *"
-                type="number"
-                step="0.1"
-                required
-                unit="cm"
-                value={formData.heightCm}
-                onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
-                
-              />
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-500 block">BMI &amp; CATEGORY</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-mono font-bold text-slate-900">{bmiValue} kg/m²</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900">
-                    {bmiCategory}
+            <div className="space-y-4">
+              {/* Sub-Card 1: Anthropometry & Growth (WHO Standards) */}
+              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center">
+                      <Scale className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                        Child Anthropometry &amp; Growth Assessment
+                      </h4>
+                      <p className="text-[11px] text-slate-500">WHO child growth benchmarks and calculated nutritional status</p>
+                    </div>
+                  </div>
+                  <span className="hidden sm:inline-flex text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                    WHO Standards
                   </span>
                 </div>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-              <Input
-                label="HEMOGLOBIN (G/DL)"
-                type="number"
-                step="0.1"
-                unit="g/dL"
-                value={formData.haemoglobinGdl}
-                onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
-                helperText={`Status: ${hbCategory}`}
-              />
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ART STATUS *</label>
-                <select
-                  value={formData.artStatus}
-                  onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                >
-                  <option value="On ART">On ART</option>
-                  <option value="Initiating ART">Initiating ART</option>
-                  <option value="Defaulted / Lost to follow-up">Defaulted / Lost to follow-up</option>
-                  <option value="Not enrolled">Not enrolled</option>
-                </select>
-              </div>
-              <Input
-                label="ART REGISTRATION DATE"
-                type="date"
-                value={formData.artRegistrationDate}
-                onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
-                
-              />
-              <Input
-                label="ART ID NUMBER"
-                value={formData.artIdNumber}
-                onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
-                
-                placeholder="e.g. MH-PUN-00123"
-              />
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-stretch">
+                  <Input
+                    label="CURRENT WEIGHT (KG) *"
+                    type="number"
+                    step="0.1"
+                    min="2"
+                    max="150"
+                    required
+                    unit="kg"
+                    value={formData.weightKg ? formData.weightKg : ''}
+                    onChange={(e) => setFormData({ ...formData, weightKg: e.target.value === '' ? ('' as any) : Number(e.target.value) })}
+                    placeholder="e.g. 14.5"
+                  />
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">VIRAL LOAD STATUS *</label>
-                <select
-                  value={formData.vlStatus}
-                  onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                >
-                  <option value="Tested in last 6 months">Tested in last 6 months</option>
-                  <option value="Tested > 6 months ago">Tested &gt; 6 months ago</option>
-                  <option value="Never tested">Never tested</option>
-                  <option value="Awaiting result">Awaiting result</option>
-                </select>
-              </div>
-              <Input
-                label="VIRAL LOAD TEST DATE"
-                type="date"
-                value={formData.vlDate}
-                onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
-                
-              />
-              <Input
-                label="VIRAL LOAD (COPIES/ML)"
-                value={formData.viralLoad}
-                onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
-                helperText={`Suppression: ${vlCategory}`}
-                placeholder="Copies per mL or < 50"
-              />
-            </div>
+                  <Input
+                    label="CURRENT HEIGHT (CM) *"
+                    type="number"
+                    step="0.1"
+                    min="40"
+                    max="220"
+                    required
+                    unit="cm"
+                    value={formData.heightCm ? formData.heightCm : ''}
+                    onChange={(e) => setFormData({ ...formData, heightCm: e.target.value === '' ? ('' as any) : Number(e.target.value) })}
+                    placeholder="e.g. 98.0"
+                  />
 
-            <div className="space-y-1.5 pt-2">
-              <label className="text-xs font-bold text-slate-800 block">COMORBIDITIES (Select all that apply)</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {['TB (Tuberculosis)', 'Hepatitis B', 'Hepatitis C', 'Malnutrition'].map((c) => (
-                  <label
-                    key={c}
-                    className="flex items-center space-x-2 p-2.5 rounded-xl border border-slate-200 text-xs cursor-pointer hover:bg-slate-50 transition-colors bg-white"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={formData.otherHealthConditions.includes(c)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setFormData({ ...formData, otherHealthConditions: [...formData.otherHealthConditions, c] });
-                        } else {
-                          setFormData({ ...formData, otherHealthConditions: formData.otherHealthConditions.filter((x) => x !== c) });
-                        }
-                      }}
-                      className="rounded text-teal-600 focus:ring-teal-500"
+                  {/* BMI Metric Tile */}
+                  <div className={`flex flex-col justify-between rounded-xl border p-3.5 transition-all shadow-2xs ${
+                    bmiValue > 0
+                      ? bmiCategory === 'Normal'
+                        ? 'bg-emerald-50/90 border-emerald-300'
+                        : bmiCategory.includes('Underweight')
+                        ? 'bg-rose-50/90 border-rose-300'
+                        : 'bg-amber-50/90 border-amber-300'
+                      : 'bg-slate-50/90 border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-black tracking-wider text-slate-600">BMI</span>
+                      {bmiValue > 0 ? (
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                          bmiCategory === 'Normal'
+                            ? 'bg-emerald-200/80 text-emerald-900'
+                            : bmiCategory === 'Severe Underweight'
+                            ? 'bg-rose-200/80 text-rose-900 animate-pulse'
+                            : 'bg-amber-200/80 text-amber-900'
+                        }`}>
+                          {bmiCategory}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-slate-400">Awaiting inputs</span>
+                      )}
+                    </div>
+
+                    <div className="my-1 flex items-baseline gap-1.5">
+                      {bmiValue > 0 ? (
+                        <>
+                          <span className="text-2xl font-black font-mono tracking-tight text-slate-900">{bmiValue}</span>
+                          <span className="text-xs font-bold text-slate-500">kg/m²</span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium italic">Enter weight &amp; height</span>
+                      )}
+                    </div>
+
+                    <div className="w-full">
+                      <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden flex">
+                        <div className="w-1/3 bg-rose-400 h-full opacity-60" title="Underweight" />
+                        <div className="w-1/2 bg-emerald-500 h-full opacity-70" title="Normal" />
+                        <div className="w-1/6 bg-amber-400 h-full opacity-60" title="Overweight" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sub-Card 2: ART Care */}
+              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center">
+                      <Pill className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                        HIV Clinical Care &amp; ART Regimen
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Antiretroviral treatment verification and ART center registration</p>
+                    </div>
+                  </div>
+                  <span className="hidden sm:inline-flex text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                    NACO Protocol
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">ART STATUS *</label>
+                    <select
+                      value={formData.artStatus}
+                      onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
+                      className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    >
+                      <option value="On ART">On ART</option>
+                      <option value="Initiating ART">Initiating ART</option>
+                      <option value="Defaulted / Lost to follow-up">Defaulted / Lost to follow-up</option>
+                      <option value="Not enrolled">Not enrolled</option>
+                    </select>
+                  </div>
+
+                  <Input
+                    label="ART ID NUMBER *"
+                    required
+                    value={formData.artIdNumber}
+                    onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                    placeholder="e.g. MH-PUN-00123"
+                  />
+
+                  <Input
+                    label="ART REGISTRATION DATE"
+                    type="date"
+                    value={formData.artRegistrationDate}
+                    onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Sub-Card 3: Diagnostics Lab Monitoring (Hb & Viral Load) */}
+              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center">
+                      <Microscope className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                        Laboratory Diagnostics &amp; Biomarkers
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Hemoglobin anemia staging and HIV viral load suppression tracking</p>
+                    </div>
+                  </div>
+                  <span className="hidden sm:inline-flex text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                    Lab Diagnostics
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Part A: Hb */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3 flex flex-col justify-between">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-teal-600" />
+                        Hemoglobin (Hb) Anemia Screening
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                        formData.haemoglobinGdl
+                          ? hbCategory === 'Normal'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : hbCategory === 'Severe Anemia'
+                            ? 'bg-rose-100 text-rose-800 font-black animate-pulse'
+                            : 'bg-amber-100 text-amber-800'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {formData.haemoglobinGdl ? hbCategory : 'Not Tested'}
+                      </span>
+                    </div>
+
+                    <Input
+                      label="HEMOGLOBIN (G/DL)"
+                      type="number"
+                      step="0.1"
+                      min="2"
+                      max="25"
+                      unit="g/dL"
+                      value={formData.haemoglobinGdl}
+                      onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
+                      placeholder="e.g. 11.2"
                     />
-                    <span>{c}</span>
-                  </label>
-                ))}
+
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      {formData.haemoglobinGdl ? (
+                        Number(formData.haemoglobinGdl) < 7.0 ? (
+                          <span className="text-rose-600 font-bold">🚨 Severe anemia (&lt; 7.0 g/dL). Referral recommended.</span>
+                        ) : Number(formData.haemoglobinGdl) < 11.0 ? (
+                          <span className="text-amber-700 font-medium">⚠️ Mild/Moderate anemia. Iron supplementation recommended.</span>
+                        ) : (
+                          <span className="text-emerald-700 font-medium">✓ Normal pediatric reference range (≥ 11.0 g/dL).</span>
+                        )
+                      ) : (
+                        'Record recent clinical lab test result. Normal threshold is ≥ 11.0 g/dL.'
+                      )}
+                    </p>
+                  </div>
+
+                  {/* Part B: Viral Load */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3 flex flex-col justify-between">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <HeartPulse className="w-3.5 h-3.5 text-teal-600" />
+                        Viral Load (VL) &amp; Suppression
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                        vlCategory.includes('Undetectable') || vlCategory.includes('Suppressed')
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : vlCategory.includes('Unsuppressed')
+                          ? 'bg-rose-100 text-rose-800 font-black animate-pulse'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {vlCategory}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                          VL STATUS *
+                        </label>
+                        <select
+                          value={formData.vlStatus}
+                          onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
+                          className="w-full h-11 px-2.5 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        >
+                          <option value="Tested in last 6 months">Tested in last 6 months</option>
+                          <option value="Tested > 6 months ago">Tested &gt; 6 months ago</option>
+                          <option value="Never tested">Never tested</option>
+                          <option value="Awaiting result">Awaiting result</option>
+                        </select>
+                      </div>
+
+                      <Input
+                        label="VIRAL LOAD TEST DATE"
+                        type="date"
+                        value={formData.vlDate}
+                        onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
+                      />
+                    </div>
+
+                    <Input
+                      label="VIRAL LOAD (COPIES/ML)"
+                      value={formData.viralLoad}
+                      onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
+                      placeholder="e.g. < 50 or 450"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sub-Card 4: Comorbidities */}
+              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                    Active Co-Morbidities &amp; Health Conditions
+                  </h4>
+                  <p className="text-[11px] text-slate-500">Select all confirmed conditions requiring clinical management</p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {['TB (Tuberculosis)', 'Hepatitis B', 'Hepatitis C', 'Any Other Health Condition (specify)'].map((c) => {
+                    const isChecked = formData.otherHealthConditions.includes(c);
+                    return (
+                      <label
+                        key={c}
+                        className={`flex items-center space-x-2.5 h-11 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                          isChecked
+                            ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold ring-2 ring-teal-400/50'
+                            : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, otherHealthConditions: [...formData.otherHealthConditions, c] });
+                            } else {
+                              setFormData({ ...formData, otherHealthConditions: formData.otherHealthConditions.filter((x) => x !== c) });
+                            }
+                          }}
+                          className="rounded text-teal-600 focus:ring-teal-500 shrink-0"
+                        />
+                        <span className="truncate">{c}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </section>
@@ -1546,42 +1743,12 @@ export default function EditRecordPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 block">CHILD&apos;S APPETITE *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Good', 'Reduced', 'Poor'] as AppetiteLevel[]).map((ap) => (
-                    <label
-                      key={ap}
-                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                        formData.appetite === ap
-                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                          : 'bg-white border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="appetite"
-                        value={ap}
-                        checked={formData.appetite === ap}
-                        onChange={() => setFormData({ ...formData, appetite: ap })}
-                        className="text-teal-600 focus:ring-teal-500"
-                      />
-                      <span>{ap}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <Input
-                label="MEALS PER DAY *"
-                type="number"
-                min="1"
-                max="10"
-                required
-                value={formData.mealsPerDay}
-                onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
-                
+            <div className="pt-1">
+              <AnimatedAppetiteSelector
+                appetite={formData.appetite}
+                mealsPerDay={formData.mealsPerDay}
+                onAppetiteChange={(app) => setFormData((prev) => ({ ...prev, appetite: app }))}
+                onMealsChange={(m) => setFormData((prev) => ({ ...prev, mealsPerDay: m }))}
               />
             </div>
           </section>
@@ -1788,61 +1955,62 @@ export default function EditRecordPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Verification & Review Confirmation Card */}
+            <div className="p-4 rounded-xl border border-teal-200 bg-teal-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  APPROVED ALLIANCE INDIA (PROGRAMME STATUS)
-                </label>
-                <select
-                  value={formData.approvedAllianceIndia}
-                  onChange={(e) => setFormData({ ...formData, approvedAllianceIndia: e.target.value as ApprovedAllianceStatus })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                >
-                  <option value="Approved">Approved</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Rejected">Rejected</option>
-                </select>
+                <h4 className="text-xs font-bold text-teal-950 uppercase tracking-wide">
+                  Caseworker Verification &amp; Accuracy Attestation *
+                </h4>
+                <p className="text-[11px] text-teal-800/90 mt-0.5">
+                  Confirm all clinical metrics, educational needs, and guardian identity documents have been verified.
+                </p>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-800 block">
-                  REVIEW CONFIRMED (ALL INFORMATION ACCURATE) *
+              <div className="flex items-center space-x-3 shrink-0">
+                <label
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                    formData.allInfoCorrect
+                      ? 'bg-emerald-600 border-emerald-600 text-white font-bold ring-2 ring-emerald-400/40 shadow-xs'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="allInfoCorrect"
+                    checked={formData.allInfoCorrect}
+                    onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
+                    className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span>Yes — Verified</span>
                 </label>
-                <div className="flex items-center space-x-3 pt-1">
-                  <label
-                    className={`flex items-center space-x-2 px-3 py-2 rounded-xl border text-xs cursor-pointer ${
-                      formData.allInfoCorrect
-                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                        : 'bg-white border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="allInfoCorrect"
-                      checked={formData.allInfoCorrect}
-                      onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
-                      className="text-teal-600 focus:ring-teal-500"
-                    />
-                    <span>Yes — Verified</span>
-                  </label>
-                  <label
-                    className={`flex items-center space-x-2 px-3 py-2 rounded-xl border text-xs cursor-pointer ${
-                      !formData.allInfoCorrect
-                        ? 'bg-rose-50 border-rose-500 text-rose-900 font-semibold'
-                        : 'bg-white border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="allInfoCorrect"
-                      checked={!formData.allInfoCorrect}
-                      onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
-                      className="text-rose-600 focus:ring-rose-500"
-                    />
-                    <span>No — Needs correction</span>
-                  </label>
-                </div>
+                <label
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                    !formData.allInfoCorrect
+                      ? 'bg-rose-600 border-rose-600 text-white font-bold ring-2 ring-rose-400/40 shadow-xs'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="allInfoCorrect"
+                    checked={!formData.allInfoCorrect}
+                    onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
+                    className="accent-rose-600 text-rose-600 focus:ring-rose-500"
+                  />
+                  <span>No — Needs Review</span>
+                </label>
               </div>
+            </div>
+
+            {/* Submitter & Organization Details in Clean 3-Column Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+              <Input
+                label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
+                required
+                value={formData.formSubmittedBy}
+                onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                placeholder="e.g. Sunita Sharma"
+              />
 
               <Input
                 label="ORGANIZATION NAME"
@@ -1852,22 +2020,12 @@ export default function EditRecordPage() {
               />
 
               <Input
-                label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
-                required
-                value={formData.formSubmittedBy}
-                onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
-                placeholder="e.g. Sunita Sharma"
+                label="ORGANIZATION EMAIL ID"
+                type="email"
+                value={formData.organizationEmail}
+                onChange={(e) => setFormData({ ...formData, organizationEmail: e.target.value })}
+                placeholder="fieldworker@allianceindia.org"
               />
-
-              <div className="sm:col-span-2">
-                <Input
-                  label="ORGANIZATION EMAIL ID"
-                  type="email"
-                  value={formData.organizationEmail}
-                  onChange={(e) => setFormData({ ...formData, organizationEmail: e.target.value })}
-                  placeholder="fieldworker@allianceindia.org"
-                />
-              </div>
             </div>
           </section>
           </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { MapPin, Loader2, CheckCircle2, AlertCircle, Navigation } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Navigation, MapPin } from 'lucide-react';
 
 export interface LocationResult {
   fullAddress: string;
@@ -15,12 +15,12 @@ export interface LocationResult {
 interface LocationFetchButtonProps {
   onLocationFetched: (result: LocationResult) => void;
   disabled?: boolean;
+  className?: string;
 }
 
 type FetchStatus = 'idle' | 'requesting' | 'geocoding' | 'success' | 'error';
 
 // Canonical Indian state name normalisation map
-// Maps any variant returned by geocoders -> exact INDIAN_STATES_AND_UTS value
 const STATE_NORMALISE: Record<string, string> = {
   'maharashtra': 'Maharashtra',
   'karnataka': 'Karnataka',
@@ -53,6 +53,8 @@ const STATE_NORMALISE: Record<string, string> = {
   'mizoram': 'Mizoram',
   'sikkim': 'Sikkim',
   'delhi': 'Delhi',
+  'nct of delhi': 'Delhi',
+  'national capital territory of delhi': 'Delhi',
   'jammu and kashmir': 'Jammu & Kashmir',
   'jammu & kashmir': 'Jammu & Kashmir',
   'ladakh': 'Ladakh',
@@ -66,73 +68,99 @@ const STATE_NORMALISE: Record<string, string> = {
 };
 
 function normaliseState(raw: string): string {
+  if (!raw) return '';
   const key = raw.trim().toLowerCase();
   return STATE_NORMALISE[key] ?? raw.trim();
 }
 
-// ── Reverse-geocoding via BigDataCloud (free, no key, structured India data) ──
-async function reverseGeocodeWithBDC(lat: number, lng: number): Promise<LocationResult | null> {
-  try {
-    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-
-    const state   = normaliseState(data.principalSubdivision || data.countryName || '');
-    const district = data.city || data.locality || data.localityInfo?.administrative?.[3]?.name || '';
-    const pincode  = data.postcode || '';
-    const locality = data.locality || data.city || '';
-    const subLocality = data.localityInfo?.informative?.find(
-      (i: { description: string; name: string }) => i.description === 'neighbourhood'
-    )?.name || data.locality || '';
-
-    // Build human-readable address from parts
-    const parts: string[] = [];
-    if (subLocality && subLocality !== locality) parts.push(subLocality);
-    if (locality) parts.push(locality);
-    if (district && district !== locality) parts.push(district);
-    if (state) parts.push(state);
-    if (pincode) parts.push(pincode);
-
-    return {
-      fullAddress: parts.slice(0, 3).join(', '),
-      state,
-      district: district || locality,
-      pincode,
-      subLocality,
-      locality,
-    };
-  } catch {
-    return null;
-  }
+function cleanDistrict(raw: string): string {
+  if (!raw) return '';
+  return raw.replace(/\s+(District|district|Division|division)$/, '').trim();
 }
 
-// ── Fallback: OpenStreetMap Nominatim ─────────────────────────────────────────
+function formatDetailedAddress(addr: Record<string, string>, displayName?: string): string {
+  const premises = [
+    addr.house_number,
+    addr.house_name,
+    addr.building,
+    addr.flats,
+    addr.amenity,
+    addr.shop,
+    addr.office,
+  ].filter(Boolean).join(' ');
+
+  const street = [
+    addr.road,
+    addr.street,
+    addr.pedestrian,
+    addr.footway,
+    addr.path,
+    addr.residential,
+    addr.subway,
+  ].filter(Boolean)[0] || '';
+
+  const localities = [
+    addr.neighbourhood,
+    addr.suburb,
+    addr.quarter,
+    addr.subdivision,
+    addr.block,
+    addr.sector,
+    addr.colony,
+    addr.hamlet,
+  ].filter(Boolean);
+
+  const city = addr.city || addr.town || addr.village || addr.city_district || addr.county || '';
+  const postcode = addr.postcode || '';
+
+  const parts: string[] = [];
+  if (premises) parts.push(premises);
+  if (street && !parts.some(p => p.toLowerCase().includes(street.toLowerCase()))) parts.push(street);
+  for (const loc of localities) {
+    if (!parts.some(p => p.toLowerCase().includes(loc.toLowerCase()))) parts.push(loc);
+  }
+  if (city && !parts.some(p => p.toLowerCase().includes(city.toLowerCase()))) parts.push(city);
+  if (postcode && !parts.includes(postcode)) parts.push(postcode);
+
+  let addressStr = parts.join(', ');
+
+  // If addressStr is sparse but displayName is available, clean displayName:
+  if (parts.length < 2 && displayName) {
+    const tokens = displayName.split(',').map(s => s.trim()).filter(Boolean);
+    if (tokens.length > 1 && tokens[tokens.length - 1].toLowerCase() === 'india') {
+      tokens.pop();
+    }
+    addressStr = tokens.slice(0, 4).join(', ');
+  }
+
+  return addressStr;
+}
+
+// ── 1. OpenStreetMap Nominatim with zoom=18 & addressdetails=1 (Primary High-Accuracy) ──
 async function reverseGeocodeWithNominatim(lat: number, lng: number): Promise<LocationResult | null> {
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=en&zoom=14`;
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1`;
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'ChildNutritionSupportPWA/3.0' },
+      headers: { 'User-Agent': 'Mozilla/5.0 ChildCareSupportApp/3.0 (India HIV/AIDS Alliance)' },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
     const data = await res.json();
     const addr = data.address || {};
 
-    const state    = normaliseState(addr.state || addr.state_district || '');
-    const district = addr.county || addr.district || addr.city || addr.town || addr.village || '';
-    const pincode  = addr.postcode || '';
-    const subLocality = addr.suburb || addr.neighbourhood || addr.hamlet || '';
-    const locality    = addr.city || addr.town || addr.village || addr.county || '';
+    const state = normaliseState(addr.state || addr.state_district || '');
+    const rawDistrict = addr.state_district || addr.district || addr.county || addr.city || addr.town || '';
+    const district = cleanDistrict(rawDistrict);
+    const pincode = addr.postcode || '';
+    const locality = addr.city || addr.town || addr.village || addr.city_district || addr.suburb || '';
+    const subLocality = addr.suburb || addr.neighbourhood || addr.quarter || '';
 
-    const parts: string[] = [];
-    const houseRoad = [addr.house_number, addr.road].filter(Boolean).join(' ');
-    if (houseRoad) parts.push(houseRoad);
-    if (subLocality) parts.push(subLocality);
-    if (locality && locality !== district) parts.push(locality);
+    const fullAddress = formatDetailedAddress(addr, data.display_name);
+
+    if (!fullAddress && !state) return null;
 
     return {
-      fullAddress: parts.slice(0, 3).join(', ') || data.display_name?.split(',').slice(0, 3).join(',') || '',
+      fullAddress,
       state,
       district,
       pincode,
@@ -144,15 +172,88 @@ async function reverseGeocodeWithNominatim(lat: number, lng: number): Promise<Lo
   }
 }
 
+// ── 2. Photon (Komoot OSM High-Speed Fallback) ──
+async function reverseGeocodeWithPhoton(lat: number, lng: number): Promise<LocationResult | null> {
+  try {
+    const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const p = data.features?.[0]?.properties;
+    if (!p) return null;
+
+    const state = normaliseState(p.state || '');
+    const district = cleanDistrict(p.county || p.district || p.city || '');
+    const pincode = p.postcode || '';
+    const locality = p.city || p.locality || '';
+    const subLocality = p.locality || p.district || '';
+
+    const parts: string[] = [];
+    const houseStreet = [p.housenumber, p.street || p.name].filter(Boolean).join(' ');
+    if (houseStreet) parts.push(houseStreet);
+    if (p.locality && !parts.includes(p.locality)) parts.push(p.locality);
+    if (p.district && !parts.includes(p.district)) parts.push(p.district);
+    if (p.city && !parts.includes(p.city)) parts.push(p.city);
+    if (pincode) parts.push(pincode);
+
+    return {
+      fullAddress: parts.join(', '),
+      state,
+      district,
+      pincode,
+      subLocality,
+      locality,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── 3. BigDataCloud Fallback ──
+async function reverseGeocodeWithBDC(lat: number, lng: number): Promise<LocationResult | null> {
+  try {
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const state = normaliseState(data.principalSubdivision || data.countryName || '');
+    const rawDistrict = data.city || data.locality || data.localityInfo?.administrative?.[3]?.name || '';
+    const district = cleanDistrict(rawDistrict);
+    const pincode = data.postcode || '';
+    const locality = data.locality || data.city || '';
+    const subLocality = data.localityInfo?.informative?.find(
+      (i: { description: string; name: string }) => i.description === 'neighbourhood'
+    )?.name || data.locality || '';
+
+    const parts: string[] = [];
+    if (subLocality) parts.push(subLocality);
+    if (locality && locality !== subLocality) parts.push(locality);
+    if (district && district !== locality) parts.push(district);
+    if (pincode) parts.push(pincode);
+
+    return {
+      fullAddress: parts.join(', '),
+      state,
+      district: district || locality,
+      pincode,
+      subLocality,
+      locality,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const STATUS_MSG: Record<FetchStatus, string> = {
-  idle:      'Fetch Address',
-  requesting:'Requesting GPS…',
-  geocoding: 'Locating address…',
-  success:   'Address Filled!',
-  error:     'Retry',
+  idle: 'Fetch Live Address',
+  requesting: 'Getting GPS Coords…',
+  geocoding: 'Locating House & Street…',
+  success: 'Address Auto-Filled!',
+  error: 'Retry GPS Fetch',
 };
 
-export function LocationFetchButton({ onLocationFetched, disabled }: LocationFetchButtonProps) {
+export function LocationFetchButton({ onLocationFetched, disabled, className }: LocationFetchButtonProps) {
   const [status, setStatus] = useState<FetchStatus>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [accuracy, setAccuracy] = useState<number | null>(null);
@@ -165,7 +266,7 @@ export function LocationFetchButton({ onLocationFetched, disabled }: LocationFet
     setAccuracy(null);
     setStatus('requesting');
 
-    // ── 1. Request GPS with high accuracy + 15s timeout ─────────────────────
+    // ── 1. Request GPS with high accuracy + 15s timeout ──
     let coords: GeolocationCoordinates;
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -181,50 +282,50 @@ export function LocationFetchButton({ onLocationFetched, disabled }: LocationFet
       const geoErr = err as GeolocationPositionError;
       const msg =
         geoErr.code === 1
-          ? 'Location access denied. Please allow location in browser settings.'
+          ? 'Location access denied. Please allow location permissions in your browser.'
           : geoErr.code === 2
-          ? 'GPS signal unavailable. Try moving near a window.'
-          : 'Location request timed out. Try again.';
+          ? 'GPS position unavailable. Try moving near a window or outdoors.'
+          : 'GPS request timed out. Please try again.';
       setErrorMsg(msg);
       setStatus('error');
       return;
     }
 
-    // ── 2. Reverse geocode: BigDataCloud first, Nominatim fallback ────────────
+    // ── 2. Reverse geocode: Nominatim (zoom=18) first, then Photon, then BigDataCloud ──
     setStatus('geocoding');
-    let result = await reverseGeocodeWithBDC(coords.latitude, coords.longitude);
+    let result = await reverseGeocodeWithNominatim(coords.latitude, coords.longitude);
     if (!result || !result.state) {
-      result = await reverseGeocodeWithNominatim(coords.latitude, coords.longitude);
+      result = await reverseGeocodeWithPhoton(coords.latitude, coords.longitude);
+    }
+    if (!result || !result.state) {
+      result = await reverseGeocodeWithBDC(coords.latitude, coords.longitude);
     }
 
     if (!result || !result.state) {
-      setErrorMsg('Could not detect address. Check internet and try again.');
+      setErrorMsg('Could not detect address. Check your internet connection.');
       setStatus('error');
       return;
     }
 
-    // ── 3. Deliver result ─────────────────────────────────────────────────────
+    // ── 3. Deliver result ──
     onLocationFetched(result);
     setStatus('success');
-    setTimeout(() => setStatus('idle'), 4000);
+    setTimeout(() => setStatus('idle'), 5000);
   }, [disabled, onLocationFetched, status]);
-
-  const iconColor = status === 'success' ? 'text-emerald-600'
-    : status === 'error' ? 'text-rose-600'
-    : 'text-indigo-600';
-
-  const bgClass = status === 'success'
-    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-[0_0_14px_rgba(52,211,153,0.3)]'
-    : status === 'error'
-    ? 'bg-rose-50 border-rose-300 text-rose-800'
-    : status === 'requesting' || status === 'geocoding'
-    ? 'bg-indigo-50 border-indigo-300 text-indigo-800 shadow-[0_0_16px_rgba(129,140,248,0.35)] animate-pulse'
-    : 'bg-white border-indigo-200 text-indigo-800 hover:bg-indigo-50 hover:border-indigo-400 hover:shadow-[0_0_16px_rgba(129,140,248,0.25)] active:scale-95';
 
   const isLoading = status === 'requesting' || status === 'geocoding';
 
+  const bgClass =
+    status === 'success'
+      ? 'bg-emerald-600 border-emerald-700 text-white shadow-[0_0_16px_rgba(16,185,129,0.4)]'
+      : status === 'error'
+      ? 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100'
+      : isLoading
+      ? 'bg-indigo-50 border-indigo-300 text-indigo-900 shadow-[0_0_16px_rgba(129,140,248,0.35)] animate-pulse'
+      : 'bg-gradient-to-r from-indigo-50 via-purple-50 to-blue-50 border-indigo-300/90 text-indigo-950 hover:from-indigo-100 hover:to-purple-100 hover:border-indigo-400 hover:shadow-[0_0_14px_rgba(99,102,241,0.25)] active:scale-[0.98]';
+
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className={`w-full flex flex-col items-start gap-1 ${className || ''}`}>
       <button
         type="button"
         onClick={handleFetch}
@@ -232,45 +333,42 @@ export function LocationFetchButton({ onLocationFetched, disabled }: LocationFet
         title={
           status === 'success' && accuracy
             ? `GPS accuracy: ±${accuracy}m`
-            : 'Auto-fill address from your current location'
+            : 'Auto-fill house, street, district & state from live GPS'
         }
         className={`
-          inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border font-bold text-xs
-          transition-all duration-200 cursor-pointer select-none
+          w-full h-11 px-3.5 rounded-xl border font-bold text-xs
+          flex items-center justify-center gap-2
+          transition-all duration-200 cursor-pointer select-none shadow-2xs
           ${bgClass}
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
         `}
       >
-        {/* Icon */}
         {isLoading ? (
-          <Loader2 className={`w-3.5 h-3.5 ${iconColor} animate-spin shrink-0`} />
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
         ) : status === 'success' ? (
-          <CheckCircle2 className={`w-3.5 h-3.5 ${iconColor} shrink-0`} />
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />
         ) : status === 'error' ? (
-          <AlertCircle className={`w-3.5 h-3.5 ${iconColor} shrink-0`} />
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
         ) : (
-          <span className="relative shrink-0">
-            <Navigation className={`w-3.5 h-3.5 ${iconColor}`} />
-            {/* Ripple ring on idle */}
-            <span className="absolute inset-0 rounded-full border border-indigo-400 animate-ping opacity-40" />
+          <span className="relative shrink-0 flex items-center justify-center">
+            <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="absolute -inset-1 rounded-full border border-indigo-400 animate-ping opacity-40 pointer-events-none" />
           </span>
         )}
 
-        <span className="whitespace-nowrap">{STATUS_MSG[status]}</span>
+        <span className="truncate">{STATUS_MSG[status]}</span>
 
-        {/* GPS accuracy badge on success */}
         {status === 'success' && accuracy && (
-          <span className="ml-1 px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[10px] font-mono font-black">
+          <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-700 text-white text-[10px] font-mono font-black shrink-0">
             ±{accuracy}m
           </span>
         )}
       </button>
 
-      {/* Error message */}
       {status === 'error' && errorMsg && (
-        <p className="text-[11px] text-rose-600 font-medium max-w-[240px] leading-snug flex items-start gap-1">
-          <MapPin className="w-3 h-3 shrink-0 mt-0.5 text-rose-500" />
-          {errorMsg}
+        <p className="text-[11px] text-rose-600 font-medium leading-snug flex items-center gap-1 mt-0.5">
+          <MapPin className="w-3 h-3 shrink-0 text-rose-500" />
+          <span>{errorMsg}</span>
         </p>
       )}
     </div>

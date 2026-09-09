@@ -124,10 +124,10 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 select-none ${
                     isActive
-                      ? 'bg-[hsl(210,80%,95%)] text-[hsl(210,80%,35%)]'
-                      : 'text-[hsl(220,15%,35%)] hover:bg-[hsl(215,20%,94%)]'
+                      ? 'bg-teal-50/80 text-teal-800'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
                   }`}
                 >
                   <span className="inline-flex items-baseline">
@@ -143,6 +143,12 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
                       {link.badge}
                     </span>
                   )}
+                  {/* Smooth Animated Underline Below Nav Item */}
+                  {isActive ? (
+                    <span className="absolute -bottom-1 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 shadow-[0_2px_6px_rgba(13,148,136,0.35)] animate-in fade-in duration-300" />
+                  ) : (
+                    <span className="absolute -bottom-1 left-3 right-3 h-[2px] rounded-full bg-teal-400/40 opacity-0 group-hover:opacity-100 transition-all duration-200" />
+                  )}
                 </Link>
               );
             })}
@@ -151,21 +157,26 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
             {isUnlocked ? (
               <Link
                 href="/supervisor"
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
                   pathname?.startsWith('/supervisor')
-                    ? 'bg-teal-50 text-teal-900 border border-teal-200 shadow-2xs'
+                    ? 'bg-teal-50/80 text-teal-900 border border-teal-200/80 shadow-2xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                 }`}
                 title="Evaluation Portal (Unlocked)"
               >
-                <Shield className="h-3.5 w-3.5 text-teal-700" />
+                <Shield className="h-3.5 w-3.5 text-teal-700 transition-transform duration-200 group-hover:scale-110" />
                 <span>Evaluation</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                <span className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-pulse" />
+                {pathname?.startsWith('/supervisor') ? (
+                  <span className="absolute -bottom-1 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 shadow-[0_2px_6px_rgba(13,148,136,0.35)] animate-in fade-in duration-300" />
+                ) : (
+                  <span className="absolute -bottom-1 left-3 right-3 h-[2px] rounded-full bg-teal-400/40 opacity-0 group-hover:opacity-100 transition-all duration-200" />
+                )}
               </Link>
             ) : (
               <button
                 type="button"
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 bg-slate-50/70 border border-dashed border-slate-200/80 cursor-not-allowed transition-all opacity-70"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 bg-slate-50/70 border border-dashed border-slate-200/80 cursor-not-allowed transition-all opacity-70"
                 title="Evaluation"
                 disabled
               >

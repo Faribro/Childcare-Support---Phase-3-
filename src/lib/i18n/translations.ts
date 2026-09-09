@@ -66,6 +66,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     district: 'DISTRICT *',
     pincode: 'PIN CODE *',
     address: 'RESIDENTIAL ADDRESS *',
+    gps_location: 'LIVE GPS LOCATION',
+    fetch_address: 'Fetch Live Address',
     religion: 'RELIGION *',
     caste: 'SOCIAL CATEGORY (CASTE) *',
     orphan_status: 'ORPHAN STATUS *',
@@ -83,10 +85,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     child_photo: 'PASSPORT SIZE PHOTO OF CHILD',
 
     // Household
-    hh_members: 'HOUSEHOLD MEMBERS (TOTAL FAMILY) *',
-    hh_children: 'NO OF CHILDREN (≤18 YRS) *',
-    hh_income: 'MONTHLY INCOME (RS.) *',
-    hh_income_source: 'INCOME SOURCE *',
+    hh_members: 'Total Family Members',
+    hh_children: 'Children Under 18 Years',
+    hh_income: 'Monthly Household Income',
+    hh_income_source: 'Main Income Source',
 
     // Clinical
     weight: 'CURRENT WEIGHT (KG) *',
@@ -133,6 +135,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Hindi
   hi: {
+    gps_location: 'लाइव जीपीएस पता',
+    fetch_address: 'लाइव पता प्राप्त करें',
     sec_consent: 'सहमति',
     sec_demographics: 'जनसांख्यिकी',
     sec_banking: 'बैंक व केवाईसी',
@@ -187,10 +191,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     aadhaar_upload: 'आधार कार्ड फोटो (KYC)',
     child_photo: 'बच्चे का पासपोर्ट साइज फोटो',
 
-    hh_members: 'परिवार के कुल सदस्य *',
-    hh_children: 'बच्चों की संख्या (≤18 वर्ष) *',
-    hh_income: 'मासिक आय (रुपये) *',
-    hh_income_source: 'आय का मुख्य स्रोत *',
+    hh_members: 'परिवार के कुल सदस्य',
+    hh_children: '18 वर्ष से कम उम्र के बच्चे',
+    hh_income: 'मासिक पारिवारिक आय',
+    hh_income_source: 'आय का मुख्य स्रोत',
 
     weight: 'वर्तमान वजन (किग्रा) *',
     height: 'वर्तमान लंबाई (सेमी) *',
@@ -232,6 +236,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Marathi
   mr: {
+    gps_location: 'थेट जीपीएस स्थान',
+    fetch_address: 'थेट पत्ता मिळवा',
     sec_consent: 'संमती',
     sec_demographics: 'माहिती',
     sec_banking: 'बँक व केवायसी',
@@ -286,10 +292,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     aadhaar_upload: 'आधार कार्ड फोटो (केवायसी)',
     child_photo: 'बालकाचे पासपोर्ट आकाराचे छायाचित्र',
 
-    hh_members: 'कुटुंबातील एकूण सदस्य *',
-    hh_children: 'मुलांची संख्या (≤18 वर्षे) *',
-    hh_income: 'मासिक उत्पन्न (रुपये) *',
-    hh_income_source: 'उत्पन्नाचा मुख्य स्रोत *',
+    hh_members: 'कुटुंबातील एकूण सदस्य',
+    hh_children: '18 वर्षांखालील मुले',
+    hh_income: 'मासिक कौटुंबिक उत्पन्न',
+    hh_income_source: 'उत्पन्नाचा मुख्य मार्ग',
 
     weight: 'सध्याचे वजन (कि.ग्रॅ.) *',
     height: 'सध्याची उंची (सें.मी.) *',
@@ -331,6 +337,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Bengali
   bn: {
+    gps_location: 'লাইভ জিপিএস অবস্থান',
+    fetch_address: 'সরাসরি ঠিকানা আনুন',
     sec_consent: 'সম্মতি',
     sec_demographics: 'তথ্য',
     sec_banking: 'ব্যাংক ও কেওয়াইসি',
@@ -385,10 +393,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     aadhaar_upload: 'আধার কার্ডের ছবি (কেওয়াইসি)',
     child_photo: 'শিশুর পাসপোর্ট সাইজের ছবি',
 
-    hh_members: 'পরিবারের মোট সদস্য *',
-    hh_children: 'শিশুর সংখ্যা (≤১৮ বছর) *',
-    hh_income: 'মাসিক আয় (টাকা) *',
-    hh_income_source: 'আয়ের প্রধান উৎস *',
+    hh_members: 'পরিবারের মোট সদস্য',
+    hh_children: '১৮ বছরের কম বয়সী শিশু',
+    hh_income: 'মাসিক পারিবারিক আয়',
+    hh_income_source: 'আয়ের প্রধান উৎস',
 
     weight: 'বর্তমান ওজন (কেজি) *',
     height: 'বর্তমান উচ্চতা (সেমি) *',
@@ -430,6 +438,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Telugu
   te: {
+    gps_location: 'లైవ్ GPS స్థానం',
+    fetch_address: 'చిరునామా పొందండి',
     sec_consent: 'సమ్మతి',
     sec_demographics: 'వివరాలు',
     sec_banking: 'బ్యాంక్ కేవైసీ',
@@ -484,10 +494,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     aadhaar_upload: 'ఆధార్ కార్డ్ ఫోటో (KYC)',
     child_photo: 'పిల్లల పాస్‌పోర్ట్ సైజ్ ఫోటో',
 
-    hh_members: 'కుటుంబ సభ్యుల సంఖ్య *',
-    hh_children: 'పిల్లల సంఖ్య (≤18 సం.) *',
-    hh_income: 'నెలవారీ ఆదాయం (రూ.) *',
-    hh_income_source: 'ప్రధాన ఆదాయ వనరు *',
+    hh_members: 'మొత్తం కుటుంబ సభ్యులు',
+    hh_children: '18 ఏళ్ల లోపు పిల్లలు',
+    hh_income: 'నెలవారీ కుటుంబ ఆదాయం',
+    hh_income_source: 'ప్రధాన ఆదాయ వనరు',
 
     weight: 'ప్రస్తుత బరువు (కిలోలు) *',
     height: 'ప్రస్తుత ఎత్తు (సెం.మీ.) *',
@@ -529,6 +539,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Tamil
   ta: {
+    gps_location: 'நேரலை GPS இருப்பிடம்',
+    fetch_address: 'முகவரியைப் பெறுங்கள்',
     sec_consent: 'ஒப்புதல்',
     sec_demographics: 'விவரங்கள்',
     sec_banking: 'வங்கி KYC',
@@ -583,10 +595,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     aadhaar_upload: 'ஆதார் அட்டை படம் (KYC)',
     child_photo: 'குழந்தையின் பாஸ்போர்ட் அளவு புகைப்படம்',
 
-    hh_members: 'குடும்பத்தின் மொத்த உறுப்பினர்கள் *',
-    hh_children: 'குழந்தைகள் எண்ணிக்கை (≤18 வயது) *',
-    hh_income: 'மாத வருமானம் (ரூ.) *',
-    hh_income_source: 'வருமான ஆதாரம் *',
+    hh_members: 'குடும்பத்தின் மொத்த உறுப்பினர்கள்',
+    hh_children: '18 வயதுக்குட்பட்ட குழந்தைகள்',
+    hh_income: 'மாதாந்திர குடும்ப வருமானம்',
+    hh_income_source: 'முக்கிய வருமான ஆதாரம்',
 
     weight: 'தற்போதைய எடை (கிலோ) *',
     height: 'தற்போதைய உயரம் (செ.மீ.) *',
@@ -628,6 +640,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Gujarati
   gu: {
+    gps_location: 'લાઈવ જીપીએસ સ્થાન',
+    fetch_address: 'સરનામું મેળવો',
     sec_consent: 'સંમતિ',
     sec_demographics: 'વિગતો',
     sec_banking: 'બેંક કેવાયસી',
@@ -682,10 +696,10 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     aadhaar_upload: 'આધાર કાર્ડ ફોટો (કેવાયસી)',
     child_photo: 'બાળકનો પાસપોર્ટ સાઇઝ ફોટો',
 
-    hh_members: 'પરિવારના કુલ સભ્યો *',
-    hh_children: 'બાળકોની સંખ્યા (≤18 વર્ષ) *',
-    hh_income: 'માસિક આવક (રૂ.) *',
-    hh_income_source: 'આવકનો મુખ્ય સ્ત્રોત *',
+    hh_members: 'પરિવારના કુલ સભ્યો',
+    hh_children: '18 વર્ષથી ઓછી ઉંમરના બાળકો',
+    hh_income: 'માસિક કૌટુંબિક આવક',
+    hh_income_source: 'આવકનો મુખ્ય સ્ત્રોત',
 
     weight: 'હાલનું વજન (કિગ્રા) *',
     height: 'હાલની ઊંચાઈ (સેમી) *',
@@ -727,6 +741,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Kannada
   kn: {
+    gps_location: 'ಲೈವ್ ಜಿಪಿಎಸ್ ಸ್ಥಳ',
+    fetch_address: 'ವಿಳಾಸ ಪಡೆಯಿರಿ',
     sec_consent: 'ಒಪ್ಪಿಗೆ', sec_demographics: 'ವಿವರಗಳು', sec_banking: 'ಬ್ಯಾಂಕ್ ಕೆವೈಸಿ',
     sec_household: 'ಕುಟುಂಬ', sec_clinical: 'ವೈದ್ಯಕೀಯ', sec_nutrition: 'ಹಸಿವು',
     sec_education: 'ಶಿಕ್ಷಣ', sec_expenses: 'ವೆಚ್ಚಗಳು', sec_review: 'ಅಂತಿಮ ಪರಿಶೀಲನೆ',
@@ -754,8 +770,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     bank_name: 'ಬ್ಯಾಂಕ್ ಹೆಸರು', bank_branch: 'ಶಾಖೆ ಹೆಸರು', bank_ifsc: 'IFSC ಕೋಡ್',
     passbook_upload: 'ಬ್ಯಾಂಕ್ ಪಾಸ್‌ಬುಕ್ / ಚೆಕ್ ಫೋಟೋ', aadhaar_upload: 'ಆಧಾರ್ ಕಾರ್ಡ್ ಫೋಟೋ',
     child_photo: 'ಮಗುವಿನ ಪಾಸ್‌ಪೋರ್ಟ್ ಗಾತ್ರದ ಫೋಟೋ',
-    hh_members: 'ಒಟ್ಟು ಕುಟುಂಬ ಸದಸ್ಯರು *', hh_children: 'ಮಕ್ಕಳ ಸಂಖ್ಯೆ (≤18 ವರ್ಷ) *',
-    hh_income: 'ಮಾಸಿಕ ಆದಾಯ (ರೂ.) *', hh_income_source: 'ಆದಾಯದ ಮೂಲ *',
+    hh_members: 'ಒಟ್ಟು ಕುಟುಂಬದ ಸದಸ್ಯರು', hh_children: '18 ವರ್ಷಕ್ಕಿಂತ ಕಡಿಮೆ ವಯಸ್ಸಿನ ಮಕ್ಕಳು',
+    hh_income: 'ತಿಂಗಳ ಕುಟುಂಬದ ಆದಾಯ', hh_income_source: 'ಮುಖ್ಯ ಆದಾಯದ ಮೂಲ',
     weight: 'ಪ್ರಸ್ತುತ ತೂಕ (ಕಿ.ಗ್ರಾ.) *', height: 'ಪ್ರಸ್ತುತ ಎತ್ತರ (ಸೆ.ಮೀ.) *',
     bmi: 'ದೇಹ ದ್ರವ್ಯರಾಶಿ ಸೂಚ್ಯಂಕ (BMI)', muac: 'ಮಧ್ಯ-ಮೇಲ್ ತೋಳಿನ ಸುತ್ತಳತೆ *',
     art_center: 'ಎಆರ್‌ಟಿ ಕೇಂದ್ರ *', art_num: 'ಎಆರ್‌ಟಿ ಐಡಿ ಸಂಖ್ಯೆ *',
@@ -774,6 +790,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Malayalam
   ml: {
+    gps_location: 'ലൈവ് ജിപിഎസ് ലൊക്കേഷൻ',
+    fetch_address: 'വിലാസം കണ്ടെത്തുക',
     sec_consent: 'സമ്മതം', sec_demographics: 'വിവരങ്ങൾ', sec_banking: 'ബാങ്ക് KYC',
     sec_household: 'കുടുംബം', sec_clinical: 'ആരോഗ്യം', sec_nutrition: 'വിശപ്പ്',
     sec_education: 'വിദ്യാഭ്യാസം', sec_expenses: 'ചെലവുകൾ', sec_review: 'അവലോകനം',
@@ -802,8 +820,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     bank_name: 'ബാങ്കിന്റെ പേര്', bank_branch: 'ബ്രാഞ്ചിന്റെ പേര്', bank_ifsc: 'IFSC കോഡ്',
     passbook_upload: 'പാസ്‌ബുക്ക് / ചെക്ക് ഫോട്ടോ', aadhaar_upload: 'ആധാർ കാർഡ് ഫോട്ടോ',
     child_photo: 'കുട്ടിയുടെ ഫോട്ടോ',
-    hh_members: 'കുടുംബ അംഗങ്ങളുടെ ആകെ എണ്ണം *', hh_children: 'കുട്ടികളുടെ എണ്ണം (≤18) *',
-    hh_income: 'മാസ വരുമാനം (രൂ.) *', hh_income_source: 'വരുമാന സ്രോതസ്സ് *',
+    hh_members: 'കുടുംബത്തിലെ ആകെ അംഗങ്ങൾ', hh_children: '18 വയസ്സിൽ താഴെയുള്ള കുട്ടികൾ',
+    hh_income: 'പ്രതിമാസ കുടുംബ വരുമാനം', hh_income_source: 'പ്രധാന വരുമാന മാർഗ്ഗം',
     weight: 'നിലവിലെ ഭാരം (കിലോ) *', height: 'നിലവിലെ ഉയരം (സെ.മീ.) *',
     bmi: 'ബോഡി മാസ് ഇൻഡക്സ് (BMI)', muac: 'കൈ ചുറ്റളവ് *',
     art_center: 'ART കേന്ദ്രം *', art_num: 'ART ഐഡി നമ്പർ *',
@@ -823,6 +841,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Punjabi
   pa: {
+    gps_location: 'ਲਾਈਵ ਜੀਪੀਐਸ ਟਿਕਾਣਾ',
+    fetch_address: 'ਪਤਾ ਪ੍ਰਾਪਤ ਕਰੋ',
     sec_consent: 'ਸਹਿਮਤੀ', sec_demographics: 'ਵੇਰਵੇ', sec_banking: 'ਬੈਂਕ KYC',
     sec_household: 'ਪਰਿਵਾਰ', sec_clinical: 'ਸਿਹਤ', sec_nutrition: 'ਭੁੱਖ',
     sec_education: 'ਸਿੱਖਿਆ', sec_expenses: 'ਖਰਚੇ', sec_review: 'ਅੰਤਿਮ ਸਮੀਖਿਆ',
@@ -850,8 +870,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     bank_name: 'ਬੈਂਕ ਦਾ ਨਾਮ', bank_branch: 'ਸ਼ਾਖਾ ਦਾ ਨਾਮ', bank_ifsc: 'IFSC ਕੋਡ',
     passbook_upload: 'ਪਾਸਬੁੱਕ / ਚੈੱਕ ਫੋਟੋ', aadhaar_upload: 'ਆਧਾਰ ਕਾਰਡ ਫੋਟੋ',
     child_photo: 'ਬੱਚੇ ਦੀ ਪਾਸਪੋਰਟ ਆਕਾਰ ਦੀ ਫੋਟੋ',
-    hh_members: 'ਕੁੱਲ ਪਰਿਵਾਰਕ ਮੈਂਬਰ *', hh_children: 'ਬੱਚਿਆਂ ਦੀ ਗਿਣਤੀ (≤18 ਸਾਲ) *',
-    hh_income: 'ਮਾਸਿਕ ਆਮਦਨ (ਰੁ.) *', hh_income_source: 'ਆਮਦਨ ਦਾ ਮੁੱਖ ਸਰੋਤ *',
+    hh_members: 'ਪਰਿਵਾਰ ਦੇ ਕੁੱਲ ਜੀਅ', hh_children: '18 ਸਾਲ ਤੋਂ ਘੱਟ ਉਮਰ ਦੇ ਬੱਚੇ',
+    hh_income: 'ਮਹੀਨਾਵਾਰ ਪਰਿਵਾਰਕ ਆਮਦਨ', hh_income_source: 'ਆਮਦਨ ਦਾ ਮੁੱਖ ਸਰੋਤ',
     weight: 'ਮੌਜੂਦਾ ਭਾਰ (ਕਿਲੋ) *', height: 'ਮੌਜੂਦਾ ਕੱਦ (ਸੈ.ਮੀ.) *',
     bmi: 'ਬਾਡੀ ਮਾਸ ਇੰਡੈਕਸ (BMI)', muac: 'ਬਾਂਹ ਦਾ ਘੇਰਾ *',
     art_center: 'ART ਕੇਂਦਰ *', art_num: 'ART ਆਈਡੀ ਨੰਬਰ *',
@@ -870,6 +890,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Odia
   or: {
+    gps_location: 'ଲାଇଭ୍ ଜିପିଏସ୍ ଅବସ୍ଥିତି',
+    fetch_address: 'ଠିକଣା ଆଣନ୍ତୁ',
     sec_consent: 'ସମ୍ମତି', sec_demographics: 'ବିବରଣ', sec_banking: 'ବ୍ୟାଙ୍କ KYC',
     sec_household: 'ପରିବାର', sec_clinical: 'ସ୍ୱାସ୍ଥ୍ୟ', sec_nutrition: 'ଭୋକ',
     sec_education: 'ଶିକ୍ଷା', sec_expenses: 'ଖର୍ଚ୍ଚ', sec_review: 'ଅନ୍ତିମ ସମୀକ୍ଷା',
@@ -897,8 +919,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     bank_name: 'ବ୍ୟାଙ୍କ ନାମ', bank_branch: 'ଶାଖା ନାମ', bank_ifsc: 'IFSC କୋଡ',
     passbook_upload: 'ପାସବୁକ / ଚେକ ଫୋଟୋ', aadhaar_upload: 'ଆଧାର ଫୋଟୋ',
     child_photo: 'ଶିଶୁ ଫୋଟୋ',
-    hh_members: 'ମୋଟ ପରିବାର ସଦସ୍ୟ *', hh_children: 'ଶିଶୁ ସଂଖ୍ୟା (≤18) *',
-    hh_income: 'ମାସିକ ଆୟ (ଟ.) *', hh_income_source: 'ଆୟ ଉତ୍ସ *',
+    hh_members: 'ପରିବାରର ମୋଟ ସଦସ୍ୟ', hh_children: '୧୮ ବର୍ଷରୁ କମ ବୟସର ପିଲା',
+    hh_income: 'ମାସିକ ପାରିବାରିକ ଆୟ', hh_income_source: 'ଆୟର ମୁଖ୍ୟ ଉତ୍ସ',
     weight: 'ବର୍ତ୍ତମାନ ଓଜନ (କିଗ୍ରା) *', height: 'ବର୍ତ୍ତମାନ ଉଚ୍ଚତା (ସେ.ମି.) *',
     bmi: 'ବଡି ମାସ ଇଣ୍ଡେକ୍ସ (BMI)', muac: 'ବାହୁ ପରିଧି *',
     art_center: 'ART କେନ୍ଦ୍ର *', art_num: 'ART ଆଇଡି *',
@@ -917,6 +939,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
 
   // Assamese
   as: {
+    gps_location: 'লাইভ জিপিএছ অৱস্থান',
+    fetch_address: 'ঠিকনা সংগ্ৰহ কৰক',
     sec_consent: 'সন্মতি', sec_demographics: 'বিৱৰণ', sec_banking: 'বেংক KYC',
     sec_household: 'পৰিয়াল', sec_clinical: 'স্বাস্থ্য', sec_nutrition: 'ভোক',
     sec_education: 'শিক্ষা', sec_expenses: 'ব্যয়', sec_review: 'চূড়ান্ত পৰ্যালোচনা',
@@ -944,8 +968,8 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
     bank_name: 'বেংকৰ নাম', bank_branch: 'শাখাৰ নাম', bank_ifsc: 'IFSC ক\'ড',
     passbook_upload: 'পাছবুক / চেক ফটো', aadhaar_upload: 'আধাৰ কাৰ্ড ফটো',
     child_photo: 'শিশুৰ পাছপ\'ৰ্ট ফটো',
-    hh_members: 'মুঠ পৰিয়ালৰ সদস্য *', hh_children: 'শিশুৰ সংখ্যা (≤১৮) *',
-    hh_income: 'মাহিলী আয় (টকা) *', hh_income_source: 'আয়ৰ উৎস *',
+    hh_members: 'পৰিয়ালৰ মুঠ সদস্য', hh_children: '১৮ বছৰৰ তলৰ শিশু',
+    hh_income: 'মাহেকীয়া পৰিয়ালৰ আয়', hh_income_source: 'আয়ৰ মূল উৎস',
     weight: 'বৰ্তমানৰ ওজন (কিলো) *', height: 'বৰ্তমানৰ উচ্চতা (ছে.মি.) *',
     bmi: 'বডি মাছ ইণ্ডেক্স (BMI)', muac: 'বাহুৰ পৰিধি *',
     art_center: 'ART কেন্দ্ৰ *', art_num: 'ART আইডি *',

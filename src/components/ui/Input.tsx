@@ -17,6 +17,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const errorId = inputId ? `${inputId}-error` : undefined;
     const helperId = inputId ? `${inputId}-helper` : undefined;
 
+    const cleanLabel = label ? label.replace(/\s*\*+\s*$/, '').trim() : '';
+
     return (
       <div className="w-full flex flex-col space-y-1.5">
         {label && (
@@ -25,7 +27,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 flex items-center justify-between"
           >
             <span>
-              {label} {required && <span className="text-rose-500 ml-0.5">*</span>}
+              {cleanLabel} {required && <span className="text-rose-500 ml-0.5">*</span>}
             </span>
           </label>
         )}

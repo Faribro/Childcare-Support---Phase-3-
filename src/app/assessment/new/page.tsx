@@ -12,6 +12,7 @@ import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { SectionVerticalTitle, type SectionColorScheme } from '@/components/ui/SectionVerticalTitle';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
+import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
@@ -59,6 +60,10 @@ import {
   Save,
   Send,
   ArrowLeft,
+  Scale,
+  Pill,
+  Microscope,
+  Activity,
 } from 'lucide-react';
 
 export default function NewSinglePageAssessment() {
@@ -128,14 +133,14 @@ export default function NewSinglePageAssessment() {
     childPhotoUrl: '',
 
     // Section 4: Household & Financial Details
-    totalFamilyMembers: 0,
-    numberOfChildrenUnder18: 0,
-    monthlyIncomeRs: 0,
-    mainSourceOfIncome: '' as MainSourceOfIncome,
+    totalFamilyMembers: '' as any,
+    numberOfChildrenUnder18: '' as any,
+    monthlyIncomeRs: '' as any,
+    mainSourceOfIncome: 'Daily wage labour' as MainSourceOfIncome,
 
     // Section 5: Health, Clinical, ART & Viral Load
-    weightKg: 0,
-    heightCm: 0,
+    weightKg: '' as any,
+    heightCm: '' as any,
     haemoglobinGdl: '',
     otherHealthConditions: [] as string[],
     otherHealthConditionSpecify: '',
@@ -975,23 +980,12 @@ export default function NewSinglePageAssessment() {
             />
 
             <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
-              <div className="space-y-2">
-                {/* GPS Auto-fill button */}
-                <LocationFetchButton
-                  onLocationFetched={(loc) => setFormData((prev) => ({
-                    ...prev,
-                    fullAddress: loc.fullAddress || prev.fullAddress,
-                    state: loc.state || prev.state,
-                    district: loc.district || prev.district,
-                  }))}
-                />
-                <Input
-                  label={t('address', currentLanguage)}
-                  value={formData.fullAddress}
-                  onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                  placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
-                />
-              </div>
+              <Input
+                label={t('address', currentLanguage)}
+                value={formData.fullAddress}
+                onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
+              />
             </div>
 
             <div className="flex flex-col space-y-1.5">
@@ -1017,6 +1011,21 @@ export default function NewSinglePageAssessment() {
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
               placeholder="e.g. Pune"
             />
+
+            <div className="flex flex-col space-y-1.5">
+              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-indigo-600 block flex items-center justify-between">
+                <span>{t('gps_location', currentLanguage)}</span>
+                <span className="text-[9px] font-bold text-indigo-600/90 bg-indigo-100/70 px-1.5 py-0.5 rounded uppercase">Live Satellite</span>
+              </label>
+              <LocationFetchButton
+                onLocationFetched={(loc) => setFormData((prev) => ({
+                  ...prev,
+                  fullAddress: loc.fullAddress || prev.fullAddress,
+                  state: loc.state || prev.state,
+                  district: loc.district || prev.district,
+                }))}
+              />
+            </div>
           </div>
         </section>
 
@@ -1102,8 +1111,11 @@ export default function NewSinglePageAssessment() {
                 type="number"
                 min="1"
                 required
-                value={formData.totalFamilyMembers}
-                onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
+                value={formData.totalFamilyMembers || ''}
+                onChange={(e) =>
+                  setFormData({ ...formData, totalFamilyMembers: e.target.value === '' ? ('' as any) : Number(e.target.value) })
+                }
+                placeholder="e.g. 4"
               />
             </div>
 
@@ -1113,10 +1125,20 @@ export default function NewSinglePageAssessment() {
                 type="number"
                 min="0"
                 required
-                value={formData.numberOfChildrenUnder18}
-                onChange={(e) =>
-                  setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })
+                value={
+                  formData.numberOfChildrenUnder18 !== '' &&
+                  formData.numberOfChildrenUnder18 !== undefined &&
+                  formData.numberOfChildrenUnder18 !== null
+                    ? formData.numberOfChildrenUnder18
+                    : ''
                 }
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    numberOfChildrenUnder18: e.target.value === '' ? ('' as any) : Number(e.target.value),
+                  })
+                }
+                placeholder="e.g. 2"
               />
             </div>
 
@@ -1126,8 +1148,11 @@ export default function NewSinglePageAssessment() {
                 type="number"
                 min="0"
                 required
-                value={formData.monthlyIncomeRs}
-                onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
+                value={formData.monthlyIncomeRs || ''}
+                onChange={(e) =>
+                  setFormData({ ...formData, monthlyIncomeRs: e.target.value === '' ? ('' as any) : Number(e.target.value) })
+                }
+                placeholder="e.g. 12000"
                 unit="₹"
               />
             </div>
@@ -1164,144 +1189,324 @@ export default function NewSinglePageAssessment() {
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
-              <Input
-                label={t('weight', currentLanguage)}
-                type="number"
-                step="0.1"
-                min="2"
-                max="150"
-                required
-                value={formData.weightKg}
-                onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
-                unit="kg"
-              />
-            </div>
-
-            <div id="q-cli-height" className={getHighlightClass('q-cli-height')}>
-              <Input
-                label={t('height', currentLanguage)}
-                type="number"
-                step="0.1"
-                min="40"
-                max="220"
-                required
-                value={formData.heightCm}
-                onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
-                unit="cm"
-              />
-            </div>
-
-            <div id="q-cli-bmi" className={`flex flex-col justify-center bg-purple-50/80 border border-purple-200/90 rounded-xl px-3.5 py-1.5 shadow-2xs ${getHighlightClass('q-cli-bmi')}`}>
-              <span className="text-[10px] uppercase font-bold text-purple-800 tracking-wider">
-                {t('bmi', currentLanguage)}
-              </span>
-              <div className="text-base font-bold text-purple-950">{bmiValue} kg/m²</div>
-              <span className="text-[11px] text-purple-700 font-semibold">{bmiCategory}</span>
-            </div>
-
-            <div className="flex flex-col justify-center bg-slate-50 border border-black rounded-xl px-3.5 py-1.5 shadow-2xs">
-              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">HB &amp; CATEGORY</span>
-              <div className="text-base font-bold text-slate-800">
-                {formData.haemoglobinGdl ? `${formData.haemoglobinGdl} g/dL` : 'Not recorded'}
+          <div className="space-y-4">
+            {/* Sub-Card 1: Anthropometry & Growth (WHO Standards) */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-sky-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
+              <div className="flex items-center justify-between border-b border-sky-100 pb-2.5">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
+                    <Scale className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                      Child Anthropometry &amp; Growth Assessment
+                    </h4>
+                    <p className="text-[11px] text-slate-500">WHO child growth benchmarks and calculated nutritional status</p>
+                  </div>
+                </div>
+                <span className="hidden sm:inline-flex text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
+                  WHO Standards
+                </span>
               </div>
-              <span className="text-[11px] text-slate-600 font-semibold">{hbCategory}</span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-stretch">
+                <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
+                  <Input
+                    label={t('weight', currentLanguage)}
+                    type="number"
+                    step="0.1"
+                    min="2"
+                    max="150"
+                    required
+                    value={formData.weightKg ? formData.weightKg : ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        weightKg: e.target.value === '' ? ('' as any) : Number(e.target.value),
+                      })
+                    }
+                    placeholder="e.g. 14.5"
+                    unit="kg"
+                  />
+                </div>
+
+                <div id="q-cli-height" className={getHighlightClass('q-cli-height')}>
+                  <Input
+                    label={t('height', currentLanguage)}
+                    type="number"
+                    step="0.1"
+                    min="40"
+                    max="220"
+                    required
+                    value={formData.heightCm ? formData.heightCm : ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        heightCm: e.target.value === '' ? ('' as any) : Number(e.target.value),
+                      })
+                    }
+                    placeholder="e.g. 98.0"
+                    unit="cm"
+                  />
+                </div>
+
+                {/* BMI Interactive Metric Tile */}
+                <div
+                  id="q-cli-bmi"
+                  className={`flex flex-col justify-between rounded-xl border p-3.5 transition-all shadow-2xs ${
+                    bmiValue > 0
+                      ? bmiCategory === 'Normal'
+                        ? 'bg-emerald-50/90 border-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.18)]'
+                        : bmiCategory.includes('Underweight')
+                        ? 'bg-rose-50/90 border-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.18)]'
+                        : 'bg-amber-50/90 border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.18)]'
+                      : 'bg-slate-50/90 border-slate-200'
+                  } ${getHighlightClass('q-cli-bmi')}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-slate-600">
+                      {t('bmi', currentLanguage)}
+                    </span>
+                    {bmiValue > 0 ? (
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                          bmiCategory === 'Normal'
+                            ? 'bg-emerald-200/80 text-emerald-900'
+                            : bmiCategory === 'Severe Underweight'
+                            ? 'bg-rose-200/80 text-rose-900 animate-pulse'
+                            : 'bg-amber-200/80 text-amber-900'
+                        }`}
+                      >
+                        {bmiCategory}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-slate-400">Awaiting inputs</span>
+                    )}
+                  </div>
+
+                  <div className="my-1 flex items-baseline gap-1.5">
+                    {bmiValue > 0 ? (
+                      <>
+                        <span className="text-2xl font-black font-mono tracking-tight text-slate-900">
+                          {bmiValue}
+                        </span>
+                        <span className="text-xs font-bold text-slate-500">kg/m²</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-400 font-medium italic">
+                        Enter weight &amp; height
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="w-full">
+                    <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden flex">
+                      <div className="w-1/3 bg-rose-400 h-full opacity-60" title="Underweight (<15)" />
+                      <div className="w-1/2 bg-emerald-500 h-full opacity-70" title="Normal (15-22)" />
+                      <div className="w-1/6 bg-amber-400 h-full opacity-60" title="Overweight (>22)" />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <Input
-              label="HEMOGLOBIN (G/DL)"
-              type="number"
-              step="0.1"
-              min="2"
-              max="25"
-              value={formData.haemoglobinGdl}
-              onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
-              unit="g/dL"
-            />
+            {/* Sub-Card 2: Antiretroviral Therapy (ART) Care */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-indigo-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
+              <div className="flex items-center justify-between border-b border-indigo-100 pb-2.5">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                    <Pill className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                      HIV Clinical Care &amp; ART Regimen
+                    </h4>
+                    <p className="text-[11px] text-slate-500">Antiretroviral treatment verification and ART center registration</p>
+                  </div>
+                </div>
+                <span className="hidden sm:inline-flex text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                  NACO Protocol
+                </span>
+              </div>
 
-            <div className="flex flex-col space-y-1.5">
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                ART STATUS <span className="text-rose-500 ml-0.5">*</span>
-              </label>
-              <select
-                value={formData.artStatus}
-                onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
-              >
-                {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="flex flex-col space-y-1.5">
+                  <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                    ART STATUS <span className="text-rose-500 ml-0.5">*</span>
+                  </label>
+                  <select
+                    value={formData.artStatus}
+                    onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
+                    className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                  >
+                    {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
+                  <Input
+                    label={t('art_num', currentLanguage)}
+                    required
+                    value={formData.artIdNumber}
+                    onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                    placeholder="e.g. MH-PUN-00123"
+                  />
+                </div>
+
+                <Input
+                  label="ART REGISTRATION DATE"
+                  type="date"
+                  value={formData.artRegistrationDate}
+                  onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
+                />
+              </div>
             </div>
 
-            <Input
-              label="ART REGISTRATION DATE"
-              type="date"
-              value={formData.artRegistrationDate}
-              onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
-            />
+            {/* Sub-Card 3: Diagnostics Lab Monitoring (Hb & Viral Load) */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-purple-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
+              <div className="flex items-center justify-between border-b border-purple-100 pb-2.5">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                    <Microscope className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                      Laboratory Diagnostics &amp; Biomarkers
+                    </h4>
+                    <p className="text-[11px] text-slate-500">Hemoglobin anemia staging and HIV viral load suppression tracking</p>
+                  </div>
+                </div>
+                <span className="hidden sm:inline-flex text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                  Lab Diagnostics
+                </span>
+              </div>
 
-            <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
-              <Input
-                label={t('art_num', currentLanguage)}
-                value={formData.artIdNumber}
-                onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
-                placeholder="e.g. MH-PUN-00123"
-              />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Part A: Hemoglobin & Anemia Staging */}
+                <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                      <Activity className="w-3.5 h-3.5 text-purple-600" />
+                      Hemoglobin (Hb) Anemia Screening
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                        formData.haemoglobinGdl
+                          ? hbCategory === 'Normal'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : hbCategory === 'Severe Anemia'
+                            ? 'bg-rose-100 text-rose-800 font-black animate-pulse'
+                            : 'bg-amber-100 text-amber-800'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {formData.haemoglobinGdl ? hbCategory : 'Not Tested'}
+                    </span>
+                  </div>
+
+                  <Input
+                    label="HEMOGLOBIN (G/DL)"
+                    type="number"
+                    step="0.1"
+                    min="2"
+                    max="25"
+                    value={formData.haemoglobinGdl}
+                    onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
+                    placeholder="e.g. 11.2"
+                    unit="g/dL"
+                  />
+
+                  <p className="text-[11px] text-slate-500 leading-tight">
+                    {formData.haemoglobinGdl ? (
+                      Number(formData.haemoglobinGdl) < 7.0 ? (
+                        <span className="text-rose-600 font-bold">🚨 Severe anemia detected (&lt; 7.0 g/dL). Urgent pediatric clinical referral recommended.</span>
+                      ) : Number(formData.haemoglobinGdl) < 11.0 ? (
+                        <span className="text-amber-700 font-medium">⚠️ Mild/Moderate anemia. Nutritional iron supplementation and diet tracking recommended.</span>
+                      ) : (
+                        <span className="text-emerald-700 font-medium">✓ Hemoglobin within normal pediatric reference range (≥ 11.0 g/dL).</span>
+                      )
+                    ) : (
+                      'Record recent clinical lab test result. Normal threshold is ≥ 11.0 g/dL.'
+                    )}
+                  </p>
+                </div>
+
+                {/* Part B: Viral Load & Suppression */}
+                <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                      <HeartPulse className="w-3.5 h-3.5 text-purple-600" />
+                      Viral Load (VL) &amp; Suppression
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                        vlCategory.includes('Undetectable') || vlCategory.includes('Suppressed')
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : vlCategory.includes('Unsuppressed')
+                          ? 'bg-rose-100 text-rose-800 font-black animate-pulse'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {vlCategory}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="flex flex-col space-y-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                        VL STATUS <span className="text-rose-500 ml-0.5">*</span>
+                      </label>
+                      <select
+                        value={formData.vlStatus}
+                        onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
+                        className="w-full h-11 px-2.5 text-xs font-medium text-slate-900 bg-white border border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      >
+                        {[
+                          'Tested in last 6 months',
+                          'Tested > 6 months ago',
+                          'Awaiting results',
+                          'Not tested',
+                        ].map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <Input
+                      label="VL TEST DATE"
+                      type="date"
+                      value={formData.vlDate}
+                      onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
+                    />
+                  </div>
+
+                  <div id="q-cli-vl" className={getHighlightClass('q-cli-vl')}>
+                    <Input
+                      label={t('viral_load', currentLanguage)}
+                      value={formData.viralLoad}
+                      onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
+                      placeholder="e.g. < 50 or 450"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-col space-y-1.5">
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                VIRAL LOAD STATUS <span className="text-rose-500 ml-0.5">*</span>
-              </label>
-              <select
-                value={formData.vlStatus}
-                onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
-              >
-                {[
-                  'Tested in last 6 months',
-                  'Tested > 6 months ago',
-                  'Awaiting results',
-                  'Not tested',
-                ].map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Sub-Card 4: Comorbidities & Co-infections */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Active Co-Morbidities &amp; Health Conditions
+                </h4>
+                <p className="text-[11px] text-slate-500">Select all confirmed conditions requiring clinical management</p>
+              </div>
 
-            <Input
-              label="VIRAL LOAD TEST DATE"
-              type="date"
-              value={formData.vlDate}
-              onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
-            />
-
-            <div id="q-cli-vl" className={getHighlightClass('q-cli-vl')}>
-              <Input
-                label={t('viral_load', currentLanguage)}
-                value={formData.viralLoad}
-                onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
-                placeholder="e.g. < 50 or 450"
-              />
-            </div>
-
-            <div className="flex flex-col justify-center bg-purple-50/60 border border-purple-200 rounded-xl px-3.5 py-1.5 shadow-2xs">
-              <span className="text-[10px] uppercase font-bold text-purple-800 tracking-wider">VL CATEGORY</span>
-              <div className="text-sm font-bold text-purple-950">{vlCategory}</div>
-              <span className="text-[10px] text-purple-700">Auto-classified</span>
-            </div>
-
-            {/* Comorbidities */}
-            <div className="sm:col-span-4 space-y-2 pt-1">
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                COMORBIDITIES (Select all that apply)
-              </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {[
                   'TB (Tuberculosis)',
@@ -1313,9 +1518,9 @@ export default function NewSinglePageAssessment() {
                   return (
                     <label
                       key={cond}
-                      className={`flex items-center space-x-2 h-11 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                      className={`flex items-center space-x-2.5 h-11 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                         isChecked
-                          ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                          ? 'bg-purple-50 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                           : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                       }`}
                     >
@@ -1344,20 +1549,21 @@ export default function NewSinglePageAssessment() {
                   );
                 })}
               </div>
-            </div>
 
-            {formData.otherHealthConditions.includes('Any Other Health Condition (specify)') && (
-              <div className="sm:col-span-4">
-                <Input
-                  label="COMORBIDITIES OTHER (PLEASE SPECIFY) *"
-                  value={formData.otherHealthConditionSpecify}
-                  onChange={(e) =>
-                    setFormData({ ...formData, otherHealthConditionSpecify: e.target.value })
-                  }
-                  placeholder="e.g. Asthma, Skin allergy"
-                />
-              </div>
-            )}
+              {formData.otherHealthConditions.includes('Any Other Health Condition (specify)') && (
+                <div className="pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <Input
+                    label="SPECIFY OTHER HEALTH CONDITION DETAILS *"
+                    required
+                    value={formData.otherHealthConditionSpecify}
+                    onChange={(e) =>
+                      setFormData({ ...formData, otherHealthConditionSpecify: e.target.value })
+                    }
+                    placeholder="e.g. Severe Dermatitis, Asthma, Chronic Diarrhea"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -1366,46 +1572,19 @@ export default function NewSinglePageAssessment() {
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
           <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" />
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div id="q-nut-appetite" className={`sm:col-span-2 space-y-1.5 ${getHighlightClass('q-nut-appetite')}`}>
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {t('appetite', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['Good', 'Reduced', 'Poor / Very low'] as AppetiteLevel[]).map((app) => (
-                  <label
-                    key={app}
-                    className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
-                      formData.appetite === app
-                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
-                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="appetite"
-                      value={app}
-                      checked={formData.appetite === app}
-                      onChange={() => setFormData({ ...formData, appetite: app })}
-                      className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
-                    />
-                    <span>{app}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div id="q-nut-meals" className={getHighlightClass('q-nut-meals')}>
-              <Input
-                label={t('meals_per_day', currentLanguage)}
-                type="number"
-                min="1"
-                max="10"
-                required
-                value={formData.mealsPerDay}
-                onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
-              />
-            </div>
+          <div className="pt-1">
+            <AnimatedAppetiteSelector
+              appetite={formData.appetite}
+              mealsPerDay={formData.mealsPerDay}
+              onAppetiteChange={(app) => setFormData((prev) => ({ ...prev, appetite: app }))}
+              onMealsChange={(m) => setFormData((prev) => ({ ...prev, mealsPerDay: m }))}
+              labels={{
+                appetiteTitle: t('appetite', currentLanguage),
+                mealsTitle: t('meals_per_day', currentLanguage),
+              }}
+              highlightAppetiteClass={getHighlightClass('q-nut-appetite')}
+              highlightMealsClass={getHighlightClass('q-nut-meals')}
+            />
           </div>
         </section>
 
@@ -1581,38 +1760,31 @@ export default function NewSinglePageAssessment() {
           <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" />
 
           <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="flex flex-col space-y-1.5">
-                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                  {t('approved_status', currentLanguage)}
-                </label>
-                <select
-                  value={formData.approvedAllianceIndia}
-                  onChange={(e) =>
-                    setFormData({ ...formData, approvedAllianceIndia: e.target.value as ApprovedAllianceStatus })
-                  }
-                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
-                >
-                  {['Pending', 'Approved', 'Conditionally Approved', 'Rejected'].map((st) => (
-                    <option key={st} value={st}>
-                      {st}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div
-                id="q-rev-confirm"
-                className={`space-y-1.5 ${getHighlightClass('q-rev-confirm')}`}
-              >
-                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                  {t('review_confirmed', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
-                </label>
-                <div className="flex items-center space-x-3 pt-0.5">
+            {/* Caseworker Attestation & Verification Confirmation */}
+            <div
+              id="q-rev-confirm"
+              className={`p-4 rounded-xl border transition-all ${
+                formData.allInfoCorrect === true
+                  ? 'bg-emerald-50/70 border-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                  : formData.allInfoCorrect === false
+                  ? 'bg-rose-50/70 border-rose-300'
+                  : 'bg-white/80 border-slate-200'
+              } ${getHighlightClass('q-rev-confirm')}`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-800 block">
+                    {t('review_confirmed', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    I confirm that all entered details and documents have been checked and verified for accuracy.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3 shrink-0">
                   <label
                     className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === true
-                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                        ? 'bg-emerald-600 border-emerald-700 text-white font-bold ring-2 ring-emerald-400/50 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
@@ -1621,7 +1793,7 @@ export default function NewSinglePageAssessment() {
                       name="allInfoCorrect"
                       checked={formData.allInfoCorrect === true}
                       onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
-                      className="accent-purple-600 text-purple-600 focus:ring-purple-500"
+                      className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500"
                     />
                     <span className="text-xs font-semibold">{t('review_yes', currentLanguage)}</span>
                   </label>
@@ -1629,7 +1801,7 @@ export default function NewSinglePageAssessment() {
                   <label
                     className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === false
-                        ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold'
+                        ? 'bg-rose-600 border-rose-700 text-white font-bold ring-2 ring-rose-400/50 shadow-[0_0_12px_rgba(244,63,94,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
@@ -1646,14 +1818,8 @@ export default function NewSinglePageAssessment() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-              <Input
-                label={t('org_name', currentLanguage)}
-                value={formData.organizationName}
-                onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
-                placeholder="India HIV/AIDS Alliance"
-              />
-
+            {/* Submitter Credentials in 3 balanced columns */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-rev-interviewer" className={getHighlightClass('q-rev-interviewer')}>
                 <Input
                   label={t('interviewer_name', currentLanguage)}
@@ -1663,6 +1829,13 @@ export default function NewSinglePageAssessment() {
                   placeholder="Your full name"
                 />
               </div>
+
+              <Input
+                label={t('org_name', currentLanguage)}
+                value={formData.organizationName}
+                onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
+                placeholder="India HIV/AIDS Alliance"
+              />
 
               <Input
                 label={t('org_email', currentLanguage)}

@@ -17,6 +17,7 @@ import {
   Maximize2,
   Lock,
 } from 'lucide-react';
+import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
 interface SupervisorRecord {
@@ -181,32 +182,8 @@ export default function SupervisorDashboardPage() {
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8">
-        {/* Exclusive Evaluation Tab Navigation */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-3 sm:mb-4 gap-3">
-          <div className="flex items-center space-x-1 overflow-x-auto">
-            <Link
-              href="/supervisor"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
-            >
-              <Activity className="h-4 w-4 text-teal-600" />
-              <span>Overview &amp; Surveillance</span>
-            </Link>
-            <Link
-              href="/supervisor/assessments"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
-            >
-              <TableProperties className="h-4 w-4" />
-              <span>ChildrenLinelist</span>
-            </Link>
-            <Link
-              href="/supervisor/analytics"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
-            >
-              <BarChart3 className="h-4 w-4" />
-              <span>Clinical Analytics</span>
-            </Link>
-          </div>
-        </div>
+        {/* Supervisor Tab Navigation with Smooth Animations */}
+        <SupervisorTabNav />
 
         {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5 mb-8">

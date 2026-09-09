@@ -11,6 +11,7 @@ import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import { Plus } from 'lucide-react';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
+import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 
 export default function HomePage() {
   const router = useRouter();
@@ -78,7 +79,10 @@ export default function HomePage() {
   return (
     <AppShell pendingSyncCount={waitingCount} submittedCount={submittedCount}>
       <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 sm:py-10 flex flex-col justify-between space-y-8 animate-in fade-in duration-200">
-        <div className="space-y-8">
+        <div className="space-y-6">
+          {/* Miniature Children Garden Playground (Physics-based live interactive garden) */}
+          <MiniatureGardenPlayground />
+
           {/* Featured Primary Form Card Matching Reference FormLibrary */}
           <div className="p-6 md:p-8 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[hsl(215,18%,90%)] pb-6">
