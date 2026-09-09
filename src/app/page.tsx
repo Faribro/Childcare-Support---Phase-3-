@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Smartphone,
   Layers,
+  ChevronLeft,
   ChevronRight,
   HelpCircle,
   Activity,
@@ -52,6 +53,27 @@ export default function LandingPage() {
   const [installSuccess, setInstallSuccess] = useState(false);
   const [activeTrackId, setActiveTrackId] = useState<GuideTrackId>('lifecycle');
   const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const stepScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollSteps = (direction: 'left' | 'right') => {
+    if (stepScrollRef.current) {
+      const scrollAmount = 260;
+      stepScrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  // Smoothly center the active step pill when selected or progressed
+  useEffect(() => {
+    if (stepScrollRef.current) {
+      const activeEl = stepScrollRef.current.children[activeStepIndex] as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  }, [activeStepIndex]);
 
   // If already running in standalone PWA mode, provide immediate jump to /app
   useEffect(() => {
@@ -102,7 +124,7 @@ export default function LandingPage() {
         title: 'Core 6-Section Assessment Workflow',
         description:
           'Takes 7 to 10 minutes per household. Every section saves directly to your device so you can work completely offline.',
-        tags: ['Audio consent in 5 languages', 'Automatic doorstep GPS', 'Live WHO growth curves', 'Zero data loss'],
+        tags: ['Audio consent in 5 languages', 'Automatic doorstep GPS', 'Anthropometric indicators', 'Zero data loss'],
       },
       steps: [
         {
@@ -155,11 +177,11 @@ export default function LandingPage() {
           badge: 'Step 4 • Nutrition Measurements',
           title: 'Height, Weight & Mid-Upper Arm Circumference (MUAC)',
           summary:
-            'Measure the child\'s physical growth. The app immediately calculates WHO growth scores to detect acute malnutrition early.',
+            'Measure the child\'s physical growth. The app calculates nutrition indicators to detect acute malnutrition early.',
           frontlineAction:
             'Enter weight in kilograms and height in centimeters. Wrap the MUAC tape around the left mid-upper arm and choose the color: Green (Normal), Yellow (MAM), or Red (SAM).',
           smartBehavior:
-            'Instantly calculates WHO growth percentiles (Weight-for-Age, Height-for-Age, BMI) and alerts you if the child needs immediate nutritional referral.',
+            'Instantly calculates anthropometric percentiles (Weight-for-Age, Height-for-Age, BMI) and alerts you if the child needs immediate nutritional referral.',
           proTip:
             'Ensure the child removes shoes and heavy outer clothing before stepping on the weighing scale for accuracy.',
           imageSrc: '/images/guide/step-clinical.png',
@@ -388,9 +410,9 @@ export default function LandingPage() {
           summary:
             'Modify any text field that needs correction, such as date of birth, caregiver contact number, or height and weight.',
           frontlineAction:
-            'Click directly into the box you want to change. If you update height or weight, notice the WHO nutrition score recalculates right away.',
+            'Click directly into the box you want to change. If you update height or weight, notice the nutrition score recalculates right away.',
           smartBehavior:
-            'Validates telephone numbers and IFSC formats on the fly and re-scores WHO nutritional classifications instantly.',
+            'Validates telephone numbers and IFSC formats on the fly and re-scores nutritional classifications instantly.',
           proTip:
             'Always double-check that the bank account holder name matches the caregiver\'s name on the new passbook photo.',
           imageSrc: '/images/guide/step-clinical.png',
@@ -620,10 +642,6 @@ export default function LandingPage() {
               Sub-10m Landmark Fix
             </span>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
-              <HeartPulse className="w-3.5 h-3.5 text-rose-500" />
-              WHO Growth Standards
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
               <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
               Encrypted Local Storage
             </span>
@@ -697,7 +715,7 @@ export default function LandingPage() {
           </div>
 
           {/* ── 4 Interactive Operational Tracks Navigation Tabs ── */}
-          <div className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-200">
+          <div className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-2 scroll-smooth no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden border-b border-slate-200">
             {guideTracks.map((track) => {
               const isSelected = activeTrackId === track.id;
               return (
@@ -802,23 +820,49 @@ export default function LandingPage() {
             </div>
           )}
 
-          {/* ── Interactive Step Selector Pills for Active Track ── */}
-          <div className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-            {currentTrack.steps.map((s, idx) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setActiveStepIndex(idx)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeStepIndex === idx
-                    ? 'bg-teal-700 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                <span className="opacity-75 font-mono text-[10px]">#{s.id}</span>
-                <span>{s.badge.split('•')[1]?.trim() || s.badge}</span>
-              </button>
-            ))}
+          {/* ── Interactive Step Selector Pills with Smooth Scroll Buttons ── */}
+          <div className="relative flex items-center gap-2 w-full">
+            {/* Scroll Left Button */}
+            <button
+              type="button"
+              onClick={() => scrollSteps('left')}
+              aria-label="Scroll steps left"
+              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-white border border-slate-200 text-slate-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-2xs transition-all cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {/* Scrollable Steps Track */}
+            <div
+              ref={stepScrollRef}
+              className="flex-1 flex items-center justify-start sm:justify-center gap-2 overflow-x-auto py-1 scroll-smooth no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {currentTrack.steps.map((s, idx) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setActiveStepIndex(idx)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                    activeStepIndex === idx
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <span className="opacity-75 font-mono text-[10px]">#{s.id}</span>
+                  <span>{s.badge.split('•')[1]?.trim() || s.badge}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Scroll Right Button */}
+            <button
+              type="button"
+              onClick={() => scrollSteps('right')}
+              aria-label="Scroll steps right"
+              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-white border border-slate-200 text-slate-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-2xs transition-all cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
 
           {/* ── Active Step Deep Dive Card ── */}
@@ -935,87 +979,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Core System Capabilities (Bento Grid) ── */}
-      <section id="core-capabilities" className="py-16 sm:py-24 bg-slate-50 border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Field-Tested Application Capabilities
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-600 font-normal">
-              Engineered for high reliability, zero data loss, and seamless field adoption across vulnerable community settlements.
-            </p>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {/* Card 1: 100% Offline Resilience */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-                <WifiOff className="w-5 h-5" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">Zero-Loss Offline Engine</h3>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Uses local IndexedDB storage with multi-version schema migrations. Surveys, drafts, and photos remain fully accessible offline without internet.
-              </p>
-            </div>
-
-            {/* Card 2: Sub-10m GPS Pinpoint */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-                <MapPin className="w-5 h-5" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">Sub-10m Doorstep Landmark Fix</h3>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Blends OpenStreetMap Nominatim, Photon, and ESRI World Geocoding to locate nearby reference points (e.g. &ldquo;Near Chaar Sahibzaade Gurudwara&rdquo;) within 10 meters.
-              </p>
-            </div>
-
-            {/* Card 3: Clinical WHO Scoring */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-                <HeartPulse className="w-5 h-5" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">WHO Clinical Anthropometry</h3>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Real-time calculation of WHO Z-scores and MUAC color indicators (Normal, Moderate Acute Malnutrition, Severe Acute Malnutrition) without manual table lookups.
-              </p>
-            </div>
-
-            {/* Card 4: Audio & Voice Consent */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
-                <Mic className="w-5 h-5" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">Multilingual Spoken Consent</h3>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Pre-recorded voice prompts in Hindi, Marathi, Telugu, Tamil, and English. Captures audio confirmation and touch signatures directly into the record.
-              </p>
-            </div>
-
-            {/* Card 5: Privacy & Aadhaar Masking */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">Institutional Data Privacy</h3>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Automatic Aadhaar number masking (only last 4 digits displayed). Complies with Indian personal data protection standards for vulnerable children.
-              </p>
-            </div>
-
-            {/* Card 6: Supervisor GIS & Line-List */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
-                <Layers className="w-5 h-5" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">Supervisor GIS &amp; Analytics</h3>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Supervisory portal with MapLibre choropleth maps, cluster pins, submission verification locks, and automated sync audit logging.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* ── Field Staff FAQ & Quick Troubleshooting ── */}
       <section id="field-faq" className="py-16 sm:py-24 bg-white border-b border-slate-200">

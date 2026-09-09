@@ -56,6 +56,15 @@ body {
   min-width: 48px;
 }
 
+/* Hide native scrollbars while preserving scroll functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Pulsating Wave Ripple Effect for Start New Assessment (from reference project) */
 .waves-wrapper {
   position: relative;
