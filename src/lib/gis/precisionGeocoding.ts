@@ -171,13 +171,34 @@ export function synthesizeAddress(
     n['addr:plot_number'] ||
     '';
 
+  const cleanLandmark = (val: string | undefined | null): string => {
+    if (!val) return '';
+    const s = String(val).trim();
+    if (/^(yes|no|true|false|building|apartments|house|residential|commercial|unnamed|undefined|null)$/i.test(s)) {
+      return '';
+    }
+    return s;
+  };
+
+  const formatNear = (text: string): string => {
+    const s = text.trim();
+    if (!s) return '';
+    if (/^(near|opp\b|opposite|behind|beside|adjacent to|next to|close to)\b/i.test(s)) {
+      return s;
+    }
+    return `Near ${s}`;
+  };
+
   const rawLandmark =
-    e.PlaceName ||
-    n.house_name ||
-    n.building ||
-    n.amenity ||
-    n.shop ||
-    n.office ||
+    cleanLandmark(e.PlaceName) ||
+    cleanLandmark(n.amenity) ||
+    cleanLandmark(n.building_name) ||
+    cleanLandmark(n.place_of_worship) ||
+    cleanLandmark(n.house_name) ||
+    cleanLandmark(n.shop) ||
+    cleanLandmark(n.office) ||
+    cleanLandmark(n.building) ||
+    cleanLandmark(nomData?.name) ||
     '';
 
   const rawStreet =
@@ -230,14 +251,16 @@ export function synthesizeAddress(
 
   const parts: string[] = [];
 
-  // 1. House / Flat / Plot Number
-  if (rawHouseNum) {
+  // 1. Primary Anchor: Landmark (formatted with "Near ") or Street
+  if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase()) {
+    parts.push(formatNear(rawLandmark));
+  } else if (rawHouseNum && rawStreet) {
     const formatted = /(house|flat|plot|h.no|door)/i.test(rawHouseNum)
       ? rawHouseNum
       : `House No. ${rawHouseNum}`;
-    parts.push(formatted);
-  } else if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase()) {
-    parts.push(rawLandmark.startsWith('Near') ? rawLandmark : `Near ${rawLandmark}`);
+    parts.push(formatNear(`${formatted}, ${rawStreet}`));
+  } else if (rawStreet) {
+    parts.push(formatNear(rawStreet));
   }
 
   // 2. Block

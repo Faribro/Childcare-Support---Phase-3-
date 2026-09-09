@@ -263,6 +263,26 @@ function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): Locat
   const n = nomData?.address || {};
   const p = photonProps || {};
 
+  // Helper to filter out generic building/amenity tag values that aren't genuine names
+  const cleanLandmark = (val: string | undefined | null): string => {
+    if (!val) return '';
+    const s = String(val).trim();
+    if (/^(yes|no|true|false|building|apartments|house|residential|commercial|unnamed|undefined|null)$/i.test(s)) {
+      return '';
+    }
+    return s;
+  };
+
+  // Helper to format with "Near " prefix if not already present
+  const formatNear = (text: string): string => {
+    const s = text.trim();
+    if (!s) return '';
+    if (/^(near|opp\b|opposite|behind|beside|adjacent to|next to|close to)\b/i.test(s)) {
+      return s;
+    }
+    return `Near ${s}`;
+  };
+
   // Extract house / flat / plot number
   const rawHouseNum =
     e.AddNum ||
@@ -278,13 +298,16 @@ function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): Locat
 
   // Extract landmark / building / society / POI
   const rawLandmark =
-    p.name ||
-    e.PlaceName ||
-    n.building ||
-    n.house_name ||
-    n.amenity ||
-    n.shop ||
-    n.office ||
+    cleanLandmark(p.name) ||
+    cleanLandmark(e.PlaceName) ||
+    cleanLandmark(n.amenity) ||
+    cleanLandmark(n.building_name) ||
+    cleanLandmark(n.place_of_worship) ||
+    cleanLandmark(n.house_name) ||
+    cleanLandmark(n.shop) ||
+    cleanLandmark(n.office) ||
+    cleanLandmark(n.building) ||
+    cleanLandmark(nomData?.name) ||
     '';
 
   // Extract street / road name
@@ -349,52 +372,52 @@ function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): Locat
   // Build ordered address components without duplication
   const parts: string[] = [];
 
-  // 1. House / Flat / Plot Number
-  if (rawHouseNum) {
+  // 1. Primary Anchor: Landmark (formatted with "Near ") or Street
+  // Note: We avoid speculative house numbers (e.g. "House No. 6") when a landmark/street anchor is available
+  if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase()) {
+    parts.push(formatNear(rawLandmark));
+  } else if (rawHouseNum && rawStreet) {
     const formatted = /(house|flat|plot|h.no|door)/i.test(rawHouseNum)
       ? rawHouseNum
       : `House No. ${rawHouseNum}`;
-    parts.push(formatted);
+    parts.push(formatNear(`${formatted}, ${rawStreet}`));
+  } else if (rawStreet) {
+    parts.push(formatNear(rawStreet));
   }
 
-  // 2. Specific Building / Society / Landmark
-  if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase() && !parts.includes(rawLandmark)) {
-    parts.push(rawLandmark);
-  }
-
-  // 3. Block / Sector
+  // 2. Block / Sector
   if (rawBlock && !parts.some((pt) => pt.toLowerCase().includes(rawBlock.toLowerCase()))) {
     parts.push(/(block|sector)/i.test(rawBlock) ? rawBlock : `Block ${rawBlock}`);
   }
 
-  // 4. Street / Road (e.g. O.P. Sharda Marg)
+  // 3. Street / Road (e.g. Vardhaman Lane)
   if (rawStreet && !parts.some((pt) => pt.toLowerCase().includes(rawStreet.toLowerCase()))) {
     parts.push(rawStreet);
   }
 
-  // 5. Colony / Sector / Neighbourhood (e.g. Greater Kailash I)
+  // 4. Colony / Sector / Neighbourhood (e.g. Kailash Colony)
   if (rawColony && !parts.some((pt) => pt.toLowerCase().includes(rawColony.toLowerCase()))) {
     parts.push(rawColony);
   }
 
-  // 6. Suburb / Sub-locality (e.g. Greater Kailash)
+  // 5. Suburb / Sub-locality (e.g. Greater Kailash)
   if (rawSuburb && !parts.some((pt) => pt.toLowerCase().includes(rawSuburb.toLowerCase()))) {
     parts.push(rawSuburb);
   }
 
-  // 7. City / District (e.g. South Delhi)
+  // 6. City / District (e.g. South East Delhi)
   if (district && !parts.some((pt) => pt.toLowerCase().includes(district.toLowerCase()))) {
     parts.push(district);
   } else if (rawCity && !parts.some((pt) => pt.toLowerCase().includes(rawCity.toLowerCase()))) {
     parts.push(rawCity);
   }
 
-  // 8. State
+  // 7. State
   if (state && !parts.some((pt) => pt.toLowerCase().includes(state.toLowerCase()))) {
     parts.push(state);
   }
 
-  // 9. Pincode
+  // 8. Pincode
   if (pincode && !parts.includes(pincode)) {
     parts.push(pincode);
   }
@@ -407,7 +430,11 @@ function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): Locat
     if (tokens.length > 1 && tokens[tokens.length - 1].toLowerCase() === 'india') {
       tokens.pop();
     }
-    fullAddress = tokens.slice(0, 5).join(', ');
+    const cleanTokens = tokens.slice(0, 5).map((tok: string, idx: number) => {
+      if (idx === 0) return formatNear(tok);
+      return tok;
+    });
+    fullAddress = cleanTokens.join(', ');
   }
 
   return {
@@ -417,7 +444,7 @@ function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): Locat
     pincode,
     subLocality: rawSuburb || rawColony,
     locality: rawCity || district,
-    houseNumber: rawHouseNum,
+    houseNumber: rawLandmark ? undefined : rawHouseNum,
     road: rawStreet,
     colony: rawColony,
   };
@@ -425,10 +452,10 @@ function synthesizeAddress(esriAddr: any, nomData: any, photonProps: any): Locat
 
 const STATUS_MSG: Record<FetchStatus, string> = {
   idle: 'Fetch Live Address',
-  requesting: 'Acquiring Satellite GPS Fix…',
-  geocoding: 'Pinpointing Exact Doorstep & Street…',
-  success: 'Exact Address Located!',
-  error: 'Retry GPS Fetch',
+  requesting: 'Fetching…',
+  geocoding: 'Fetching…',
+  success: 'Address Located!',
+  error: 'Retry Fetch',
 };
 
 export function LocationFetchButton({ onLocationFetched, disabled, className }: LocationFetchButtonProps) {
@@ -513,11 +540,9 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
     onLocationFetched(result);
     setStatus('success');
 
-    const detailText = result.houseNumber
-      ? `House ${result.houseNumber}, ${result.road || result.colony || ''}`
-      : result.road && result.colony
-      ? `${result.road}, ${result.colony}`
-      : result.colony || result.fullAddress.split(',')[0];
+    const detailText = result.fullAddress
+      ? result.fullAddress.split(',').slice(0, 2).join(', ')
+      : result.colony || 'Address';
 
     setLocatedDetail(detailText);
     setTimeout(() => {
@@ -547,7 +572,7 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
           title={
             status === 'success' && accuracy
               ? `GPS accuracy: ±${accuracy}m`
-              : 'Pinpoint exact house, street, colony & city from live GPS'
+              : 'Fetch live address from GPS'
           }
           className={`
             w-full h-11 px-4 rounded-xl border font-bold text-xs
