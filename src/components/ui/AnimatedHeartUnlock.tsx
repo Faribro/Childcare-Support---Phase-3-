@@ -8,8 +8,8 @@ interface AnimatedHeartUnlockProps {
   size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
-// Secret passcode sequence: 1 click, then 3 clicks, then 2 clicks (132)
-const TARGET_PASSCODE = [1, 3, 2];
+// Secret passcodes accepted: 132, 312, 332, 321
+const VALID_PASSCODES = ['132', '312', '332', '321'];
 
 export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHeartUnlockProps) {
   const { isUnlocked, unlock, lock } = useEvaluationAccess();
@@ -23,13 +23,13 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     ? { width: 38, height: 33, curve: 10, maxTank: 33 }
     : { width: 32, height: 28, curve: 9, maxTank: 28 }; // default md
 
-  // Passcode stage: 0 (waiting for digit 1), 1 (waiting for digit 2), 2 (waiting for digit 3), 3 (unlocked)
-  const [stage, setStage] = useState<number>(0);
+  // Slot states: [slot0, slot1, slot2]
+  const [slots, setSlots] = useState<(number | null)[]>([null, null, null]);
+  const [activeSlot, setActiveSlot] = useState<number>(0);
   const [currentClicks, setCurrentClicks] = useState<number>(0);
-  const [displayValue, setDisplayValue] = useState<string | number>(0);
   const [isPumping, setIsPumping] = useState<boolean>(false);
   const [isShaking, setIsShaking] = useState<boolean>(false);
-  const [badgeStatus, setBadgeStatus] = useState<'idle' | 'clicking' | 'success' | 'wrong'>('idle');
+  const [status, setStatus] = useState<'idle' | 'clicking' | 'locked-slot' | 'success' | 'wrong'>('idle');
 
   const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -37,14 +37,14 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   // Synchronize state with persistent unlock status
   useEffect(() => {
     if (isUnlocked) {
-      setStage(3);
-      setDisplayValue('✓');
-      setBadgeStatus('success');
+      setSlots([1, 3, 2]);
+      setActiveSlot(3);
+      setStatus('success');
     } else {
-      setStage(0);
+      setSlots([null, null, null]);
+      setActiveSlot(0);
       setCurrentClicks(0);
-      setDisplayValue(0);
-      setBadgeStatus('idle');
+      setStatus('idle');
     }
   }, [isUnlocked]);
 
@@ -56,7 +56,8 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     };
   }, []);
 
-  // Scaled tank fill levels (in pixels)
+  // Liquid tank fill levels (in pixels) based on completed slots
+  const completedCount = slots.filter((s) => s !== null).length;
   const tankLevels = [
     0,
     Math.round(dims.maxTank * 0.36),
@@ -64,7 +65,6 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     dims.maxTank,
   ];
 
-  // Curve bottom positions (floating curve on top of liquid in tank)
   const curveLevels = [
     -dims.curve,
     Math.round(dims.maxTank * 0.36) - 3,
@@ -74,14 +74,18 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
 
   const pumpLevelsZ = [8, 12, 16, 0];
 
+  const resetAll = () => {
+    setSlots([null, null, null]);
+    setActiveSlot(0);
+    setCurrentClicks(0);
+    setStatus('idle');
+  };
+
   const handleHeartClick = () => {
     // If already unlocked, clicking it will lock it back and reset
-    if (isUnlocked || stage === 3) {
+    if (isUnlocked || activeSlot >= 3) {
       lock();
-      setStage(0);
-      setCurrentClicks(0);
-      setDisplayValue(0);
-      setBadgeStatus('idle');
+      resetAll();
       return;
     }
 
@@ -89,84 +93,107 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
 
     // Pump pulse animation
     setIsPumping(true);
-    setTimeout(() => setIsPumping(false), 250);
+    setTimeout(() => setIsPumping(false), 220);
 
-    // Clear any previous idle timer
+    // Reset idle timeout (if no click for 9 seconds, resets)
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      resetAll();
+    }, 9000);
 
-    // Increment clicks for current digit
     const nextClicks = currentClicks + 1;
     setCurrentClicks(nextClicks);
-    setDisplayValue(nextClicks);
-    setBadgeStatus('clicking');
+    setStatus('clicking');
 
-    // Reset commit debounce timer (1000ms pause commits the digit)
+    // Clear previous commit timer
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
 
+    // Commit digit after 850ms pause in clicks
     commitTimerRef.current = setTimeout(() => {
-      const expectedClicks = TARGET_PASSCODE[stage];
+      const lockedVal = nextClicks;
+      const newSlots = [...slots];
+      newSlots[activeSlot] = lockedVal;
+      setSlots(newSlots);
+      setCurrentClicks(0);
 
-      if (nextClicks === expectedClicks) {
-        // Correct number of clicks for this stage!
-        if (stage === TARGET_PASSCODE.length - 1) {
-          // All digits [1, 3, 2] completed! UNLOCK!
+      if (activeSlot === 0) {
+        // Slot 0 locked! Reveal two dashes: e.g. "3 - -"
+        setActiveSlot(1);
+        setStatus('locked-slot');
+      } else if (activeSlot === 1) {
+        // Slot 1 locked! E.g. "3 1 -"
+        setActiveSlot(2);
+        setStatus('locked-slot');
+      } else if (activeSlot === 2) {
+        // Final slot locked! Check passcode
+        const passcodeStr = `${newSlots[0]}${newSlots[1]}${lockedVal}`;
+        if (VALID_PASSCODES.includes(passcodeStr)) {
+          // Success! Unlock!
           unlock();
-          setStage(3);
-          setCurrentClicks(0);
-          setDisplayValue('✓');
-          setBadgeStatus('success');
+          setActiveSlot(3);
+          setStatus('success');
         } else {
-          // Advance to next stage
-          const nextStage = stage + 1;
-          setStage(nextStage);
-          setCurrentClicks(0);
-          setDisplayValue(nextClicks);
-          setBadgeStatus('success');
-
-          // After short flash, reset badge to 0 for next digit
+          // Wrong passcode: shake and reset
+          setIsShaking(true);
+          setStatus('wrong');
           setTimeout(() => {
-            setDisplayValue(0);
-            setBadgeStatus('idle');
-          }, 350);
-
-          // Arm idle timer: if user waits > 7 seconds without clicking next digit, reset to 0
-          idleTimerRef.current = setTimeout(() => {
-            setStage(0);
-            setCurrentClicks(0);
-            setDisplayValue(0);
-            setBadgeStatus('idle');
-          }, 7000);
+            setIsShaking(false);
+            resetAll();
+          }, 800);
         }
-      } else {
-        // Wrong number of clicks! It won't open!
-        setIsShaking(true);
-        setDisplayValue('✕');
-        setBadgeStatus('wrong');
-        setStage(0);
-        setCurrentClicks(0);
-
-        setTimeout(() => {
-          setIsShaking(false);
-          setDisplayValue(0);
-          setBadgeStatus('idle');
-        }, 600);
       }
-    }, 1000);
+    }, 850);
   };
 
-  const currentTankHeight = tankLevels[stage] || 0;
-  const currentCurveBottom = curveLevels[stage] !== undefined ? curveLevels[stage] : -dims.curve;
-  const currentPumpZ = isPumping ? pumpLevelsZ[stage] || 10 : 0;
+  const currentTankHeight = isUnlocked ? dims.maxTank : (tankLevels[completedCount] || 0);
+  const currentCurveBottom = isUnlocked ? dims.maxTank - 3 : (curveLevels[completedCount] !== undefined ? curveLevels[completedCount] : -dims.curve);
+  const currentPumpZ = isPumping ? (pumpLevelsZ[completedCount] || 10) : 0;
   const currentScale = isPumping ? 1.12 : 1;
 
-  // Badge background and text styling
-  let badgeBg = 'bg-[#506079] text-white'; // default soft slate-blue
-  if (badgeStatus === 'clicking') {
-    badgeBg = 'bg-teal-700 text-white scale-110 shadow-md';
-  } else if (badgeStatus === 'success') {
+  // Render badge content
+  const renderBadgeContent = () => {
+    if (isUnlocked || status === 'success') {
+      return <span>✓</span>;
+    }
+
+    if (status === 'wrong') {
+      return <span>✕</span>;
+    }
+
+    // Initial state before locking slot 0
+    if (activeSlot === 0 && slots[0] === null) {
+      return <span>{currentClicks > 0 ? currentClicks : 0}</span>;
+    }
+
+    // Multi-slot mode: displays locked numbers and dashes (e.g. 3 - -)
+    return (
+      <span className="flex items-center space-x-1 tracking-tight font-mono text-[9px]">
+        <span className={activeSlot === 0 ? 'text-amber-300 font-black scale-110' : 'text-white'}>
+          {activeSlot === 0 && currentClicks > 0 ? currentClicks : (slots[0] ?? '-')}
+        </span>
+        <span className="text-slate-300 opacity-60">·</span>
+        <span className={activeSlot === 1 ? 'text-amber-300 font-black scale-110' : 'text-white'}>
+          {activeSlot === 1 && currentClicks > 0 ? currentClicks : (slots[1] ?? '-')}
+        </span>
+        <span className="text-slate-300 opacity-60">·</span>
+        <span className={activeSlot === 2 ? 'text-amber-300 font-black scale-110' : 'text-white'}>
+          {activeSlot === 2 && currentClicks > 0 ? currentClicks : (slots[2] ?? '-')}
+        </span>
+      </span>
+    );
+  };
+
+  const isExpandedPill = activeSlot > 0 || (activeSlot === 0 && slots[0] !== null);
+
+  let badgeBg = 'bg-[#506079] text-white';
+  if (status === 'clicking') {
+    badgeBg = 'bg-purple-700 text-white shadow-md ring-1 ring-purple-300';
+  } else if (status === 'success') {
     badgeBg = 'bg-emerald-600 text-white shadow-sm';
-  } else if (badgeStatus === 'wrong') {
+  } else if (status === 'wrong') {
     badgeBg = 'bg-rose-600 text-white animate-pulse shadow-sm';
+  } else if (status === 'locked-slot') {
+    badgeBg = 'bg-[#3e4c63] text-white shadow-xs';
   }
 
   return (
@@ -196,7 +223,7 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
         {/* Main Heart Container with Liquid Wave */}
         <div
           className={`heart relative transition-all duration-300 ${
-            stage === 3 ? 'heart-unlocked-glow ring-1 ring-teal-400/60' : ''
+            isUnlocked ? 'heart-unlocked-glow ring-1 ring-purple-400/60' : ''
           }`}
           style={{
             width: `${dims.width}px`,
@@ -217,7 +244,7 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
               left: 0,
               width: `${dims.width}px`,
               height: `${currentTankHeight}px`,
-              backgroundColor: stage === 3 ? 'rgb(13, 148, 136)' : 'rgb(103, 130, 191)',
+              backgroundColor: isUnlocked ? 'rgb(147, 51, 234)' : 'rgb(103, 130, 191)',
               zIndex: 5,
               transition: 'height 0.45s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.4s ease',
             }}
@@ -251,31 +278,33 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
                 xlinkHref="#gentle-wave"
                 x="48"
                 y="0"
-                fill={stage === 3 ? 'rgba(20, 184, 166, 0.5)' : 'rgba(103, 130, 191, 0.5)'}
+                fill={isUnlocked ? 'rgba(168, 85, 247, 0.5)' : 'rgba(103, 130, 191, 0.5)'}
               />
               <use
                 href="#gentle-wave"
                 xlinkHref="#gentle-wave"
                 x="48"
                 y="1"
-                fill={stage === 3 ? 'rgba(20, 184, 166, 0.3)' : 'rgba(103, 130, 191, 0.3)'}
+                fill={isUnlocked ? 'rgba(168, 85, 247, 0.3)' : 'rgba(103, 130, 191, 0.3)'}
               />
               <use
                 href="#gentle-wave"
                 xlinkHref="#gentle-wave"
                 x="48"
                 y="2"
-                fill={stage === 3 ? 'rgba(13, 148, 136, 1)' : 'rgba(103, 130, 191, 1)'}
+                fill={isUnlocked ? 'rgba(147, 51, 234, 1)' : 'rgba(103, 130, 191, 1)'}
               />
             </g>
           </svg>
         </div>
 
-        {/* Passcode Click Counter Badge */}
+        {/* Passcode Click Counter Badge: starts as (0) circle, expands to (3 - -) pill */}
         <div
-          className={`absolute -bottom-1 -right-1 flex items-center justify-center w-[18px] h-[18px] rounded-full text-[10px] font-bold border-2 border-white shadow-xs transition-all duration-200 select-none ${badgeBg}`}
+          className={`absolute -bottom-1 -right-1 flex items-center justify-center ${
+            isExpandedPill ? 'px-1.5 h-[18px] min-w-[34px] rounded-full' : 'w-[18px] h-[18px] rounded-full'
+          } text-[10px] font-bold border-2 border-white shadow-xs transition-all duration-200 select-none ${badgeBg}`}
         >
-          <span>{displayValue}</span>
+          {renderBadgeContent()}
         </div>
       </div>
     </div>

@@ -853,7 +853,7 @@ export default function ResumeDraftSinglePage() {
                 key={btn.id}
                 type="button"
                 onClick={() => scrollToSection(btn.id)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-teal-900 border border-slate-200 text-slate-700 transition-colors font-medium text-[11px]"
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-50 hover:text-purple-950 border border-black text-slate-800 transition-colors font-medium text-[11px]"
               >
                 {btn.label}
               </button>
@@ -894,8 +894,8 @@ export default function ResumeDraftSinglePage() {
                 <label
                   className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                     formData.agreeToParticipate === true
-                      ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                      : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                   }`}
                 >
                   <input
@@ -903,7 +903,7 @@ export default function ResumeDraftSinglePage() {
                     name="agreeToParticipate"
                     checked={formData.agreeToParticipate === true}
                     onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
-                    className="text-teal-600 focus:ring-teal-500"
+                    className="accent-purple-600 text-purple-600 focus:ring-purple-500"
                   />
                   <span className="text-xs font-semibold">{t('consent_yes', currentLanguage)}</span>
                 </label>
@@ -912,7 +912,7 @@ export default function ResumeDraftSinglePage() {
                   className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                     formData.agreeToParticipate === false
                       ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                   }`}
                 >
                   <input
@@ -951,7 +951,7 @@ export default function ResumeDraftSinglePage() {
                   onChange={(e) =>
                     setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
                   }
-                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                 >
                   {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
                     <option key={rel} value={rel}>
@@ -1007,18 +1007,15 @@ export default function ResumeDraftSinglePage() {
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {/* System Generated Unique ID Display */}
-            <div className="p-3 bg-teal-50/80 border border-teal-200/90 rounded-xl sm:col-span-2 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold text-teal-950 uppercase tracking-wider">
+            {/* System Generated Unique ID Display: Unique ID directly in place of NACO REGISTRY */}
+            <div className="p-3 bg-purple-50/60 border border-purple-200/80 rounded-xl sm:col-span-2 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-xs">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-xs font-bold text-purple-950 uppercase tracking-wider">
                   {t('uid_label', currentLanguage)}
                 </span>
-                <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-slate-900 text-white rounded-md tracking-wider">
-                  NACO REGISTRY
+                <span className="px-3 py-1 text-xs font-mono font-bold bg-slate-900 text-white rounded-md tracking-wider shadow-xs">
+                  {formData.artNumber || 'Generating...'}
                 </span>
-              </div>
-              <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-lg border border-teal-200 font-mono text-sm font-bold text-teal-950 shadow-2xs w-fit">
-                <span>{formData.artNumber || 'Generating...'}</span>
               </div>
             </div>
 
@@ -1062,8 +1059,8 @@ export default function ResumeDraftSinglePage() {
                     key={g}
                     className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.gender === g
-                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1072,7 +1069,7 @@ export default function ResumeDraftSinglePage() {
                       value={g}
                       checked={formData.gender === g}
                       onChange={() => setFormData({ ...formData, gender: g })}
-                      className="text-teal-600 focus:ring-teal-500 shrink-0"
+                      className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span>{g}</span>
                   </label>
@@ -1094,8 +1091,8 @@ export default function ResumeDraftSinglePage() {
                     title={opt.tooltip}
                     className={`group relative flex items-center space-x-2 h-11 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.orphanStatus === opt.value
-                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1104,13 +1101,13 @@ export default function ResumeDraftSinglePage() {
                       value={opt.value}
                       checked={formData.orphanStatus === opt.value}
                       onChange={() => setFormData({ ...formData, orphanStatus: opt.value })}
-                      className="text-teal-600 focus:ring-teal-500 shrink-0"
+                      className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span className="truncate">{opt.label}</span>
 
                     {opt.tooltip && opt.tooltip !== opt.label && (
                       <>
-                        <span className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-100 group-hover:bg-teal-100 text-slate-400 group-hover:text-teal-700 text-[10px] font-bold transition-colors shrink-0">
+                        <span className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-100 group-hover:bg-purple-100 text-slate-400 group-hover:text-purple-700 text-[10px] font-bold transition-colors shrink-0">
                           ?
                         </span>
                         {/* Hover Tooltip Popup */}
@@ -1152,7 +1149,7 @@ export default function ResumeDraftSinglePage() {
               <select
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {INDIAN_STATES_AND_UTS.map((st) => (
                   <option key={st} value={st}>
@@ -1289,7 +1286,7 @@ export default function ResumeDraftSinglePage() {
                 onChange={(e) =>
                   setFormData({ ...formData, mainSourceOfIncome: e.target.value as MainSourceOfIncome })
                 }
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {[
                   'Daily wage labour',
@@ -1340,15 +1337,15 @@ export default function ResumeDraftSinglePage() {
               />
             </div>
 
-            <div id="q-cli-bmi" className={`flex flex-col justify-center bg-teal-50/80 border border-teal-200/90 rounded-xl px-3.5 py-1.5 shadow-2xs ${getHighlightClass('q-cli-bmi')}`}>
-              <span className="text-[10px] uppercase font-bold text-teal-800 tracking-wider">
+            <div id="q-cli-bmi" className={`flex flex-col justify-center bg-purple-50/80 border border-purple-200/90 rounded-xl px-3.5 py-1.5 shadow-2xs ${getHighlightClass('q-cli-bmi')}`}>
+              <span className="text-[10px] uppercase font-bold text-purple-800 tracking-wider">
                 {t('bmi', currentLanguage)}
               </span>
-              <div className="text-base font-bold text-teal-950">{bmiValue} kg/m²</div>
-              <span className="text-[11px] text-teal-700 font-semibold">{bmiCategory}</span>
+              <div className="text-base font-bold text-purple-950">{bmiValue} kg/m²</div>
+              <span className="text-[11px] text-purple-700 font-semibold">{bmiCategory}</span>
             </div>
 
-            <div className="flex flex-col justify-center bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 shadow-2xs">
+            <div className="flex flex-col justify-center bg-slate-50 border border-black rounded-xl px-3.5 py-1.5 shadow-2xs">
               <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">HB &amp; CATEGORY</span>
               <div className="text-base font-bold text-slate-800">
                 {formData.haemoglobinGdl ? `${formData.haemoglobinGdl} g/dL` : 'Not recorded'}
@@ -1374,7 +1371,7 @@ export default function ResumeDraftSinglePage() {
               <select
                 value={formData.artStatus}
                 onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
                   <option key={st} value={st}>
@@ -1407,7 +1404,7 @@ export default function ResumeDraftSinglePage() {
               <select
                 value={formData.vlStatus}
                 onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {[
                   'Tested in last 6 months',
@@ -1438,10 +1435,10 @@ export default function ResumeDraftSinglePage() {
               />
             </div>
 
-            <div className="flex flex-col justify-center bg-teal-50/50 border border-teal-200 rounded-xl px-3.5 py-1.5 shadow-2xs">
-              <span className="text-[10px] uppercase font-bold text-teal-800 tracking-wider">VL CATEGORY</span>
-              <div className="text-sm font-bold text-teal-900">{vlCategory}</div>
-              <span className="text-[10px] text-teal-700">Auto-classified</span>
+            <div className="flex flex-col justify-center bg-purple-50/60 border border-purple-200 rounded-xl px-3.5 py-1.5 shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-purple-800 tracking-wider">VL CATEGORY</span>
+              <div className="text-sm font-bold text-purple-950">{vlCategory}</div>
+              <span className="text-[10px] text-purple-700">Auto-classified</span>
             </div>
 
             {/* Comorbidities */}
@@ -1462,8 +1459,8 @@ export default function ResumeDraftSinglePage() {
                       key={cond}
                       className={`flex items-center space-x-2 h-11 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                         isChecked
-                          ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                          : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                       }`}
                     >
                       <input
@@ -1484,7 +1481,7 @@ export default function ResumeDraftSinglePage() {
                             });
                           }
                         }}
-                        className="rounded text-teal-600 focus:ring-teal-500"
+                        className="rounded accent-purple-600 text-purple-600 focus:ring-purple-500"
                       />
                       <span className="truncate">{cond}</span>
                     </label>
@@ -1523,8 +1520,8 @@ export default function ResumeDraftSinglePage() {
                     key={app}
                     className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.appetite === app
-                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1533,7 +1530,7 @@ export default function ResumeDraftSinglePage() {
                       value={app}
                       checked={formData.appetite === app}
                       onChange={() => setFormData({ ...formData, appetite: app })}
-                      className="text-teal-600 focus:ring-teal-500 shrink-0"
+                      className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span>{app}</span>
                   </label>
@@ -1576,8 +1573,8 @@ export default function ResumeDraftSinglePage() {
                     key={st}
                     className={`flex items-center space-x-2.5 h-11 px-3 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.educationStatus === st
-                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1588,7 +1585,7 @@ export default function ResumeDraftSinglePage() {
                       onChange={() =>
                         setFormData({ ...formData, educationStatus: st as EducationStatus })
                       }
-                      className="text-teal-600 focus:ring-teal-500 shrink-0"
+                      className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span className="text-xs font-semibold">{st}</span>
                   </label>
@@ -1631,7 +1628,7 @@ export default function ResumeDraftSinglePage() {
                   <select
                     value={formData.schoolType}
                     onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
-                    className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                    className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                   >
                     {['Government school', 'Private school', 'Aided school'].map((st) => (
                       <option key={st} value={st}>
@@ -1659,8 +1656,8 @@ export default function ResumeDraftSinglePage() {
                         key={att}
                         className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                           formData.attendance === att
-                            ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                            : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                         }`}
                       >
                         <input
@@ -1669,7 +1666,7 @@ export default function ResumeDraftSinglePage() {
                           value={att}
                           checked={formData.attendance === att}
                           onChange={() => setFormData({ ...formData, attendance: att })}
-                          className="text-teal-600 focus:ring-teal-500 shrink-0"
+                          className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                         />
                         <span>{att}</span>
                       </label>
@@ -1733,7 +1730,7 @@ export default function ResumeDraftSinglePage() {
                   onChange={(e) =>
                     setFormData({ ...formData, approvedAllianceIndia: e.target.value as ApprovedAllianceStatus })
                   }
-                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                 >
                   {['Pending', 'Approved', 'Conditionally Approved', 'Rejected'].map((st) => (
                     <option key={st} value={st}>
@@ -1754,8 +1751,8 @@ export default function ResumeDraftSinglePage() {
                   <label
                     className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === true
-                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1763,7 +1760,7 @@ export default function ResumeDraftSinglePage() {
                       name="allInfoCorrect"
                       checked={formData.allInfoCorrect === true}
                       onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
-                      className="text-teal-600 focus:ring-teal-500"
+                      className="accent-purple-600 text-purple-600 focus:ring-purple-500"
                     />
                     <span className="text-xs font-semibold">{t('review_yes', currentLanguage)}</span>
                   </label>
@@ -1772,7 +1769,7 @@ export default function ResumeDraftSinglePage() {
                     className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === false
                         ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1822,10 +1819,10 @@ export default function ResumeDraftSinglePage() {
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 py-3">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-start">
-              <span className="font-mono font-bold text-teal-900">{formData.artNumber}</span>
+              <span className="font-mono font-bold text-purple-950">{formData.artNumber}</span>
               <span className="text-slate-400">•</span>
               <span className="text-slate-600">
-                Grant: <strong className="text-teal-900">₹{totalRequiredSupport}</strong>
+                Grant: <strong className="text-purple-950 font-bold">₹{totalRequiredSupport}</strong>
               </span>
               <span className="text-slate-400">•</span>
               <span className="text-slate-600">
@@ -1856,7 +1853,7 @@ export default function ResumeDraftSinglePage() {
                 size="sm"
                 onClick={handleSubmit}
                 isLoading={isSubmitting}
-                className="w-full sm:w-auto bg-teal-700 hover:bg-teal-800 shadow-xs font-bold"
+                className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold"
               >
                 <Send className="h-4 w-4 mr-1.5" />
                 <span>{t('submit_survey', currentLanguage)}</span>

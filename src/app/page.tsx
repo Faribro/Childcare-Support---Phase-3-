@@ -76,7 +76,7 @@ export default function HomePage() {
   const submittedCount = serverSyncedCount !== null ? serverSyncedCount : localSyncedCount;
 
   return (
-    <AppShell pendingSyncCount={waitingCount}>
+    <AppShell pendingSyncCount={waitingCount} submittedCount={submittedCount}>
       <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 sm:py-10 flex flex-col justify-between space-y-8 animate-in fade-in duration-200">
         <div className="space-y-8">
           {/* Featured Primary Form Card Matching Reference FormLibrary */}

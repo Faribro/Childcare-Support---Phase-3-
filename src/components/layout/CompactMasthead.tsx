@@ -17,13 +17,16 @@ import {
   Unlock,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 
 interface CompactMastheadProps {
   pendingSyncCount?: number;
+  submittedCount?: number;
 }
 
-export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) {
+export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: CompactMastheadProps) {
   const [isOnline, setIsOnline] = useState(true);
+  const [internalSubmittedCount, setInternalSubmittedCount] = useState<number>(submittedCount ?? 0);
   const pathname = usePathname();
   const { isUnlocked } = useEvaluationAccess();
 
@@ -42,6 +45,47 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
       };
     }
   }, []);
+
+  // Sync count of submitted surveys dynamically across pages
+  useEffect(() => {
+    if (submittedCount !== undefined) {
+      setInternalSubmittedCount(submittedCount);
+      return;
+    }
+
+    let active = true;
+    async function loadCounts() {
+      try {
+        const queue = await getAllQueueItems();
+        let total = queue.filter((q) => q.status === 'synced').length;
+        try {
+          const res = await fetch('/api/submissions?limit=1');
+          if (res.ok) {
+            const json = await res.json();
+            if (json.pagination?.totalCount !== undefined) {
+              total = json.pagination.totalCount;
+            } else if (json.total !== undefined) {
+              total = json.total;
+            }
+          }
+        } catch (_) {}
+
+        if (active) {
+          setInternalSubmittedCount(total);
+        }
+      } catch (_) {}
+    }
+
+    loadCounts();
+    const handleSync = () => loadCounts();
+    window.addEventListener('child_nutrition:sync_completed', handleSync);
+    return () => {
+      active = false;
+      window.removeEventListener('child_nutrition:sync_completed', handleSync);
+    };
+  }, [submittedCount]);
+
+  const displayCount = submittedCount !== undefined ? submittedCount : internalSubmittedCount;
 
   const navLinks = [
     { href: '/', label: 'Forms', icon: Home },
@@ -86,7 +130,14 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
                       : 'text-[hsl(220,15%,35%)] hover:bg-[hsl(215,20%,94%)]'
                   }`}
                 >
-                  <span>{link.label}</span>
+                  <span className="inline-flex items-baseline">
+                    <span>{link.label}</span>
+                    {link.href === '/assessment/sync' && (
+                      <sup className="text-[10.5px] font-bold ml-0.5 -top-1.5 select-none font-mono tracking-tight">
+                        {displayCount}
+                      </sup>
+                    )}
+                  </span>
                   {link.badge !== undefined && link.badge > 0 && (
                     <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
                       {link.badge}

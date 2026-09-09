@@ -338,7 +338,7 @@ function SyncCentreContent() {
   }, [unifiedItems, searchQuery, fromDate, toDate]);
 
   return (
-    <AppShell pendingSyncCount={pendingCount}>
+    <AppShell pendingSyncCount={pendingCount} submittedCount={unifiedItems.length}>
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5 animate-in fade-in duration-200">
         {/* Read-only Submission View Modal */}
         {viewingItem && (
@@ -366,25 +366,19 @@ function SyncCentreContent() {
           </div>
         )}
 
-        {/* Replaced Header: Search, Date Filter & Sync Actions Bar */}
-        <div className="p-4 sm:p-5 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h1 className="text-base sm:text-lg font-bold text-[hsl(220,15%,15%)]">
-                Submitted Surveys ({filteredItems.length})
-              </h1>
-              <p className="text-xs text-[hsl(215,12%,45%)] mt-0.5">
-                {syncedCount} synchronized • {pendingCount} waiting
-              </p>
-            </div>
-
-            {/* Top Action: Send Pending Surveys (Hidden when 0 waiting) */}
-            {pendingCount > 0 && (
+        {/* Search, Date Filter & Sync Actions Bar */}
+        <div className="p-4 sm:p-5 bg-white border border-black rounded-2xl shadow-xs space-y-3">
+          {/* Top Action: Send Pending Surveys (Shown when > 0 waiting) */}
+          {pendingCount > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+              <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
+                {pendingCount} survey{pendingCount === 1 ? '' : 's'} waiting to synchronize
+              </span>
               <Button
                 variant="primary"
                 onClick={handleSyncAll}
                 disabled={isSyncing || !isReachable}
-                className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-[hsl(210,80%,45%)] hover:bg-[hsl(210,80%,40%)] text-white cursor-pointer"
+                className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer"
               >
                 {isSyncing ? (
                   <span className="flex items-center gap-2">
@@ -398,11 +392,11 @@ function SyncCentreContent() {
                   `Send ${pendingCount} Pending Survey${pendingCount === 1 ? '' : 's'}`
                 )}
               </Button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Search Bar & Date Range Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-[hsl(215,18%,90%)]">
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
             {/* Search Input */}
             <div className="relative sm:col-span-6">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -411,29 +405,29 @@ function SyncCentreContent() {
                 placeholder="Search by child name, ART number, caregiver, district..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-[hsl(215,18%,85%)] bg-slate-50/50 text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:bg-white transition-colors"
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-black bg-white text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
               />
             </div>
 
             {/* From Date */}
             <div className="sm:col-span-3 flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">From:</span>
+              <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">From:</span>
               <input
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-[hsl(215,18%,85%)] bg-slate-50/50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:bg-white transition-colors"
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-black bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
               />
             </div>
 
             {/* To Date */}
             <div className="sm:col-span-3 flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">To:</span>
+              <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">To:</span>
               <input
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-[hsl(215,18%,85%)] bg-slate-50/50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:bg-white transition-colors"
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-black bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
               />
             </div>
           </div>
@@ -448,7 +442,7 @@ function SyncCentreContent() {
                   setFromDate('');
                   setToDate('');
                 }}
-                className="text-xs font-semibold text-teal-700 hover:text-teal-900 cursor-pointer underline flex items-center gap-1"
+                className="text-xs font-semibold text-purple-700 hover:text-purple-900 cursor-pointer underline flex items-center gap-1"
               >
                 <X className="h-3 w-3" />
                 <span>Clear filters</span>

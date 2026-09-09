@@ -163,21 +163,21 @@ export function ExpensesAndApprovalGrid({
   return (
     <div className="space-y-4">
       {/* Programmatic Approval Guidelines Banner */}
-      <div className="p-3.5 bg-teal-50/60 border border-teal-200/90 rounded-xl text-xs space-y-1.5 shadow-2xs">
-        <div className="flex items-center space-x-2 text-teal-950 font-bold">
-          <GraduationCap className="h-4 w-4 text-teal-700" />
+      <div className="p-3.5 bg-purple-50/60 border border-purple-200/90 rounded-xl text-xs space-y-1.5 shadow-2xs">
+        <div className="flex items-center space-x-2 text-purple-950 font-bold">
+          <GraduationCap className="h-4 w-4 text-purple-700" />
           <span>Educational Support Approval & Disbursement Guidelines</span>
         </div>
         <p className="text-slate-600 leading-relaxed text-[11.5px]">
           Each line item must be validated against programme schedules:
           <span className="font-semibold text-purple-900"> Stationery is approved twice in the year</span> (Semester 1 & 2),
           <span className="font-semibold text-amber-900"> Transport and Private Tuition are approved monthly</span>, and
-          <span className="font-semibold text-teal-900"> School Fees, Books & Uniform are approved annually</span>.
+          <span className="font-semibold text-purple-900"> School Fees, Books & Uniform are approved annually</span>.
         </p>
       </div>
 
       {/* Beautiful Expenses & Approval Grid */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+      <div className="bg-white rounded-2xl border border-black overflow-hidden shadow-xs">
         {/* Desktop Table View (>= 768px) */}
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-900">
@@ -220,14 +220,14 @@ export function ExpensesAndApprovalGrid({
                         min="0"
                         value={item.currentVal || 0}
                         onChange={(e) => onCurrentExpenseChange(item.key, Number(e.target.value))}
-                        className="w-24 text-right font-mono text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50 focus:bg-white"
+                        className="w-24 text-right font-mono text-xs px-2.5 py-1.5 rounded-lg border border-black focus:ring-2 focus:ring-purple-400 focus:border-purple-600 focus:outline-none bg-white"
                       />
                     )}
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     {item.hasRequired ? (
                       isReadOnly ? (
-                        <span className="font-mono font-bold text-teal-900">
+                        <span className="font-mono font-bold text-purple-950">
                           ₹{(item.requiredVal || 0).toLocaleString('en-IN')}
                         </span>
                       ) : (
@@ -238,7 +238,7 @@ export function ExpensesAndApprovalGrid({
                           onChange={(e) =>
                             onRequiredSupportChange(item.reqKey!, Number(e.target.value))
                           }
-                          className="w-24 text-right font-mono font-bold text-teal-900 text-xs px-2.5 py-1.5 rounded-lg border border-teal-300 focus:ring-2 focus:ring-teal-500 focus:outline-none bg-teal-50/40 focus:bg-white"
+                          className="w-24 text-right font-mono font-bold text-purple-950 text-xs px-2.5 py-1.5 rounded-lg border border-black focus:ring-2 focus:ring-purple-400 focus:border-purple-600 focus:outline-none bg-purple-50/40 focus:bg-white"
                         />
                       )
                     ) : (
@@ -257,7 +257,7 @@ export function ExpensesAndApprovalGrid({
                 <td className="py-3.5 px-4 text-right font-mono text-slate-900">
                   ₹{totalCurrentCost.toLocaleString('en-IN')}
                 </td>
-                <td className="py-3.5 px-4 text-right font-mono text-teal-900 text-sm">
+                <td className="py-3.5 px-4 text-right font-mono text-purple-950 text-sm">
                   ₹{totalRequired.toLocaleString('en-IN')}
                 </td>
               </tr>
@@ -303,18 +303,18 @@ export function ExpensesAndApprovalGrid({
                       min="0"
                       value={item.currentVal || 0}
                       onChange={(e) => onCurrentExpenseChange(item.key, Number(e.target.value))}
-                      className="w-full font-mono text-xs px-2.5 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500"
+                      className="w-full font-mono text-xs px-2.5 py-2 rounded-lg border border-black bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-600"
                     />
                   )}
                 </div>
 
                 {item.hasRequired && (
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-teal-800 block mb-1">
+                    <label className="text-[10px] uppercase font-bold text-purple-800 block mb-1">
                       Required Grant (₹)
                     </label>
                     {isReadOnly ? (
-                      <span className="font-mono font-bold text-teal-900">
+                      <span className="font-mono font-bold text-purple-950">
                         ₹{(item.requiredVal || 0).toLocaleString('en-IN')}
                       </span>
                     ) : (
@@ -325,7 +325,7 @@ export function ExpensesAndApprovalGrid({
                         onChange={(e) =>
                           onRequiredSupportChange(item.reqKey!, Number(e.target.value))
                         }
-                        className="w-full font-mono font-bold text-teal-900 text-xs px-2.5 py-2 rounded-lg border border-teal-300 bg-teal-50/40 focus:bg-white focus:ring-2 focus:ring-teal-500"
+                        className="w-full font-mono font-bold text-purple-950 text-xs px-2.5 py-2 rounded-lg border border-black bg-purple-50/40 focus:bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-600"
                       />
                     )}
                   </div>
@@ -336,7 +336,7 @@ export function ExpensesAndApprovalGrid({
 
           <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
             <span className="text-xs font-bold text-slate-700 uppercase">Total Required Grant</span>
-            <span className="text-base font-mono font-bold text-teal-900">
+            <span className="text-base font-mono font-bold text-purple-950">
               ₹{totalRequired.toLocaleString('en-IN')}
             </span>
           </div>
@@ -345,9 +345,9 @@ export function ExpensesAndApprovalGrid({
 
       {/* Document Verification & Photo Uploads */}
       {!isReadOnly && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-xs">
+        <div className="bg-white rounded-2xl border border-black p-5 space-y-4 shadow-xs">
           <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm pb-2 border-b border-slate-100">
-            <FileText className="h-4 w-4 text-teal-700" />
+            <FileText className="h-4 w-4 text-purple-700" />
             <span>Document Verification Proofs</span>
           </div>
 

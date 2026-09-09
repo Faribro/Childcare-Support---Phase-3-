@@ -40,10 +40,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             className={twMerge(
               clsx(
                 'w-full h-11 min-h-[44px] px-3.5 text-sm text-slate-900 bg-white border rounded-xl transition-all shadow-2xs font-medium',
-                'placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600',
+                'placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]',
                 error
                   ? 'border-rose-400 focus:ring-rose-100 focus:border-rose-500'
-                  : 'border-slate-200 hover:border-slate-300',
+                  : 'border-black hover:border-black',
                 unit ? 'pr-12' : '',
                 className
               )

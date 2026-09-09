@@ -255,11 +255,11 @@ export function CaregiverSignaturePad({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-xs space-y-4">
+    <div className="bg-white rounded-2xl border border-black p-4 sm:p-6 shadow-xs space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
         <div>
           <div className="flex items-center space-x-2">
-            <PenTool className="h-4 w-4 text-teal-700" />
+            <PenTool className="h-4 w-4 text-purple-700" />
             <h3 className="text-sm font-bold text-slate-900">Caregiver signature *</h3>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -268,7 +268,7 @@ export function CaregiverSignaturePad({
         </div>
 
         {/* Signatory Metadata Display (Locked to Caregiver) - In Series */}
-        <div className="inline-flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs whitespace-nowrap self-start sm:self-auto">
+        <div className="inline-flex items-center space-x-1.5 bg-slate-50 border border-black px-3 py-1.5 rounded-xl text-xs whitespace-nowrap self-start sm:self-auto">
           <span className="text-slate-400 text-[10px] uppercase font-bold">Signatory:</span>
           <span className="font-bold text-slate-900">{caregiverName || 'Caregiver'}</span>
           <span className="text-slate-500 text-[11px]">({caregiverRelationship || 'Mother'})</span>
@@ -343,6 +343,7 @@ export function CaregiverSignaturePad({
           size="sm"
           onClick={handleSaveSignature}
           disabled={!hasStrokes || isSavedLocal}
+          className={!isSavedLocal ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-xs focus-visible:ring-purple-400' : ''}
         >
           <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
           <span>{isSavedLocal ? 'Signature Saved' : 'Save Caregiver Signature'}</span>

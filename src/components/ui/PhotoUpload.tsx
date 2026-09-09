@@ -63,12 +63,12 @@ export function PhotoUpload({
       />
 
       {value ? (
-        <div className="relative border border-slate-200 rounded-xl p-2.5 bg-slate-50 flex items-center justify-between">
+        <div className="relative border border-black rounded-xl p-2.5 bg-slate-50 flex items-center justify-between">
           <div className="flex items-center space-x-3 overflow-hidden">
             <img
               src={value}
               alt={label}
-              className="h-14 w-14 object-cover rounded-lg border border-slate-300 shrink-0"
+              className="h-14 w-14 object-cover rounded-lg border border-black shrink-0"
             />
             <div className="truncate">
               <span className="text-xs font-bold text-slate-800 flex items-center">
@@ -92,11 +92,11 @@ export function PhotoUpload({
       ) : (
         <div
           onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-300 hover:border-teal-500 rounded-xl p-4 text-center cursor-pointer bg-slate-50/50 hover:bg-teal-50/20 transition-colors"
+          className="border-2 border-dashed border-black/30 hover:border-purple-600 rounded-xl p-4 text-center cursor-pointer bg-slate-50/50 hover:bg-purple-50/30 transition-colors"
         >
           <div className="flex flex-col items-center justify-center">
             <Camera className="h-6 w-6 text-slate-400 mb-1" />
-            <span className="text-xs font-bold text-teal-800">Click to capture or upload file</span>
+            <span className="text-xs font-bold text-purple-900">Click to capture or upload file</span>
             <span className="text-[10px] text-slate-400 mt-0.5">Up to {maxSizeMb}MB JPEG or PNG</span>
           </div>
         </div>

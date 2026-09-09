@@ -14,6 +14,7 @@ interface AppShellProps {
     lastSavedText?: string;
   };
   pendingSyncCount?: number;
+  submittedCount?: number;
   hideHeader?: boolean;
 }
 
@@ -21,12 +22,18 @@ export function AppShell({
   children,
   activeChild,
   pendingSyncCount = 0,
+  submittedCount,
   hideHeader = false,
 }: AppShellProps) {
   return (
     <div className="min-h-screen flex flex-col bg-surface-canvas text-ink-900 w-full overflow-x-hidden">
       {/* Top Masthead */}
-      {!hideHeader && <CompactMasthead pendingSyncCount={pendingSyncCount} />}
+      {!hideHeader && (
+        <CompactMasthead
+          pendingSyncCount={pendingSyncCount}
+          submittedCount={submittedCount}
+        />
+      )}
 
       {/* Persistent Form Context Bar (Rendered during active assessment) */}
       {activeChild && (

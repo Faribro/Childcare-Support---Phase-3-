@@ -1528,7 +1528,7 @@ export default function EditRecordPage() {
                 </div>
                 <div>
                   <h2 className="text-sm sm:text-base font-bold text-slate-900">
-                    Daily Nutrition Habits
+                    Appetite &amp; Nutrition Habits
                   </h2>
                   <p className="text-[11px] text-slate-500">
                     Child appetite assessment and daily meal frequency

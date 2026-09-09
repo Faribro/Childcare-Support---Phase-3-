@@ -404,7 +404,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
           <div className="space-y-3 pt-4">
             <h3 className="text-xs font-bold text-teal-900 uppercase tracking-wider flex items-center gap-2">
               <Utensils className="h-4 w-4 text-teal-700" />
-              <span>6. Daily Nutrition Habits</span>
+              <span>6. Appetite & Nutrition Habits</span>
             </h3>
             <div className="grid grid-cols-2 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80">
               <div>
