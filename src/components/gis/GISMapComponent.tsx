@@ -12,9 +12,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 const DeckGL = dynamic(() => import('@deck.gl/react').then((mod) => mod.default), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full bg-slate-900 flex items-center justify-center text-slate-400">
+    <div className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-600">
       <div className="flex flex-col items-center space-y-3">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-teal-500" />
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-teal-600" />
         <span className="text-xs font-semibold">Initializing 3D Spatial GIS Engine...</span>
       </div>
     </div>
@@ -595,14 +595,14 @@ export default function GISMapComponent({
       </DeckGL>
 
       {/* Depth level indicator badge */}
-      <div className="absolute top-4 right-4 z-30 flex items-center space-x-2 bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl px-3.5 py-1.5 shadow-sm">
+      <div className="absolute top-2 right-2 z-30 flex items-center space-x-1.5 bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg px-2.5 py-1 shadow-2xs">
         <span
           className={`w-2 h-2 rounded-full ${
             depthLevel === 'district' ? 'bg-amber-500 animate-pulse' : 'bg-teal-600'
           }`}
         />
-        <span className="text-[11px] font-bold tracking-wider text-slate-700">
-          {depthLevel === 'state' ? 'NATIONAL STATE VIEW' : 'DISTRICT SURVEILLANCE VIEW'}
+        <span className="text-[10px] font-bold tracking-wider text-slate-700">
+          {depthLevel === 'state' ? 'NATIONAL VIEW' : 'DISTRICT VIEW'}
         </span>
       </div>
 

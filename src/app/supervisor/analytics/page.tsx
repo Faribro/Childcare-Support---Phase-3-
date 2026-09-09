@@ -164,9 +164,9 @@ export default function AnalyticsDashboardPage() {
 
   return (
     <AppShell>
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8 space-y-6">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8 space-y-6">
         {/* Exclusive Supervisor Tab Navigation */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-6 gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-3 sm:mb-4 gap-3">
           <div className="flex items-center space-x-1 overflow-x-auto">
             <Link
               href="/supervisor"
@@ -195,21 +195,6 @@ export default function AnalyticsDashboardPage() {
             >
               <Globe className="h-4 w-4" />
               <span>GIS Spatial Map</span>
-            </Link>
-          </div>
-
-          <div className="flex items-center space-x-2 pb-2 sm:pb-0">
-            <Link
-              href="/supervisor/gis"
-              className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white shadow-sm hover:shadow-md transition-all group border border-teal-500/40 cursor-pointer"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-80"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-              </span>
-              <Globe className="h-4 w-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
-              <span>Launch 3D GIS</span>
-              <Maximize2 className="h-3 w-3 text-emerald-200 opacity-90" />
             </Link>
           </div>
         </div>

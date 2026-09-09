@@ -71,6 +71,8 @@ export interface StoredSheetRecord {
   feeReceiptPhotoUrl?: string;
   marksheetPhotoUrl?: string;
   signatureDataUrl?: string;
+  approved_alliance_india?: string;
+  approvedAllianceIndia?: string;
   caseworker_name: string;
   declaration_date: string;
   sync_state: 'SYNCED';
@@ -253,6 +255,8 @@ export const MockSheetStore = {
       feeReceiptPhotoUrl: payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl || '',
       marksheetPhotoUrl: payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl || '',
       signatureDataUrl: payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl || '',
+      approved_alliance_india: payload.finalReview?.approvedAllianceIndia || (payload as any).approvedAllianceIndia || 'Pending',
+      approvedAllianceIndia: payload.finalReview?.approvedAllianceIndia || (payload as any).approvedAllianceIndia || 'Pending',
       caseworker_name: payload.finalReview?.formSubmittedBy || payload.declaration?.caseworkerName || payload.interviewerName || 'Caseworker',
       declaration_date: payload.declaration?.declarationDate || now.split('T')[0],
       sync_state: 'SYNCED',
@@ -510,6 +514,17 @@ export const MockSheetStore = {
       existing.signature_data_url = patch.signatureDataUrl;
       existing.signatureDataUrl = patch.signatureDataUrl;
       changedFields.push('signatureDataUrl');
+    }
+    if (patch.approvedAllianceIndia !== undefined) {
+      existing.approved_alliance_india = patch.approvedAllianceIndia;
+      existing.approvedAllianceIndia = patch.approvedAllianceIndia;
+      if (existing.raw_payload) {
+        if (!existing.raw_payload.finalReview) {
+          existing.raw_payload.finalReview = {} as any;
+        }
+        (existing.raw_payload.finalReview as any).approvedAllianceIndia = patch.approvedAllianceIndia;
+      }
+      changedFields.push('approvedAllianceIndia');
     }
 
     // Recompute clinical triage and grant if anthropometry or education changed

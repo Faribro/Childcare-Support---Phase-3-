@@ -23,8 +23,159 @@ import {
   CheckCircle2,
   Globe,
   Maximize2,
+  Cloud,
+  Info,
+  X,
+  FileCheck,
+  Loader2,
 } from 'lucide-react';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
+
+export interface BeneficiaryDocumentStatus {
+  isComplete: boolean;
+  totalRequired: number;
+  uploadedCount: number;
+  pendingDocs: string[];
+  uploadedDocs: string[];
+}
+
+function isFieldPresent(val: any): boolean {
+  if (val === true) return true;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return false;
+    if (trimmed === '—' || trimmed === '-' || trimmed === 'N/A' || trimmed === 'n/a') return false;
+    const lower = trimmed.toLowerCase();
+    if (
+      lower.includes('not uploaded') ||
+      lower.includes('no fee receipt') ||
+      lower.includes('no marksheet') ||
+      lower === 'none' ||
+      lower === 'null' ||
+      lower === 'undefined'
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function evaluateDocuments(it: any, schoolTypeStr: string): BeneficiaryDocumentStatus {
+  const pendingDocs: string[] = [];
+  const uploadedDocs: string[] = [];
+
+  // 1. Bank Passbook Front Page
+  const passbook =
+    it['25\nPassbook Front Page Link'] ||
+    it['25\\nPassbook Front Page Link'] ||
+    it['Passbook Front Page Link'] ||
+    it.passbookPhotoUrl ||
+    it.passbook_photo_url ||
+    it.bankingAndKyc?.passbookPhotoUrl ||
+    it.bankDetails?.passbookPhotoCaptured ||
+    it.raw_payload?.bankingAndKyc?.passbookPhotoUrl;
+  if (isFieldPresent(passbook)) {
+    uploadedDocs.push('Bank Passbook Front Page');
+  } else {
+    pendingDocs.push('Bank Passbook Front Page');
+  }
+
+  // 2. Aadhaar Card
+  const aadhaar =
+    it['26\nAadhaar Card Link'] ||
+    it['26\\nAadhaar Card Link'] ||
+    it['Aadhaar Card Link'] ||
+    it.aadhaarCardPhotoUrl ||
+    it.aadhaar_card_photo_url ||
+    it.bankingAndKyc?.aadhaarCardPhotoUrl ||
+    it.raw_payload?.bankingAndKyc?.aadhaarCardPhotoUrl;
+  if (isFieldPresent(aadhaar)) {
+    uploadedDocs.push('Aadhaar Card');
+  } else {
+    pendingDocs.push('Aadhaar Card');
+  }
+
+  // 3. Child Beneficiary Photo
+  const childPhoto =
+    it['27\nPassport Size Photo Link'] ||
+    it['27\\nPassport Size Photo Link'] ||
+    it['Passport Size Photo Link'] ||
+    it.childPhotoUrl ||
+    it.child_photo_url ||
+    it.bankingAndKyc?.childPhotoUrl ||
+    it.raw_payload?.bankingAndKyc?.childPhotoUrl;
+  if (isFieldPresent(childPhoto)) {
+    uploadedDocs.push('Child Beneficiary Photo');
+  } else {
+    pendingDocs.push('Child Beneficiary Photo');
+  }
+
+  // 4. Caregiver Consent Signature
+  const signature =
+    it['72\nSignature Link'] ||
+    it['72\\nSignature Link'] ||
+    it['Signature Link'] ||
+    it.signatureDataUrl ||
+    it.signature_data_url ||
+    it.consent?.signatureDataUrl ||
+    it.caregiverConsent?.signatureDataUrl ||
+    it.raw_payload?.caregiverConsent?.signatureDataUrl ||
+    it.raw_payload?.consent?.signatureDataUrl;
+  if (isFieldPresent(signature)) {
+    uploadedDocs.push('Caregiver Signature');
+  } else {
+    pendingDocs.push('Caregiver Signature');
+  }
+
+  // 5 & 6. Educational proofs (if child is enrolled in school)
+  const isOutOfSchool =
+    schoolTypeStr.toLowerCase().includes('out of school') ||
+    schoolTypeStr.toLowerCase().includes('not in school') ||
+    schoolTypeStr.toLowerCase().includes('dropped out') ||
+    schoolTypeStr.toLowerCase().includes('never enrolled');
+
+  if (!isOutOfSchool) {
+    const feeReceipt =
+      it['64\nSchool Fee Receipt Link'] ||
+      it['64\\nSchool Fee Receipt Link'] ||
+      it['School Fee Receipt Link'] ||
+      it.feeReceiptPhotoUrl ||
+      it.fee_receipt_photo_url ||
+      it.educationExpenses?.feeReceiptPhotoUrl ||
+      it.raw_payload?.educationExpenses?.feeReceiptPhotoUrl;
+    if (isFieldPresent(feeReceipt)) {
+      uploadedDocs.push('School Fee Receipt');
+    } else {
+      pendingDocs.push('School Fee Receipt');
+    }
+
+    const marksheet =
+      it['65\nMarksheet Photo Link'] ||
+      it['65\\nMarksheet Photo Link'] ||
+      it['Marksheet Photo Link'] ||
+      it.marksheetPhotoUrl ||
+      it.marksheet_photo_url ||
+      it.educationExpenses?.marksheetPhotoUrl ||
+      it.raw_payload?.educationExpenses?.marksheetPhotoUrl;
+    if (isFieldPresent(marksheet)) {
+      uploadedDocs.push('Academic Marksheet');
+    } else {
+      pendingDocs.push('Academic Marksheet');
+    }
+  }
+
+  const totalRequired = uploadedDocs.length + pendingDocs.length;
+  const isComplete = pendingDocs.length === 0;
+
+  return {
+    isComplete,
+    totalRequired,
+    uploadedCount: uploadedDocs.length,
+    pendingDocs,
+    uploadedDocs,
+  };
+}
 
 interface BeneficiaryRow {
   id: string;
@@ -43,8 +194,11 @@ interface BeneficiaryRow {
   hbCategory: HbCategory;
   grantAmount: number;
   syncState: 'SYNCED' | 'QUEUED';
-  lastVisit: string;
+  lastVisit?: string;
   version: number;
+  documentStatus: BeneficiaryDocumentStatus;
+  isApproved: boolean;
+  approvedStatus: string;
 }
 
 export default function SupervisorAssessmentsPage() {
@@ -55,7 +209,99 @@ export default function SupervisorAssessmentsPage() {
   const [orphanStatusFilter, setOrphanStatusFilter] = useState('ALL');
   const [districtFilter, setDistrictFilter] = useState('ALL');
   const [deleteConfirmId, setDeleteConfirmId] = useState<{ id: string; name: string } | null>(null);
+  const [activeDocModal, setActiveDocModal] = useState<{
+    id: string;
+    childName: string;
+    artNumber: string;
+    status: BeneficiaryDocumentStatus;
+  } | null>(null);
+  const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const handleToggleApproval = async (row: BeneficiaryRow) => {
+    setUpdatingApprovalId(row.id);
+    const nextApproved = !row.isApproved;
+    const nextStatus = nextApproved ? 'Approved' : 'Pending';
+
+    // Optimistic UI update
+    setData((prev) =>
+      prev.map((item) =>
+        item.id === row.id
+          ? {
+              ...item,
+              isApproved: nextApproved,
+              approvedStatus: nextStatus,
+              version: item.version + 1,
+            }
+          : item
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/submissions/${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': `"${row.version}"`,
+        },
+        body: JSON.stringify({
+          approvedAllianceIndia: nextStatus,
+          expectedVersion: row.version,
+        }),
+      });
+
+      if (res.ok) {
+        setToastMessage(
+          nextApproved
+            ? `Survey for ${row.childName} Approved and marked in central sheet!`
+            : `Survey for ${row.childName} marked as Pending.`
+        );
+        setTimeout(() => setToastMessage(null), 3500);
+      } else {
+        // Revert on failure
+        setData((prev) =>
+          prev.map((item) =>
+            item.id === row.id
+              ? {
+                  ...item,
+                  isApproved: row.isApproved,
+                  approvedStatus: row.approvedStatus,
+                }
+              : item
+          )
+        );
+        alert('Failed to sync approval status to sheet. Please try again.');
+      }
+    } catch (err) {
+      console.error('Approval sync error:', err);
+      setData((prev) =>
+        prev.map((item) =>
+          item.id === row.id
+            ? {
+                ...item,
+                isApproved: row.isApproved,
+                approvedStatus: row.approvedStatus,
+              }
+            : item
+        )
+      );
+      alert('Network error updating approval status.');
+    } finally {
+      setUpdatingApprovalId(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveDocModal(null);
+      }
+    };
+    if (activeDocModal) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [activeDocModal]);
 
   const fetchSubmissions = async () => {
     try {
@@ -105,6 +351,24 @@ export default function SupervisorAssessmentsPage() {
             const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? it.educationExpenses?.totalRequiredSupport ?? 0);
             const lastVisit = (it['7\nVisit Date'] || it['73\nLast Updated'] || it['3\nSubmission Time'] || it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0];
             const version = Number(it['2\nRevision Number'] ?? it.version ?? 1);
+            const documentStatus = evaluateDocuments(it, schoolType);
+
+            const rawApproved =
+              it['67\nApproved Alliance India'] ||
+              it['67\\nApproved Alliance India'] ||
+              it['Approved Alliance India'] ||
+              it.approvedAllianceIndia ||
+              it.approved_alliance_india ||
+              it.finalReview?.approvedAllianceIndia ||
+              it.raw_payload?.finalReview?.approvedAllianceIndia;
+
+            const isApproved =
+              typeof rawApproved === 'boolean'
+                ? rawApproved
+                : String(rawApproved || '').toLowerCase().includes('approv') ||
+                  String(rawApproved || '').toLowerCase() === 'yes';
+
+            const approvedStatus = isApproved ? 'Approved' : String(rawApproved || 'Pending');
 
             return {
               id,
@@ -125,6 +389,9 @@ export default function SupervisorAssessmentsPage() {
               syncState: 'SYNCED',
               lastVisit,
               version,
+              documentStatus,
+              isApproved,
+              approvedStatus,
             };
           });
           setData(mapped);
@@ -220,7 +487,9 @@ export default function SupervisorAssessmentsPage() {
       'Haemoglobin (g/dL)',
       'Hb Category',
       'Grant Amount (INR)',
-      'Last Visit Date',
+      'Documents Status',
+      'Pending Documents',
+      'Approval Status',
     ];
     const csvRows = [
       headers.join(','),
@@ -240,7 +509,9 @@ export default function SupervisorAssessmentsPage() {
           `"${r.hemoglobin}"`,
           `"${r.hbCategory}"`,
           r.grantAmount,
-          r.lastVisit,
+          `"${r.documentStatus.isComplete ? 'Complete' : 'Pending'}"`,
+          `"${r.documentStatus.pendingDocs.join('; ') || 'None'}"`,
+          `"${r.isApproved ? 'Approved' : 'Pending'}"`,
         ].join(',')
       ),
     ];
@@ -254,10 +525,10 @@ export default function SupervisorAssessmentsPage() {
 
   return (
     <AppShell>
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8">
         {/* Toast Alert */}
         {toastMessage && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs">
+          <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs">
             <div className="flex items-center space-x-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
               <span>{toastMessage}</span>
@@ -266,7 +537,7 @@ export default function SupervisorAssessmentsPage() {
         )}
 
         {/* Exclusive Supervisor Tab Navigation */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-6 gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-3 sm:mb-4 gap-3">
           <div className="flex items-center space-x-1 overflow-x-auto">
             <Link
               href="/supervisor"
@@ -298,20 +569,9 @@ export default function SupervisorAssessmentsPage() {
             </Link>
           </div>
 
+          {/* Supervisor Tools */}
           <div className="flex items-center space-x-2 pb-2 sm:pb-0">
-            <Link
-              href="/supervisor/gis"
-              className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white shadow-sm hover:shadow-md transition-all group border border-teal-500/40 cursor-pointer"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-80"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-              </span>
-              <Globe className="h-4 w-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
-              <span>Launch 3D GIS</span>
-              <Maximize2 className="h-3 w-3 text-emerald-200 opacity-90" />
-            </Link>
-            <Button variant="ghost" size="sm" onClick={fetchSubmissions} className="h-9 px-2.5 text-xs text-slate-600">
+            <Button variant="ghost" size="sm" onClick={fetchSubmissions} className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl">
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
               <span>Refresh</span>
             </Button>
@@ -419,13 +679,13 @@ export default function SupervisorAssessmentsPage() {
                   <th className="py-3 px-4">Reference ID</th>
                   <th className="py-3 px-4">Child Name</th>
                   <th className="py-3 px-4">Age / Sex</th>
-                  <th className="py-3 px-4">District</th>
                   <th className="py-3 px-4">School & Orphan</th>
                   <th className="py-3 px-4">BMI & Growth</th>
                   <th className="py-3 px-4">Viral Load</th>
                   <th className="py-3 px-4">Haemoglobin</th>
                   <th className="py-3 px-4">Grant (INR)</th>
-                  <th className="py-3 px-4">Last Visit</th>
+                  <th className="py-3 px-4 text-center">Documents</th>
+                  <th className="py-3 px-4 text-center">Approval</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -457,7 +717,16 @@ export default function SupervisorAssessmentsPage() {
                   </tr>
                 ) : (
                   filteredData.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr
+                      key={row.id}
+                      className={
+                        row.isApproved
+                          ? 'bg-gradient-to-r from-amber-100/80 via-yellow-50/90 to-amber-100/80 hover:from-amber-200/80 hover:to-amber-100/90 border-l-4 border-l-amber-500 shadow-[inset_0_1px_0_rgba(251,191,36,0.35),0_2px_8px_rgba(245,158,11,0.15)] ring-1 ring-amber-300/60 transition-all duration-300'
+                          : !row.documentStatus.isComplete
+                          ? 'bg-rose-50/50 hover:bg-rose-100/60 border-l-4 border-l-rose-400 border-b border-rose-100/80 transition-colors duration-150'
+                          : 'bg-emerald-50/45 hover:bg-emerald-100/55 border-l-4 border-l-emerald-400 border-b border-emerald-100/80 transition-colors duration-150'
+                      }
+                    >
                       <td className="py-3.5 px-4 font-mono font-bold text-teal-800">
                         <Link href={`/assessment/record/${row.id}`} className="hover:underline">
                           {row.artNumber}
@@ -465,9 +734,9 @@ export default function SupervisorAssessmentsPage() {
                       </td>
                       <td className="py-3.5 px-4 font-bold text-slate-900">{row.childName}</td>
                       <td className="py-3.5 px-4 text-slate-600">
-                        {row.age} yrs • {row.gender}
+                        <div className="font-semibold text-slate-800">{row.age} yrs • {row.gender}</div>
+                        <div className="text-[10px] text-slate-400">{row.district}</div>
                       </td>
-                      <td className="py-3.5 px-4 text-slate-600">{row.district}</td>
 
                       {/* School & Orphan Status */}
                       <td className="py-3.5 px-4 text-slate-600">
@@ -523,7 +792,66 @@ export default function SupervisorAssessmentsPage() {
                       </td>
 
                       <td className="py-3.5 px-4 font-bold text-teal-900">₹{row.grantAmount.toLocaleString('en-IN')}</td>
-                      <td className="py-3.5 px-4 text-slate-500">{row.lastVisit}</td>
+                      <td className="py-3.5 px-4 text-center">
+                        {row.documentStatus.isComplete ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                            <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                            Complete
+                          </span>
+                        ) : (
+                          <div className="inline-flex items-center justify-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                              Pending
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActiveDocModal({
+                                  id: row.id,
+                                  childName: row.childName,
+                                  artNumber: row.artNumber,
+                                  status: row.documentStatus,
+                                })
+                              }
+                              className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 hover:bg-sky-100 text-slate-500 hover:text-sky-700 transition-colors cursor-pointer border border-slate-200 hover:border-sky-300"
+                              title="View pending documents in cloud modal"
+                              aria-label="View pending documents"
+                            >
+                              <Info className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Approval Status Toggle / Radio Button */}
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleApproval(row)}
+                          disabled={updatingApprovalId === row.id}
+                          className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full font-bold text-[11px] transition-all cursor-pointer shadow-2xs ${
+                            row.isApproved
+                              ? 'bg-amber-400 text-amber-950 border border-amber-500 hover:bg-amber-300 ring-2 ring-amber-400/60 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
+                              : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 hover:border-slate-400'
+                          } ${updatingApprovalId === row.id ? 'opacity-60 cursor-wait' : ''}`}
+                          title={row.isApproved ? 'Click to revoke approval' : 'Click to approve row in sheet'}
+                        >
+                          {updatingApprovalId === row.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-950" />
+                          ) : (
+                            <span
+                              className={`w-3 h-3 rounded-full border flex items-center justify-center transition-colors ${
+                                row.isApproved
+                                  ? 'border-amber-950 bg-amber-950'
+                                  : 'border-slate-400 bg-white'
+                              }`}
+                            >
+                              {row.isApproved && <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />}
+                            </span>
+                          )}
+                          <span>{row.isApproved ? 'Approved' : 'Approve'}</span>
+                        </button>
+                      </td>
 
                       {/* Premium Action Icons: View, Edit, Delete */}
                       <td className="py-3.5 px-4 text-right">
@@ -565,7 +893,7 @@ export default function SupervisorAssessmentsPage() {
           </div>
         </div>
 
-        {/* Mobile View: Cards Over Tables (< 768px) - NO VERSION */}
+        {/* Mobile View: Cards Over Tables (< 768px) - Dynamic highlights & Approval */}
         <div className="md:hidden space-y-3">
           {isLoading ? (
             <div className="p-8 text-center text-xs text-slate-400">Loading surveys...</div>
@@ -575,59 +903,131 @@ export default function SupervisorAssessmentsPage() {
             </div>
           ) : (
             filteredData.map((row) => (
-              <div key={row.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+              <div
+                key={row.id}
+                className={`rounded-2xl p-4 shadow-xs transition-all ${
+                  row.isApproved
+                    ? 'bg-gradient-to-r from-amber-100/90 via-yellow-50/95 to-amber-100/90 border-l-4 border-l-amber-500 ring-1 ring-amber-300/70 shadow-[0_2px_10px_rgba(245,158,11,0.2)]'
+                    : !row.documentStatus.isComplete
+                    ? 'bg-rose-50/60 border-l-4 border-l-rose-400 border border-rose-200/80'
+                    : 'bg-emerald-50/50 border-l-4 border-l-emerald-400 border border-emerald-200/80'
+                }`}
+              >
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-mono text-xs font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded">
                     {row.artNumber}
                   </span>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      row.bmiCategory === 'Severe Underweight'
-                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                        : row.bmiCategory === 'Moderate Underweight'
-                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    }`}
-                  >
-                    {row.bmiCategory}
-                  </span>
+                  <div className="flex items-center space-x-1.5">
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        row.bmiCategory === 'Severe Underweight'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                          : row.bmiCategory === 'Moderate Underweight'
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      }`}
+                    >
+                      {row.bmiCategory}
+                    </span>
+                  </div>
                 </div>
 
-                <h3 className="text-base font-bold text-slate-900">{row.childName}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {row.age} yrs • {row.gender} • {row.district}
-                </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  {row.schoolType} • {row.orphanStatus}
-                </p>
-
-                <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-slate-100 text-xs">
+                <div className="flex items-start justify-between">
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Viral Load:</span>
-                    <span className={`font-bold ${row.vlCategory.includes('Unsuppressed') ? 'text-rose-600' : 'text-teal-700'}`}>
+                    <h3 className="text-base font-bold text-slate-900">{row.childName}</h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      {row.age} yrs • {row.gender} • {row.district}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {row.schoolType} • {row.orphanStatus}
+                    </p>
+                  </div>
+                  {/* Mobile Approval Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleApproval(row)}
+                    disabled={updatingApprovalId === row.id}
+                    className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full font-bold text-[11px] transition-all cursor-pointer shadow-2xs ${
+                      row.isApproved
+                        ? 'bg-amber-400 text-amber-950 border border-amber-500 hover:bg-amber-300 ring-2 ring-amber-400/60'
+                        : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-300'
+                    } ${updatingApprovalId === row.id ? 'opacity-60 cursor-wait' : ''}`}
+                  >
+                    {updatingApprovalId === row.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full border ${
+                          row.isApproved ? 'border-amber-950 bg-amber-950' : 'border-slate-400 bg-white'
+                        }`}
+                      />
+                    )}
+                    <span>{row.isApproved ? 'Approved' : 'Approve'}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-slate-200/60 text-xs">
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Viral Load:</span>
+                    <span
+                      className={`font-bold ${
+                        row.vlCategory.includes('Unsuppressed') ? 'text-rose-600' : 'text-teal-700'
+                      }`}
+                    >
                       {row.vlCategory.includes('Unsuppressed') ? `${row.viralLoad} c/mL` : 'Suppressed'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Grant:</span>
+                    <span className="text-slate-500 block text-[10px]">Grant:</span>
                     <span className="font-bold text-teal-900">₹{row.grantAmount.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
-                {/* Mobile Action Icons */}
-                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">{row.lastVisit}</span>
+                {/* Mobile Documents & Actions */}
+                <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
+                  {/* Documents Status */}
+                  <div className="flex items-center space-x-1.5">
+                    {row.documentStatus.isComplete ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-700" />
+                        Complete
+                      </span>
+                    ) : (
+                      <div className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-amber-100 text-amber-800 border border-amber-300">
+                          Pending
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveDocModal({
+                              id: row.id,
+                              childName: row.childName,
+                              artNumber: row.artNumber,
+                              status: row.documentStatus,
+                            })
+                          }
+                          className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-white text-slate-600 border border-slate-300 hover:text-sky-600 hover:border-sky-300 shadow-2xs"
+                          aria-label="View pending documents"
+                        >
+                          <Info className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
                   <div className="flex items-center space-x-2">
                     <Link
                       href={`/assessment/record/${row.id}`}
-                      className="p-1.5 text-teal-700 bg-teal-50 rounded-lg border border-teal-200/60"
+                      className="p-1.5 text-teal-700 bg-white hover:bg-teal-50 rounded-lg border border-slate-200"
                       title="View"
                     >
                       <Eye className="h-4 w-4" />
                     </Link>
                     <Link
                       href={`/assessment/record/${row.id}/edit`}
-                      className="p-1.5 text-amber-700 bg-amber-50 rounded-lg border border-amber-200/60"
+                      className="p-1.5 text-amber-700 bg-white hover:bg-amber-50 rounded-lg border border-slate-200"
                       title="Edit"
                     >
                       <Pencil className="h-4 w-4" />
@@ -635,7 +1035,7 @@ export default function SupervisorAssessmentsPage() {
                     <button
                       type="button"
                       onClick={() => setDeleteConfirmId({ id: row.id, name: row.childName })}
-                      className="p-1.5 text-rose-600 bg-rose-50 rounded-lg border border-rose-200/60"
+                      className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-slate-200"
                       title="Delete"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -646,6 +1046,124 @@ export default function SupervisorAssessmentsPage() {
             ))
           )}
         </div>
+
+        {/* Cloud Modal for Pending Documents */}
+        {activeDocModal && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+            onClick={() => setActiveDocModal(null)}
+          >
+            <div
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-sky-100 relative overflow-hidden animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Cloud decorative header */}
+              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-sky-400 via-teal-400 to-emerald-400" />
+
+              <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-3">
+                  <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-sky-50 to-teal-50 border border-sky-200 flex items-center justify-center text-sky-600 shadow-xs">
+                    <Cloud className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Document Status Cloud</h3>
+                    <p className="text-xs text-slate-500">
+                      {activeDocModal.childName} • <span className="font-mono font-semibold text-teal-700">{activeDocModal.artNumber}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDocModal(null)}
+                  className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="flex justify-between items-center text-xs mb-1.5 font-semibold">
+                  <span className="text-slate-600">Verification Progress</span>
+                  <span className={activeDocModal.status.isComplete ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                    {activeDocModal.status.uploadedCount} of {activeDocModal.status.totalRequired} Uploaded
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      activeDocModal.status.isComplete ? 'bg-emerald-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'
+                    }`}
+                    style={{
+                      width: `${Math.round((activeDocModal.status.uploadedCount / activeDocModal.status.totalRequired) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Pending Documents List */}
+              <div className="mt-4">
+                <h4 className="text-xs font-bold text-rose-700 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 text-rose-500" />
+                  <span>Pending Documents ({activeDocModal.status.pendingDocs.length})</span>
+                </h4>
+                {activeDocModal.status.pendingDocs.length === 0 ? (
+                  <p className="text-xs text-emerald-600 font-medium py-1">All required documents have been uploaded!</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {activeDocModal.status.pendingDocs.map((doc, idx) => (
+                      <li
+                        key={idx}
+                        className="flex items-center justify-between p-2.5 bg-rose-50/70 border border-rose-200/80 rounded-xl text-xs text-rose-900"
+                      >
+                        <span className="font-medium">{doc}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-200">
+                          Missing
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Uploaded Documents List */}
+              {activeDocModal.status.uploadedDocs.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
+                    <FileCheck className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Uploaded &amp; Verified ({activeDocModal.status.uploadedDocs.length})</span>
+                  </h4>
+                  <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                    {activeDocModal.status.uploadedDocs.map((doc, idx) => (
+                      <li
+                        key={idx}
+                        className="flex items-center justify-between p-2 bg-emerald-50/50 border border-emerald-100 rounded-xl text-xs text-emerald-900"
+                      >
+                        <span className="truncate">{doc}</span>
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Footer Actions */}
+              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <Link
+                  href={`/assessment/record/${activeDocModal.id}/edit`}
+                  className="inline-flex items-center space-x-1.5 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  <span>Upload Documents in Edit Mode &rarr;</span>
+                </Link>
+                <Button variant="secondary" size="sm" onClick={() => setActiveDocModal(null)} className="text-xs">
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Modal */}
         {deleteConfirmId && (
