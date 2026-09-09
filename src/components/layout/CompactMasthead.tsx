@@ -24,7 +24,6 @@ interface CompactMastheadProps {
 
 export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) {
   const [isOnline, setIsOnline] = useState(true);
-  const [lockedNotice, setLockedNotice] = useState(false);
   const pathname = usePathname();
   const { isUnlocked } = useEvaluationAccess();
 
@@ -43,12 +42,6 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
       };
     }
   }, []);
-
-  const handleLockedClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setLockedNotice(true);
-    setTimeout(() => setLockedNotice(false), 4000);
-  };
 
   const navLinks = [
     { href: '/', label: 'Forms', icon: Home },
@@ -119,49 +112,35 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
                 <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
               </Link>
             ) : (
-              <div className="relative inline-flex items-center">
-                <button
-                  type="button"
-                  onClick={handleLockedClick}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 bg-slate-50/70 border border-dashed border-slate-200/80 hover:bg-slate-100/80 hover:text-slate-500 cursor-not-allowed transition-all opacity-70"
-                  title="Evaluation tab is locked. Click the pumping heart on the home screen 3 times to unlock."
-                >
-                  <Lock className="h-3 w-3 text-slate-400 shrink-0" />
-                  <span>Evaluation</span>
-                </button>
-
-                {lockedNotice && (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-40 px-3 py-1.5 bg-slate-900 text-white text-[11px] font-medium rounded-lg shadow-xl whitespace-nowrap animate-in fade-in duration-150">
-                    <span>Click the pumping heart on the home screen 3 times to unlock 🔒</span>
-                    <span className="absolute -top-1 left-1/2 -translate-x-1/2 border-4 border-transparent border-b-slate-900" />
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 bg-slate-50/70 border border-dashed border-slate-200/80 cursor-not-allowed transition-all opacity-70"
+                title="Evaluation"
+                disabled
+              >
+                <Lock className="h-3 w-3 text-slate-400 shrink-0" />
+                <span>Evaluation</span>
+              </button>
             )}
           </nav>
 
           {/* Status & Mobile Actions */}
           <div className="flex items-center space-x-2">
-            {/* Connectivity Pill */}
+            {/* Connectivity Pill - Wifi Icon Only (No Text) */}
             <div
               role="status"
               aria-live="polite"
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+              className={`flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
                 isOnline
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                   : 'bg-amber-50 border-amber-200 text-amber-800'
               }`}
+              title={isOnline ? 'Online' : 'Offline'}
             >
               {isOnline ? (
-                <>
-                  <Wifi className="h-3.5 w-3.5 text-emerald-600" />
-                  <span className="hidden sm:inline">Online</span>
-                </>
+                <Wifi className="h-4 w-4 text-emerald-600" />
               ) : (
-                <>
-                  <WifiOff className="h-3.5 w-3.5 text-amber-600" />
-                  <span>Offline</span>
-                </>
+                <WifiOff className="h-4 w-4 text-amber-600" />
               )}
             </div>
 

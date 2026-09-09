@@ -28,9 +28,9 @@ export default function SupervisorGISPage() {
           <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
             <Lock className="w-6 h-6" />
           </div>
-          <h2 className="text-base font-bold text-slate-900">GIS Engine Locked</h2>
+          <h2 className="text-base font-bold text-slate-900">GIS Engine Restricted</h2>
           <p className="text-xs text-slate-500 leading-relaxed">
-            Geographic information and spatial surveillance records are protected. Click the liquid pumping heart on the home screen 3 times to unlock access.
+            Geographic information and spatial surveillance records are restricted to authorized personnel.
           </p>
           <div className="pt-2">
             <Link href="/">
