@@ -163,9 +163,9 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
             type="button"
             onClick={onClose}
             aria-label="Close View Modal"
-            className="w-8 h-8 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-900 text-base font-bold transition-colors cursor-pointer"
+            className="touch-target-44 min-h-[44px] min-w-[44px] rounded-xl hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-900 transition-colors cursor-pointer shrink-0"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -546,25 +546,25 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3.5 sm:p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+        <div className="p-3.5 sm:p-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="text-[11px] text-slate-500 truncate">
             Last modified: {new Date(submissionTime).toLocaleString()}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 justify-end">
             {onEdit && (
               <button
                 type="button"
                 onClick={onEdit}
-                className="px-4 py-2 text-xs font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                className="touch-target-44 min-h-[44px] px-4 py-2 text-xs font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs flex-1 sm:flex-initial"
               >
-                <Edit3 className="h-3.5 w-3.5" />
+                <Edit3 className="h-4 w-4" />
                 <span>Edit Submission</span>
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl transition-colors cursor-pointer"
+              className="touch-target-44 min-h-[44px] px-4 py-2 text-xs font-semibold bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
             >
               Close
             </button>

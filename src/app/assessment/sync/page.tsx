@@ -394,7 +394,7 @@ function SyncCentreContent() {
         )}
 
         {/* Search, Date Filter & Sync Actions Bar */}
-        <div className="p-4 sm:p-5 bg-white border border-black rounded-2xl shadow-xs space-y-3">
+        <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-3">
           {/* Top Action: Send Pending Surveys (Shown when > 0 waiting) */}
           {pendingCount > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
@@ -405,7 +405,7 @@ function SyncCentreContent() {
                 variant="primary"
                 onClick={handleSyncAll}
                 disabled={isSyncing || !isReachable}
-                className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer"
+                className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer touch-target min-h-[44px]"
               >
                 {isSyncing ? (
                   <span className="flex items-center gap-2">
@@ -426,13 +426,13 @@ function SyncCentreContent() {
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
             {/* Search Input */}
             <div className="relative sm:col-span-6">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <input
                 type="text"
                 placeholder="Search by child name, ART number, caregiver, district..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-black bg-white text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
+                className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
               />
             </div>
 
@@ -443,7 +443,7 @@ function SyncCentreContent() {
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-black bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
+                className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
               />
             </div>
 
@@ -454,7 +454,7 @@ function SyncCentreContent() {
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-black bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
+                className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
               />
             </div>
           </div>
@@ -469,9 +469,9 @@ function SyncCentreContent() {
                   setFromDate('');
                   setToDate('');
                 }}
-                className="text-xs font-semibold text-purple-700 hover:text-purple-900 cursor-pointer underline flex items-center gap-1"
+                className="text-xs font-semibold text-purple-700 hover:text-purple-900 cursor-pointer underline flex items-center gap-1 touch-target min-h-[44px]"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
                 <span>Clear filters</span>
               </button>
             </div>
@@ -506,8 +506,8 @@ function SyncCentreContent() {
                     key={item.localId}
                     className="flex bg-white rounded-xl border border-[hsl(215,18%,85%)] hover:border-[hsl(215,18%,75%)] transition-colors shadow-2xs overflow-hidden"
                   >
-                    {/* Left Vertical ID Column */}
-                    <div className="w-12 sm:w-14 bg-slate-50 border-r border-slate-200/80 flex items-center justify-center shrink-0 py-3.5 select-all">
+                    {/* Left Vertical ID Column (Tablet / Desktop) */}
+                    <div className="hidden sm:flex w-12 sm:w-14 bg-slate-50 border-r border-slate-200/80 items-center justify-center shrink-0 py-3.5 select-all">
                       <div className="flex items-center gap-1.5 [writing-mode:vertical-rl] rotate-180">
                         <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
                           Id
@@ -520,11 +520,14 @@ function SyncCentreContent() {
                     </div>
 
                     {/* Main Card Content */}
-                    <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-2.5">
+                    <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                            <span className="sm:hidden font-mono font-bold text-teal-800 text-[11px] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                              {item.id}
+                            </span>
+                            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
                               {item.childName}
                             </h3>
                             <span className="text-slate-400">•</span>
@@ -570,11 +573,11 @@ function SyncCentreContent() {
                         </div>
 
                         {/* Action Buttons: View, Edit, History */}
-                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t border-slate-100 sm:border-t-0 justify-end">
                           <button
                             type="button"
                             onClick={() => setViewingItem(item)}
-                            className="text-xs h-8 px-3.5 font-semibold bg-white border border-[hsl(215,18%,82%)] hover:bg-[hsl(215,20%,97%)] text-[hsl(220,15%,20%)] rounded-lg transition-colors cursor-pointer"
+                            className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
                           >
                             View
                           </button>
@@ -582,7 +585,7 @@ function SyncCentreContent() {
                           <button
                             type="button"
                             onClick={() => handleEditSubmission(item)}
-                            className="text-xs h-8 px-3.5 font-semibold bg-white border border-[hsl(215,18%,82%)] hover:bg-[hsl(215,20%,97%)] text-[hsl(220,15%,20%)] rounded-lg transition-colors cursor-pointer"
+                            className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
                           >
                             Edit
                           </button>
@@ -590,7 +593,7 @@ function SyncCentreContent() {
                           <button
                             type="button"
                             onClick={() => setExpandedId(isExpanded ? null : item.localId)}
-                            className="text-xs h-8 px-2.5 text-[hsl(215,12%,45%)] hover:text-slate-800 transition-colors cursor-pointer"
+                            className="touch-target-44 min-h-[44px] text-xs px-3 font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer flex items-center justify-center"
                           >
                             {isExpanded ? 'Hide' : 'History'}
                           </button>

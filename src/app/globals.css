@@ -29,15 +29,26 @@ body {
   -webkit-text-size-adjust: 100%;
   font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Safe area insets for notched devices & gesture bars */
+.pt-safe,
 .safe-padding-top {
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+.pb-safe,
 .safe-padding-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 16px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .sticky-bottom-bar {
@@ -50,10 +61,38 @@ body {
   outline-offset: 2px;
 }
 
-/* Touch target helper */
+/* Touch target helpers (WCAG 2.5.5 / 2.5.8) */
+.touch-target-44,
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
 .touch-target-48 {
   min-height: 48px;
   min-width: 48px;
+}
+
+/* Long text break protection for identifiers & Aadhaar */
+.break-words-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Rule 5: Enforce 16px minimum font size on mobile inputs to eliminate iOS Safari auto-zoom */
+@media screen and (max-width: 768px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="search"],
+  input[type="password"],
+  select,
+  textarea {
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+  }
 }
 
 /* Hide native scrollbars while preserving scroll functionality */
@@ -388,4 +427,56 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none !important;  /* IE and Edge */
   scrollbar-width: none !important;  /* Firefox */
+}
+
+/* ==========================================================================
+   Mobile Performance & Accessibility: Throttling & Reduced Motion (Rule 14)
+   ========================================================================== */
+
+/* Simplify heavy animations on mobile viewports (<768px) to protect battery and GPU */
+@media screen and (max-width: 768px) {
+  .neon-section {
+    animation: none !important;
+    transform: none !important;
+    box-shadow:
+      0 1px 3px 0 rgba(0, 0, 0, 0.1),
+      0 1px 2px -1px rgba(0, 0, 0, 0.1),
+      0 0 0 1px var(--neon-mid, rgba(148, 163, 184, 0.3)) !important;
+  }
+  .neon-section:hover {
+    transform: none !important;
+    box-shadow:
+      0 4px 6px -1px rgba(0, 0, 0, 0.1),
+      0 2px 4px -2px rgba(0, 0, 0, 0.1),
+      0 0 0 1.5px var(--neon-mid, rgba(148, 163, 184, 0.4)) !important;
+  }
+}
+
+/* Respect user prefers-reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .waves,
+  .curve use,
+  .neon-section,
+  .spider-descend,
+  .typewriter-active,
+  .typewriter-cursor,
+  .animate-heart-shake {
+    animation: none !important;
+  }
+  .typewriter-active {
+    max-width: none !important;
+    opacity: 1 !important;
+  }
+  .spider-descend {
+    transform: none !important;
+    opacity: 1 !important;
+  }
 }

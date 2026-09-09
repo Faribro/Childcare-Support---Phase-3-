@@ -43,7 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full bg-surface-canvas text-ink-900 antialiased">
-      <body className="min-h-screen flex flex-col safe-padding-top safe-padding-bottom">
+      <body className="min-h-screen flex flex-col">
         <PwaRegistration />
         {children}
       </body>

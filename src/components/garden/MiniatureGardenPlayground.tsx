@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Pause, Play } from 'lucide-react';
 
 /**
  * MiniatureGardenPlayground
@@ -19,6 +20,17 @@ import React, { useRef, useEffect } from 'react';
 export function MiniatureGardenPlayground() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const pausedRef = useRef(false);
+  pausedRef.current = isPaused;
+
+  useEffect(() => {
+    // Detect reduced motion preference and start paused if requested
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setIsPaused(true);
+      pausedRef.current = true;
+    }
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1998,7 +2010,9 @@ export function MiniatureGardenPlayground() {
         }
       }
 
-      animationFrameId = requestAnimationFrame(render);
+      if (!pausedRef.current) {
+        animationFrameId = requestAnimationFrame(render);
+      }
     };
 
     render();
@@ -2010,7 +2024,7 @@ export function MiniatureGardenPlayground() {
       canvas.removeEventListener('mousedown', onMouseDown);
       canvas.removeEventListener('touchstart', onTouchStart);
     };
-  }, []);
+  }, [isPaused]);
 
   return (
     <div
@@ -2022,6 +2036,19 @@ export function MiniatureGardenPlayground() {
         className="w-full h-full block"
         aria-label="Interactive live miniature garden with playing children"
       />
+      <button
+        type="button"
+        onClick={() => setIsPaused((prev) => !prev)}
+        className="absolute top-2 right-2 z-10 touch-target-44 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-white/80 hover:bg-white text-slate-600 border border-slate-200 shadow-xs backdrop-blur-xs cursor-pointer transition-colors"
+        aria-label={isPaused ? 'Resume garden animation' : 'Pause garden animation'}
+        title={isPaused ? 'Resume garden animation' : 'Pause garden animation'}
+      >
+        {isPaused ? (
+          <Play className="h-4 w-4 text-emerald-700" />
+        ) : (
+          <Pause className="h-4 w-4 text-slate-700" />
+        )}
+      </button>
     </div>
   );
 }

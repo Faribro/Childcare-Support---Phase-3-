@@ -63,6 +63,7 @@ export function CaregiverSignaturePad({
   const [isSavedLocal, setIsSavedLocal] = useState(false);
   const [inkColor, setInkColor] = useState('#0F172A'); // Midnight Navy or Royal Blue
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Redraw all strokes onto canvas with high-DPI scaling
   const redraw = useCallback(() => {
@@ -398,6 +399,7 @@ export function CaregiverSignaturePad({
     setStrokeCount(0);
     setIsSavedLocal(false);
     setStatusMessage(null);
+    setShowClearConfirm(false);
     redraw();
 
     if (submissionUuid) await deleteCaregiverSignatureBlob(submissionUuid);
@@ -419,12 +421,12 @@ export function CaregiverSignaturePad({
   const hasContent = strokeCount > 0;
 
   return (
-    <div ref={containerRef} className="bg-white rounded-2xl border border-black p-4 sm:p-5 shadow-xs space-y-3.5 select-none">
+    <div ref={containerRef} className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5 select-none">
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
         <div className="flex items-center space-x-2">
-          <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-purple-100 text-purple-700">
-            <PenTool className="h-3.5 w-3.5" />
+          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700 shrink-0">
+            <PenTool className="h-4 w-4" />
           </div>
           <div>
             <h3 className="text-xs sm:text-sm font-bold text-slate-900">Caregiver Digital Signature *</h3>
@@ -435,7 +437,7 @@ export function CaregiverSignaturePad({
         </div>
 
         {/* Signatory Metadata Badge */}
-        <div className="inline-flex items-center space-x-1.5 bg-slate-50 border border-slate-300/80 px-2.5 py-1.5 rounded-xl text-xs whitespace-nowrap self-start sm:self-auto">
+        <div className="inline-flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs whitespace-nowrap self-start sm:self-auto">
           <span className="text-slate-400 text-[10px] uppercase font-bold">Signatory:</span>
           <span className="font-bold text-slate-900">{caregiverName || 'Caregiver'}</span>
           <span className="text-slate-500 text-[11px]">({caregiverRelationship || 'Mother'})</span>
@@ -446,7 +448,8 @@ export function CaregiverSignaturePad({
       <div className="relative border-2 border-dashed border-slate-300 hover:border-purple-400 rounded-xl bg-[#FAFBFD] overflow-hidden touch-none transition-colors">
         <canvas
           ref={canvasRef}
-          className="w-full h-[190px] sm:h-[210px] cursor-crosshair bg-transparent block"
+          className="w-full h-[190px] sm:h-[210px] cursor-crosshair bg-transparent block touch-none"
+          style={{ touchAction: 'none' }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -476,59 +479,87 @@ export function CaregiverSignaturePad({
             type="button"
             onClick={() => setInkColor('#0F172A')}
             title="Midnight Slate"
-            className={`w-3.5 h-3.5 rounded-full bg-[#0F172A] transition-transform ${inkColor === '#0F172A' ? 'ring-2 ring-purple-500 scale-110' : 'opacity-70'}`}
+            className={`w-4 h-4 rounded-full bg-[#0F172A] transition-transform ${inkColor === '#0F172A' ? 'ring-2 ring-purple-500 scale-110' : 'opacity-70'}`}
           />
           <button
             type="button"
             onClick={() => setInkColor('#1E3A8A')}
             title="Royal Blue Ink"
-            className={`w-3.5 h-3.5 rounded-full bg-[#1E3A8A] transition-transform ${inkColor === '#1E3A8A' ? 'ring-2 ring-purple-500 scale-110' : 'opacity-70'}`}
+            className={`w-4 h-4 rounded-full bg-[#1E3A8A] transition-transform ${inkColor === '#1E3A8A' ? 'ring-2 ring-purple-500 scale-110' : 'opacity-70'}`}
           />
         </div>
       </div>
 
       {/* Action Buttons Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={!hasContent}
-            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
-          >
-            <Undo2 className="h-3.5 w-3.5 text-slate-500" />
-            <span>Undo Stroke</span>
-          </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+        {showClearConfirm ? (
+          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 p-2 rounded-xl text-xs">
+            <span className="text-rose-800 font-semibold">Clear signature?</span>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="min-h-[44px] px-3 py-1.5 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 cursor-pointer"
+            >
+              Yes, Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(false)}
+              className="min-h-[44px] px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!hasContent}
+              className="min-h-[44px] touch-target inline-flex items-center justify-center space-x-1 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            >
+              <Undo2 className="h-4 w-4 text-slate-500" />
+              <span>Undo</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleClear}
-            disabled={!hasContent}
-            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 text-rose-700 bg-white hover:bg-rose-50 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
-          >
-            <Trash2 className="h-3.5 w-3.5 text-rose-500" />
-            <span>Clear</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={!hasContent}
+              className="min-h-[48px] touch-target-48 inline-flex items-center justify-center space-x-1.5 px-3.5 py-2 rounded-xl border border-rose-200 text-rose-700 bg-white hover:bg-rose-50 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            >
+              <Trash2 className="h-4 w-4 text-rose-500" />
+              <span>Clear</span>
+            </button>
+          </div>
+        )}
 
         <button
           type="button"
           onClick={handleSaveSignature}
           disabled={!hasContent}
-          className={`inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+          className={`min-h-[48px] touch-target-48 inline-flex items-center justify-center space-x-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
             isSavedLocal
               ? 'bg-emerald-600 text-white hover:bg-emerald-700'
               : 'bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed'
           }`}
         >
-          <CheckCircle2 className="h-3.5 w-3.5" />
+          <CheckCircle2 className="h-4 w-4" />
           <span>{isSavedLocal ? 'Signature Confirmed' : 'Save & Confirm Signature'}</span>
         </button>
       </div>
 
+      {/* Accessible Alternative Protocol Note */}
+      <div className="pt-2 border-t border-slate-100 flex items-start gap-2 text-[11px] text-slate-500">
+        <ShieldCheck className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+        <span>
+          <strong>Consent Protocol:</strong> If the caregiver is unable to provide a digital touch signature, record spoken verbal consent or document witnessed thumb impression as authorized under clinical supervisor guidelines.
+        </span>
+      </div>
+
       {/* Status Alert */}
       {statusMessage && (
-        <p className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${
+        <p className={`text-xs font-semibold px-3 py-2 rounded-lg ${
           isSavedLocal
             ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
             : 'bg-amber-50 text-amber-800 border border-amber-200'

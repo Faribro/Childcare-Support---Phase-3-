@@ -572,9 +572,9 @@ export default function LandingPage() {
             <button
               type="button"
               onClick={handleDownloadClick}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 active:scale-[0.98] shadow-xs hover:shadow-sm transition-all cursor-pointer"
+              className="touch-target-44 min-h-[44px] inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 active:scale-[0.98] shadow-xs hover:shadow-sm transition-all cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-4 h-4" />
               <span>{isStandalone ? 'App Installed' : 'Download App (PWA)'}</span>
             </button>
           </div>
@@ -827,22 +827,22 @@ export default function LandingPage() {
               type="button"
               onClick={() => scrollSteps('left')}
               aria-label="Scroll steps left"
-              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-white border border-slate-200 text-slate-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-2xs transition-all cursor-pointer"
+              className="shrink-0 touch-target-44 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center bg-white border border-slate-200 text-slate-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-2xs transition-all cursor-pointer"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-5 h-5" />
             </button>
 
             {/* Scrollable Steps Track */}
             <div
               ref={stepScrollRef}
-              className="flex-1 flex items-center justify-start sm:justify-center gap-2 overflow-x-auto py-1 scroll-smooth no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              className="flex-1 flex items-center justify-start sm:justify-center gap-2 overflow-x-auto py-1.5 scroll-smooth no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             >
               {currentTrack.steps.map((s, idx) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => setActiveStepIndex(idx)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`touch-target-44 min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
                     activeStepIndex === idx
                       ? 'bg-teal-700 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -859,9 +859,9 @@ export default function LandingPage() {
               type="button"
               onClick={() => scrollSteps('right')}
               aria-label="Scroll steps right"
-              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-white border border-slate-200 text-slate-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-2xs transition-all cursor-pointer"
+              className="shrink-0 touch-target-44 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center bg-white border border-slate-200 text-slate-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-2xs transition-all cursor-pointer"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
 
@@ -944,7 +944,7 @@ export default function LandingPage() {
                 </div>
 
                 {/* Step Progress Controls */}
-                <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center justify-between pt-2 gap-2">
                   <button
                     type="button"
                     onClick={() =>
@@ -952,12 +952,12 @@ export default function LandingPage() {
                         prev > 0 ? prev - 1 : currentTrack.steps.length - 1
                       )
                     }
-                    className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 cursor-pointer transition-colors shadow-2xs"
+                    className="touch-target-44 min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 cursor-pointer transition-colors shadow-2xs flex items-center justify-center"
                   >
                     &larr; Previous Step
                   </button>
 
-                  <span className="text-xs font-mono text-slate-500 font-semibold">
+                  <span className="text-xs font-mono text-slate-500 font-semibold text-center truncate">
                     Step {activeStepIndex + 1} of {currentTrack.steps.length}
                   </span>
 
@@ -968,7 +968,7 @@ export default function LandingPage() {
                         prev < currentTrack.steps.length - 1 ? prev + 1 : 0
                       )
                     }
-                    className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 cursor-pointer transition-colors shadow-2xs"
+                    className="touch-target-44 min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 cursor-pointer transition-colors shadow-2xs flex items-center justify-center"
                   >
                     Next Step &rarr;
                   </button>

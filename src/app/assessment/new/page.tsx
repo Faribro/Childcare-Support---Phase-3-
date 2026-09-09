@@ -657,16 +657,17 @@ export default function NewSinglePageAssessment() {
 
   return (
     <AppShell hideHeader>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-16 sm:pb-20">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-32 sm:pb-24">
         {/* Minimal Focus Header with Return Link, Language Selector, and Immersive Reader */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
           <div className="flex items-center space-x-2.5">
             <Link
-              href="/"
-              className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs"
+              href="/app"
+              className="touch-target-44 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer"
               title="Return to Dashboard"
+              aria-label="Return to Dashboard"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-5 w-5" />
             </Link>
 
             {/* Immersive Reader & Regional Languages Dropdown */}
@@ -1834,7 +1835,7 @@ export default function NewSinglePageAssessment() {
         </div>
 
         {/* Sticky Floating Bottom Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 py-3">
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-start">
               <span className="font-mono font-bold text-purple-950">{formData.artNumber}</span>
@@ -1859,7 +1860,7 @@ export default function NewSinglePageAssessment() {
                 variant="secondary"
                 size="sm"
                 onClick={handleManualSaveDraft}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto touch-target min-h-[44px]"
               >
                 <Save className="h-4 w-4 mr-1.5" />
                 <span>{t('save_draft', currentLanguage)}</span>
@@ -1869,7 +1870,10 @@ export default function NewSinglePageAssessment() {
                 type="button"
                 variant="primary"
                 size="sm"
-                id="btn-submit-survey" onClick={handleSubmit} isLoading={isSubmitting} className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold"
+                id="btn-submit-survey"
+                onClick={handleSubmit}
+                isLoading={isSubmitting}
+                className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold touch-target min-h-[44px]"
               >
                 <Send className="h-4 w-4 mr-1.5" />
                 <span>{t('submit_survey', currentLanguage)}</span>

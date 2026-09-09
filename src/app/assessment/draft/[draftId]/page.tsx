@@ -805,17 +805,18 @@ export default function ResumeDraftSinglePage() {
         saveStatus: saveStatus,
       }}
     >
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-16 sm:pb-20">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-32 sm:pb-24">
         {/* Header Summary Banner */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-slate-100 gap-3">
             <div className="flex items-center space-x-3">
               <Link
-                href="/"
-                className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs shrink-0"
+                href="/app"
+                className="touch-target-44 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs shrink-0 cursor-pointer"
                 title="Return to Dashboard"
+                aria-label="Return to Dashboard"
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="h-5 w-5" />
               </Link>
               <div>
                 <h1 className="text-lg sm:text-xl font-bold text-slate-900">
@@ -2016,7 +2017,7 @@ export default function ResumeDraftSinglePage() {
         </div>
 
         {/* Sticky Floating Bottom Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 py-3">
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-start">
               <span className="font-mono font-bold text-purple-950">{formData.artNumber}</span>
@@ -2041,7 +2042,7 @@ export default function ResumeDraftSinglePage() {
                 variant="secondary"
                 size="sm"
                 onClick={handleManualSaveDraft}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto touch-target min-h-[44px]"
               >
                 <Save className="h-4 w-4 mr-1.5" />
                 <span>{t('save_draft', currentLanguage)}</span>
@@ -2051,9 +2052,10 @@ export default function ResumeDraftSinglePage() {
                 type="button"
                 variant="primary"
                 size="sm"
-                id="btn-submit-survey" onClick={handleSubmit}
+                id="btn-submit-survey"
+                onClick={handleSubmit}
                 isLoading={isSubmitting}
-                className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold"
+                className="w-full sm:w-auto bg-purple-700 hover:bg-purple-800 text-white shadow-xs font-bold touch-target min-h-[44px]"
               >
                 <Send className="h-4 w-4 mr-1.5" />
                 <span>{t('submit_survey', currentLanguage)}</span>
