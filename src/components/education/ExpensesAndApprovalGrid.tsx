@@ -161,14 +161,14 @@ export function ExpensesAndApprovalGrid({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Programmatic Approval Guidelines Banner */}
-      <div className="p-4 bg-teal-50/60 border border-teal-200 rounded-2xl text-xs space-y-2">
-        <div className="flex items-center space-x-2 text-teal-900 font-bold">
+      <div className="p-3.5 bg-teal-50/60 border border-teal-200/90 rounded-xl text-xs space-y-1.5 shadow-2xs">
+        <div className="flex items-center space-x-2 text-teal-950 font-bold">
           <GraduationCap className="h-4 w-4 text-teal-700" />
           <span>Educational Support Approval & Disbursement Guidelines</span>
         </div>
-        <p className="text-slate-600 leading-relaxed">
+        <p className="text-slate-600 leading-relaxed text-[11.5px]">
           Each line item must be validated against programme schedules:
           <span className="font-semibold text-purple-900"> Stationery is approved twice in the year</span> (Semester 1 & 2),
           <span className="font-semibold text-amber-900"> Transport and Private Tuition are approved monthly</span>, and

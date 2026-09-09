@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { Button } from '@/components/ui/Button';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import {
   Activity,
   TableProperties,
@@ -13,6 +15,7 @@ import {
   GraduationCap,
   Globe,
   Maximize2,
+  Lock,
 } from 'lucide-react';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
@@ -39,6 +42,7 @@ interface SupervisorRecord {
 const DEFAULT_RECORDS: SupervisorRecord[] = [];
 
 export default function SupervisorDashboardPage() {
+  const { isUnlocked, isLoaded } = useEvaluationAccess();
   const [records, setRecords] = useState<SupervisorRecord[]>(DEFAULT_RECORDS);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -149,10 +153,35 @@ export default function SupervisorDashboardPage() {
   const enrolledRate = totalEvaluated > 0 ? Math.round((enrolledCount / totalEvaluated) * 100) : 0;
   const outOfSchoolRate = totalEvaluated > 0 ? Math.round((outOfSchoolCount / totalEvaluated) * 100) : 0;
 
+  if (isLoaded && !isUnlocked) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Evaluation Portal Locked</h2>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Clinical evaluation and surveillance records are protected. Click the liquid pumping heart on the home screen 3 times to unlock access.
+            </p>
+            <div className="pt-2">
+              <Link href="/">
+                <Button variant="primary" size="sm">
+                  Return to Dashboard
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8">
-        {/* Exclusive Supervisor Tab Navigation */}
+        {/* Exclusive Evaluation Tab Navigation */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-3 sm:mb-4 gap-3">
           <div className="flex items-center space-x-1 overflow-x-auto">
             <Link

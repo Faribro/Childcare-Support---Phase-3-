@@ -10,6 +10,7 @@ import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import { Plus } from 'lucide-react';
+import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 
 export default function HomePage() {
   const router = useRouter();
@@ -80,11 +81,12 @@ export default function HomePage() {
         <div className="space-y-8">
           {/* Featured Primary Form Card Matching Reference FormLibrary */}
           <div className="p-6 md:p-8 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-6">
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-[hsl(215,18%,90%)] pb-6">
-              <div className="space-y-2 max-w-2xl">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[hsl(215,18%,90%)] pb-6">
+              <div className="flex items-center space-x-3.5 flex-wrap gap-y-2">
                 <h2 className="text-lg md:text-xl font-bold text-[hsl(220,15%,15%)] leading-snug">
                   Child Nutrition &amp; Support Form
                 </h2>
+                <AnimatedHeartUnlock />
               </div>
 
               <div className="waves-wrapper self-center md:self-start my-2 md:my-0">

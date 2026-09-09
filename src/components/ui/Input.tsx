@@ -22,10 +22,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="text-xs font-bold text-ink-900 flex items-center justify-between"
+            className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase flex items-center justify-between"
           >
             <span>
-              {label} {required && <span className="text-alert-rose">*</span>}
+              {label} {required && <span className="text-rose-500 ml-0.5">*</span>}
             </span>
           </label>
         )}
@@ -39,12 +39,11 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             aria-describedby={error ? errorId : helperText ? helperId : undefined}
             className={twMerge(
               clsx(
-                // 16px text-base to prevent mobile browser auto-zoom
-                'w-full min-h-[48px] px-3.5 py-3 text-base text-ink-900 bg-white border rounded-xl transition-colors',
-                'placeholder:text-ink-400 focus:outline-none focus:ring-3 focus:ring-brand-light focus:border-brand',
+                'w-full h-11 min-h-[44px] px-3.5 text-sm text-slate-900 bg-white border rounded-xl transition-all shadow-2xs font-medium',
+                'placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600',
                 error
-                  ? 'border-alert-rose focus:ring-rose-200'
-                  : 'border-slate-300 hover:border-slate-400',
+                  ? 'border-rose-400 focus:ring-rose-100 focus:border-rose-500'
+                  : 'border-slate-200 hover:border-slate-300',
                 unit ? 'pr-12' : '',
                 className
               )
@@ -52,7 +51,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {unit && (
-            <span className="absolute right-3.5 text-xs font-bold text-ink-600 pointer-events-none select-none">
+            <span className="absolute right-3.5 text-xs font-bold text-slate-400 pointer-events-none select-none">
               {unit}
             </span>
           )}

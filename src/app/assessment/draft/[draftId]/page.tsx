@@ -10,6 +10,8 @@ import { CaregiverSignaturePad } from '@/components/ui/CaregiverSignaturePad';
 import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { SectionVerticalTitle } from '@/components/ui/SectionVerticalTitle';
+import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
+import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
@@ -68,6 +70,19 @@ export default function ResumeDraftSinglePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [currentLanguage, setCurrentLanguage] = useState('en');
+  const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
+
+  const getHighlightClass = (id: string) =>
+    activeReadingId === id
+      ? 'ring-2 ring-amber-400 bg-amber-50/70 rounded-xl p-1 -m-1 transition-all duration-300 shadow-sm'
+      : 'transition-all duration-200';
+
+  const ORPHAN_OPTIONS: { value: OrphanStatus; label: string; tooltip: string }[] = [
+    { value: 'Both parents alive', label: 'Both parents alive', tooltip: 'Both biological parents are alive' },
+    { value: 'Single orphan (one parent deceased)', label: 'Single orphan', tooltip: 'One parent deceased' },
+    { value: 'Double orphan (both parents deceased)', label: 'Double orphan', tooltip: 'Both parents deceased' },
+  ];
 
   // Form State strictly covering all 73 official linelist & Sheet fields
   const [formData, setFormData] = useState({
@@ -766,57 +781,73 @@ export default function ResumeDraftSinglePage() {
     >
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-16 sm:pb-20">
         {/* Header Summary Banner */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100 gap-4">
-            <div>
-              <div className="flex items-center space-x-2 text-teal-700 text-xs font-bold uppercase tracking-wider mb-1">
-                <FileCheck className="h-4 w-4" />
-                <span>CHILD_HIV_SUPPORT_FORM (Resume Saved Draft)</span>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-slate-100 gap-3">
+            <div className="flex items-center space-x-3">
+              <Link
+                href="/"
+                className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs shrink-0"
+                title="Return to Dashboard"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold text-slate-900">
+                  Child Nutrition & Education Support Intake
+                </h1>
+                <p className="text-xs text-slate-500">
+                  Resume saved draft for {formData.childName || 'Beneficiary'}.
+                </p>
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                Child Nutrition & Education Support Intake
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                Saved offline draft. Review or update any of the 73 fields on this single page and submit when complete.
-              </p>
             </div>
 
-            <div className="flex items-center space-x-2.5">
-              <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
-                <span className="text-slate-400">Unique ID:</span>
-                <span className="font-bold text-teal-900">{formData.artNumber || 'Generating...'}</span>
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Immersive Reader & Regional Languages Dropdown */}
+              <ImmersiveReaderControls
+                currentLanguage={currentLanguage}
+                onLanguageChange={setCurrentLanguage}
+                activeReadingId={activeReadingId}
+                onReadingChange={setActiveReadingId}
+              />
+
+              <div className="flex items-center space-x-1 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono">
+                <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">ID</span>
+                <span className="font-bold text-slate-900">{formData.artNumber || 'Pending'}</span>
               </div>
 
               <div
-                className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center space-x-1 border ${
+                className={`text-xs px-2.5 py-1 rounded-xl font-bold flex items-center space-x-1.5 border ${
                   saveStatus === 'saving'
                     ? 'bg-amber-50 text-amber-800 border-amber-200'
                     : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                 }`}
+                title={saveStatus === 'saving' ? 'Auto-saving locally to IndexedDB' : 'Changes saved offline'}
               >
                 <div
                   className={`h-2 w-2 rounded-full ${
                     saveStatus === 'saving' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
                   }`}
                 />
-                <span>{saveStatus === 'saving' ? 'Saving draft...' : 'Draft saved offline'}</span>
+                <span className="text-[11px] font-semibold">
+                  {saveStatus === 'saving' ? 'Saving...' : 'Saved Offline'}
+                </span>
               </div>
             </div>
           </div>
 
           {/* Quick Jump Bar */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-xs">
             <span className="text-slate-400 font-bold uppercase text-[10px] mr-1">Quick Jump:</span>
             {[
-              { id: 'sec-consent', label: '1. Consent & Signature' },
-              { id: 'sec-child', label: '2. Child Demographics' },
-              { id: 'sec-banking', label: '3. Banking & KYC' },
-              { id: 'sec-household', label: '4. Household' },
-              { id: 'sec-health', label: '5. Clinical & ART' },
-              { id: 'sec-nutrition', label: '6. Nutrition' },
-              { id: 'sec-education', label: '7. Education' },
-              { id: 'sec-expenses', label: '8. Expenses & Aid' },
-              { id: 'sec-review', label: '9. Final Review' },
+              { id: 'sec-consent', label: `1. ${t('sec_consent', currentLanguage)}` },
+              { id: 'sec-child', label: `2. ${t('sec_demographics', currentLanguage)}` },
+              { id: 'sec-banking', label: `3. ${t('sec_banking', currentLanguage)}` },
+              { id: 'sec-household', label: `4. ${t('sec_household', currentLanguage)}` },
+              { id: 'sec-health', label: `5. ${t('sec_clinical', currentLanguage)}` },
+              { id: 'sec-nutrition', label: `6. ${t('sec_nutrition', currentLanguage)}` },
+              { id: 'sec-education', label: `7. ${t('sec_education', currentLanguage)}` },
+              { id: 'sec-expenses', label: `8. ${t('sec_expenses', currentLanguage)}` },
+              { id: 'sec-review', label: `9. ${t('sec_review', currentLanguage)}` },
             ].map((btn) => (
               <button
                 key={btn.id}
@@ -844,23 +875,27 @@ export default function ResumeDraftSinglePage() {
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="01" title="Caregiver Consent & Signature" />
+        <section id="sec-consent" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} />
 
-          <div className="space-y-5">
+          <div className="space-y-4">
             {/* Consent Decision */}
-            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2.5">
-              <label className="text-xs font-bold text-slate-900 block">
-                DO YOU AGREE TO PARTICIPATE IN THIS SURVEY? (INFORMED CONSENT) *
+            <div
+              id="q-consent-decision"
+              className={`p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2 ${getHighlightClass(
+                'q-consent-decision'
+              )}`}
+            >
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-900 uppercase block">
+                {t('consent_q', currentLanguage)}
               </label>
-              
 
-              <div className="flex items-center space-x-3 pt-1">
+              <div className="flex items-center space-x-3 pt-0.5">
                 <label
-                  className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all ${
+                  className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                     formData.agreeToParticipate === true
-                      ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/60'
+                      ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   <input
@@ -870,14 +905,14 @@ export default function ResumeDraftSinglePage() {
                     onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
                     className="text-teal-600 focus:ring-teal-500"
                   />
-                  <span className="text-xs">Yes — Consent Granted</span>
+                  <span className="text-xs font-semibold">{t('consent_yes', currentLanguage)}</span>
                 </label>
 
                 <label
-                  className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all ${
+                  className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                     formData.agreeToParticipate === false
-                      ? 'bg-rose-50 border-rose-500 text-rose-900 font-bold shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/60'
+                      ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   <input
@@ -887,32 +922,36 @@ export default function ResumeDraftSinglePage() {
                     onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
                     className="text-rose-600 focus:ring-rose-500"
                   />
-                  <span className="text-xs">No — Consent Refused</span>
+                  <span className="text-xs font-semibold">{t('consent_no', currentLanguage)}</span>
                 </label>
               </div>
             </div>
 
             {/* Caregiver Details Required for Consent & Signing */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input
-                label="Caregiver's Full Name *"
-                required
-                value={formData.caregiverName}
-                onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
-                
-                placeholder="e.g. Meena Sharma"
-              />
+              <div id="q-caregiver-name" className={getHighlightClass('q-caregiver-name')}>
+                <Input
+                  label={t('caregiver_name', currentLanguage)}
+                  required
+                  value={formData.caregiverName}
+                  onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                  placeholder="e.g. Meena Sharma"
+                />
+              </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 block">
-                  Relationship to Child *
+              <div
+                id="q-caregiver-rel"
+                className={`flex flex-col space-y-1.5 ${getHighlightClass('q-caregiver-rel')}`}
+              >
+                <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                  {t('caregiver_relationship', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
                 </label>
                 <select
                   value={formData.caregiverRelationship}
                   onChange={(e) =>
                     setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
                   }
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                 >
                   {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
                     <option key={rel} value={rel}>
@@ -920,107 +959,111 @@ export default function ResumeDraftSinglePage() {
                     </option>
                   ))}
                 </select>
-                
               </div>
 
-              <Input
-                label="Caregiver Contact Number *"
-                type="tel"
-                required
-                maxLength={10}
-                value={formData.contactNumber}
-                onChange={(e) =>
-                  setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
-                }
-                
-                placeholder="e.g. 9822012345"
-              />
+              <div id="q-caregiver-contact" className={getHighlightClass('q-caregiver-contact')}>
+                <Input
+                  label={t('caregiver_contact', currentLanguage)}
+                  type="tel"
+                  required
+                  maxLength={10}
+                  value={formData.contactNumber}
+                  onChange={(e) =>
+                    setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
+                  }
+                  placeholder="e.g. 9822012345"
+                />
+              </div>
             </div>
 
             {/* Signature Pad or Refusal Alert */}
-            {formData.agreeToParticipate ? (
-              <div className="pt-1">
-                <CaregiverSignaturePad
-                  submissionUuid={clientUuid}
-                  caregiverName={formData.caregiverName || 'Caregiver'}
-                  caregiverRelationship={formData.caregiverRelationship || 'Mother'}
-                  onSignatureSaved={(blob) => setHasSavedSignature(!!blob)}
-                />
-              </div>
-            ) : (
-              <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-3">
-                <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0" />
-                <div>
-                  <p className="font-bold text-sm">Consent Not Granted</p>
-                  <p className="mt-0.5 text-rose-700">
-                    Under Alliance India child safeguarding protocols, intake cannot proceed without informed caregiver consent.
-                  </p>
+            <div id="q-caregiver-sig" className={getHighlightClass('q-caregiver-sig')}>
+              {formData.agreeToParticipate ? (
+                <div className="pt-0.5">
+                  <CaregiverSignaturePad
+                    submissionUuid={clientUuid}
+                    caregiverName={formData.caregiverName || 'Caregiver'}
+                    caregiverRelationship={formData.caregiverRelationship || 'Mother'}
+                    onSignatureSaved={(blob) => setHasSavedSignature(!!blob)}
+                  />
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-3">
+                  <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0" />
+                  <div>
+                    <p className="font-bold text-sm">Consent Not Granted</p>
+                    <p className="mt-0.5 text-rose-700">
+                      Under Alliance India child safeguarding protocols, intake cannot proceed without informed caregiver consent.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
         {/* SECTION 2: Child Demographics & Residence */}
-        <section id="sec-child" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="02" title="Child Demographics & Residence" />
+        <section id="sec-child" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* System Generated Unique ID Display */}
-            <div className="p-3 bg-teal-50/80 border border-teal-200/90 rounded-xl sm:col-span-2 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs font-bold text-teal-950 uppercase tracking-wide">
-                    Unique Beneficiary ID (Auto-Generated)
-                  </span>
-                  <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-600 text-white rounded-md tracking-wider">
-                    SYSTEM ID
-                  </span>
-                </div>
-                
+            <div className="p-3 bg-teal-50/80 border border-teal-200/90 rounded-xl sm:col-span-2 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-teal-950 uppercase tracking-wider">
+                  {t('uid_label', currentLanguage)}
+                </span>
+                <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-slate-900 text-white rounded-md tracking-wider">
+                  NACO REGISTRY
+                </span>
               </div>
-              <div className="flex items-center space-x-2 bg-white px-3.5 py-2 rounded-lg border border-teal-300 font-mono text-sm font-bold text-teal-950 shadow-2xs w-fit">
+              <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-lg border border-teal-200 font-mono text-sm font-bold text-teal-950 shadow-2xs w-fit">
                 <span>{formData.artNumber || 'Generating...'}</span>
               </div>
             </div>
 
-            <Input
-              label="Date of Filling Form (Visit Date) *"
-              type="date"
-              required
-              value={formData.dateOfFilling}
-              onChange={(e) => setFormData({ ...formData, dateOfFilling: e.target.value })}
-              
-            />
+            <div id="q-child-date">
+              <Input
+                label="Date of Intake Visit *"
+                type="date"
+                required
+                value={formData.dateOfFilling}
+                onChange={(e) => setFormData({ ...formData, dateOfFilling: e.target.value })}
+              />
+            </div>
 
-            <Input
-              label="Child's Full Name *"
-              required
-              value={formData.childName}
-              onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-              
-              placeholder="e.g. Aarav Sharma"
-            />
+            <div id="q-child-name" className={getHighlightClass('q-child-name')}>
+              <Input
+                label={t('child_name', currentLanguage)}
+                required
+                value={formData.childName}
+                onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                placeholder="e.g. Aarav Sharma"
+              />
+            </div>
 
-            <Input
-              label="Date of Birth *"
-              type="date"
-              required
-              value={formData.dob}
-              onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-              
-            />
+            <div id="q-child-dob">
+              <Input
+                label={t('dob', currentLanguage)}
+                type="date"
+                required
+                value={formData.dob}
+                onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+              />
+            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">Gender *</label>
+            <div id="q-child-gender" className={`space-y-1.5 ${getHighlightClass('q-child-gender')}`}>
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                {t('gender', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <div className="grid grid-cols-3 gap-2">
                 {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
                   <label
                     key={g}
-                    className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                    className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.gender === g
-                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                        : 'bg-white border-slate-200 text-slate-700'
+                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1029,7 +1072,7 @@ export default function ResumeDraftSinglePage() {
                       value={g}
                       checked={formData.gender === g}
                       onChange={() => setFormData({ ...formData, gender: g })}
-                      className="text-teal-600 focus:ring-teal-500"
+                      className="text-teal-600 focus:ring-teal-500 shrink-0"
                     />
                     <span>{g}</span>
                   </label>
@@ -1037,31 +1080,46 @@ export default function ResumeDraftSinglePage() {
               </div>
             </div>
 
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-xs font-bold text-slate-800 block">Orphan Status *</label>
+            <div
+              id="q-child-orphan"
+              className={`space-y-1.5 sm:col-span-2 ${getHighlightClass('q-child-orphan')}`}
+            >
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                {t('orphan_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {[
-                  'Both parents alive',
-                  'Single orphan (one parent deceased)',
-                  'Double orphan (both parents deceased)',
-                ].map((st) => (
+                {ORPHAN_OPTIONS.map((opt) => (
                   <label
-                    key={st}
-                    className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                      formData.orphanStatus === st
-                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                        : 'bg-white border-slate-200 text-slate-700'
+                    key={opt.value}
+                    title={opt.tooltip}
+                    className={`group relative flex items-center space-x-2 h-11 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                      formData.orphanStatus === opt.value
+                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <input
                       type="radio"
                       name="orphanStatus"
-                      value={st}
-                      checked={formData.orphanStatus === st}
-                      onChange={() => setFormData({ ...formData, orphanStatus: st as OrphanStatus })}
+                      value={opt.value}
+                      checked={formData.orphanStatus === opt.value}
+                      onChange={() => setFormData({ ...formData, orphanStatus: opt.value })}
                       className="text-teal-600 focus:ring-teal-500 shrink-0"
                     />
-                    <span className="truncate">{st}</span>
+                    <span className="truncate">{opt.label}</span>
+
+                    {opt.tooltip && opt.tooltip !== opt.label && (
+                      <>
+                        <span className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-100 group-hover:bg-teal-100 text-slate-400 group-hover:text-teal-700 text-[10px] font-bold transition-colors shrink-0">
+                          ?
+                        </span>
+                        {/* Hover Tooltip Popup */}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex items-center px-2.5 py-1 bg-slate-900 text-white text-[11px] font-medium rounded-lg shadow-lg whitespace-nowrap z-30 pointer-events-none animate-in fade-in duration-200">
+                          <span>{opt.tooltip}</span>
+                          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+                        </div>
+                      </>
+                    )}
                   </label>
                 ))}
               </div>
@@ -1075,26 +1133,26 @@ export default function ResumeDraftSinglePage() {
               onChange={(e) =>
                 setFormData({ ...formData, childAadhaarNumber: e.target.value.replace(/\D/g, '') })
               }
-              
               placeholder="e.g. 123456789012"
             />
 
-            <div className="sm:col-span-2">
+            <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
               <Input
-                label="Full Residential Address *"
+                label={t('address', currentLanguage)}
                 value={formData.fullAddress}
                 onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                
                 placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">State / Union Territory *</label>
+            <div className="flex flex-col space-y-1.5">
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                {t('state', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <select
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {INDIAN_STATES_AND_UTS.map((st) => (
                   <option key={st} value={st}>
@@ -1105,80 +1163,76 @@ export default function ResumeDraftSinglePage() {
             </div>
 
             <Input
-              label="District *"
+              label={t('district', currentLanguage)}
               value={formData.district}
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-              
               placeholder="e.g. Pune"
             />
           </div>
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="03" title="Banking & KYC Documents" />
+        <section id="sec-banking" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="sm:col-span-2">
+            <div id="q-bank-holder" className={`sm:col-span-2 ${getHighlightClass('q-bank-holder')}`}>
               <Input
-                label="BANK ACCOUNT HOLDER NAME"
+                label={t('bank_acc_holder', currentLanguage)}
                 value={formData.bankAccountHolderName}
                 onChange={(e) => setFormData({ ...formData, bankAccountHolderName: e.target.value })}
                 placeholder="Name as printed in passbook"
-                
+              />
+            </div>
+
+            <div id="q-bank-num" className={`sm:col-span-2 ${getHighlightClass('q-bank-num')}`}>
+              <Input
+                label={t('bank_acc_num', currentLanguage)}
+                value={formData.bankAccountNumber}
+                onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
+                placeholder="e.g. 10023456789"
+              />
+            </div>
+
+            <div id="q-bank-ifsc" className={`sm:col-span-2 ${getHighlightClass('q-bank-ifsc')}`}>
+              <Input
+                label={t('bank_ifsc', currentLanguage)}
+                value={formData.bankIfscCode}
+                onChange={(e) => setFormData({ ...formData, bankIfscCode: e.target.value.toUpperCase() })}
+                placeholder="e.g. SBIN0001234"
               />
             </div>
 
             <div className="sm:col-span-2">
               <Input
-                label="BANK ACCOUNT NUMBER"
-                value={formData.bankAccountNumber}
-                onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-                placeholder="e.g. 10023456789"
-                
+                label="BANK LINKED MOBILE NUMBER"
+                type="tel"
+                maxLength={10}
+                value={formData.bankLinkedMobileNumber}
+                onChange={(e) =>
+                  setFormData({ ...formData, bankLinkedMobileNumber: e.target.value.replace(/\D/g, '') })
+                }
+                placeholder="e.g. 9822012345"
               />
             </div>
-
-            <Input
-              label="BANK IFSC CODE"
-              value={formData.bankIfscCode}
-              onChange={(e) => setFormData({ ...formData, bankIfscCode: e.target.value.toUpperCase() })}
-              placeholder="e.g. SBIN0001234"
-              
-            />
-
-            <Input
-              label="BANK LINKED MOBILE NUMBER"
-              type="tel"
-              maxLength={10}
-              value={formData.bankLinkedMobileNumber}
-              onChange={(e) =>
-                setFormData({ ...formData, bankLinkedMobileNumber: e.target.value.replace(/\D/g, '') })
-              }
-              placeholder="e.g. 9822012345"
-              
-            />
           </div>
 
           {/* Verification Photo Attachments */}
           <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <PhotoUpload
               label="PASSBOOK FRONT PAGE PHOTO"
-              
               value={formData.passbookPhotoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, passbookPhotoUrl: url || '' }))}
             />
 
             <PhotoUpload
               label="AADHAAR CARD PHOTO"
-              
               value={formData.aadhaarCardPhotoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, aadhaarCardPhotoUrl: url || '' }))}
             />
 
             <PhotoUpload
               label="PASSPORT SIZE PHOTO"
-              
               value={formData.childPhotoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, childPhotoUrl: url || '' }))}
             />
@@ -1186,51 +1240,56 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="04" title="Household & Socio-Economic Profile" />
+        <section id="sec-household" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <Input
-              label="HOUSEHOLD MEMBERS (TOTAL FAMILY) *"
-              type="number"
-              min="1"
-              required
-              value={formData.totalFamilyMembers}
-              onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
-              
-            />
+            <div id="q-hh-members" className={getHighlightClass('q-hh-members')}>
+              <Input
+                label={t('hh_members', currentLanguage)}
+                type="number"
+                min="1"
+                required
+                value={formData.totalFamilyMembers}
+                onChange={(e) => setFormData({ ...formData, totalFamilyMembers: Number(e.target.value) })}
+              />
+            </div>
 
-            <Input
-              label="NO OF CHILDREN (≤18 YRS) *"
-              type="number"
-              min="0"
-              required
-              value={formData.numberOfChildrenUnder18}
-              onChange={(e) =>
-                setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })
-              }
-              
-            />
+            <div id="q-hh-children" className={getHighlightClass('q-hh-children')}>
+              <Input
+                label={t('hh_children', currentLanguage)}
+                type="number"
+                min="0"
+                required
+                value={formData.numberOfChildrenUnder18}
+                onChange={(e) =>
+                  setFormData({ ...formData, numberOfChildrenUnder18: Number(e.target.value) })
+                }
+              />
+            </div>
 
-            <Input
-              label="MONTHLY INCOME (RS.) *"
-              type="number"
-              min="0"
-              required
-              value={formData.monthlyIncomeRs}
-              onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
-              unit="₹"
-              
-            />
+            <div id="q-hh-income" className={getHighlightClass('q-hh-income')}>
+              <Input
+                label={t('hh_income', currentLanguage)}
+                type="number"
+                min="0"
+                required
+                value={formData.monthlyIncomeRs}
+                onChange={(e) => setFormData({ ...formData, monthlyIncomeRs: Number(e.target.value) })}
+                unit="₹"
+              />
+            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">INCOME SOURCE *</label>
+            <div id="q-hh-source" className={`flex flex-col space-y-1.5 ${getHighlightClass('q-hh-source')}`}>
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                {t('hh_income_source', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <select
                 value={formData.mainSourceOfIncome}
                 onChange={(e) =>
                   setFormData({ ...formData, mainSourceOfIncome: e.target.value as MainSourceOfIncome })
                 }
-                className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {[
                   'Daily wage labour',
@@ -1249,44 +1308,48 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="05" title="Clinical Health, ART & Viral Load" />
+        <section id="sec-health" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <Input
-              label="CURRENT WEIGHT (KG) *"
-              type="number"
-              step="0.1"
-              min="2"
-              max="150"
-              required
-              value={formData.weightKg}
-              onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
-              unit="kg"
-              
-            />
+            <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
+              <Input
+                label={t('weight', currentLanguage)}
+                type="number"
+                step="0.1"
+                min="2"
+                max="150"
+                required
+                value={formData.weightKg}
+                onChange={(e) => setFormData({ ...formData, weightKg: Number(e.target.value) })}
+                unit="kg"
+              />
+            </div>
 
-            <Input
-              label="CURRENT HEIGHT (CM) *"
-              type="number"
-              step="0.1"
-              min="40"
-              max="220"
-              required
-              value={formData.heightCm}
-              onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
-              unit="cm"
-              
-            />
+            <div id="q-cli-height" className={getHighlightClass('q-cli-height')}>
+              <Input
+                label={t('height', currentLanguage)}
+                type="number"
+                step="0.1"
+                min="40"
+                max="220"
+                required
+                value={formData.heightCm}
+                onChange={(e) => setFormData({ ...formData, heightCm: Number(e.target.value) })}
+                unit="cm"
+              />
+            </div>
 
-            <div className="flex flex-col justify-center bg-teal-50 border border-teal-200 rounded-xl px-3.5 py-2">
-              <span className="text-[10px] uppercase font-bold text-teal-800">BMI & CATEGORY</span>
-              <div className="text-lg font-bold text-teal-900">{bmiValue} kg/m²</div>
+            <div id="q-cli-bmi" className={`flex flex-col justify-center bg-teal-50/80 border border-teal-200/90 rounded-xl px-3.5 py-1.5 shadow-2xs ${getHighlightClass('q-cli-bmi')}`}>
+              <span className="text-[10px] uppercase font-bold text-teal-800 tracking-wider">
+                {t('bmi', currentLanguage)}
+              </span>
+              <div className="text-base font-bold text-teal-950">{bmiValue} kg/m²</div>
               <span className="text-[11px] text-teal-700 font-semibold">{bmiCategory}</span>
             </div>
 
-            <div className="flex flex-col justify-center bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2">
-              <span className="text-[10px] uppercase font-bold text-slate-500">HB & CATEGORY</span>
+            <div className="flex flex-col justify-center bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">HB &amp; CATEGORY</span>
               <div className="text-base font-bold text-slate-800">
                 {formData.haemoglobinGdl ? `${formData.haemoglobinGdl} g/dL` : 'Not recorded'}
               </div>
@@ -1302,15 +1365,16 @@ export default function ResumeDraftSinglePage() {
               value={formData.haemoglobinGdl}
               onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
               unit="g/dL"
-              
             />
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">ART STATUS *</label>
+            <div className="flex flex-col space-y-1.5">
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                ART STATUS <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <select
                 value={formData.artStatus}
                 onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
-                className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
                   <option key={st} value={st}>
@@ -1325,23 +1389,25 @@ export default function ResumeDraftSinglePage() {
               type="date"
               value={formData.artRegistrationDate}
               onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
-              
             />
 
-            <Input
-              label="ART ID NUMBER"
-              value={formData.artIdNumber}
-              onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
-              placeholder="e.g. MH-PUN-00123"
-              
-            />
+            <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
+              <Input
+                label={t('art_num', currentLanguage)}
+                value={formData.artIdNumber}
+                onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                placeholder="e.g. MH-PUN-00123"
+              />
+            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">VIRAL LOAD STATUS *</label>
+            <div className="flex flex-col space-y-1.5">
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                VIRAL LOAD STATUS <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <select
                 value={formData.vlStatus}
                 onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {[
                   'Tested in last 6 months',
@@ -1361,26 +1427,26 @@ export default function ResumeDraftSinglePage() {
               type="date"
               value={formData.vlDate}
               onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
-              
             />
 
-            <Input
-              label="VIRAL LOAD (COPIES/ML)"
-              value={formData.viralLoad}
-              onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
-              placeholder="e.g. < 50 or 450"
-              
-            />
+            <div id="q-cli-vl" className={getHighlightClass('q-cli-vl')}>
+              <Input
+                label={t('viral_load', currentLanguage)}
+                value={formData.viralLoad}
+                onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
+                placeholder="e.g. < 50 or 450"
+              />
+            </div>
 
-            <div className="flex flex-col justify-center bg-teal-50/50 border border-teal-200 rounded-xl px-3.5 py-2">
-              <span className="text-[10px] uppercase font-bold text-teal-800">VL CATEGORY</span>
-              <div className="text-xs font-bold text-teal-900 mt-1">{vlCategory}</div>
+            <div className="flex flex-col justify-center bg-teal-50/50 border border-teal-200 rounded-xl px-3.5 py-1.5 shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-teal-800 tracking-wider">VL CATEGORY</span>
+              <div className="text-sm font-bold text-teal-900">{vlCategory}</div>
               <span className="text-[10px] text-teal-700">Auto-classified</span>
             </div>
 
             {/* Comorbidities */}
             <div className="sm:col-span-4 space-y-2 pt-1">
-              <label className="text-xs font-bold text-slate-800 block">
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
                 COMORBIDITIES (Select all that apply)
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -1394,10 +1460,10 @@ export default function ResumeDraftSinglePage() {
                   return (
                     <label
                       key={cond}
-                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                      className={`flex items-center space-x-2 h-11 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                         isChecked
-                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                          : 'bg-white border-slate-200'
+                          ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
                       <input
@@ -1435,7 +1501,6 @@ export default function ResumeDraftSinglePage() {
                   onChange={(e) =>
                     setFormData({ ...formData, otherHealthConditionSpecify: e.target.value })
                   }
-                  
                   placeholder="e.g. Asthma, Skin allergy"
                 />
               </div>
@@ -1444,20 +1509,22 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="06" title="Daily Nutrition Habits" />
+        <section id="sec-nutrition" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-2 space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 block">CHILD&apos;S APPETITE *</label>
+            <div id="q-nut-appetite" className={`sm:col-span-2 space-y-1.5 ${getHighlightClass('q-nut-appetite')}`}>
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                {t('appetite', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+              </label>
               <div className="grid grid-cols-3 gap-2">
                 {(['Good', 'Reduced', 'Poor / Very low'] as AppetiteLevel[]).map((app) => (
                   <label
                     key={app}
-                    className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                    className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.appetite === app
-                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                        : 'bg-white border-slate-200'
+                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1466,7 +1533,7 @@ export default function ResumeDraftSinglePage() {
                       value={app}
                       checked={formData.appetite === app}
                       onChange={() => setFormData({ ...formData, appetite: app })}
-                      className="text-teal-600 focus:ring-teal-500"
+                      className="text-teal-600 focus:ring-teal-500 shrink-0"
                     />
                     <span>{app}</span>
                   </label>
@@ -1474,27 +1541,30 @@ export default function ResumeDraftSinglePage() {
               </div>
             </div>
 
-            <Input
-              label="MEALS PER DAY *"
-              type="number"
-              min="1"
-              max="10"
-              required
-              value={formData.mealsPerDay}
-              onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
-              
-            />
+            <div id="q-nut-meals" className={getHighlightClass('q-nut-meals')}>
+              <Input
+                label={t('meals_per_day', currentLanguage)}
+                type="number"
+                min="1"
+                max="10"
+                required
+                value={formData.mealsPerDay}
+                onChange={(e) => setFormData({ ...formData, mealsPerDay: Number(e.target.value) })}
+              />
+            </div>
           </div>
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="07" title="Education Status & Schooling" />
+        <section id="sec-education" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} />
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-900 block">EDUCATION STATUS *</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div id="q-edu-status" className={`space-y-1.5 ${getHighlightClass('q-edu-status')}`}>
+              <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                {t('edu_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
                   'Currently going to school',
                   'Dropped out of school',
@@ -1504,9 +1574,9 @@ export default function ResumeDraftSinglePage() {
                 ].map((st) => (
                   <label
                     key={st}
-                    className={`flex items-center space-x-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    className={`flex items-center space-x-2.5 h-11 px-3 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.educationStatus === st
-                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
+                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
                         : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
@@ -1520,7 +1590,7 @@ export default function ResumeDraftSinglePage() {
                       }
                       className="text-teal-600 focus:ring-teal-500 shrink-0"
                     />
-                    <span className="text-xs">{st}</span>
+                    <span className="text-xs font-semibold">{st}</span>
                   </label>
                 ))}
               </div>
@@ -1531,18 +1601,16 @@ export default function ResumeDraftSinglePage() {
                 label="EDUCATION STATUS OTHER (PLEASE SPECIFY)"
                 value={formData.educationStatusSpecify}
                 onChange={(e) => setFormData({ ...formData, educationStatusSpecify: e.target.value })}
-                
               />
             )}
 
             {formData.educationStatus === 'Currently going to school' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-                <div className="sm:col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+                <div id="q-edu-school" className={`sm:col-span-2 ${getHighlightClass('q-edu-school')}`}>
                   <Input
-                    label="SCHOOL NAME"
+                    label={t('school_name', currentLanguage)}
                     value={formData.schoolName}
                     onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
-                    
                     placeholder="e.g. Pune Zilla Parishad Primary School"
                   />
                 </div>
@@ -1554,15 +1622,16 @@ export default function ResumeDraftSinglePage() {
                   onChange={(e) =>
                     setFormData({ ...formData, schoolSessionStartDate: e.target.value })
                   }
-                  
                 />
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-800 block">SCHOOL TYPE</label>
+                <div className="flex flex-col space-y-1.5">
+                  <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                    {t('school_type', currentLanguage)}
+                  </label>
                   <select
                     value={formData.schoolType}
                     onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
-                    className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                   >
                     {['Government school', 'Private school', 'Aided school'].map((st) => (
                       <option key={st} value={st}>
@@ -1572,23 +1641,26 @@ export default function ResumeDraftSinglePage() {
                   </select>
                 </div>
 
-                <Input
-                  label="CURRENT CLASS"
-                  value={formData.currentClass}
-                  onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
-                  
-                />
+                <div id="q-edu-class" className={getHighlightClass('q-edu-class')}>
+                  <Input
+                    label={t('current_class', currentLanguage)}
+                    value={formData.currentClass}
+                    onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
+                  />
+                </div>
 
                 <div className="sm:col-span-3 space-y-1.5">
-                  <label className="text-xs font-bold text-slate-800 block">ATTENDANCE STATUS</label>
+                  <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                    {t('attendance', currentLanguage)}
+                  </label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['Regular', 'Irregular', 'Dropped out'] as AttendanceType[]).map((att) => (
                       <label
                         key={att}
-                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                        className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                           formData.attendance === att
-                            ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                            : 'bg-white border-slate-200'
+                            ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                         }`}
                       >
                         <input
@@ -1597,7 +1669,7 @@ export default function ResumeDraftSinglePage() {
                           value={att}
                           checked={formData.attendance === att}
                           onChange={() => setFormData({ ...formData, attendance: att })}
-                          className="text-teal-600"
+                          className="text-teal-600 focus:ring-teal-500 shrink-0"
                         />
                         <span>{att}</span>
                       </label>
@@ -1610,8 +1682,8 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="08" title="Education Expenses & Aid Breakdown" />
+        <section id="sec-expenses" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} />
 
           <ExpensesAndApprovalGrid
             currentExpenses={{
@@ -1647,22 +1719,21 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
-          <SectionVerticalTitle number="09" title="Review & Submitter Attestation" />
+        <section id="sec-review" className="relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20">
+          <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} />
 
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 block">
-                  APPROVED ALLIANCE INDIA (PROGRAMME STATUS)
+              <div className="flex flex-col space-y-1.5">
+                <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                  {t('approved_status', currentLanguage)}
                 </label>
                 <select
                   value={formData.approvedAllianceIndia}
                   onChange={(e) =>
                     setFormData({ ...formData, approvedAllianceIndia: e.target.value as ApprovedAllianceStatus })
                   }
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-semibold text-teal-900 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                 >
                   {['Pending', 'Approved', 'Conditionally Approved', 'Rejected'].map((st) => (
                     <option key={st} value={st}>
@@ -1672,16 +1743,19 @@ export default function ResumeDraftSinglePage() {
                 </select>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 block">
-                  REVIEW CONFIRMED (ALL INFORMATION ACCURATE) *
+              <div
+                id="q-rev-confirm"
+                className={`space-y-1.5 ${getHighlightClass('q-rev-confirm')}`}
+              >
+                <label className="text-[11.5px] font-bold tracking-wider text-slate-700 uppercase block">
+                  {t('review_confirmed', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
                 </label>
-                <div className="flex items-center space-x-4 pt-1">
+                <div className="flex items-center space-x-3 pt-0.5">
                   <label
-                    className={`flex items-center space-x-2.5 px-3 py-2 rounded-xl border cursor-pointer ${
+                    className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === true
-                        ? 'bg-teal-50 border-teal-500 text-teal-900 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700'
+                        ? 'bg-teal-50 border-teal-500 text-teal-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1691,14 +1765,14 @@ export default function ResumeDraftSinglePage() {
                       onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
                       className="text-teal-600 focus:ring-teal-500"
                     />
-                    <span className="text-xs">Yes — Verified</span>
+                    <span className="text-xs font-semibold">{t('review_yes', currentLanguage)}</span>
                   </label>
 
                   <label
-                    className={`flex items-center space-x-2.5 px-3 py-2 rounded-xl border cursor-pointer ${
+                    className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === false
-                        ? 'bg-rose-50 border-rose-500 text-rose-900 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700'
+                        ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <input
@@ -1708,30 +1782,32 @@ export default function ResumeDraftSinglePage() {
                       onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
                       className="text-rose-600 focus:ring-rose-500"
                     />
-                    <span className="text-xs">No — Needs correction</span>
+                    <span className="text-xs font-semibold">{t('review_no', currentLanguage)}</span>
                   </label>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
               <Input
-                label="ORGANIZATION NAME"
+                label={t('org_name', currentLanguage)}
                 value={formData.organizationName}
                 onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
                 placeholder="India HIV/AIDS Alliance"
               />
 
-              <Input
-                label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
-                required
-                value={formData.formSubmittedBy}
-                onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
-                placeholder="Your full name"
-              />
+              <div id="q-rev-interviewer" className={getHighlightClass('q-rev-interviewer')}>
+                <Input
+                  label={t('interviewer_name', currentLanguage)}
+                  required
+                  value={formData.formSubmittedBy}
+                  onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                  placeholder="Your full name"
+                />
+              </div>
 
               <Input
-                label="ORGANIZATION EMAIL ID"
+                label={t('org_email', currentLanguage)}
                 type="email"
                 value={formData.organizationEmail}
                 onChange={(e) => setFormData({ ...formData, organizationEmail: e.target.value })}
@@ -1771,7 +1847,7 @@ export default function ResumeDraftSinglePage() {
                 className="w-full sm:w-auto"
               >
                 <Save className="h-4 w-4 mr-1.5" />
-                <span>Save Draft</span>
+                <span>{t('save_draft', currentLanguage)}</span>
               </Button>
 
               <Button
@@ -1783,7 +1859,7 @@ export default function ResumeDraftSinglePage() {
                 className="w-full sm:w-auto bg-teal-700 hover:bg-teal-800 shadow-xs font-bold"
               >
                 <Send className="h-4 w-4 mr-1.5" />
-                <span>Submit Survey</span>
+                <span>{t('submit_survey', currentLanguage)}</span>
               </Button>
             </div>
           </div>

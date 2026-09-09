@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { Button } from '@/components/ui/Button';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import {
   BarChart3,
   HeartPulse,
@@ -14,6 +16,7 @@ import {
   PieChart,
   Globe,
   Maximize2,
+  Lock,
 } from 'lucide-react';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
@@ -31,6 +34,7 @@ interface ClinicalAnalyticsRecord {
 }
 
 export default function AnalyticsDashboardPage() {
+  const { isUnlocked, isLoaded } = useEvaluationAccess();
   const [records, setRecords] = useState<ClinicalAnalyticsRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -161,6 +165,31 @@ export default function AnalyticsDashboardPage() {
       grant: stats.grant,
     }));
   }, [records]);
+
+  if (isLoaded && !isUnlocked) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Evaluation Analytics Locked</h2>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Clinical analytics and population surveillance charts are protected. Click the liquid pumping heart on the home screen 3 times to unlock access.
+            </p>
+            <div className="pt-2">
+              <Link href="/">
+                <Button variant="primary" size="sm">
+                  Return to Dashboard
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>

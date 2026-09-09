@@ -28,7 +28,10 @@ import {
   X,
   FileCheck,
   Loader2,
+  Lock,
+  ChevronDown,
 } from 'lucide-react';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
 
 export interface BeneficiaryDocumentStatus {
@@ -202,6 +205,7 @@ interface BeneficiaryRow {
 }
 
 export default function SupervisorAssessmentsPage() {
+  const { isUnlocked, isLoaded } = useEvaluationAccess();
   const [data, setData] = useState<BeneficiaryRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -523,6 +527,31 @@ export default function SupervisorAssessmentsPage() {
     a.click();
   };
 
+  if (isLoaded && !isUnlocked) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Evaluation Linelist Locked</h2>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Beneficiary evaluation and surveillance records are protected. Click the liquid pumping heart on the home screen 3 times to unlock access.
+            </p>
+            <div className="pt-2">
+              <Link href="/">
+                <Button variant="primary" size="sm">
+                  Return to Dashboard
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8">
@@ -551,7 +580,7 @@ export default function SupervisorAssessmentsPage() {
               className="flex items-center space-x-2 py-2.5 px-4 text-xs font-bold border-b-2 border-teal-600 text-teal-800 bg-teal-50/50 rounded-t-lg whitespace-nowrap"
             >
               <TableProperties className="h-4 w-4 text-teal-600" />
-              <span>ChildrenLinelist</span>
+              <span>Beneficiary Linelist</span>
             </Link>
             <Link
               href="/supervisor/analytics"
@@ -571,94 +600,191 @@ export default function SupervisorAssessmentsPage() {
           </div>
         </div>
 
-        {/* Precision Multi-Dimension Filters: Search, School Type, Orphan Status, District & Export */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 shadow-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search ID, child name..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white"
-              />
+        {/* Precision Command Ribbon: Search, Smart Filter Suite, Open GIS & CSV Export */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 mb-5 shadow-xs transition-all">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            {/* Left Suite: Search & Smart Integrated Dropdowns */}
+            <div className="flex flex-1 flex-wrap items-center gap-2.5">
+              {/* Search Field with Integrated Icon and Clear button */}
+              <div className="relative flex-1 min-w-[210px] max-w-full sm:max-w-xs">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search ART ID, child name, district..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full h-10 pl-10 pr-9 text-xs bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all placeholder:text-slate-400 font-medium text-slate-800"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* School Type Filter Pill */}
+              <div className="relative min-w-[145px] sm:min-w-[165px] flex-1 sm:flex-initial">
+                <School
+                  className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors ${
+                    schoolTypeFilter !== 'ALL' ? 'text-teal-600' : 'text-slate-400'
+                  }`}
+                />
+                <select
+                  className={`w-full h-10 pl-9 pr-8 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/30 font-medium transition-all appearance-none cursor-pointer ${
+                    schoolTypeFilter !== 'ALL'
+                      ? 'bg-teal-50/80 border-teal-300 text-teal-900 font-semibold shadow-xs'
+                      : 'bg-slate-50 hover:bg-slate-100/60 border-slate-200 text-slate-700'
+                  }`}
+                  value={schoolTypeFilter}
+                  onChange={(e) => setSchoolTypeFilter(e.target.value)}
+                >
+                  <option value="ALL">All School Types</option>
+                  <option value="Government">Government School</option>
+                  <option value="Private">Private School</option>
+                  <option value="Aided">Aided School</option>
+                  <option value="Not In School">Not in School</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              </div>
+
+              {/* Orphan Status Filter Pill */}
+              <div className="relative min-w-[145px] sm:min-w-[170px] flex-1 sm:flex-initial">
+                <HeartHandshake
+                  className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors ${
+                    orphanStatusFilter !== 'ALL' ? 'text-teal-600' : 'text-slate-400'
+                  }`}
+                />
+                <select
+                  className={`w-full h-10 pl-9 pr-8 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/30 font-medium transition-all appearance-none cursor-pointer ${
+                    orphanStatusFilter !== 'ALL'
+                      ? 'bg-teal-50/80 border-teal-300 text-teal-900 font-semibold shadow-xs'
+                      : 'bg-slate-50 hover:bg-slate-100/60 border-slate-200 text-slate-700'
+                  }`}
+                  value={orphanStatusFilter}
+                  onChange={(e) => setOrphanStatusFilter(e.target.value)}
+                >
+                  <option value="ALL">All Orphan Statuses</option>
+                  <option value="Both parents alive">Both Parents Alive</option>
+                  <option value="Single orphan">Single Orphan</option>
+                  <option value="Double orphan">Double Orphan</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              </div>
+
+              {/* District Filter Pill */}
+              <div className="relative min-w-[130px] sm:min-w-[150px] flex-1 sm:flex-initial">
+                <Building2
+                  className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors ${
+                    districtFilter !== 'ALL' ? 'text-teal-600' : 'text-slate-400'
+                  }`}
+                />
+                <select
+                  className={`w-full h-10 pl-9 pr-8 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/30 font-medium transition-all appearance-none cursor-pointer ${
+                    districtFilter !== 'ALL'
+                      ? 'bg-teal-50/80 border-teal-300 text-teal-900 font-semibold shadow-xs'
+                      : 'bg-slate-50 hover:bg-slate-100/60 border-slate-200 text-slate-700'
+                  }`}
+                  value={districtFilter}
+                  onChange={(e) => setDistrictFilter(e.target.value)}
+                >
+                  <option value="ALL">All Districts</option>
+                  <option value="Pune">Pune</option>
+                  <option value="Mumbai Suburban">Mumbai Suburban</option>
+                  <option value="Thane">Thane</option>
+                  <option value="Solapur">Solapur</option>
+                  <option value="Nashik">Nashik</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              </div>
             </div>
 
-            {/* School Type Filter */}
-            <div className="flex items-center space-x-2">
-              <School className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <select
-                className="w-full py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white"
-                value={schoolTypeFilter}
-                onChange={(e) => setSchoolTypeFilter(e.target.value)}
-              >
-                <option value="ALL">All School Types</option>
-                <option value="Government">Government School</option>
-                <option value="Private">Private School</option>
-                <option value="Aided">Aided School</option>
-                <option value="Not In School">Not in School / Dropped out</option>
-              </select>
-            </div>
+            {/* Right Suite: Action Buttons (Open GIS & Export CSV) */}
+            <div className="flex items-center gap-2.5 pt-2 lg:pt-0 shrink-0 border-t lg:border-t-0 border-slate-100">
+              {/* Open GIS Button */}
+              <Link href="/supervisor/gis" className="flex-1 sm:flex-initial">
+                <Button
+                  variant="secondary"
+                  className="w-full sm:w-auto h-10 px-4 text-xs font-bold rounded-xl border border-teal-200 bg-teal-50/70 hover:bg-teal-100/90 text-teal-800 hover:text-teal-950 shadow-xs flex items-center justify-center space-x-2 transition-all group"
+                >
+                  <Globe className="h-4 w-4 text-teal-600 group-hover:rotate-45 transition-transform duration-300 shrink-0" />
+                  <span>Open GIS</span>
+                  <span className="hidden sm:inline text-[10px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded-md bg-teal-200/70 text-teal-900 ml-0.5">
+                    Map
+                  </span>
+                </Button>
+              </Link>
 
-            {/* Orphan Status Filter */}
-            <div className="flex items-center space-x-2">
-              <HeartHandshake className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <select
-                className="w-full py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white"
-                value={orphanStatusFilter}
-                onChange={(e) => setOrphanStatusFilter(e.target.value)}
-              >
-                <option value="ALL">All Orphan Statuses</option>
-                <option value="Both parents alive">Both parents alive</option>
-                <option value="Single orphan">Single orphan</option>
-                <option value="Double orphan">Double orphan</option>
-              </select>
-            </div>
-
-            {/* District Filter */}
-            <div className="flex items-center space-x-2">
-              <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <select
-                className="w-full py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white"
-                value={districtFilter}
-                onChange={(e) => setDistrictFilter(e.target.value)}
-              >
-                <option value="ALL">All Districts</option>
-                <option value="Pune">Pune</option>
-                <option value="Mumbai Suburban">Mumbai Suburban</option>
-                <option value="Thane">Thane</option>
-                <option value="Solapur">Solapur</option>
-                <option value="Nashik">Nashik</option>
-              </select>
-            </div>
-
-            {/* Export Linelist CSV */}
-            <div>
+              {/* Export CSV Button */}
               <Button
                 variant="primary"
                 onClick={handleExportCSV}
-                className="w-full h-9 sm:h-[38px] text-xs font-semibold shadow-xs flex items-center justify-center rounded-xl bg-teal-700 hover:bg-teal-800 text-white"
+                className="flex-1 sm:flex-initial h-10 px-4 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-xs flex items-center justify-center space-x-2 transition-all shrink-0"
               >
-                <Download className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-                <span>Export CSV ({filteredData.length})</span>
+                <Download className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                <span>Export CSV</span>
+                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-slate-800 text-slate-200 border border-slate-700">
+                  {filteredData.length}
+                </span>
               </Button>
             </div>
           </div>
 
+          {/* Active Filters Pill Bar */}
           {hasActiveFilters && (
-            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-500">
-                Filtered: <strong>{filteredData.length}</strong> of <strong>{data.length}</strong> records
-              </span>
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="text-teal-700 font-bold hover:underline cursor-pointer"
-              >
-                Clear all filters
-              </button>
+            <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-slate-500 font-medium">Active:</span>
+                {searchTerm && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-medium">
+                    Search: &ldquo;{searchTerm}&rdquo;
+                    <button type="button" onClick={() => setSearchTerm('')} className="hover:text-rose-600">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+                {schoolTypeFilter !== 'ALL' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-medium">
+                    School: {schoolTypeFilter}
+                    <button type="button" onClick={() => setSchoolTypeFilter('ALL')} className="hover:text-rose-600">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+                {orphanStatusFilter !== 'ALL' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-medium">
+                    Orphan: {orphanStatusFilter}
+                    <button type="button" onClick={() => setOrphanStatusFilter('ALL')} className="hover:text-rose-600">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+                {districtFilter !== 'ALL' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-medium">
+                    District: {districtFilter}
+                    <button type="button" onClick={() => setDistrictFilter('ALL')} className="hover:text-rose-600">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-slate-500 font-medium text-[11px]">
+                  Showing <strong>{filteredData.length}</strong> of <strong>{data.length}</strong> records
+                </span>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="text-teal-700 hover:text-teal-900 font-bold hover:underline cursor-pointer text-[11px]"
+                >
+                  Clear all
+                </button>
+              </div>
             </div>
           )}
         </div>
