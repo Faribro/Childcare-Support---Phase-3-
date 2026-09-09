@@ -927,23 +927,26 @@ export default function EditRecordPage() {
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
           <section id="sec-consent" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-            <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-              <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-                01
-              </span>
-              <h2 className="line-1 anim-typewriter text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Caregiver Consent &amp; Signature
-              </h2>
-            </div>
+            <ConsentAudioNotice
+              currentLanguage={currentLanguage}
+              agreeToParticipate={formData.agreeToParticipate}
+              onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
+              renderHeader={(audioButton) => (
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
+                      01
+                    </span>
+                    <h2 className="line-1 anim-typewriter text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                      Caregiver Consent &amp; Signature
+                    </h2>
+                  </div>
+                  <div className="shrink-0">{audioButton}</div>
+                </div>
+              )}
+            />
 
             <div className="space-y-4">
-              {/* Verbatim Caregiver Audio Consent Statement & Interactive Audio Player */}
-              <ConsentAudioNotice
-                currentLanguage={currentLanguage}
-                agreeToParticipate={formData.agreeToParticipate}
-                onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
-              />
-
               {/* Consent Decision Radio Buttons */}
               <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2">
                 <label className="text-xs font-bold text-slate-900 block">

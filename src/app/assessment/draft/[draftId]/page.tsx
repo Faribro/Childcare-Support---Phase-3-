@@ -887,15 +887,25 @@ export default function ResumeDraftSinglePage() {
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
         <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
-          <SectionHeader prefix="Caregiver's " emphasis="agreement" suffix=" to participate" emphasisColor="text-rose-600" borderColor="border-rose-100/80" eyebrowColor="text-rose-400/90" />
+          
+          <ConsentAudioNotice
+            currentLanguage={currentLanguage}
+            agreeToParticipate={formData.agreeToParticipate}
+            onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
+            renderHeader={(audioButton) => (
+              <SectionHeader
+                prefix="Caregiver's "
+                emphasis="agreement"
+                suffix=" to participate"
+                emphasisColor="text-rose-600"
+                borderColor="border-rose-100/80"
+                eyebrowColor="text-rose-400/90"
+                action={audioButton}
+              />
+            )}
+          />
 
           <div className="space-y-4">
-            {/* Verbatim Caregiver Audio Consent Statement & Interactive Audio Player */}
-            <ConsentAudioNotice
-              currentLanguage={currentLanguage}
-              agreeToParticipate={formData.agreeToParticipate}
-              onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
-            />
 
             {/* Consent Decision */}
             <div

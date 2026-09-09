@@ -1,19 +1,21 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, Pause, ShieldCheck, Mic } from 'lucide-react';
+import { Volume2, Pause, Mic } from 'lucide-react';
 import { t } from '@/lib/i18n/translations';
 
 interface ConsentAudioNoticeProps {
   currentLanguage: string;
   agreeToParticipate?: boolean | null;
   onConsentDecision?: (agreed: boolean) => void;
+  renderHeader?: (audioButton: React.ReactNode) => React.ReactNode;
 }
 
 export function ConsentAudioNotice({
   currentLanguage,
   agreeToParticipate,
   onConsentDecision,
+  renderHeader,
 }: ConsentAudioNoticeProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -91,43 +93,45 @@ export function ConsentAudioNotice({
     return m + ':' + (s < 10 ? '0' : '') + s;
   };
 
-  return (
-    <div id="consent-audio-notice" className="relative rounded-2xl bg-gradient-to-br from-purple-50/90 via-white to-rose-50/50 border border-purple-200/90 p-3.5 sm:p-5 shadow-xs space-y-3 overflow-hidden transition-all">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-purple-100">
-        <div className="flex items-center space-x-2.5">
-          <div className="flex items-center justify-center w-7 h-7 rounded-xl bg-purple-600 text-white shadow-xs shrink-0">
-            <ShieldCheck className="w-4 h-4" />
+  const audioButton = (
+    <button
+      type="button"
+      onClick={toggleAudio}
+      className={`inline-flex items-center justify-center space-x-2 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer ${
+        isPlaying
+          ? 'bg-rose-600 text-white hover:bg-rose-700 ring-2 ring-rose-400/40'
+          : 'bg-purple-600 text-white hover:bg-purple-700 active:scale-95'
+      }`}
+      aria-label={isPlaying ? t('consent_pause_audio', currentLanguage) : t('consent_listen_audio', currentLanguage)}
+    >
+      {isPlaying ? (
+        <>
+          <Pause className="w-3.5 h-3.5" />
+          <span>{t('consent_pause_audio', currentLanguage)}</span>
+          <div className="flex items-end space-x-0.5 h-3 ml-1">
+            <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:0ms] h-2.5" />
+            <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:150ms] h-3.5" />
+            <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:300ms] h-2" />
           </div>
-        </div>
+        </>
+      ) : (
+        <>
+          <Volume2 className="w-3.5 h-3.5 animate-pulse" />
+          <span>{t('consent_listen_audio', currentLanguage)}</span>
+        </>
+      )}
+    </button>
+  );
 
-        <button
-          type="button"
-          onClick={toggleAudio}
-          className={`inline-flex items-center justify-center space-x-2 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer ${
-            isPlaying
-              ? 'bg-rose-600 text-white hover:bg-rose-700 ring-2 ring-rose-400/40'
-              : 'bg-purple-600 text-white hover:bg-purple-700 active:scale-95'
-          }`}
-          aria-label={isPlaying ? t('consent_pause_audio', currentLanguage) : t('consent_listen_audio', currentLanguage)}
-        >
-          {isPlaying ? (
-            <>
-              <Pause className="w-3.5 h-3.5" />
-              <span>{t('consent_pause_audio', currentLanguage)}</span>
-              <div className="flex items-end space-x-0.5 h-3 ml-1">
-                <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:0ms] h-2.5" />
-                <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:150ms] h-3.5" />
-                <span className="w-0.5 bg-white rounded-full animate-bounce [animation-delay:300ms] h-2" />
-              </div>
-            </>
-          ) : (
-            <>
-              <Volume2 className="w-3.5 h-3.5 animate-pulse" />
-              <span>{t('consent_listen_audio', currentLanguage)}</span>
-            </>
-          )}
-        </button>
-      </div>
+  return (
+    <div className="space-y-3">
+      {renderHeader ? (
+        renderHeader(audioButton)
+      ) : (
+        <div className="flex justify-end pb-1">{audioButton}</div>
+      )}
+
+      <div id="consent-audio-notice" className="relative rounded-2xl bg-gradient-to-br from-purple-50/90 via-white to-rose-50/50 border border-purple-200/90 p-3.5 sm:p-5 shadow-xs space-y-3 overflow-hidden transition-all">
 
       {isPlaying && (
         <div className="flex items-center space-x-2 text-[11px] text-purple-800 font-mono bg-purple-100/70 px-3 py-1 rounded-lg">
@@ -181,6 +185,7 @@ export function ConsentAudioNotice({
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
