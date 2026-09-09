@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Shield,
   Home,
+  Globe,
 } from 'lucide-react';
 
 interface CompactMastheadProps {
@@ -41,6 +42,7 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
     { href: '/', label: 'Forms', icon: Home },
     { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: pendingSyncCount },
     { href: '/supervisor', label: 'Supervisor', icon: Shield },
+    { href: '/supervisor/gis', label: '3D GIS Map', icon: Globe },
   ];
 
   return (

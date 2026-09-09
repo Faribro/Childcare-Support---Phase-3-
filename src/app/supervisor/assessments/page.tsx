@@ -301,11 +301,15 @@ export default function SupervisorAssessmentsPage() {
           <div className="flex items-center space-x-2 pb-2 sm:pb-0">
             <Link
               href="/supervisor/gis"
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-800 hover:bg-teal-900 text-white shadow-xs hover:shadow-md transition-all group"
+              className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white shadow-sm hover:shadow-md transition-all group border border-teal-500/40 cursor-pointer"
             >
-              <Globe className="h-3.5 w-3.5 text-teal-300 group-hover:rotate-12 transition-transform" />
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-80"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+              </span>
+              <Globe className="h-4 w-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
               <span>Launch 3D GIS</span>
-              <Maximize2 className="h-3 w-3 text-teal-300 opacity-80" />
+              <Maximize2 className="h-3 w-3 text-emerald-200 opacity-90" />
             </Link>
             <Button variant="ghost" size="sm" onClick={fetchSubmissions} className="h-9 px-2.5 text-xs text-slate-600">
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
