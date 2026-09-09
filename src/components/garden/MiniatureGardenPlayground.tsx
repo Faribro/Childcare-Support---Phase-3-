@@ -89,6 +89,7 @@ export function MiniatureGardenPlayground() {
       lastKickerId: 3,
       inNet: false,
       initialized: false,
+      stillFrames: 0,
     };
 
     // Tree 1: Mango Tree state with interactive falling mangoes
@@ -626,35 +627,6 @@ export function MiniatureGardenPlayground() {
       ctx.fill();
       ctx.stroke();
 
-      // Cottage
-      const cotX = width * 0.18;
-      const cotGroundY = getGroundY(cotX, width, height);
-      ctx.fillStyle = '#fef08a';
-      ctx.strokeStyle = '#57534e';
-      ctx.lineWidth = 1.3;
-      ctx.fillRect(cotX - 9, cotGroundY - 14, 18, 14);
-      ctx.strokeRect(cotX - 9, cotGroundY - 14, 18, 14);
-      ctx.fillStyle = '#f87171';
-      ctx.beginPath();
-      ctx.moveTo(cotX - 12, cotGroundY - 14);
-      ctx.lineTo(cotX, cotGroundY - 24);
-      ctx.lineTo(cotX + 12, cotGroundY - 14);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Two-Story House
-      const houseX = width * 0.38;
-      const houseGroundY = getGroundY(houseX, width, height);
-      ctx.fillStyle = '#f5f5f4';
-      ctx.strokeStyle = '#44403c';
-      ctx.lineWidth = 1.3;
-      ctx.fillRect(houseX - 12, houseGroundY - 20, 24, 20);
-      ctx.strokeRect(houseX - 12, houseGroundY - 20, 24, 20);
-      ctx.fillStyle = '#a8a29e';
-      ctx.fillRect(houseX - 14, houseGroundY - 26, 28, 6);
-      ctx.strokeRect(houseX - 14, houseGroundY - 26, 28, 6);
-
       // School Building with Flag
       const schoolX = width * 0.77;
       const schoolGroundY = getGroundY(schoolX, width, height);
@@ -832,7 +804,7 @@ export function MiniatureGardenPlayground() {
         ball.y >= crossbarY - 3 &&
         ball.y <= mouthGroundY + 4;
 
-      if (isInsideGoalMouth && !ball.inNet && goalTimer === 0 && goalCooldown === 0 && ball.vx < -0.3) {
+      if (isInsideGoalMouth && !ball.inNet && goalTimer === 0 && goalCooldown === 0 && ball.vx <= 0.1) {
         ball.inNet = true;
         goalState = 'celebrating';
         goalTimer = 140;
@@ -965,6 +937,33 @@ export function MiniatureGardenPlayground() {
         if (ball.x <= ball.radius + 6) {
           ball.x = ball.radius + 6;
           ball.vx = 0;
+        }
+
+        // Motionless watchdog: if the ball sits completely still for > 100 frames in play mode,
+        // awaken the closest soccer player and reset their kickCooldown so they play it.
+        // If it sits still for > 220 frames, give it a gentle kick towards the goal / striker.
+        if (goalState === 'play' && !ball.inNet) {
+          if (Math.abs(ball.vx) < 0.05 && Math.abs(ball.vy) < 0.05) {
+            ball.stillFrames = (ball.stillFrames || 0) + 1;
+            if (ball.stillFrames > 100) {
+              const distToStriker = Math.abs(children[0].curX - ball.x);
+              const distToMid = Math.abs(children[2].curX - ball.x);
+              if (distToStriker < distToMid) {
+                children[0].kickCooldown = 0;
+                children[0].soccerIntent = 'hunt-ball';
+              } else {
+                children[2].kickCooldown = 0;
+                children[2].soccerIntent = 'hunt-ball';
+              }
+            }
+            if (ball.stillFrames > 220) {
+              ball.vx = ball.x < width * 0.32 ? -4.2 : -4.8;
+              ball.vy = -2.6;
+              ball.stillFrames = 0;
+            }
+          } else {
+            ball.stillFrames = 0;
+          }
         }
       }
 
@@ -1119,7 +1118,7 @@ export function MiniatureGardenPlayground() {
 
       // Coordination: Decide which soccer player is responsible for approaching the ball
       if (goalState === 'play' && !ball.inNet) {
-        if (ball.x < width * 0.38) {
+        if (ball.x < width * 0.34) {
           // Attacking zone on left: Striker is primary attacker
           striker.soccerIntent = 'hunt-ball';
           midfielder.soccerIntent = 'support';
@@ -1147,11 +1146,11 @@ export function MiniatureGardenPlayground() {
             c.facing = 1;
           } else if (goalState === 'play' && c.soccerIntent === 'hunt-ball' && c.kickPhase === 'idle') {
             // Intelligent positioning: To shoot towards the left goal, get BEHIND the ball (to the right of ball)
-            const targetX = Math.max(goal.mouthX + 12, ball.x + 6);
+            const targetX = Math.max(goal.mouthX + 10, ball.x + 6);
             const dx = targetX - c.curX;
 
             if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 1.1;
+              c.curX += Math.sign(dx) * 1.2;
               c.facing = Math.sign(dx) as 1 | -1;
               c.runCycle += 0.28;
             } else {
@@ -1161,7 +1160,7 @@ export function MiniatureGardenPlayground() {
 
               // Only trigger if ball is close and on the ground
               const dist = Math.hypot(c.curX - (ball.x + 6), groundY - ball.y);
-              if (dist < 15 && c.kickCooldown === 0 && !ball.inNet) {
+              if (dist < 20 && c.kickCooldown === 0 && !ball.inNet) {
                 triggerPlayerKick(c, -1);
               }
             }
@@ -1179,7 +1178,7 @@ export function MiniatureGardenPlayground() {
             }
           }
           // Strict boundary clamp for striker: never walk into goal net
-          c.curX = Math.max(goal.mouthX + 10, Math.min(width * 0.40, c.curX));
+          c.curX = Math.max(goal.mouthX + 8, Math.min(width * 0.46, c.curX));
         } else if (c.activity === 'soccer-midfield') {
           if (goalState === 'celebrating') {
             c.facing = -1;
@@ -1187,11 +1186,11 @@ export function MiniatureGardenPlayground() {
             c.runCycle = 0;
           } else if (goalState === 'play' && c.soccerIntent === 'hunt-ball' && c.kickPhase === 'idle') {
             // Midfielder stays in midfield: target ball or midfield clamp
-            const targetX = Math.max(width * 0.35, ball.x + 6);
+            const targetX = Math.max(width * 0.28, ball.x + 6);
             const dx = targetX - c.curX;
 
             if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 1.15;
+              c.curX += Math.sign(dx) * 1.25;
               c.facing = Math.sign(dx) as 1 | -1;
               c.runCycle += 0.28;
             } else {
@@ -1200,7 +1199,7 @@ export function MiniatureGardenPlayground() {
               c.runCycle = 0;
 
               const dist = Math.hypot(c.curX - (ball.x + 6), groundY - ball.y);
-              if (dist < 15 && c.kickCooldown === 0 && !ball.inNet) {
+              if (dist < 20 && c.kickCooldown === 0 && !ball.inNet) {
                 triggerPlayerKick(c, -1);
               }
             }
@@ -1217,8 +1216,8 @@ export function MiniatureGardenPlayground() {
               c.runCycle = 0;
             }
           }
-          // Strict boundary clamp for midfielder: never go past midfield third towards goal!
-          c.curX = Math.max(width * 0.34, Math.min(width * 0.52, c.curX));
+          // Strict boundary clamp for midfielder: seamless overlap with striker
+          c.curX = Math.max(width * 0.26, Math.min(width * 0.58, c.curX));
         }
 
         // ===============================================
@@ -1291,8 +1290,9 @@ export function MiniatureGardenPlayground() {
           c.kickLegAngle = 0.85 * Math.sin(c.kickProgress * Math.PI * 0.5);
 
           // EXACT CONTACT POINT: Foot connects with the ball!
-          if (c.kickProgress >= 0.5 && c.kickCooldown >= 60) {
-            c.kickCooldown = 55;
+          if (c.kickProgress >= 0.40 && !c.kickHasContacted) {
+            c.kickHasContacted = true;
+            c.kickCooldown = 45;
             ball.lastKickerId = c.id;
 
             if (c.activity === 'soccer-striker') {
