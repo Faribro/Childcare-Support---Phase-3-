@@ -173,6 +173,7 @@ export default function NewSinglePageAssessment() {
 
     // Section 8: Support Required
     requiredSchoolFees: 0,
+    requiredTuitionFees: 0,
     requiredBooks: 0,
     requiredStationery: 0,
     requiredUniform: 0,
@@ -974,12 +975,23 @@ export default function NewSinglePageAssessment() {
             />
 
             <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
-              <Input
-                label={t('address', currentLanguage)}
-                value={formData.fullAddress}
-                onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
-              />
+              <div className="space-y-2">
+                {/* GPS Auto-fill button */}
+                <LocationFetchButton
+                  onLocationFetched={(loc) => setFormData((prev) => ({
+                    ...prev,
+                    fullAddress: loc.fullAddress || prev.fullAddress,
+                    state: loc.state || prev.state,
+                    district: loc.district || prev.district,
+                  }))}
+                />
+                <Input
+                  label={t('address', currentLanguage)}
+                  value={formData.fullAddress}
+                  onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                  placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
+                />
+              </div>
             </div>
 
             <div className="flex flex-col space-y-1.5">
@@ -1544,6 +1556,7 @@ export default function NewSinglePageAssessment() {
             }}
             requiredSupport={{
               requiredSchoolFees: formData.requiredSchoolFees,
+                requiredTuitionFees: formData.requiredTuitionFees,
               requiredBooks: formData.requiredBooks,
               requiredStationery: formData.requiredStationery,
               requiredUniform: formData.requiredUniform,

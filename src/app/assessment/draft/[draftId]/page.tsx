@@ -11,6 +11,7 @@ import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndAppro
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { SectionVerticalTitle, type SectionColorScheme } from '@/components/ui/SectionVerticalTitle';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
@@ -174,6 +175,7 @@ export default function ResumeDraftSinglePage() {
 
     // Section 8: Support Required
     requiredSchoolFees: 0,
+    requiredTuitionFees: 0,
     requiredBooks: 0,
     requiredStationery: 0,
     requiredUniform: 0,
@@ -276,6 +278,7 @@ export default function ResumeDraftSinglePage() {
             remarks: exp.remarks || '',
 
             requiredSchoolFees: Number(req.requiredSchoolFees) || 0,
+            requiredTuitionFees: Number(req.requiredTuitionFees) || 0,
             requiredBooks: Number(req.requiredBooks) || 0,
             requiredStationery: Number(req.requiredStationery) || 0,
             requiredUniform: Number(req.requiredUniform) || 0,
@@ -370,6 +373,7 @@ export default function ResumeDraftSinglePage() {
   const totalRequiredSupport = useMemo(() => {
     return (
       Number(formData.requiredSchoolFees || 0) +
+      Number(formData.requiredTuitionFees || 0) +
       Number(formData.requiredBooks || 0) +
       Number(formData.requiredStationery || 0) +
       Number(formData.requiredUniform || 0) +
@@ -378,6 +382,7 @@ export default function ResumeDraftSinglePage() {
     );
   }, [
     formData.requiredSchoolFees,
+    formData.requiredTuitionFees,
     formData.requiredBooks,
     formData.requiredStationery,
     formData.requiredUniform,
@@ -704,6 +709,7 @@ export default function ResumeDraftSinglePage() {
         },
         educationSupportRequired: {
           requiredSchoolFees: Number(formData.requiredSchoolFees) || 0,
+          requiredTuitionFees: Number(formData.requiredTuitionFees) || 0,
           requiredBooks: Number(formData.requiredBooks) || 0,
           requiredStationery: Number(formData.requiredStationery) || 0,
           requiredUniform: Number(formData.requiredUniform) || 0,
@@ -1152,12 +1158,23 @@ export default function ResumeDraftSinglePage() {
             />
 
             <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
-              <Input
-                label={t('address', currentLanguage)}
-                value={formData.fullAddress}
-                onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
-              />
+              <div className="space-y-2">
+                {/* GPS Auto-fill button */}
+                <LocationFetchButton
+                  onLocationFetched={(loc) => setFormData((prev) => ({
+                    ...prev,
+                    fullAddress: loc.fullAddress || prev.fullAddress,
+                    state: loc.state || prev.state,
+                    district: loc.district || prev.district,
+                  }))}
+                />
+                <Input
+                  label={t('address', currentLanguage)}
+                  value={formData.fullAddress}
+                  onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                  placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
+                />
+              </div>
             </div>
 
             <div className="flex flex-col space-y-1.5">
@@ -1721,6 +1738,7 @@ export default function ResumeDraftSinglePage() {
             }}
             requiredSupport={{
               requiredSchoolFees: formData.requiredSchoolFees,
+                requiredTuitionFees: formData.requiredTuitionFees,
               requiredBooks: formData.requiredBooks,
               requiredStationery: formData.requiredStationery,
               requiredUniform: formData.requiredUniform,

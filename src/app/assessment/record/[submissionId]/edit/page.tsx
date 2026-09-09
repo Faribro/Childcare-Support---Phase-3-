@@ -146,6 +146,7 @@ export default function EditRecordPage() {
 
     // Section 8: Support Required
     requiredSchoolFees: 0,
+    requiredTuitionFees: 0,
     requiredBooks: 0,
     requiredStationery: 0,
     requiredUniform: 0,
@@ -482,6 +483,7 @@ export default function EditRecordPage() {
           remarks: exp.remarks || foundRecord['66\nRemarks (If Any)'] || '',
 
           requiredSchoolFees: Number(req.requiredSchoolFees || 0),
+          requiredTuitionFees: Number(req.requiredTuitionFees || 0),
           requiredBooks: Number(req.requiredBooks || 0),
           requiredStationery: Number(req.requiredStationery || 0),
           requiredUniform: Number(req.requiredUniform || 0),
@@ -572,6 +574,7 @@ export default function EditRecordPage() {
   const totalRequiredSupport = useMemo(() => {
     return (
       Number(formData.requiredSchoolFees || 0) +
+      Number(formData.requiredTuitionFees || 0) +
       Number(formData.requiredBooks || 0) +
       Number(formData.requiredStationery || 0) +
       Number(formData.requiredUniform || 0) +
@@ -580,6 +583,7 @@ export default function EditRecordPage() {
     );
   }, [
     formData.requiredSchoolFees,
+    formData.requiredTuitionFees,
     formData.requiredBooks,
     formData.requiredStationery,
     formData.requiredUniform,
@@ -757,6 +761,7 @@ export default function EditRecordPage() {
           },
           educationSupportRequired: {
             requiredSchoolFees: formData.requiredSchoolFees,
+            requiredTuitionFees: formData.requiredTuitionFees,
             requiredBooks: formData.requiredBooks,
             requiredStationery: formData.requiredStationery,
             requiredUniform: formData.requiredUniform,
@@ -1732,6 +1737,7 @@ export default function EditRecordPage() {
                 }}
                 requiredSupport={{
                   requiredSchoolFees: formData.requiredSchoolFees,
+                  requiredTuitionFees: formData.requiredTuitionFees,
                   requiredBooks: formData.requiredBooks,
                   requiredStationery: formData.requiredStationery,
                   requiredUniform: formData.requiredUniform,

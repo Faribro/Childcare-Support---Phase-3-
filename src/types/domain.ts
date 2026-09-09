@@ -267,6 +267,7 @@ export interface EducationCurrentExpensesData {
 
 export interface EducationSupportRequiredData {
   requiredSchoolFees: number;
+  requiredTuitionFees?: number;
   requiredBooks: number;
   requiredStationery: number;
   requiredUniform: number;

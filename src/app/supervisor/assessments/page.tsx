@@ -972,28 +972,20 @@ export default function SupervisorAssessmentsPage() {
                         </button>
                       </td>
 
-                      {/* Premium Action Icons: View, Edit, Delete */}
+                      {/* Unified Action: View / Edit, Delete */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end space-x-1.5">
-                          {/* 1. View Survey */}
-                          <Link
-                            href={`/assessment/record/${row.id}`}
-                            title="View Survey"
-                            className="p-1.5 text-teal-700 bg-teal-50 hover:bg-teal-100 hover:text-teal-900 rounded-lg transition-colors border border-teal-200/60 shadow-2xs"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Link>
-
-                          {/* 2. Edit Survey */}
+                          {/* Unified View / Edit Survey */}
                           <Link
                             href={`/assessment/record/${row.id}/edit`}
-                            title="Edit Survey"
-                            className="p-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-900 rounded-lg transition-colors border border-amber-200/60 shadow-2xs"
+                            title="View / Edit Survey"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-900 rounded-lg transition-colors border border-purple-200/80 shadow-2xs"
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Pencil className="h-3.5 w-3.5" />
+                            <span>View / Edit</span>
                           </Link>
 
-                          {/* 3. Delete Survey */}
+                          {/* Delete Survey */}
                           <button
                             type="button"
                             onClick={() => setDeleteConfirmId({ id: row.id, name: row.childName })}
@@ -1135,21 +1127,15 @@ export default function SupervisorAssessmentsPage() {
                     )}
                   </div>
 
-                  {/* Actions */}
+                  {/* Actions: Unified View / Edit + Delete */}
                   <div className="flex items-center space-x-2">
                     <Link
-                      href={`/assessment/record/${row.id}`}
-                      className="p-1.5 text-teal-700 bg-white hover:bg-teal-50 rounded-lg border border-slate-200"
-                      title="View"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Link>
-                    <Link
                       href={`/assessment/record/${row.id}/edit`}
-                      className="p-1.5 text-amber-700 bg-white hover:bg-amber-50 rounded-lg border border-slate-200"
-                      title="Edit"
+                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 shadow-2xs"
+                      title="View / Edit"
                     >
-                      <Pencil className="h-4 w-4" />
+                      <Pencil className="h-3.5 w-3.5" />
+                      <span>View / Edit</span>
                     </Link>
                     <button
                       type="button"

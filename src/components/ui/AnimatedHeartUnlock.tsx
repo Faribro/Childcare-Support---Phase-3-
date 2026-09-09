@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 interface AnimatedHeartUnlockProps {
@@ -8,22 +8,22 @@ interface AnimatedHeartUnlockProps {
   size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
-// Secret passcodes accepted: 132, 312, 332, 321
-const VALID_PASSCODES = ['132', '312', '332', '321'];
+// Strict secret passcode: exactly 1 click, then 3 clicks, then 2 clicks
+const REQUIRED_PASSCODE = '132';
 
 export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHeartUnlockProps) {
   const { isUnlocked, unlock, lock } = useEvaluationAccess();
 
-  // Compact dimensions
+  // Dimensions
   const dims = size === 'xs'
     ? { width: 22, height: 20, curve: 6, maxTank: 20 }
     : size === 'sm'
     ? { width: 26, height: 23, curve: 7, maxTank: 23 }
     : size === 'lg'
     ? { width: 38, height: 33, curve: 10, maxTank: 33 }
-    : { width: 32, height: 28, curve: 9, maxTank: 28 }; // default md
+    : { width: 32, height: 28, curve: 9, maxTank: 28 };
 
-  // Slot states: [slot0, slot1, slot2]
+  // Slots: [slot0, slot1, slot2]
   const [slots, setSlots] = useState<(number | null)[]>([null, null, null]);
   const [activeSlot, setActiveSlot] = useState<number>(0);
   const [currentClicks, setCurrentClicks] = useState<number>(0);
@@ -31,24 +31,33 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   const [isShaking, setIsShaking] = useState<boolean>(false);
   const [status, setStatus] = useState<'idle' | 'clicking' | 'locked-slot' | 'success' | 'wrong'>('idle');
 
+  // Refs for race-condition-free event handling
+  const slotsRef = useRef<(number | null)[]>([null, null, null]);
+  const activeSlotRef = useRef<number>(0);
+  const currentClicksRef = useRef<number>(0);
   const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Synchronize state with persistent unlock status
+  // Sync state with persistent unlock status
   useEffect(() => {
     if (isUnlocked) {
+      slotsRef.current = [1, 3, 2];
       setSlots([1, 3, 2]);
+      activeSlotRef.current = 3;
       setActiveSlot(3);
       setStatus('success');
     } else {
+      slotsRef.current = [null, null, null];
       setSlots([null, null, null]);
+      activeSlotRef.current = 0;
       setActiveSlot(0);
+      currentClicksRef.current = 0;
       setCurrentClicks(0);
       setStatus('idle');
     }
   }, [isUnlocked]);
 
-  // Clean up timers on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
@@ -56,7 +65,92 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     };
   }, []);
 
-  // Liquid tank fill levels (in pixels) based on completed slots
+  const resetAll = useCallback(() => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    slotsRef.current = [null, null, null];
+    activeSlotRef.current = 0;
+    currentClicksRef.current = 0;
+    setSlots([null, null, null]);
+    setActiveSlot(0);
+    setCurrentClicks(0);
+    setStatus('idle');
+  }, []);
+
+  const handleHeartClick = () => {
+    // If already unlocked, clicking it will lock it back and reset
+    if (isUnlocked || activeSlotRef.current >= 3) {
+      lock();
+      resetAll();
+      return;
+    }
+
+    if (isShaking) return;
+
+    // Pump pulse visual
+    setIsPumping(true);
+    setTimeout(() => setIsPumping(false), 220);
+
+    // Reset idle timeout (if no action for 9s, reset)
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      resetAll();
+    }, 9000);
+
+    // Increment clicks
+    const nextClicks = currentClicksRef.current + 1;
+    currentClicksRef.current = nextClicks;
+    setCurrentClicks(nextClicks);
+    setStatus('clicking');
+
+    // Clear existing commit timer
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+
+    // Commit digit after 850ms of silence
+    commitTimerRef.current = setTimeout(() => {
+      const lockedVal = currentClicksRef.current;
+      const currentSlot = activeSlotRef.current;
+      const updatedSlots = [...slotsRef.current];
+      updatedSlots[currentSlot] = lockedVal;
+      slotsRef.current = updatedSlots;
+      setSlots(updatedSlots);
+
+      // Reset clicks for next slot
+      currentClicksRef.current = 0;
+      setCurrentClicks(0);
+
+      if (currentSlot === 0) {
+        // Slot 0 committed (e.g. 1). Move to slot 1
+        activeSlotRef.current = 1;
+        setActiveSlot(1);
+        setStatus('locked-slot');
+      } else if (currentSlot === 1) {
+        // Slot 1 committed (e.g. 3). Move to slot 2
+        activeSlotRef.current = 2;
+        setActiveSlot(2);
+        setStatus('locked-slot');
+      } else if (currentSlot === 2) {
+        // Slot 2 committed! Validate full passcode
+        const passcodeStr = `${updatedSlots[0]}${updatedSlots[1]}${lockedVal}`;
+        if (passcodeStr === REQUIRED_PASSCODE) {
+          // Success: Unlock evaluation tab!
+          activeSlotRef.current = 3;
+          setActiveSlot(3);
+          setStatus('success');
+          unlock();
+        } else {
+          // Failed (e.g. 123, 321, 312, etc.): Shake, show error, then reset
+          setIsShaking(true);
+          setStatus('wrong');
+          setTimeout(() => {
+            setIsShaking(false);
+            resetAll();
+          }, 850);
+        }
+      }
+    }, 850);
+  };
+
   const completedCount = slots.filter((s) => s !== null).length;
   const tankLevels = [
     0,
@@ -73,78 +167,6 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   ];
 
   const pumpLevelsZ = [8, 12, 16, 0];
-
-  const resetAll = () => {
-    setSlots([null, null, null]);
-    setActiveSlot(0);
-    setCurrentClicks(0);
-    setStatus('idle');
-  };
-
-  const handleHeartClick = () => {
-    // If already unlocked, clicking it will lock it back and reset
-    if (isUnlocked || activeSlot >= 3) {
-      lock();
-      resetAll();
-      return;
-    }
-
-    if (isShaking) return;
-
-    // Pump pulse animation
-    setIsPumping(true);
-    setTimeout(() => setIsPumping(false), 220);
-
-    // Reset idle timeout (if no click for 9 seconds, resets)
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      resetAll();
-    }, 9000);
-
-    const nextClicks = currentClicks + 1;
-    setCurrentClicks(nextClicks);
-    setStatus('clicking');
-
-    // Clear previous commit timer
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-
-    // Commit digit after 850ms pause in clicks
-    commitTimerRef.current = setTimeout(() => {
-      const lockedVal = nextClicks;
-      const newSlots = [...slots];
-      newSlots[activeSlot] = lockedVal;
-      setSlots(newSlots);
-      setCurrentClicks(0);
-
-      if (activeSlot === 0) {
-        // Slot 0 locked! Reveal two dashes: e.g. "3 - -"
-        setActiveSlot(1);
-        setStatus('locked-slot');
-      } else if (activeSlot === 1) {
-        // Slot 1 locked! E.g. "3 1 -"
-        setActiveSlot(2);
-        setStatus('locked-slot');
-      } else if (activeSlot === 2) {
-        // Final slot locked! Check passcode
-        const passcodeStr = `${newSlots[0]}${newSlots[1]}${lockedVal}`;
-        if (VALID_PASSCODES.includes(passcodeStr)) {
-          // Success! Unlock!
-          unlock();
-          setActiveSlot(3);
-          setStatus('success');
-        } else {
-          // Wrong passcode: shake and reset
-          setIsShaking(true);
-          setStatus('wrong');
-          setTimeout(() => {
-            setIsShaking(false);
-            resetAll();
-          }, 800);
-        }
-      }
-    }, 850);
-  };
-
   const currentTankHeight = isUnlocked ? dims.maxTank : (tankLevels[completedCount] || 0);
   const currentCurveBottom = isUnlocked ? dims.maxTank - 3 : (curveLevels[completedCount] !== undefined ? curveLevels[completedCount] : -dims.curve);
   const currentPumpZ = isPumping ? (pumpLevelsZ[completedCount] || 10) : 0;
@@ -165,7 +187,7 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
       return <span>{currentClicks > 0 ? currentClicks : 0}</span>;
     }
 
-    // Multi-slot mode: displays locked numbers and dashes (e.g. 3 - -)
+    // Multi-slot mode: displays locked numbers and dashes (e.g. 1 · 3 · -)
     return (
       <span className="flex items-center space-x-1 tracking-tight font-mono text-[9px]">
         <span className={activeSlot === 0 ? 'text-amber-300 font-black scale-110' : 'text-white'}>

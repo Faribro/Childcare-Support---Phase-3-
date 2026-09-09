@@ -123,6 +123,7 @@ export function ImmersiveReaderControls({
   const liveActiveIdRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevFormDataRef = useRef<Record<string, unknown>>({});
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   useEffect(() => { isLiveGuideRef.current = isLiveGuide; }, [isLiveGuide]);
   useEffect(() => { liveActiveIdRef.current = liveActiveId; }, [liveActiveId]);
@@ -177,42 +178,97 @@ export function ImmersiveReaderControls({
       v.lang.toLowerCase() === speechLang.toLowerCase() ||
       v.lang.toLowerCase().startsWith(prefix)
     );
-    if (!matching.length) return null;
-    return (
-      matching.find(v => /natural|neural|online|enhanced|premium/i.test(v.name)) ||
-      matching.find(v => /google|microsoft/i.test(v.name)) ||
-      matching[0]
-    );
+    if (matching.length > 0) {
+      return (
+        matching.find(v => /natural|neural|online|enhanced|premium/i.test(v.name)) ||
+        matching.find(v => /google|microsoft/i.test(v.name)) ||
+        matching[0]
+      );
+    }
+    // Fallback: any Indian accent voice, or first available voice
+    const inVoice = voices.find(v => v.lang.includes('IN') || v.lang.includes('hi') || v.lang.includes('en'));
+    return inVoice || voices[0] || null;
   }, []);
 
   const speak = useCallback((text: string, lang: string, onEnd?: () => void) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      onEnd?.();
+      return;
+    }
     window.speechSynthesis.cancel();
     const langConfig = SUPPORTED_LANGUAGES.find(l => l.code === lang);
     const speechLang = langConfig?.speechLang || 'en-IN';
     const clean = sanitizeSpeechText(text, lang);
-    if (!clean) return;
+    if (!clean) {
+      onEnd?.();
+      return;
+    }
     const utterance = new SpeechSynthesisUtterance(clean);
+    activeUtteranceRef.current = utterance;
     utterance.lang = speechLang;
     utterance.rate = 0.9;
     utterance.pitch = 1.05;
     utterance.volume = 1.0;
     const voice = getSpeechVoice(speechLang);
-    if (voice) utterance.voice = voice;
-    if (onEnd) utterance.onend = onEnd;
-    utterance.onerror = () => onEnd?.();
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang;
+    }
+
+    let finished = false;
+    let safetyTimer: NodeJS.Timeout | null = null;
+    const handleDone = () => {
+      if (finished) return;
+      finished = true;
+      if (safetyTimer) clearTimeout(safetyTimer);
+      activeUtteranceRef.current = null;
+      onEnd?.();
+    };
+
+    utterance.onend = handleDone;
+    utterance.onerror = handleDone;
+
+    // Safety timeout: calculated based on text length + 3.5s buffer
+    const maxDurationMs = Math.max(3000, (clean.length / 8) * 1000 + 3500);
+    safetyTimer = setTimeout(handleDone, maxDurationMs);
+
     window.speechSynthesis.speak(utterance);
   }, [sanitizeSpeechText, getSpeechVoice]);
+
+  // Returns the section header id that precedes a given field id (for section-crossing announcements)
+  const getSectionHeader = useCallback((fieldId: string): string | null => {
+    const idx = FORM_READING_SEQUENCE.findIndex(i => i.id === fieldId);
+    if (idx <= 0) return null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (!FORM_READING_SEQUENCE[i].isFilled) return FORM_READING_SEQUENCE[i].id;
+    }
+    return null;
+  }, []);
 
   const guideToQuestion = useCallback((id: string) => {
     const item = FORM_READING_SEQUENCE.find(i => i.id === id);
     if (!item) return;
+
+    // Detect section crossing: if new field is in a different section than current, announce section header first
+    const prevSection = getSectionHeader(liveActiveIdRef.current || '');
+    const nextSection = getSectionHeader(id);
+    const crossingSection = nextSection && nextSection !== prevSection && nextSection !== 'sec-consent';
+
     setLiveActiveId(id);
     onReadingChange(id);
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    speak(t(item.textKey, currentLanguage), currentLanguage);
-  }, [currentLanguage, onReadingChange, speak]);
+
+    if (crossingSection) {
+      const secItem = FORM_READING_SEQUENCE.find(i => i.id === nextSection);
+      const secText = secItem ? t(secItem.textKey, currentLanguage) : '';
+      speak(secText, currentLanguage, () => {
+        speak(t(item.textKey, currentLanguage), currentLanguage);
+      });
+    } else {
+      speak(t(item.textKey, currentLanguage), currentLanguage);
+    }
+  }, [currentLanguage, onReadingChange, speak, getSectionHeader]);
 
   const findNextUnfilled = useCallback((
     afterId: string | null,
@@ -224,6 +280,7 @@ export function ImmersiveReaderControls({
       : 0;
     for (let i = startIdx; i < FORM_READING_SEQUENCE.length; i++) {
       const item = FORM_READING_SEQUENCE[i];
+      // Skip section headers (no isFilled predicate) — they are announced on section transition
       if (!item.isFilled) continue;
       if (!item.isFilled(fd, sig)) return item.id;
     }
@@ -312,15 +369,42 @@ export function ImmersiveReaderControls({
     setIsPlaying(false);
     setAllDone(false);
     setIsLiveGuide(true);
-    const fd = formData || {};
-    const first = findNextUnfilled(null, fd, hasSavedSignature);
-    if (first) {
-      guideToQuestion(first);
+
+    // Always start by announcing Section 1 intro, then immediately guide to first unfilled field
+    const consentItem = FORM_READING_SEQUENCE.find(i => i.id === 'sec-consent');
+    if (consentItem) {
+      setLiveActiveId('sec-consent');
+      onReadingChange('sec-consent');
+      const el = document.getElementById('sec-consent');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const introText = t(consentItem.textKey, currentLanguage);
+      speak(introText, currentLanguage, () => {
+        // After section intro, find and navigate to the first unfilled field
+        const fd = formData || {};
+        const first = findNextUnfilled(null, fd, hasSavedSignature);
+        if (first) {
+          if (isLiveGuideRef.current) guideToQuestion(first);
+        } else {
+          setAllDone(true);
+          speak(
+            currentLanguage === 'en'
+              ? 'All fields are complete. Please tap Submit Survey to finish.'
+              : 'All fields complete. Please submit.',
+            currentLanguage
+          );
+        }
+      });
     } else {
-      setAllDone(true);
-      speak('All fields are already complete. You can submit now!', currentLanguage);
+      const fd = formData || {};
+      const first = findNextUnfilled(null, fd, hasSavedSignature);
+      if (first) {
+        guideToQuestion(first);
+      } else {
+        setAllDone(true);
+        speak('All fields are already complete. You can submit now!', currentLanguage);
+      }
     }
-  }, [formData, hasSavedSignature, findNextUnfilled, guideToQuestion, speak, currentLanguage]);
+  }, [formData, hasSavedSignature, findNextUnfilled, guideToQuestion, speak, currentLanguage, onReadingChange]);
 
   const playItem = useCallback((index: number) => {
     if (!isPlayingRef.current) return;

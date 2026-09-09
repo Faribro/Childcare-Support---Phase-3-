@@ -40,6 +40,7 @@ interface ExpensesAndApprovalGridProps {
   };
   requiredSupport: {
     requiredSchoolFees: number;
+    requiredTuitionFees?: number;
     requiredBooks: number;
     requiredStationery: number;
     requiredUniform: number;
@@ -78,14 +79,14 @@ export function ExpensesAndApprovalGrid({
     },
     {
       key: 'tuitionFees',
-      reqKey: null,
+      reqKey: 'requiredTuitionFees',
       label: 'Private Tuition Fee',
       frequency: 'Monthly (Recurring)',
       frequencyType: 'monthly' as const,
       criteria: 'Remedial academic coaching for children needing learning catch-up or board preparation.',
       currentVal: currentExpenses.tuitionFees,
-      requiredVal: 0,
-      hasRequired: false,
+      requiredVal: requiredSupport.requiredTuitionFees || 0,
+      hasRequired: true,
     },
     {
       key: 'books',
