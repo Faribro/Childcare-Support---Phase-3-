@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   HeartPulse,
@@ -42,29 +43,26 @@ export function CompactMasthead({ pendingSyncCount = 0 }: CompactMastheadProps) 
     { href: '/', label: 'Forms', icon: Home },
     { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: pendingSyncCount },
     { href: '/supervisor', label: 'Supervisor', icon: Shield },
-    { href: '/supervisor/gis', label: '3D GIS Map', icon: Globe },
   ];
 
   return (
     <header className="bg-white border-b border-[hsl(215,18%,88%)] text-slate-800 shadow-xs select-none sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16">
-          {/* Brand & Platform Identity */}
+          {/* Brand & Platform Identity - Alliance India Logo Only (No text in top left) */}
           <Link
             href="/"
-            className="flex items-center space-x-2.5 rounded-lg p-1 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            title="India HIV/AIDS Alliance"
           >
-            <div className="bg-emerald-50 text-emerald-700 p-2 rounded-lg flex items-center justify-center border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
-              <HeartPulse className="h-5 w-5 text-emerald-600" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 leading-none">
-                India HIV/AIDS Alliance
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
-                Paediatric Support Platform
-              </span>
-            </div>
+            <Image
+              src="/alliance-india-logo.png"
+              alt="India HIV/AIDS Alliance"
+              width={160}
+              height={44}
+              className="h-9 sm:h-11 w-auto object-contain transition-transform group-hover:scale-[1.02]"
+              priority
+            />
           </Link>
 
           {/* Clean Pill Navigation (Visible on md and above) */}

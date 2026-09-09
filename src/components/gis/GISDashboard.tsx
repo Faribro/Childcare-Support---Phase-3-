@@ -20,6 +20,8 @@ import {
   Box,
   CheckCircle2,
   TrendingUp,
+  School,
+  HeartHandshake,
 } from 'lucide-react';
 import { normalizeGeographicKey } from '@/lib/normalizeGeographicKey';
 import type { GISRegionMetrics } from './GISMapComponent';
@@ -56,6 +58,8 @@ const BASELINE_DISTRICTS: Record<string, GISRegionMetrics> = {};
 
 export default function GISDashboard() {
   const [activeCategory, setActiveCategory] = useState('all');
+  const [educationStatus, setEducationStatus] = useState('ALL');
+  const [orphanStatus, setOrphanStatus] = useState('ALL');
   const [activeMetric, setActiveMetric] = useState('total');
   const [selectedState, setSelectedState] = useState<string | null>(null);
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
@@ -107,13 +111,32 @@ export default function GISDashboard() {
         const rawState = it['18\nState'] || it.demographics?.state || it.state || 'Maharashtra';
         const distKey = normalizeGeographicKey(rawDistrict);
 
-        // Apply category filter
-        const isEnrolled = it['49\nEducation Status']
-          ? !String(it['49\nEducation Status']).toLowerCase().includes('not')
-          : true;
-        const isOrphan = it['15\nOrphan Status']
-          ? !String(it['15\nOrphan Status']).toLowerCase().includes('both')
-          : false;
+        // Education & school type evaluation
+        const rawSchoolType = String(
+          it['53\nSchool Type'] ||
+          it.educationStatus?.schoolType ||
+          it.education?.schoolType ||
+          it.school_type ||
+          ''
+        );
+        const rawEducation = String(
+          it['49\nEducation Status'] ||
+          it.education?.educationStatus ||
+          ''
+        );
+        const isEnrolled = rawEducation
+          ? !rawEducation.toLowerCase().includes('not')
+          : !rawSchoolType.toLowerCase().includes('not in school');
+
+        // Orphan evaluation
+        const rawOrphan = String(
+          it['13\nOrphan Status'] ||
+          it['15\nOrphan Status'] ||
+          it.demographics?.orphanStatus ||
+          it.orphan_status ||
+          'Both parents alive'
+        );
+        const isOrphan = !rawOrphan.toLowerCase().includes('both');
 
         const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? '';
         const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
@@ -137,6 +160,18 @@ export default function GISDashboard() {
         if (activeCategory === 'outofschool' && isEnrolled) return;
         if (activeCategory === 'orphans' && !isOrphan) return;
         if (activeCategory === 'highrisk' && !(isUnsuppressed || isSevereUnderweight || isSevereAnemia)) return;
+
+        // Apply dedicated education status filter
+        if (educationStatus === 'Enrolled' && !isEnrolled) return;
+        if (educationStatus === 'Not In School' && isEnrolled) return;
+        if (educationStatus === 'Government' && !rawSchoolType.toLowerCase().includes('government')) return;
+        if (educationStatus === 'Private' && !rawSchoolType.toLowerCase().includes('private')) return;
+        if (educationStatus === 'Aided' && !rawSchoolType.toLowerCase().includes('aided')) return;
+
+        // Apply dedicated orphan status filter
+        if (orphanStatus === 'Both parents alive' && !rawOrphan.toLowerCase().includes('both')) return;
+        if (orphanStatus === 'Single orphan' && !rawOrphan.toLowerCase().includes('single')) return;
+        if (orphanStatus === 'Double orphan' && !rawOrphan.toLowerCase().includes('double')) return;
 
         if (!districts[distKey]) {
           districts[distKey] = {
@@ -214,7 +249,7 @@ export default function GISDashboard() {
     });
 
     return { districts, states };
-  }, [liveSubmissions, activeCategory]);
+  }, [liveSubmissions, activeCategory, educationStatus, orphanStatus]);
 
   // Available states
   const availableStates = useMemo(() => {
@@ -315,7 +350,59 @@ export default function GISDashboard() {
             </select>
           </div>
 
-          {/* 4. Indicator / Metric Selector */}
+          {/* 4. Education Status Filter */}
+          <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+            <School className="w-3 h-3 text-slate-500 shrink-0" />
+            <select
+              value={educationStatus}
+              onChange={(e) => setEducationStatus(e.target.value)}
+              className="bg-transparent text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer max-w-[130px]"
+            >
+              <option value="ALL" className="bg-white text-slate-800">
+                All Education
+              </option>
+              <option value="Enrolled" className="bg-white text-slate-800">
+                Enrolled
+              </option>
+              <option value="Government" className="bg-white text-slate-800">
+                Govt School
+              </option>
+              <option value="Private" className="bg-white text-slate-800">
+                Private School
+              </option>
+              <option value="Aided" className="bg-white text-slate-800">
+                Aided School
+              </option>
+              <option value="Not In School" className="bg-white text-slate-800">
+                Not in School
+              </option>
+            </select>
+          </div>
+
+          {/* 5. Orphan Status Filter */}
+          <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+            <HeartHandshake className="w-3 h-3 text-slate-500 shrink-0" />
+            <select
+              value={orphanStatus}
+              onChange={(e) => setOrphanStatus(e.target.value)}
+              className="bg-transparent text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer max-w-[130px]"
+            >
+              <option value="ALL" className="bg-white text-slate-800">
+                All Orphan Status
+              </option>
+              <option value="Both parents alive" className="bg-white text-slate-800">
+                Both Parents Alive
+              </option>
+              <option value="Single orphan" className="bg-white text-slate-800">
+                Single Orphan
+              </option>
+              <option value="Double orphan" className="bg-white text-slate-800">
+                Double Orphan
+              </option>
+            </select>
+          </div>
+
+          {/* 6. Indicator / Metric Selector */}
           <div className="flex items-center space-x-1 bg-teal-50 border border-teal-200 rounded-lg px-2 py-1">
             <Layers className="w-3 h-3 text-teal-700 shrink-0" />
             <select
@@ -349,13 +436,15 @@ export default function GISDashboard() {
           </button>
 
           {/* Reset Filters */}
-          {(selectedDistrict || selectedState || activeCategory !== 'all') && (
+          {(selectedDistrict || selectedState || activeCategory !== 'all' || educationStatus !== 'ALL' || orphanStatus !== 'ALL') && (
             <button
               type="button"
               onClick={() => {
                 setSelectedState(null);
                 setSelectedDistrict(null);
                 setActiveCategory('all');
+                setEducationStatus('ALL');
+                setOrphanStatus('ALL');
               }}
               className="flex items-center space-x-1 px-2 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900 rounded-lg text-[11px] font-medium transition-all cursor-pointer shadow-2xs"
               title="Reset all filters"

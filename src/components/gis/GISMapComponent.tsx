@@ -594,18 +594,6 @@ export default function GISMapComponent({
         />
       </DeckGL>
 
-      {/* Depth level indicator badge */}
-      <div className="absolute top-2 right-2 z-30 flex items-center space-x-1.5 bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg px-2.5 py-1 shadow-2xs">
-        <span
-          className={`w-2 h-2 rounded-full ${
-            depthLevel === 'district' ? 'bg-amber-500 animate-pulse' : 'bg-teal-600'
-          }`}
-        />
-        <span className="text-[10px] font-bold tracking-wider text-slate-700">
-          {depthLevel === 'state' ? 'NATIONAL VIEW' : 'DISTRICT VIEW'}
-        </span>
-      </div>
-
       {/* Loading overlay indicator */}
       {loading && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-white/95 border border-slate-200 text-xs font-semibold text-slate-700 rounded-xl shadow-lg backdrop-blur-md flex items-center space-x-2">

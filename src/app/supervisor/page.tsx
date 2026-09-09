@@ -176,13 +176,6 @@ export default function SupervisorDashboardPage() {
               <BarChart3 className="h-4 w-4" />
               <span>Clinical Analytics</span>
             </Link>
-            <Link
-              href="/supervisor/gis"
-              className="flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold text-slate-500 hover:text-slate-900 border-b-2 border-transparent hover:border-slate-300 transition-colors whitespace-nowrap"
-            >
-              <Globe className="h-4 w-4" />
-              <span>GIS Spatial Map</span>
-            </Link>
           </div>
         </div>
 

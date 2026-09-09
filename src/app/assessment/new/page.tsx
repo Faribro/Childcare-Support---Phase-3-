@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { CaregiverSignaturePad } from '@/components/ui/CaregiverSignaturePad';
 import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
+import { SectionVerticalTitle } from '@/components/ui/SectionVerticalTitle';
 import { saveDraft } from '@/lib/db/draftRepository';
 import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
@@ -618,7 +619,7 @@ export default function NewSinglePageAssessment() {
 
   return (
     <AppShell hideHeader>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-60 sm:pb-64">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-16 sm:pb-20">
         {/* Minimal Focus Header with Return Link and Reference ID */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-200/80">
           <Link
@@ -666,15 +667,8 @@ export default function NewSinglePageAssessment() {
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              01
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Caregiver Consent &amp; Signature
-            </h2>
-          </div>
+        <section id="sec-consent" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="01" title="Caregiver Consent & Signature" />
 
           <div className="space-y-5">
             {/* Consent Decision */}
@@ -791,15 +785,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 2: Child Demographics & Residence */}
-        <section id="sec-child" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              02
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Child Demographics &amp; Residence
-            </h2>
-          </div>
+        <section id="sec-child" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="02" title="Child Demographics & Residence" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* System Generated Unique ID Display */}
@@ -951,15 +938,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              03
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Banking &amp; KYC Documents
-            </h2>
-          </div>
+        <section id="sec-banking" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="03" title="Banking & KYC Documents" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div className="sm:col-span-2">
@@ -1029,15 +1009,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              04
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Household &amp; Socio-Economic Profile
-            </h2>
-          </div>
+        <section id="sec-household" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="04" title="Household & Socio-Economic Profile" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <Input
@@ -1099,15 +1072,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              05
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Clinical Health, ART &amp; Viral Load
-            </h2>
-          </div>
+        <section id="sec-health" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="05" title="Clinical Health, ART & Viral Load" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <Input
@@ -1301,15 +1267,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              06
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Daily Nutrition Habits
-            </h2>
-          </div>
+        <section id="sec-nutrition" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="06" title="Daily Nutrition Habits" />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2 space-y-1.5">
@@ -1352,15 +1311,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              07
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Education Status
-            </h2>
-          </div>
+        <section id="sec-education" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="07" title="Education Status & Schooling" />
 
           <div className="space-y-4">
             <div className="space-y-2">
@@ -1481,15 +1433,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              08
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Education Expenses &amp; Aid Breakdown
-            </h2>
-          </div>
+        <section id="sec-expenses" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="08" title="Education Expenses & Aid Breakdown" />
 
           <ExpensesAndApprovalGrid
             currentExpenses={{
@@ -1525,15 +1470,8 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
-              09
-            </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Review &amp; Submitter Attestation
-            </h2>
-          </div>
+        <section id="sec-review" className="relative p-5 sm:p-7 pr-12 sm:pr-14 space-y-5 scroll-mt-20">
+          <SectionVerticalTitle number="09" title="Review & Submitter Attestation" />
 
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1625,9 +1563,6 @@ export default function NewSinglePageAssessment() {
           </div>
         </section>
         </div>
-
-        {/* Dedicated Bottom Clearance Spacer ensuring full scroll past sticky bar */}
-        <div className="h-32 w-full shrink-0 pointer-events-none" aria-hidden="true" />
 
         {/* Sticky Floating Bottom Action Bar */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 py-3">

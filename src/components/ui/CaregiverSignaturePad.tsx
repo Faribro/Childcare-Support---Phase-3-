@@ -267,11 +267,11 @@ export function CaregiverSignaturePad({
           </p>
         </div>
 
-        {/* Signatory Metadata Display (Locked to Caregiver) */}
-        <div className="text-right sm:text-right bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
-          <span className="text-slate-400 block text-[10px] uppercase font-bold">Signatory</span>
-          <span className="font-bold text-slate-900">{caregiverName || 'Primary Caregiver'}</span>
-          <span className="text-slate-500 text-[11px] block">({caregiverRelationship || 'Caregiver'})</span>
+        {/* Signatory Metadata Display (Locked to Caregiver) - In Series */}
+        <div className="inline-flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs whitespace-nowrap self-start sm:self-auto">
+          <span className="text-slate-400 text-[10px] uppercase font-bold">Signatory:</span>
+          <span className="font-bold text-slate-900">{caregiverName || 'Caregiver'}</span>
+          <span className="text-slate-500 text-[11px]">({caregiverRelationship || 'Mother'})</span>
         </div>
       </div>
 
