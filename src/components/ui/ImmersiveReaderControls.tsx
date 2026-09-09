@@ -161,7 +161,7 @@ export function ImmersiveReaderControls({
         .replace(/\bSEC\b/gi, 'Section');
     }
     c = c.replace(/[()[\]{}]/g, ' ');
-    c = c.replace(/\s*[—–]\s*/g, ', ').replace(/\s*\/\s*/g, ' or ');
+    c = c.replace(/\s*[ï¿½ï¿½]\s*/g, ', ').replace(/\s*\/\s*/g, ' or ');
     if (lang === 'en' && c === c.toUpperCase() && c.length > 3) {
       c = c.charAt(0).toUpperCase() + c.slice(1).toLowerCase();
     }
