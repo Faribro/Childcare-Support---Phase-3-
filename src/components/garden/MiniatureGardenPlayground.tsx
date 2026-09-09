@@ -4,15 +4,17 @@ import React, { useRef, useEffect } from 'react';
 
 /**
  * MiniatureGardenPlayground
- * Compact physics-based live miniature garden where children are engaged in
- * rich, authentic activities in dynamic side-profile action poses:
- * 1. Soccer Striker: chases the ball, kicks drives & volleys toward the left soccer net, celebrates "GOAL! ⚽".
- * 2. Slingshot Mango Hunter: aims a wooden Y-slingshot at the mango tree, shoots pebbles, drops ripe mangoes into a basket.
- * 3. Soccer Midfielder / Playmaker: patrols midfield & right wing, intercepts balls, passes & shoots so the game NEVER stops.
- * 4. Butterfly Catcher: holds a long bamboo net, playfully chasing fluttering butterflies across the meadow.
- * 5. Bicycle Rider: rides a miniature two-wheeled bicycle across the path with rotating wheels and pedaling legs.
- * 6. Kite Flyer: holds a reel as a colorful diamond kite flutters high in the breeze with dancing ribbon tails.
- * 7. Sideline Cheerer: cheers on the soccer match and celebrates goals.
+ * Compact physics-based live miniature garden where:
+ * 1. The soccer ball NEVER moves without being physically struck by a player's foot.
+ * 2. Intelligent Soccer AI: Striker & Midfielder calculate intercepts, run directly to the ball,
+ *    position themselves behind the ball relative to their target, wind up, and strike with physical foot contact!
+ * 3. After a goal, the striker jogs into the net, retrieves the ball, and kicks it out to midfield for kickoff.
+ * 4. Rich side-profile autonomous children:
+ *    - Slingshot Mango Hunter: aims Y-slingshot at the tree, drops ripe mangoes into a wicker basket.
+ *    - Butterfly Catcher: holds a bamboo net, playfully chasing butterflies across the meadow.
+ *    - Bicycle Rider: rides a miniature bicycle across the path with rotating wheels & pedaling legs.
+ *    - Kite Flyer: holds string reel as a colorful diamond kite flutters in the breeze.
+ *    - Sideline Cheerer: celebrates goals and cheers on players.
  */
 export function MiniatureGardenPlayground() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -39,7 +41,7 @@ export function MiniatureGardenPlayground() {
       targetY: -1000,
     };
 
-    // Rolling hill elevation formula: sleek arch positioned near bottom of canvas
+    // Rolling hill elevation formula
     const getGroundY = (x: number, w: number, h: number) => {
       const normalizedX = Math.max(0, Math.min(1, x / (w || 1)));
       const arch = Math.sin(normalizedX * Math.PI) * (h * 0.14);
@@ -57,8 +59,9 @@ export function MiniatureGardenPlayground() {
     };
 
     // Goal event tracking
-    let goalTimer = 0;       // celebration frames (~160 frames)
+    let goalTimer = 0;       // frames countdown during celebration (~160 frames)
     let scorerId: number | null = null;
+    let isRetrievingBall = false; // Player jogs into net to retrieve ball after goal
 
     // Celebration Confetti Particles
     const celebrationParticles: Array<{
@@ -71,19 +74,19 @@ export function MiniatureGardenPlayground() {
       life: number;
     }> = [];
 
-    // Interactive Soccer Ball with High-Energy Continuous Physics
+    // Interactive Soccer Ball - ONLY MOVES WHEN PHYSICALLY KICKED
     const ball = {
-      x: 160,
-      y: 50,
-      vx: 3.8,        // Lively initial speed!
-      vy: -2.0,
+      x: 0,
+      y: 0,
+      vx: 0, // Starts completely motionless at midfield!
+      vy: 0,
       radius: 5.2,
       rotation: 0,
-      rotSpeed: 0.15,
-      bounciness: 0.55,
-      lastKickerId: 1,
+      rotSpeed: 0,
+      bounciness: 0.52,
+      lastKickerId: 3,
       inNet: false,
-      idleFrames: 0,  // Tracks how long ball has been idle to dispatch rescue kicks!
+      initialized: false,
     };
 
     // Tree 1: Mango Tree state with interactive falling mangoes
@@ -112,7 +115,7 @@ export function MiniatureGardenPlayground() {
       { x: 760, y: 18, speed: 0.2, scale: 0.7, opacity: 0.65 },
     ];
 
-    // Playing Children definitions with Rich Autonomous Activities & Side-Profiles
+    // Playing Children definitions with Intelligent AI & Side-Profiles
     interface PlayingChild {
       id: number;
       baseRatioX: number;
@@ -120,7 +123,7 @@ export function MiniatureGardenPlayground() {
       yOffset: number;
       vy: number;
       activity: 'soccer-striker' | 'slingshot-hunter' | 'soccer-midfield' | 'butterfly-catcher' | 'bicycle-rider' | 'kite-flyer' | 'cheerer';
-      facing: 1 | -1; // 1 = facing right, -1 = facing left (profile view!)
+      facing: 1 | -1; // 1 = right, -1 = left (profile view)
       hairColor: string;
       hairStyle: 'short-brown' | 'ponytail-red' | 'spiky-black' | 'blonde-bob' | 'beanie' | 'orange-pigtails' | 'curly-brown';
       shirtColor: string;
@@ -131,7 +134,6 @@ export function MiniatureGardenPlayground() {
       kickCooldown: number;
       runCycle: number;
       // Slingshot animation state
-      slingshotPhase: 'aim' | 'pull' | 'release' | 'catch' | 'wait';
       slingshotTimer: number;
       // Bicycle rider state
       bikeDistance: number;
@@ -139,32 +141,34 @@ export function MiniatureGardenPlayground() {
       kickPhase: 'idle' | 'windup' | 'strike' | 'followthrough';
       kickProgress: number;
       kickLegAngle: number;
+      // Intelligent Soccer AI State
+      soccerIntent: 'support' | 'hunt-ball' | 'position-for-shot' | 'kick' | 'retrieve';
       particles: Array<{ x: number; y: number; vy: number; vx: number; life: number; color: string }>;
     }
 
     const children: PlayingChild[] = [
       {
         id: 1,
-        baseRatioX: 0.14,
+        baseRatioX: 0.18, // Striker positioned on left attacking side
         curX: 0,
         yOffset: 0,
         vy: 0,
         activity: 'soccer-striker',
-        facing: -1, // Faces left toward soccer net
+        facing: -1,
         hairColor: '#b45309',
         hairStyle: 'short-brown',
-        shirtColor: '#0284c7', // Sky blue soccer jersey #9
+        shirtColor: '#0284c7', // Blue soccer jersey #9
         pantsColor: '#1e293b',
         skinColor: '#fde68a',
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'wait',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'support',
         particles: [],
       },
       {
@@ -174,31 +178,31 @@ export function MiniatureGardenPlayground() {
         yOffset: 0,
         vy: 0,
         activity: 'slingshot-hunter',
-        facing: -1, // Faces left looking up at the mango tree
+        facing: -1, // Faces left looking up at mango tree
         hairColor: '#7c2d12',
         hairStyle: 'beanie',
-        shirtColor: '#ea580c', // Orange outdoor vest
+        shirtColor: '#ea580c',
         pantsColor: '#15803d',
         skinColor: '#fef3c7',
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'pull',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'support',
         particles: [],
       },
       {
         id: 3,
-        baseRatioX: 0.42,
+        baseRatioX: 0.42, // Midfielder positioned at center / midfield
         curX: 0,
         yOffset: 0,
         vy: 0,
         activity: 'soccer-midfield',
-        facing: -1, // Faces left towards goal/striker
+        facing: -1,
         hairColor: '#334155',
         hairStyle: 'spiky-black',
         shirtColor: '#f59e0b', // Yellow playmaker jersey #10
@@ -207,12 +211,12 @@ export function MiniatureGardenPlayground() {
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'wait',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'kick', // Starts ready for kickoff!
         particles: [],
       },
       {
@@ -225,19 +229,19 @@ export function MiniatureGardenPlayground() {
         facing: 1, // Faces right chasing butterfly
         hairColor: '#facc15',
         hairStyle: 'blonde-bob',
-        shirtColor: '#ec4899', // Pink sundress
+        shirtColor: '#ec4899',
         pantsColor: '#ec4899',
         skinColor: '#fef3c7',
         hasDress: true,
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'wait',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'support',
         particles: [],
       },
       {
@@ -247,21 +251,21 @@ export function MiniatureGardenPlayground() {
         yOffset: 0,
         vy: 0,
         activity: 'bicycle-rider',
-        facing: 1, // Pedaling right across path
+        facing: 1, // Riding right across path
         hairColor: '#ea580c',
         hairStyle: 'ponytail-red',
-        shirtColor: '#10b981', // Emerald tee
+        shirtColor: '#10b981',
         pantsColor: '#047857',
         skinColor: '#fde68a',
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'wait',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'support',
         particles: [],
       },
       {
@@ -271,22 +275,22 @@ export function MiniatureGardenPlayground() {
         yOffset: 0,
         vy: 0,
         activity: 'kite-flyer',
-        facing: -1, // Faces left into the breeze holding kite string
+        facing: -1, // Faces left holding kite string
         hairColor: '#d97706',
         hairStyle: 'orange-pigtails',
-        shirtColor: '#6366f1', // Indigo dress
+        shirtColor: '#6366f1',
         pantsColor: '#6366f1',
         skinColor: '#fef3c7',
         hasDress: true,
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'wait',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'support',
         particles: [],
       },
       {
@@ -296,22 +300,22 @@ export function MiniatureGardenPlayground() {
         yOffset: 0,
         vy: 0,
         activity: 'cheerer',
-        facing: -1, // Cheering looking across the field
+        facing: -1,
         hairColor: '#451a03',
         hairStyle: 'curly-brown',
-        shirtColor: '#f43f5e', // Rose red dress
+        shirtColor: '#f43f5e',
         pantsColor: '#f43f5e',
         skinColor: '#fde047',
         hasDress: true,
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
-        slingshotPhase: 'wait',
         slingshotTimer: 0,
         bikeDistance: 0,
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
+        soccerIntent: 'support',
         particles: [],
       },
     ];
@@ -346,6 +350,19 @@ export function MiniatureGardenPlayground() {
       children.forEach((c) => {
         if (!c.curX) c.curX = c.baseRatioX * width;
       });
+
+      // Initialize ball at midfield sitting motionless on the grass
+      if (!ball.initialized) {
+        ball.x = width * 0.40;
+        ball.y = getGroundY(ball.x, width, height) - ball.radius;
+        ball.vx = 0;
+        ball.vy = 0;
+        ball.initialized = true;
+
+        // Position midfielder right behind ball at kickoff
+        children[2].curX = ball.x + 7;
+        children[2].facing = -1;
+      }
     };
 
     handleResize();
@@ -357,21 +374,24 @@ export function MiniatureGardenPlayground() {
       mouse.targetY = e.clientY - rect.top;
     };
 
+    // When the user clicks, only kick if clicking near the ball or child
     const onMouseDown = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
 
-      if (!ball.inNet) {
-        // Nudge ball towards click with energetic kick
-        ball.vx = (clickX - ball.x) * 0.07;
-        ball.vy = -4.5;
-        ball.rotSpeed = ball.vx * 0.18;
+      // Click near ball kicks it
+      const distToBall = Math.hypot(clickX - ball.x, clickY - ball.y);
+      if (distToBall < 30 && !ball.inNet) {
+        ball.vx = (clickX > ball.x ? -1 : 1) * (3.8 + Math.random() * 2);
+        ball.vy = -3.8;
+        ball.rotSpeed = ball.vx * 0.16;
       }
 
-      // Nearby child celebrates with playful hop
+      // Nearby child gives a gentle hop
       children.forEach((c) => {
-        if (Math.abs(clickX - c.curX) < 35 && c.yOffset === 0 && c.kickPhase === 'idle') {
-          c.vy = -4.2;
+        if (Math.abs(clickX - c.curX) < 30 && c.yOffset === 0 && c.kickPhase === 'idle') {
+          c.vy = -3.8;
           for (let p = 0; p < 4; p++) {
             c.particles.push({
               x: c.curX + (Math.random() - 0.5) * 12,
@@ -390,10 +410,12 @@ export function MiniatureGardenPlayground() {
       if (e.touches.length > 0) {
         const rect = canvas.getBoundingClientRect();
         const clickX = e.touches[0].clientX - rect.left;
-        if (!ball.inNet) {
-          ball.vx = (clickX - ball.x) * 0.07;
-          ball.vy = -4.5;
-          ball.rotSpeed = ball.vx * 0.18;
+        const clickY = e.touches[0].clientY - rect.top;
+        const distToBall = Math.hypot(clickX - ball.x, clickY - ball.y);
+        if (distToBall < 30 && !ball.inNet) {
+          ball.vx = (clickX > ball.x ? -1 : 1) * (3.8 + Math.random() * 2);
+          ball.vy = -3.8;
+          ball.rotSpeed = ball.vx * 0.16;
         }
       }
     };
@@ -404,13 +426,13 @@ export function MiniatureGardenPlayground() {
 
     let tick = 0;
 
-    // Helper to start kick animation for a player
+    // Helper to start kick animation for a player ONLY when physically at the ball
     const triggerPlayerKick = (c: PlayingChild, kickDirection: -1 | 1) => {
       c.kickPhase = 'windup';
       c.kickProgress = 0;
       c.facing = kickDirection;
       c.kickLegAngle = 0;
-      c.kickCooldown = 70;
+      c.kickCooldown = 65;
     };
 
     // MAIN ANIMATION / PLAY PHYSICS LOOP
@@ -422,7 +444,7 @@ export function MiniatureGardenPlayground() {
 
       ctx.clearRect(0, 0, width, height);
 
-      // 1. SKY BACKGROUND (Soft pastel morning horizon)
+      // 1. SKY BACKGROUND
       const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
       skyGrad.addColorStop(0, 'rgba(238, 248, 255, 0.95)');
       skyGrad.addColorStop(0.7, 'rgba(240, 253, 244, 0.9)');
@@ -510,12 +532,11 @@ export function MiniatureGardenPlayground() {
         ctx.stroke();
       }
 
-      // 5. SCENERY BACKGROUND (Mango Tree, Cottage, Two-Story House, School Building)
-      // TREE 1: LUSH MANGO TREE with Golden Ripe Mangoes!
+      // 5. SCENERY BACKGROUND (Lush Mango Tree, Cottage, House, School)
+      // TREE 1: MANGO TREE with Ripe Golden Mangoes
       const tree1X = width * mangoTree.xRatio;
       const tree1GroundY = getGroundY(tree1X, width, height);
 
-      // Tree Trunk
       ctx.strokeStyle = '#78350f';
       ctx.lineWidth = 3.2;
       ctx.lineCap = 'round';
@@ -524,7 +545,6 @@ export function MiniatureGardenPlayground() {
       ctx.lineTo(tree1X - 2, tree1GroundY - 25);
       ctx.stroke();
 
-      // Lush Mango Tree Foliage
       ctx.fillStyle = '#22c55e';
       ctx.strokeStyle = '#15803d';
       ctx.lineWidth = 1.4;
@@ -536,12 +556,11 @@ export function MiniatureGardenPlayground() {
       ctx.fill();
       ctx.stroke();
 
-      // Hanging Ripe Golden Mangoes in Tree 1
+      // Golden Mangoes hanging in tree
       mangoTree.mangoes.forEach((m) => {
         const mx = tree1X + m.relX;
         const my = m.isFalling ? m.curY : tree1GroundY + m.relY;
 
-        // Small stem
         ctx.strokeStyle = '#15803d';
         ctx.lineWidth = 0.9;
         ctx.beginPath();
@@ -549,7 +568,6 @@ export function MiniatureGardenPlayground() {
         ctx.lineTo(mx + 0.8, my - 1.5);
         ctx.stroke();
 
-        // Golden Mango Fruit
         ctx.fillStyle = '#f59e0b';
         ctx.strokeStyle = '#d97706';
         ctx.lineWidth = 0.8;
@@ -558,14 +576,13 @@ export function MiniatureGardenPlayground() {
         ctx.fill();
         ctx.stroke();
 
-        // Reddish blush on mango
         ctx.fillStyle = 'rgba(239, 68, 68, 0.5)';
         ctx.beginPath();
         ctx.arc(mx + 0.8, my - 0.8, 1.3, 0, Math.PI * 2);
         ctx.fill();
       });
 
-      // Wicker Fruit Basket on ground under Mango tree
+      // Fruit Basket on ground
       const basketX = tree1X + 8;
       const basketY = tree1GroundY - 1;
       ctx.fillStyle = '#b45309';
@@ -579,14 +596,14 @@ export function MiniatureGardenPlayground() {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      // Mangoes inside basket
+
       ctx.fillStyle = '#f59e0b';
       ctx.beginPath();
       ctx.arc(basketX - 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
       ctx.arc(basketX + 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
       ctx.fill();
 
-      // Tree 2 (Shade Tree, Center Right)
+      // Tree 2 (Shade Tree)
       const tree2X = width * 0.61;
       const tree2GroundY = getGroundY(tree2X, width, height);
       ctx.strokeStyle = '#854d0e';
@@ -605,7 +622,7 @@ export function MiniatureGardenPlayground() {
       ctx.fill();
       ctx.stroke();
 
-      // Cottage (Left)
+      // Cottage
       const cotX = width * 0.18;
       const cotGroundY = getGroundY(cotX, width, height);
       ctx.fillStyle = '#fef08a';
@@ -622,7 +639,7 @@ export function MiniatureGardenPlayground() {
       ctx.fill();
       ctx.stroke();
 
-      // Two-Story House (Center)
+      // Two-Story House
       const houseX = width * 0.38;
       const houseGroundY = getGroundY(houseX, width, height);
       ctx.fillStyle = '#f5f5f4';
@@ -634,7 +651,7 @@ export function MiniatureGardenPlayground() {
       ctx.fillRect(houseX - 14, houseGroundY - 26, 28, 6);
       ctx.strokeRect(houseX - 14, houseGroundY - 26, 28, 6);
 
-      // School Building with Waving Flag (Right)
+      // School Building with Flag
       const schoolX = width * 0.77;
       const schoolGroundY = getGroundY(schoolX, width, height);
       ctx.fillStyle = '#e7e5e4';
@@ -797,44 +814,26 @@ export function MiniatureGardenPlayground() {
       ctx.stroke();
       ctx.restore();
 
-      // 8. CONTINUOUS SOCCER ENGINE & BALL RESCUE
+      // 8. PURE REALISTIC BALL PHYSICS (NO PHANTOM MOVEMENT)
       const ballGroundY = getGroundY(ball.x, width, height) - ball.radius;
       const slopeDelta = (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
       const slopeAngle = Math.atan(slopeDelta);
 
-      // Track ball stagnation to ensure it NEVER stops
-      if (!ball.inNet) {
-        if (Math.abs(ball.vx) < 0.35) {
-          ball.idleFrames++;
-        } else {
-          ball.idleFrames = 0;
-        }
-
-        // Auto-rescue: if ball slows down on the right or anywhere, soccer player kicks it back into play!
-        if (ball.idleFrames > 30) {
-          const rescuer = ball.x > width * 0.3 ? children[2] : children[0];
-          ball.vx = ball.x > goal.mouthX + 40 ? -4.5 : 4.0;
-          ball.vy = -3.0;
-          ball.idleFrames = 0;
-          rescuer.kickCooldown = 40;
-        }
-      }
-
-      // GOAL DETECTION
+      // Goal detection
       const isInsideGoalMouth =
-        ball.x <= goal.mouthX + 3 &&
-        ball.x >= goal.backX - 8 &&
+        ball.x <= goal.mouthX + 2 &&
+        ball.x >= goal.backX - 6 &&
         ball.y >= crossbarY - 3 &&
         ball.y <= mouthGroundY + 4;
 
       if (isInsideGoalMouth && !ball.inNet && goalTimer === 0) {
         ball.inNet = true;
-        goalTimer = 165;
+        goalTimer = 160;
         scorerId = ball.lastKickerId || 1;
         goal.netBulge = Math.min(13, Math.abs(ball.vx) * 2.2 + 4);
         goal.netBulgeVel = -goal.netBulge * 0.2;
-        ball.vx *= 0.2;
-        ball.vy = Math.min(ball.vy * 0.2, 0.5);
+        ball.vx *= 0.15;
+        ball.vy = Math.min(ball.vy * 0.2, 0.4);
 
         for (let i = 0; i < 16; i++) {
           celebrationParticles.push({
@@ -850,6 +849,7 @@ export function MiniatureGardenPlayground() {
       }
 
       if (ball.inNet) {
+        // Settling inside net
         ball.vy += 0.2;
         ball.x += ball.vx;
         ball.y += ball.vy;
@@ -857,46 +857,54 @@ export function MiniatureGardenPlayground() {
 
         if (ball.y >= ballGroundY) {
           ball.y = ballGroundY;
-          ball.vy = -ball.vy * 0.25;
-          if (Math.abs(ball.vy) < 0.2) ball.vy = 0;
+          ball.vy = 0;
+          ball.vx = 0;
         }
         if (ball.x < goal.backX + ball.radius) {
           ball.x = goal.backX + ball.radius;
-          ball.vx = Math.abs(ball.vx) * 0.3;
+          ball.vx = 0;
         }
 
         if (goalTimer > 0) {
           goalTimer--;
           if (goalTimer === 1) {
-            // ENERGETIC MIDFIELD KICKOFF: never stops!
-            ball.inNet = false;
-            scorerId = null;
-            ball.x = width * 0.40;
-            ball.y = getGroundY(ball.x, width, height) - 20;
-            ball.vx = 4.2 + Math.random() * 1.2; // passes energetic ball to center
-            ball.vy = -3.2;
-            ball.lastKickerId = 3;
+            // Start intelligent ball retrieval by Striker
+            isRetrievingBall = true;
           }
         }
       } else {
+        // NATURAL BALL PHYSICS (BALL ONLY MOVES IF GIVEN IMPULSE OR ON STEEP SLOPE)
         const onGround = ball.y >= ballGroundY - 0.8;
 
         if (onGround) {
           ball.y = ballGroundY;
-          ball.vx += Math.sin(slopeAngle) * 0.22;
-          ball.vx *= 0.988; // smooth natural turf roll
-          ball.rotSpeed = ball.vx / ball.radius;
-          ball.rotation += ball.rotSpeed;
 
-          if (Math.abs(ball.vy) < 0.5) {
+          // Slope gravity force (slight rolling on slope)
+          const slopeForce = Math.sin(slopeAngle) * 0.16;
+          ball.vx += slopeForce;
+
+          // Realistic grass rolling friction
+          ball.vx *= 0.982;
+
+          // Ball comes to a complete halt when slow! No phantom motion!
+          if (Math.abs(ball.vx) < 0.12 && Math.abs(slopeForce) < 0.08) {
+            ball.vx = 0;
+            ball.rotSpeed = 0;
+          } else {
+            ball.rotSpeed = ball.vx / ball.radius;
+            ball.rotation += ball.rotSpeed;
+          }
+
+          if (Math.abs(ball.vy) < 0.4) {
             ball.vy = 0;
           } else {
             ball.vy = -ball.vy * ball.bounciness;
           }
         } else {
+          // Airborne
           ball.vy += 0.24;
-          ball.vx *= 0.996;
-          ball.vy *= 0.996;
+          ball.vx *= 0.995;
+          ball.vy *= 0.995;
           ball.rotation += ball.rotSpeed;
 
           if (ball.y >= ballGroundY) {
@@ -909,14 +917,14 @@ export function MiniatureGardenPlayground() {
         ball.x += ball.vx;
         ball.y += ball.vy;
 
-        // RIGHT BOUNDARY INTERCEPTION: energetic rebound back into play
+        // Boundaries: Ball naturally stops near bounds, no bouncy trampolines
         if (ball.x >= width - ball.radius - 8) {
           ball.x = width - ball.radius - 8;
-          ball.vx = -(Math.abs(ball.vx) * 0.8 + 2.5);
+          ball.vx = 0;
         }
         if (ball.x <= ball.radius + 6) {
           ball.x = ball.radius + 6;
-          ball.vx = Math.abs(ball.vx) * 0.8 + 2.5;
+          ball.vx = 0;
         }
       }
 
@@ -1018,22 +1026,19 @@ export function MiniatureGardenPlayground() {
       });
 
       // 10. UPDATE FALLING MANGO & SLINGSHOT PEBBLE
-      // Slingshot pebble flight
       if (mangoTree.slingshotPebble.active) {
         const pb = mangoTree.slingshotPebble;
         pb.x += pb.vx;
         pb.y += pb.vy;
-        pb.vy += 0.15; // arc
+        pb.vy += 0.15;
 
         ctx.fillStyle = '#64748b';
         ctx.beginPath();
         ctx.arc(pb.x, pb.y, 1.4, 0, Math.PI * 2);
         ctx.fill();
 
-        // Check if pebble hit mango tree canopy
         if (pb.y <= tree1GroundY - 26) {
           pb.active = false;
-          // Trigger a mango to fall
           const target = mangoTree.mangoes.find((m) => m.id === pb.targetMangoId);
           if (target && !target.isFalling) {
             target.isFalling = true;
@@ -1043,19 +1048,16 @@ export function MiniatureGardenPlayground() {
         }
       }
 
-      // Falling mango physics
       mangoTree.mangoes.forEach((m) => {
         if (m.isFalling) {
-          m.vy += 0.22; // gravity
+          m.vy += 0.22;
           m.curY += m.vy;
 
-          // Catch or land in basket
           if (m.curY >= tree1GroundY - 4) {
             m.isFalling = false;
             m.curY = tree1GroundY + m.relY;
             mangoTree.basketMangoCount++;
 
-            // Golden sparkle particles upon catch
             for (let sp = 0; sp < 4; sp++) {
               celebrationParticles.push({
                 x: tree1X + m.relX,
@@ -1071,170 +1073,232 @@ export function MiniatureGardenPlayground() {
         }
       });
 
-      // 11. AUTONOMOUS ACTIVITIES & SIDE-PROFILE RENDERING FOR EACH CHILD
+      // 11. INTELLIGENT SOCCER PLAYER COORDINATION & BEHAVIOR
+      const striker = children[0];
+      const midfielder = children[2];
+
+      // Coordination: Decide which soccer player is responsible for approaching the ball
+      if (!ball.inNet && !isRetrievingBall) {
+        const distToStriker = Math.abs(ball.x - striker.curX);
+        const distToMidfielder = Math.abs(ball.x - midfielder.curX);
+
+        if (ball.x < width * 0.38) {
+          // Attacking zone on left: Striker is primary attacker
+          striker.soccerIntent = 'hunt-ball';
+          midfielder.soccerIntent = 'support';
+        } else {
+          // Midfield / right wing: Midfielder is primary handler
+          midfielder.soccerIntent = 'hunt-ball';
+          striker.soccerIntent = 'support';
+        }
+      }
+
+      // Ball Retrieval routine: Striker jogs to goal, taps ball out to midfield
+      if (isRetrievingBall) {
+        const targetX = goal.mouthX - 4;
+        const dx = targetX - striker.curX;
+
+        if (Math.abs(dx) > 3) {
+          striker.curX += Math.sign(dx) * 1.1;
+          striker.facing = Math.sign(dx) as 1 | -1;
+          striker.runCycle += 0.24;
+        } else {
+          // Reached ball in net! Taps it forward out of net
+          striker.facing = 1;
+          striker.runCycle = 0;
+          triggerPlayerKick(striker, 1);
+          isRetrievingBall = false;
+          ball.inNet = false;
+          scorerId = null;
+        }
+      }
+
+      // 12. CHILDREN UPDATE & DRAW LOOP
       children.forEach((c) => {
         const groundY = getGroundY(c.curX, width, height);
         const isScorerCelebrating = scorerId === c.id && goalTimer > 0;
 
         if (c.kickCooldown > 0) c.kickCooldown--;
 
-        // ==========================================
-        // A) SPECIFIC ACTIVITY LOGIC FOR EACH CHILD
-        // ==========================================
-        switch (c.activity) {
-          case 'soccer-striker': {
-            if (isScorerCelebrating) {
-              c.yOffset = -Math.abs(Math.sin(tick * 0.22)) * 5.5;
-              c.runCycle = 0;
-            } else {
-              const targetX = Math.max(goal.mouthX + 16, Math.min(width * 0.32, ball.x + (ball.vx > 0 ? 12 : -6)));
-              const dx = targetX - c.curX;
-
-              if (c.kickPhase === 'idle') {
-                if (Math.abs(dx) > 3) {
-                  c.curX += Math.sign(dx) * 0.95;
-                  c.facing = Math.sign(dx) as 1 | -1;
-                  c.runCycle += 0.26;
-                } else {
-                  c.runCycle = 0;
-                  c.facing = -1;
-                }
-
-                const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
-                if (distToBall < 18 && c.kickCooldown === 0 && !ball.inNet) {
-                  triggerPlayerKick(c, -1);
-                }
-              }
-            }
-            break;
-          }
-
-          case 'slingshot-hunter': {
-            c.curX = tree1X + 16;
-            c.facing = -1;
-            c.slingshotTimer++;
-
-            if (c.slingshotTimer > 180) {
-              c.slingshotTimer = 0;
-              mangoTree.slingshotPebble = {
-                active: true,
-                x: c.curX - 6,
-                y: groundY - 18,
-                vx: -1.2,
-                vy: -3.8,
-                targetMangoId: 1,
-              };
-            }
-            break;
-          }
-
-          case 'soccer-midfield': {
-            if (goalTimer > 0) {
-              c.facing = -1;
-              c.yOffset = -Math.abs(Math.sin(tick * 0.16 + c.id)) * 2.5;
-            } else {
-              const targetX = Math.max(width * 0.28, Math.min(width * 0.75, ball.x + (ball.vx > 0 ? 14 : 4)));
-              const dx = targetX - c.curX;
-
-              if (c.kickPhase === 'idle') {
-                if (Math.abs(dx) > 3) {
-                  c.curX += Math.sign(dx) * 1.05;
-                  c.facing = Math.sign(dx) as 1 | -1;
-                  c.runCycle += 0.26;
-                } else {
-                  c.runCycle = 0;
-                  c.facing = -1;
-                }
-
-                const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
-                if (distToBall < 20 && c.kickCooldown === 0 && !ball.inNet) {
-                  triggerPlayerKick(c, -1);
-                }
-              }
-            }
-            break;
-          }
-
-          case 'butterfly-catcher': {
-            const targetBf = butterflies[1];
-            const targetX = Math.max(width * 0.48, Math.min(width * 0.65, targetBf.x));
+        // ===============================================
+        // INTELLIGENT SOCCER PLAYER AI LOGIC (CHILD 1 & 3)
+        // ===============================================
+        if (c.activity === 'soccer-striker' && !isRetrievingBall) {
+          if (isScorerCelebrating) {
+            c.yOffset = -Math.abs(Math.sin(tick * 0.22)) * 5.5;
+            c.runCycle = 0;
+          } else if (c.soccerIntent === 'hunt-ball' && c.kickPhase === 'idle') {
+            // Intelligent positioning: To shoot towards the left goal, get BEHIND the ball (to the right of ball)
+            const targetX = ball.x + 6;
             const dx = targetX - c.curX;
 
             if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 0.75;
+              c.curX += Math.sign(dx) * 1.1;
               c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.2;
+              c.runCycle += 0.28;
             } else {
+              // Physically AT the ball! Face left toward the goal and execute real kick
+              c.facing = -1;
+              c.runCycle = 0;
+
+              // Only trigger if ball is close and on the ground
+              const dist = Math.hypot(c.curX - (ball.x + 6), groundY - ball.y);
+              if (dist < 14 && c.kickCooldown === 0 && !ball.inNet) {
+                triggerPlayerKick(c, -1);
+              }
+            }
+          } else if (c.soccerIntent === 'support' && c.kickPhase === 'idle') {
+            // Support position: drift in the left wing waiting for a pass
+            const targetX = width * 0.22;
+            const dx = targetX - c.curX;
+            if (Math.abs(dx) > 3) {
+              c.curX += Math.sign(dx) * 0.7;
+              c.facing = Math.sign(dx) as 1 | -1;
+              c.runCycle += 0.18;
+            } else {
+              c.facing = 1; // Watch teammate on the right
               c.runCycle = 0;
             }
-            break;
           }
+        } else if (c.activity === 'soccer-midfield') {
+          if (goalTimer > 0) {
+            c.facing = -1;
+            c.yOffset = -Math.abs(Math.sin(tick * 0.16 + c.id)) * 2.5;
+          } else if (c.soccerIntent === 'hunt-ball' && c.kickPhase === 'idle') {
+            // Intelligent positioning: Get behind the ball to pass/cross towards left
+            const targetX = ball.x + 6;
+            const dx = targetX - c.curX;
 
-          case 'bicycle-rider': {
-            const minBikeX = width * 0.65;
-            const maxBikeX = width * 0.82;
-            c.curX += c.facing * 0.85;
-            c.bikeDistance += 0.85;
-            c.runCycle += 0.18;
-
-            if (c.curX >= maxBikeX) {
-              c.curX = maxBikeX;
+            if (Math.abs(dx) > 2) {
+              c.curX += Math.sign(dx) * 1.15;
+              c.facing = Math.sign(dx) as 1 | -1;
+              c.runCycle += 0.28;
+            } else {
+              // Physically AT the ball! Face left and strike pass/cross
               c.facing = -1;
-            } else if (c.curX <= minBikeX) {
-              c.curX = minBikeX;
-              c.facing = 1;
+              c.runCycle = 0;
+
+              const dist = Math.hypot(c.curX - (ball.x + 6), groundY - ball.y);
+              if (dist < 14 && c.kickCooldown === 0 && !ball.inNet) {
+                triggerPlayerKick(c, -1);
+              }
             }
-            break;
-          }
-
-          case 'kite-flyer': {
-            c.curX = width * c.baseRatioX;
-            c.facing = -1;
-            c.yOffset = -Math.sin(tick * 0.08) * 1.5;
-            break;
-          }
-
-          case 'cheerer': {
-            c.curX = width * c.baseRatioX;
-            c.facing = -1;
-            c.yOffset = -Math.abs(Math.sin(tick * 0.15)) * 2.5;
-            break;
+          } else if (c.soccerIntent === 'support' && c.kickPhase === 'idle') {
+            // Support position in center
+            const targetX = width * 0.45;
+            const dx = targetX - c.curX;
+            if (Math.abs(dx) > 3) {
+              c.curX += Math.sign(dx) * 0.7;
+              c.facing = Math.sign(dx) as 1 | -1;
+              c.runCycle += 0.18;
+            } else {
+              c.facing = -1; // Watch attack on the left
+              c.runCycle = 0;
+            }
           }
         }
 
-        // KICKING STATE MACHINE
+        // ===============================================
+        // OTHER RICH AUTONOMOUS ACTIVITIES (CHILD 2, 4, 5, 6, 7)
+        // ===============================================
+        if (c.activity === 'slingshot-hunter') {
+          c.curX = tree1X + 16;
+          c.facing = -1;
+          c.slingshotTimer++;
+
+          if (c.slingshotTimer > 180) {
+            c.slingshotTimer = 0;
+            mangoTree.slingshotPebble = {
+              active: true,
+              x: c.curX - 6,
+              y: groundY - 18,
+              vx: -1.2,
+              vy: -3.8,
+              targetMangoId: 1,
+            };
+          }
+        } else if (c.activity === 'butterfly-catcher') {
+          const targetBf = butterflies[1];
+          const targetX = Math.max(width * 0.48, Math.min(width * 0.65, targetBf.x));
+          const dx = targetX - c.curX;
+
+          if (Math.abs(dx) > 2) {
+            c.curX += Math.sign(dx) * 0.75;
+            c.facing = Math.sign(dx) as 1 | -1;
+            c.runCycle += 0.2;
+          } else {
+            c.runCycle = 0;
+          }
+        } else if (c.activity === 'bicycle-rider') {
+          const minBikeX = width * 0.65;
+          const maxBikeX = width * 0.82;
+          c.curX += c.facing * 0.85;
+          c.bikeDistance += 0.85;
+          c.runCycle += 0.18;
+
+          if (c.curX >= maxBikeX) {
+            c.curX = maxBikeX;
+            c.facing = -1;
+          } else if (c.curX <= minBikeX) {
+            c.curX = minBikeX;
+            c.facing = 1;
+          }
+        } else if (c.activity === 'kite-flyer') {
+          c.curX = width * c.baseRatioX;
+          c.facing = -1;
+          c.yOffset = -Math.sin(tick * 0.08) * 1.5;
+        } else if (c.activity === 'cheerer') {
+          c.curX = width * c.baseRatioX;
+          c.facing = -1;
+          c.yOffset = -Math.abs(Math.sin(tick * 0.15)) * 2.5;
+        }
+
+        // ===============================================
+        // KICKING STATE MACHINE (DELIVERS REAL PHYSICAL IMPACT)
+        // ===============================================
         if (c.kickPhase === 'windup') {
-          c.kickProgress += 0.22;
+          c.kickProgress += 0.20;
           c.kickLegAngle = -0.75 * Math.sin(c.kickProgress * Math.PI * 0.5);
           if (c.kickProgress >= 1) {
             c.kickPhase = 'strike';
             c.kickProgress = 0;
           }
         } else if (c.kickPhase === 'strike') {
-          c.kickProgress += 0.32;
+          c.kickProgress += 0.28;
           c.kickLegAngle = 0.85 * Math.sin(c.kickProgress * Math.PI * 0.5);
 
-          if (c.kickProgress >= 0.5 && c.kickCooldown >= 65) {
-            c.kickCooldown = 60;
+          // EXACT CONTACT POINT: Foot connects with the ball!
+          if (c.kickProgress >= 0.5 && c.kickCooldown >= 60) {
+            c.kickCooldown = 55;
             ball.lastKickerId = c.id;
 
             if (c.activity === 'soccer-striker') {
-              const distToGoal = ball.x - goal.mouthX;
-              const power = Math.max(4.6, Math.min(6.5, distToGoal * 0.09 + 4.2));
-              ball.vx = -power;
-              ball.vy = -2.8 - Math.random() * 2.0;
-              ball.rotSpeed = -0.35;
+              if (c.facing === 1) {
+                // Tapping ball out of net to midfield
+                ball.vx = 3.6;
+                ball.vy = -2.2;
+                ball.rotSpeed = 0.2;
+              } else {
+                // Striker shot on goal
+                const distToGoal = ball.x - goal.mouthX;
+                const power = Math.max(4.6, Math.min(6.2, distToGoal * 0.08 + 4.0));
+                ball.vx = -power;
+                ball.vy = -2.6 - Math.random() * 1.8;
+                ball.rotSpeed = -0.32;
+              }
             } else if (c.activity === 'soccer-midfield') {
-              const power = 5.4 + Math.random() * 1.5;
+              // Midfielder pass/cross to striker
+              const power = 4.8 + Math.random() * 1.4;
               ball.vx = -power;
-              ball.vy = -3.4 - Math.random() * 1.6;
-              ball.rotSpeed = -0.3;
+              ball.vy = -3.2 - Math.random() * 1.4;
+              ball.rotSpeed = -0.28;
             }
 
+            // Green turf particles fly upon foot contact
             for (let k = 0; k < 4; k++) {
               c.particles.push({
-                x: c.curX + c.facing * 8,
-                y: groundY - 2,
+                x: c.curX + c.facing * 6,
+                y: groundY - 1,
                 vx: c.facing * (1 + Math.random() * 2),
                 vy: -1 - Math.random() * 1.2,
                 life: 0.6,
@@ -1266,9 +1330,9 @@ export function MiniatureGardenPlayground() {
         }
         ctx.fill();
 
-        // =======================================================
-        // B) DRAWING CHILD IN TRUE DYNAMIC SIDE-PROFILE POSTURE
-        // =======================================================
+        // ===============================================
+        // DRAWING CHILD IN TRUE SIDE-PROFILE POSTURE
+        // ===============================================
         ctx.save();
         ctx.translate(c.curX, groundY + c.yOffset);
 
@@ -1285,7 +1349,6 @@ export function MiniatureGardenPlayground() {
           const frontHubX = c.facing * wheelSpan;
           const hubY = -wheelRadius;
 
-          // Wheels with spokes
           [rearHubX, frontHubX].forEach((hx) => {
             ctx.strokeStyle = '#0f172a';
             ctx.lineWidth = 1.3;
@@ -1305,7 +1368,6 @@ export function MiniatureGardenPlayground() {
             }
           });
 
-          // Red Bicycle Frame
           ctx.strokeStyle = '#ef4444';
           ctx.lineWidth = 1.6;
           ctx.lineCap = 'round';
@@ -1328,7 +1390,6 @@ export function MiniatureGardenPlayground() {
           ctx.lineTo(frontHubX, hubY);
           ctx.stroke();
 
-          // Handlebars
           ctx.strokeStyle = '#334155';
           ctx.lineWidth = 1.4;
           ctx.beginPath();
@@ -1336,13 +1397,11 @@ export function MiniatureGardenPlayground() {
           ctx.lineTo(handlePostX + c.facing * 2, handlePostY - 4);
           ctx.stroke();
 
-          // Seat
           ctx.fillStyle = '#0f172a';
           ctx.beginPath();
           ctx.ellipse(seatPostX, seatPostY - 1, 3.2, 1.2, 0, 0, Math.PI * 2);
           ctx.fill();
 
-          // Pedaling Legs in Side Profile
           const pedalAngle = c.runCycle * 2;
           const pedalR = 3.5;
           const pedalFootX = crankX + Math.cos(pedalAngle) * pedalR;
@@ -1360,7 +1419,7 @@ export function MiniatureGardenPlayground() {
           ctx.arc(pedalFootX, pedalFootY, 1.8, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          // 2) STANDARD LEGS IN SIDE PROFILE
+          // 2) LEGS IN SIDE PROFILE
           ctx.strokeStyle = '#334155';
           ctx.lineWidth = 1.8;
           ctx.lineCap = 'round';
@@ -1411,7 +1470,7 @@ export function MiniatureGardenPlayground() {
           }
         }
 
-        // 3) TORSO & CLOTHES IN SIDE PROFILE
+        // 3) TORSO & CLOTHES
         if (c.hasDress) {
           ctx.fillStyle = c.shirtColor;
           ctx.strokeStyle = '#475569';
@@ -1430,7 +1489,7 @@ export function MiniatureGardenPlayground() {
           ctx.fillRect(-4, bodyY, 8, 9);
         }
 
-        // 4) ARMS & UNIQUE ACTIVITY PROPS
+        // 4) ARMS & PROPS
         ctx.strokeStyle = '#334155';
         ctx.lineWidth = 1.8;
         ctx.lineCap = 'round';
@@ -1677,7 +1736,7 @@ export function MiniatureGardenPlayground() {
 
         // 7) "GOAL! ⚽" SPEECH BUBBLE OVER SCORER'S HEAD
         if (isScorerCelebrating) {
-          const bubbleAnim = Math.min(1, (165 - goalTimer) / 12);
+          const bubbleAnim = Math.min(1, (160 - goalTimer) / 12);
           const bounce = 1 + Math.sin(tick * 0.2) * 0.08;
 
           ctx.save();
@@ -1767,7 +1826,7 @@ export function MiniatureGardenPlayground() {
         }
       });
 
-      // 12. CELEBRATION CONFETTI PARTICLES
+      // 13. CELEBRATION CONFETTI PARTICLES
       for (let cp = celebrationParticles.length - 1; cp >= 0; cp--) {
         const cpItem = celebrationParticles[cp];
         cpItem.x += cpItem.vx;
