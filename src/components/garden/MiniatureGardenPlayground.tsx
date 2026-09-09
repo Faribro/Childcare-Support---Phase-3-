@@ -59,7 +59,8 @@ export function MiniatureGardenPlayground() {
     };
 
     // Goal event tracking
-    let goalState: 'play' | 'celebrating' | 'kickoff' = 'play';
+    let goalState: 'play' | 'celebrating' = 'play';
+    let passCount = 0;
     let goalTimer = 0;       // frames countdown during celebration (~140 frames)
     let goalCooldown = 0;    // cooldown before another goal can register
     let scorerId: number | null = null;
@@ -125,7 +126,7 @@ export function MiniatureGardenPlayground() {
       curX: number;
       yOffset: number;
       vy: number;
-      activity: 'soccer-striker' | 'slingshot-hunter' | 'soccer-midfield' | 'butterfly-catcher' | 'bicycle-rider' | 'kite-flyer' | 'cheerer';
+      activity: 'soccer-striker' | 'slingshot-hunter' | 'soccer-midfield' | 'soccer-passer' | 'soccer-goalie' | 'butterfly-catcher' | 'bicycle-rider' | 'kite-flyer' | 'cheerer';
       facing: 1 | -1; // 1 = right, -1 = left (profile view)
       hairColor: string;
       hairStyle: 'short-brown' | 'ponytail-red' | 'spiky-black' | 'blonde-bob' | 'beanie' | 'orange-pigtails' | 'curly-brown';
@@ -151,18 +152,19 @@ export function MiniatureGardenPlayground() {
     }
 
     const children: PlayingChild[] = [
+      // 1) Goalkeeper (Child 8)
       {
-        id: 1,
-        baseRatioX: 0.18, // Striker positioned on left attacking side
+        id: 8,
+        baseRatioX: 0.08,
         curX: 0,
         yOffset: 0,
         vy: 0,
-        activity: 'soccer-striker',
-        facing: -1,
-        hairColor: '#b45309',
-        hairStyle: 'short-brown',
-        shirtColor: '#0284c7', // Blue soccer jersey #9
-        pantsColor: '#1e293b',
+        activity: 'soccer-goalie',
+        facing: 1,
+        hairColor: '#1e293b',
+        hairStyle: 'beanie',
+        shirtColor: '#22c55e', // Vibrant lime green goalkeeper jersey
+        pantsColor: '#0f172a',
         skinColor: '#fde68a',
         twirlAngle: 0,
         kickCooldown: 0,
@@ -175,6 +177,32 @@ export function MiniatureGardenPlayground() {
         soccerIntent: 'support',
         particles: [],
       },
+      // 2) Player 1: Winger / Striker (Child 1 - Sky Blue)
+      {
+        id: 1,
+        baseRatioX: 0.20,
+        curX: 0,
+        yOffset: 0,
+        vy: 0,
+        activity: 'soccer-striker',
+        facing: 1,
+        hairColor: '#b45309',
+        hairStyle: 'short-brown',
+        shirtColor: '#0284c7', // Sky Blue jersey #9
+        pantsColor: '#1e293b',
+        skinColor: '#fde68a',
+        twirlAngle: 0,
+        kickCooldown: 0,
+        runCycle: 0,
+        slingshotTimer: 0,
+        bikeDistance: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        soccerIntent: 'hunt-ball',
+        particles: [],
+      },
+      // 3) Slingshot Mango Hunter (Child 2)
       {
         id: 2,
         baseRatioX: 0.27,
@@ -182,7 +210,7 @@ export function MiniatureGardenPlayground() {
         yOffset: 0,
         vy: 0,
         activity: 'slingshot-hunter',
-        facing: -1, // Faces left looking up at mango tree
+        facing: -1,
         hairColor: '#7c2d12',
         hairStyle: 'beanie',
         shirtColor: '#ea580c',
@@ -199,17 +227,18 @@ export function MiniatureGardenPlayground() {
         soccerIntent: 'support',
         particles: [],
       },
+      // 4) Player 2: Central Midfield Playmaker (Child 3 - Golden Yellow)
       {
         id: 3,
-        baseRatioX: 0.42, // Midfielder positioned at center / midfield
+        baseRatioX: 0.35,
         curX: 0,
         yOffset: 0,
         vy: 0,
         activity: 'soccer-midfield',
-        facing: -1,
+        facing: 1,
         hairColor: '#334155',
         hairStyle: 'spiky-black',
-        shirtColor: '#f59e0b', // Yellow playmaker jersey #10
+        shirtColor: '#f59e0b', // Golden yellow jersey #10
         pantsColor: '#1e3a8a',
         skinColor: '#fde68a',
         twirlAngle: 0,
@@ -220,17 +249,43 @@ export function MiniatureGardenPlayground() {
         kickPhase: 'idle',
         kickProgress: 0,
         kickLegAngle: 0,
-        soccerIntent: 'kick', // Starts ready for kickoff!
+        soccerIntent: 'support',
         particles: [],
       },
+      // 5) Player 3: Attacking Striker / Passer (Child 9 - Crimson Red) - NEW PERSON!
+      {
+        id: 9,
+        baseRatioX: 0.48,
+        curX: 0,
+        yOffset: 0,
+        vy: 0,
+        activity: 'soccer-passer',
+        facing: -1,
+        hairColor: '#451a03',
+        hairStyle: 'curly-brown',
+        shirtColor: '#ef4444', // Crimson red jersey #7
+        pantsColor: '#0f172a',
+        skinColor: '#fef3c7',
+        twirlAngle: 0,
+        kickCooldown: 0,
+        runCycle: 0,
+        slingshotTimer: 0,
+        bikeDistance: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        soccerIntent: 'support',
+        particles: [],
+      },
+      // 6) Butterfly Catcher (Child 4)
       {
         id: 4,
-        baseRatioX: 0.54,
+        baseRatioX: 0.58,
         curX: 0,
         yOffset: 0,
         vy: 0,
         activity: 'butterfly-catcher',
-        facing: 1, // Faces right chasing butterfly
+        facing: 1,
         hairColor: '#facc15',
         hairStyle: 'blonde-bob',
         shirtColor: '#ec4899',
@@ -248,14 +303,15 @@ export function MiniatureGardenPlayground() {
         soccerIntent: 'support',
         particles: [],
       },
+      // 7) Bicycle Rider (Child 5)
       {
         id: 5,
-        baseRatioX: 0.70,
+        baseRatioX: 0.72,
         curX: 0,
         yOffset: 0,
         vy: 0,
         activity: 'bicycle-rider',
-        facing: 1, // Riding right across path
+        facing: 1,
         hairColor: '#ea580c',
         hairStyle: 'ponytail-red',
         shirtColor: '#10b981',
@@ -272,14 +328,15 @@ export function MiniatureGardenPlayground() {
         soccerIntent: 'support',
         particles: [],
       },
+      // 8) Kite Flyer (Child 6)
       {
         id: 6,
-        baseRatioX: 0.84,
+        baseRatioX: 0.85,
         curX: 0,
         yOffset: 0,
         vy: 0,
         activity: 'kite-flyer',
-        facing: -1, // Faces left holding kite string
+        facing: -1,
         hairColor: '#d97706',
         hairStyle: 'orange-pigtails',
         shirtColor: '#6366f1',
@@ -297,6 +354,7 @@ export function MiniatureGardenPlayground() {
         soccerIntent: 'support',
         particles: [],
       },
+      // 9) Sideline Cheerer (Child 7)
       {
         id: 7,
         baseRatioX: 0.94,
@@ -357,15 +415,11 @@ export function MiniatureGardenPlayground() {
 
       // Initialize ball at midfield sitting motionless on the grass
       if (!ball.initialized) {
-        ball.x = width * 0.40;
+        ball.x = width * 0.22;
         ball.y = getGroundY(ball.x, width, height) - ball.radius;
         ball.vx = 0;
         ball.vy = 0;
         ball.initialized = true;
-
-        // Position midfielder right behind ball at kickoff
-        children[2].curX = ball.x + 7;
-        children[2].facing = -1;
       }
     };
 
@@ -790,36 +844,36 @@ export function MiniatureGardenPlayground() {
       ctx.stroke();
       ctx.restore();
 
-      // 8. PURE REALISTIC BALL PHYSICS (NO PHANTOM MOVEMENT)
+      // 8. PURE REALISTIC BALL PHYSICS & IMMERSIVE SOCCER RETRIEVAL
       const ballGroundY = getGroundY(ball.x, width, height) - ball.radius;
       const slopeDelta = (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
       const slopeAngle = Math.atan(slopeDelta);
 
       if (goalCooldown > 0) goalCooldown--;
 
-      // Goal detection - ball moving leftwards into goal mouth
+      // Goal detection - ball entering goal mouth
       const isInsideGoalMouth =
         ball.x <= goal.mouthX + 2 &&
-        ball.x >= goal.backX - 6 &&
-        ball.y >= crossbarY - 3 &&
-        ball.y <= mouthGroundY + 4;
+        ball.x >= goal.backX - 4 &&
+        ball.y >= crossbarY - 4 &&
+        ball.y <= mouthGroundY + 5;
 
-      if (isInsideGoalMouth && !ball.inNet && goalTimer === 0 && goalCooldown === 0 && ball.vx <= 0.1) {
+      if (isInsideGoalMouth && !ball.inNet && goalState === 'play' && goalTimer === 0 && ball.vx <= 0.1) {
         ball.inNet = true;
         goalState = 'celebrating';
-        goalTimer = 140;
+        goalTimer = 180;
         scorerId = ball.lastKickerId || 1;
-        goal.netBulge = Math.min(13, Math.abs(ball.vx) * 2.2 + 4);
-        goal.netBulgeVel = -goal.netBulge * 0.2;
-        ball.vx *= 0.15;
+        goal.netBulge = Math.min(14, Math.abs(ball.vx) * 2.2 + 6);
+        goal.netBulgeVel = -goal.netBulge * 0.25;
+        ball.vx *= 0.1;
         ball.vy = Math.min(ball.vy * 0.2, 0.4);
 
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 20; i++) {
           celebrationParticles.push({
             x: goal.mouthX + (Math.random() - 0.5) * 16,
             y: crossbarY + Math.random() * goal.height,
-            vx: (Math.random() - 0.5) * 3,
-            vy: -1.8 - Math.random() * 2.8,
+            vx: (Math.random() - 0.5) * 3.5,
+            vy: -1.8 - Math.random() * 3.0,
             size: 2 + Math.random() * 2.2,
             color: ['#10b981', '#f59e0b', '#ec4899', '#38bdf8', '#fbbf24', '#ffffff'][Math.floor(Math.random() * 6)],
             life: 1,
@@ -828,77 +882,96 @@ export function MiniatureGardenPlayground() {
       }
 
       if (ball.inNet) {
-        // Settling inside net
-        ball.vy += 0.2;
+        // Settling inside net: strictly keep ball within goal net
+        ball.vy += 0.22;
         ball.x += ball.vx;
         ball.y += ball.vy;
-        ball.vx *= 0.85;
+        ball.vx *= 0.75;
 
         if (ball.y >= ballGroundY) {
           ball.y = ballGroundY;
           ball.vy = 0;
           ball.vx = 0;
         }
-        if (ball.x < goal.backX + ball.radius) {
-          ball.x = goal.backX + ball.radius;
+        // Strict boundary: ball can NEVER be behind the net
+        if (ball.x < goal.backX + ball.radius + 4) {
+          ball.x = goal.backX + ball.radius + 4;
+          ball.vx = 0;
+        }
+        if (ball.x > goal.mouthX - 3 && goalTimer > 60) {
+          ball.x = goal.mouthX - 3;
           ball.vx = 0;
         }
 
+        // Post-goal Goalkeeper Retrieval & Clearance:
+        // Goalkeeper walks into the net, scoops the ball, walks to 6-yard line, and passes it out!
         if (goalTimer > 0) {
           goalTimer--;
+          const goalie = children.find(c => c.activity === 'soccer-goalie');
+
+          if (goalie) {
+            if (goalTimer > 120) {
+              // 1) Goalie turns towards net and jogs in to retrieve the ball
+              goalie.facing = -1;
+              const targetX = ball.x + 5;
+              const gdx = targetX - goalie.curX;
+              if (Math.abs(gdx) > 1.5) {
+                goalie.curX += Math.sign(gdx) * 1.0;
+                goalie.runCycle += 0.24;
+              } else {
+                goalie.runCycle = 0;
+              }
+            } else if (goalTimer > 50) {
+              // 2) Goalie scoops up the ball and jogs back out facing the pitch!
+              goalie.facing = 1;
+              const targetX = goal.mouthX + 8;
+              const gdx = targetX - goalie.curX;
+              if (Math.abs(gdx) > 1.5) {
+                goalie.curX += Math.sign(gdx) * 0.95;
+                goalie.runCycle += 0.22;
+              } else {
+                goalie.runCycle = 0;
+              }
+              // Ball is carried in goalie's hands
+              ball.x = goalie.curX + goalie.facing * 3;
+              ball.y = getGroundY(goalie.curX, width, height) - 10;
+              ball.vx = 0;
+              ball.vy = 0;
+            } else if (goalTimer > 15) {
+              // 3) Goalie places ball down on the turf at 6-yard mark and sets up for goal kick
+              ball.x = goal.mouthX + 10;
+              ball.y = getGroundY(ball.x, width, height) - ball.radius;
+              goalie.curX = ball.x - 6;
+              goalie.facing = 1;
+              goalie.runCycle = 0;
+            } else if (goalTimer === 15) {
+              // 4) Goalie kicks the ball out to Player 1 (the same person)!
+              triggerPlayerKick(goalie, 1);
+            }
+          }
+
           if (goalTimer === 0) {
-            // Smoothly transition to Kickoff at midfield!
-            goalState = 'kickoff';
-            kickoffTimer = 35;
-            scorerId = null;
-
-            // Reset ball to midfield center spot
-            ball.x = width * 0.44;
-            ball.y = getGroundY(ball.x, width, height) - ball.radius;
-            ball.vx = 0;
-            ball.vy = 0;
+            goalState = 'play';
             ball.inNet = false;
-            goalCooldown = 180; // prevent immediate re-goal
-
-            // Reset player positions for kickoff
-            // Midfielder takes the kickoff at midfield
-            children[2].curX = ball.x + 8;
-            children[2].facing = -1;
-            children[2].kickPhase = 'idle';
-            children[2].runCycle = 0;
-            children[2].soccerIntent = 'hunt-ball';
-
-            // Striker positions forward on the left attacking flank
-            children[0].curX = width * 0.22;
-            children[0].facing = 1;
-            children[0].kickPhase = 'idle';
-            children[0].runCycle = 0;
-            children[0].soccerIntent = 'support';
+            scorerId = null;
+            passCount = 0;
           }
         }
       } else {
-        if (goalState === 'kickoff') {
-          kickoffTimer--;
-          if (kickoffTimer <= 0) {
-            goalState = 'play';
-            // Trigger kickoff pass from midfielder to striker!
-            triggerPlayerKick(children[2], -1);
-          }
-        }
-        // NATURAL BALL PHYSICS (BALL ONLY MOVES IF GIVEN IMPULSE OR ON STEEP SLOPE)
+        // NATURAL BALL PHYSICS
         const onGround = ball.y >= ballGroundY - 0.8;
 
         if (onGround) {
           ball.y = ballGroundY;
 
-          // Slope gravity force (slight rolling on slope)
+          // Slope gravity force
           const slopeForce = Math.sin(slopeAngle) * 0.16;
           ball.vx += slopeForce;
 
           // Realistic grass rolling friction
           ball.vx *= 0.982;
 
-          // Ball comes to a complete halt when slow! No phantom motion!
+          // Ball comes to a complete halt when slow
           if (Math.abs(ball.vx) < 0.12 && Math.abs(slopeForce) < 0.08) {
             ball.vx = 0;
             ball.rotSpeed = 0;
@@ -929,36 +1002,40 @@ export function MiniatureGardenPlayground() {
         ball.x += ball.vx;
         ball.y += ball.vy;
 
-        // Boundaries: Ball naturally stops near bounds, no bouncy trampolines
+        // Hard boundary: ball can NEVER penetrate behind the goal net
+        if (ball.x < goal.backX + ball.radius + 3) {
+          ball.x = goal.backX + ball.radius + 3;
+          ball.vx = Math.abs(ball.vx) * 0.4;
+        }
         if (ball.x >= width - ball.radius - 8) {
           ball.x = width - ball.radius - 8;
-          ball.vx = 0;
-        }
-        if (ball.x <= ball.radius + 6) {
-          ball.x = ball.radius + 6;
           ball.vx = 0;
         }
 
         // Motionless watchdog: if the ball sits completely still for > 100 frames in play mode,
         // awaken the closest soccer player and reset their kickCooldown so they play it.
-        // If it sits still for > 220 frames, give it a gentle kick towards the goal / striker.
+        // If it sits still for > 200 frames, give it a gentle kick towards the field.
         if (goalState === 'play' && !ball.inNet) {
           if (Math.abs(ball.vx) < 0.05 && Math.abs(ball.vy) < 0.05) {
             ball.stillFrames = (ball.stillFrames || 0) + 1;
             if (ball.stillFrames > 100) {
-              const distToStriker = Math.abs(children[0].curX - ball.x);
-              const distToMid = Math.abs(children[2].curX - ball.x);
-              if (distToStriker < distToMid) {
-                children[0].kickCooldown = 0;
-                children[0].soccerIntent = 'hunt-ball';
-              } else {
-                children[2].kickCooldown = 0;
-                children[2].soccerIntent = 'hunt-ball';
+              const outfielders = children.filter(c =>
+                c.activity === 'soccer-striker' || c.activity === 'soccer-midfield' || c.activity === 'soccer-passer'
+              );
+              let closest = outfielders[0];
+              let minD = Infinity;
+              outfielders.forEach(p => {
+                const d = Math.abs(p.curX - ball.x);
+                if (d < minD) { minD = d; closest = p; }
+              });
+              if (closest) {
+                closest.kickCooldown = 0;
+                closest.soccerIntent = 'hunt-ball';
               }
             }
-            if (ball.stillFrames > 220) {
-              ball.vx = ball.x < width * 0.32 ? -4.2 : -4.8;
-              ball.vy = -2.6;
+            if (ball.stillFrames > 200) {
+              ball.vx = ball.x < width * 0.35 ? 3.6 : -3.6;
+              ball.vy = -2.0;
               ball.stillFrames = 0;
             }
           } else {
@@ -1112,21 +1189,30 @@ export function MiniatureGardenPlayground() {
         }
       });
 
-      // 11. INTELLIGENT SOCCER PLAYER COORDINATION & BEHAVIOR
-      const striker = children[0];
-      const midfielder = children[2];
+      // 11. INTELLIGENT SOCCER PLAYER COORDINATION (TIKI-TAKA PASSING & SHOT LOGIC)
+      const outfielders = children.filter(c =>
+        c.activity === 'soccer-striker' || c.activity === 'soccer-midfield' || c.activity === 'soccer-passer'
+      );
 
-      // Coordination: Decide which soccer player is responsible for approaching the ball
       if (goalState === 'play' && !ball.inNet) {
-        if (ball.x < width * 0.34) {
-          // Attacking zone on left: Striker is primary attacker
-          striker.soccerIntent = 'hunt-ball';
-          midfielder.soccerIntent = 'support';
-        } else {
-          // Midfield / right wing: Midfielder is primary handler
-          midfielder.soccerIntent = 'hunt-ball';
-          striker.soccerIntent = 'support';
-        }
+        // Find which outfield player is closest to the ball
+        let closestPlayer = outfielders[0];
+        let minDist = Infinity;
+        outfielders.forEach((p) => {
+          const d = Math.abs(p.curX - ball.x);
+          if (d < minDist) {
+            minDist = d;
+            closestPlayer = p;
+          }
+        });
+
+        outfielders.forEach((p) => {
+          if (p === closestPlayer) {
+            p.soccerIntent = 'hunt-ball';
+          } else {
+            p.soccerIntent = 'support';
+          }
+        });
       }
 
       // 12. CHILDREN UPDATE & DRAW LOOP
@@ -1137,87 +1223,93 @@ export function MiniatureGardenPlayground() {
         if (c.kickCooldown > 0) c.kickCooldown--;
 
         // ===============================================
-        // INTELLIGENT SOCCER PLAYER AI LOGIC (CHILD 1 & 3)
+        // OUTFIELD SOCCER PLAYERS (PLAYER 1, 2, 3)
         // ===============================================
-        if (c.activity === 'soccer-striker') {
+        if (c.activity === 'soccer-striker' || c.activity === 'soccer-midfield' || c.activity === 'soccer-passer') {
           if (goalState === 'celebrating') {
-            c.yOffset = -Math.abs(Math.sin(tick * 0.22)) * 5.5;
+            c.yOffset = -Math.abs(Math.sin(tick * 0.22 + c.id)) * 5.5;
             c.runCycle = 0;
             c.facing = 1;
-          } else if (goalState === 'play' && c.soccerIntent === 'hunt-ball' && c.kickPhase === 'idle') {
-            // Intelligent positioning: To shoot towards the left goal, get BEHIND the ball (to the right of ball)
-            const targetX = Math.max(goal.mouthX + 10, ball.x + 6);
-            const dx = targetX - c.curX;
+          } else if (goalState === 'play' && c.kickPhase === 'idle') {
+            if (c.soccerIntent === 'hunt-ball') {
+              // Decide kick direction based on passing sequence
+              let kickDir: 1 | -1 = 1;
+              if (c.activity === 'soccer-passer') {
+                kickDir = -1; // Player 3 is on right flank, always kicks left
+              } else if (c.activity === 'soccer-striker') {
+                kickDir = passCount < 3 ? 1 : -1; // Player 1 passes right, or shoots left
+              } else {
+                kickDir = passCount < 3 ? (c.curX < ball.x ? 1 : -1) : -1;
+              }
 
-            if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 1.2;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.28;
+              // Position behind the ball relative to kick direction
+              const targetX = kickDir === 1 ? ball.x - 6 : ball.x + 6;
+              const dx = targetX - c.curX;
+
+              if (Math.abs(dx) > 2) {
+                c.curX += Math.sign(dx) * 1.35;
+                c.facing = Math.sign(dx) as 1 | -1;
+                c.runCycle += 0.32;
+              } else {
+                c.facing = kickDir;
+                c.runCycle = 0;
+
+                const dist = Math.hypot(c.curX - (kickDir === 1 ? ball.x - 6 : ball.x + 6), groundY - ball.y);
+                if (dist < 22 && c.kickCooldown === 0 && !ball.inNet) {
+                  triggerPlayerKick(c, kickDir);
+                }
+              }
             } else {
-              // Physically AT the ball! Face left toward the goal and execute real kick
-              c.facing = -1;
-              c.runCycle = 0;
+              // Support position: each player maintains their zone
+              const homeX =
+                c.activity === 'soccer-striker'
+                  ? width * 0.20
+                  : c.activity === 'soccer-midfield'
+                  ? width * 0.35
+                  : width * 0.48;
 
-              // Only trigger if ball is close and on the ground
-              const dist = Math.hypot(c.curX - (ball.x + 6), groundY - ball.y);
-              if (dist < 20 && c.kickCooldown === 0 && !ball.inNet) {
-                triggerPlayerKick(c, -1);
+              // Drift gently towards ball while staying in zone
+              const zoneTarget = homeX + (ball.x - homeX) * 0.25;
+              const dx = zoneTarget - c.curX;
+              if (Math.abs(dx) > 3) {
+                c.curX += Math.sign(dx) * 0.75;
+                c.facing = Math.sign(dx) as 1 | -1;
+                c.runCycle += 0.18;
+              } else {
+                c.facing = ball.x > c.curX ? 1 : -1; // Watch ball
+                c.runCycle = 0;
               }
             }
-          } else if (c.soccerIntent === 'support' && c.kickPhase === 'idle') {
-            // Support position: drift in the left wing waiting for a pass
-            const targetX = width * 0.22;
+          }
+
+          // Boundary clamps for each outfield player
+          if (c.activity === 'soccer-striker') {
+            c.curX = Math.max(goal.mouthX + 16, Math.min(width * 0.32, c.curX));
+          } else if (c.activity === 'soccer-midfield') {
+            c.curX = Math.max(width * 0.26, Math.min(width * 0.44, c.curX));
+          } else if (c.activity === 'soccer-passer') {
+            c.curX = Math.max(width * 0.38, Math.min(width * 0.58, c.curX));
+          }
+        } else if (c.activity === 'soccer-goalie') {
+          if (goalState === 'play') {
+            const homeX = goal.mouthX + 6;
+            const targetX = Math.max(goal.mouthX + 2, Math.min(goal.mouthX + 12, homeX + (ball.x - width * 0.3) * 0.04));
             const dx = targetX - c.curX;
-            if (Math.abs(dx) > 3) {
-              c.curX += Math.sign(dx) * 0.7;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.18;
+            if (Math.abs(dx) > 1.5) {
+              c.curX += Math.sign(dx) * 0.6;
+              c.runCycle += 0.16;
             } else {
-              c.facing = 1; // Watch teammate on the right
               c.runCycle = 0;
+            }
+            c.facing = 1;
+
+            // Incoming shot dive/save jump reaction
+            if (ball.vx < -2.0 && ball.x < width * 0.28) {
+              c.yOffset = -Math.abs(Math.sin(tick * 0.3)) * 6.0;
+            } else {
+              c.yOffset = 0;
             }
           }
-          // Strict boundary clamp for striker: never walk into goal net
-          c.curX = Math.max(goal.mouthX + 8, Math.min(width * 0.46, c.curX));
-        } else if (c.activity === 'soccer-midfield') {
-          if (goalState === 'celebrating') {
-            c.facing = -1;
-            c.yOffset = -Math.abs(Math.sin(tick * 0.16 + c.id)) * 4.0;
-            c.runCycle = 0;
-          } else if (goalState === 'play' && c.soccerIntent === 'hunt-ball' && c.kickPhase === 'idle') {
-            // Midfielder stays in midfield: target ball or midfield clamp
-            const targetX = Math.max(width * 0.28, ball.x + 6);
-            const dx = targetX - c.curX;
-
-            if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 1.25;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.28;
-            } else {
-              // Physically AT the ball! Face left and strike pass/cross
-              c.facing = -1;
-              c.runCycle = 0;
-
-              const dist = Math.hypot(c.curX - (ball.x + 6), groundY - ball.y);
-              if (dist < 20 && c.kickCooldown === 0 && !ball.inNet) {
-                triggerPlayerKick(c, -1);
-              }
-            }
-          } else if (c.soccerIntent === 'support' && c.kickPhase === 'idle') {
-            // Support position in center
-            const targetX = width * 0.45;
-            const dx = targetX - c.curX;
-            if (Math.abs(dx) > 3) {
-              c.curX += Math.sign(dx) * 0.7;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.18;
-            } else {
-              c.facing = -1; // Watch attack on the left
-              c.runCycle = 0;
-            }
-          }
-          // Strict boundary clamp for midfielder: seamless overlap with striker
-          c.curX = Math.max(width * 0.26, Math.min(width * 0.58, c.curX));
         }
 
         // ===============================================
@@ -1292,29 +1384,37 @@ export function MiniatureGardenPlayground() {
           // EXACT CONTACT POINT: Foot connects with the ball!
           if (c.kickProgress >= 0.40 && !c.kickHasContacted) {
             c.kickHasContacted = true;
-            c.kickCooldown = 45;
+            c.kickCooldown = 40;
             ball.lastKickerId = c.id;
 
-            if (c.activity === 'soccer-striker') {
-              if (c.facing === 1) {
-                // Tapping ball out of net to midfield
-                ball.vx = 3.6;
-                ball.vy = -2.2;
-                ball.rotSpeed = 0.2;
+            if (c.activity === 'soccer-goalie') {
+              // Goalkeeper clearance / goal kick out to Player 1 (the same person)!
+              ball.vx = 4.4 + Math.random() * 0.6;
+              ball.vy = -2.2;
+              ball.rotSpeed = 0.28;
+              passCount = 0;
+            } else if (c.facing === 1) {
+              // Passing rightwards across pitch to teammate!
+              ball.vx = 3.6 + Math.random() * 0.8;
+              ball.vy = -1.8;
+              ball.rotSpeed = 0.22;
+              passCount++;
+            } else if (c.facing === -1) {
+              if (passCount < 3 && ball.x > width * 0.30) {
+                // Passing back/leftwards to teammate
+                ball.vx = -(3.6 + Math.random() * 0.8);
+                ball.vy = -1.8;
+                ball.rotSpeed = -0.22;
+                passCount++;
               } else {
-                // Striker shot on goal
+                // Striker SHOT ON GOAL!
                 const distToGoal = ball.x - goal.mouthX;
-                const power = Math.max(4.6, Math.min(6.2, distToGoal * 0.08 + 4.0));
+                const power = Math.max(5.2, Math.min(6.8, distToGoal * 0.08 + 4.2));
                 ball.vx = -power;
-                ball.vy = -2.6 - Math.random() * 1.8;
-                ball.rotSpeed = -0.32;
+                ball.vy = -2.5 - Math.random() * 1.5;
+                ball.rotSpeed = -0.34;
+                passCount = 0;
               }
-            } else if (c.activity === 'soccer-midfield') {
-              // Midfielder pass/cross to striker
-              const power = 4.8 + Math.random() * 1.4;
-              ball.vx = -power;
-              ball.vy = -3.2 - Math.random() * 1.4;
-              ball.rotSpeed = -0.28;
             }
 
             // Green turf particles fly upon foot contact
@@ -1517,7 +1617,34 @@ export function MiniatureGardenPlayground() {
         ctx.lineWidth = 1.8;
         ctx.lineCap = 'round';
 
-        if (isScorerCelebrating) {
+        if (c.activity === 'soccer-goalie') {
+          // Goalkeeper stance: hands forward with bright yellow padded goalie gloves
+          const gloveOffset = isScorerCelebrating ? 0 : Math.sin(tick * 0.12) * 1.5;
+          const g1X = c.facing * 5;
+          const g1Y = bodyY - 1 + gloveOffset;
+          const g2X = c.facing * 7;
+          const g2Y = bodyY + 3 - gloveOffset;
+
+          ctx.strokeStyle = '#334155';
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.moveTo(-1, bodyY + 3);
+          ctx.lineTo(g1X, g1Y);
+          ctx.moveTo(1, bodyY + 3);
+          ctx.lineTo(g2X, g2Y);
+          ctx.stroke();
+
+          // Bright padded goalie gloves
+          ctx.fillStyle = '#facc15';
+          ctx.strokeStyle = '#ca8a04';
+          ctx.lineWidth = 0.8;
+          [[g1X, g1Y], [g2X, g2Y]].forEach(([gx, gy]) => {
+            ctx.beginPath();
+            ctx.arc(gx, gy, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+        } else if (isScorerCelebrating) {
           const celebrateWiggle = Math.sin(tick * 0.25) * 2;
           ctx.beginPath();
           ctx.moveTo(-3, bodyY + 3);
