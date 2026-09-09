@@ -27,13 +27,20 @@ export function SectionVerticalTitle({ number, title, colorScheme }: SectionVert
   const badge  = colorScheme?.badge  ?? 'bg-slate-900';
   const text   = colorScheme?.text   ?? 'text-slate-900';
 
+  const sectionNum = parseInt(number, 10) || 1;
+  const delaySec = `${((sectionNum - 1) * 0.08).toFixed(2)}s`;
+
   return (
     <aside
       aria-label={`Section ${number}: ${title}`}
-      className={`absolute top-0 right-0 z-10 flex flex-col items-center ${bg} border-l border-b ${border} rounded-bl-xl px-1.5 sm:px-2 pt-2 sm:pt-2.5 pb-3 sm:pb-3.5 select-none pointer-events-none transition-all shadow-2xs max-h-[85%] overflow-hidden`}
+      style={{ animationDelay: delaySec }}
+      className={`spider-descend absolute top-0 right-0 z-10 flex flex-col items-center ${bg} border-l border-b ${border} rounded-bl-xl px-1.5 sm:px-2 pt-2 sm:pt-2.5 pb-3 sm:pb-3.5 select-none pointer-events-none transition-all shadow-2xs max-h-[85%] overflow-visible`}
     >
+      {/* Spider silk thread dropping from the ceiling */}
+      <div className="spider-silk-thread" />
+
       <h2 className="sr-only">Section {number}: {title}</h2>
-      <span className={`flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-md ${badge} text-white font-black text-[10px] sm:text-[11px] shadow-xs font-mono`}>
+      <span className={`relative flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-md ${badge} text-white font-black text-[10px] sm:text-[11px] shadow-xs font-mono ring-1 ring-black/10`}>
         {number}
       </span>
       <span

@@ -219,8 +219,12 @@ export function ExpensesAndApprovalGrid({
                       <input
                         type="number"
                         min="0"
-                        value={item.currentVal || 0}
-                        onChange={(e) => onCurrentExpenseChange(item.key, Number(e.target.value))}
+                        value={item.currentVal ? item.currentVal : ''}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                          onCurrentExpenseChange(item.key, val);
+                        }}
                         className="w-24 text-right font-mono text-xs px-2.5 py-1.5 rounded-lg border border-black focus:ring-2 focus:ring-purple-400 focus:border-purple-600 focus:outline-none bg-white"
                       />
                     )}
@@ -235,10 +239,12 @@ export function ExpensesAndApprovalGrid({
                         <input
                           type="number"
                           min="0"
-                          value={item.requiredVal || 0}
-                          onChange={(e) =>
-                            onRequiredSupportChange(item.reqKey!, Number(e.target.value))
-                          }
+                          value={item.requiredVal ? item.requiredVal : ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                            onRequiredSupportChange(item.reqKey!, val);
+                          }}
                           className="w-24 text-right font-mono font-bold text-purple-950 text-xs px-2.5 py-1.5 rounded-lg border border-black focus:ring-2 focus:ring-purple-400 focus:border-purple-600 focus:outline-none bg-purple-50/40 focus:bg-white"
                         />
                       )
@@ -302,8 +308,12 @@ export function ExpensesAndApprovalGrid({
                     <input
                       type="number"
                       min="0"
-                      value={item.currentVal || 0}
-                      onChange={(e) => onCurrentExpenseChange(item.key, Number(e.target.value))}
+                      value={item.currentVal ? item.currentVal : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                        onCurrentExpenseChange(item.key, val);
+                      }}
                       className="w-full font-mono text-xs px-2.5 py-2 rounded-lg border border-black bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-600"
                     />
                   )}
@@ -322,10 +332,12 @@ export function ExpensesAndApprovalGrid({
                       <input
                         type="number"
                         min="0"
-                        value={item.requiredVal || 0}
-                        onChange={(e) =>
-                          onRequiredSupportChange(item.reqKey!, Number(e.target.value))
-                        }
+                        value={item.requiredVal ? item.requiredVal : ''}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                          onRequiredSupportChange(item.reqKey!, val);
+                        }}
                         className="w-full font-mono font-bold text-purple-950 text-xs px-2.5 py-2 rounded-lg border border-black bg-purple-50/40 focus:bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-600"
                       />
                     )}

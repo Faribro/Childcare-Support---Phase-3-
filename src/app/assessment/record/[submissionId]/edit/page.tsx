@@ -11,6 +11,7 @@ import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndAppro
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
+import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { getAllQueueItems, enqueueSubmission } from '@/lib/db/syncQueueRepository';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
@@ -73,6 +74,7 @@ export default function EditRecordPage() {
   const [currentVersion, setCurrentVersion] = useState<number>(1);
   const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState<string>('en');
   const [existingSignatureUrl, setExistingSignatureUrl] = useState<string>('');
   const [fallbackSigUuid, setFallbackSigUuid] = useState<string>('');
 
@@ -929,12 +931,19 @@ export default function EditRecordPage() {
               <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
                 01
               </span>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              <h2 className="line-1 anim-typewriter text-base sm:text-lg font-bold text-slate-900 tracking-tight">
                 Caregiver Consent &amp; Signature
               </h2>
             </div>
 
             <div className="space-y-4">
+              {/* Verbatim Caregiver Audio Consent Statement & Interactive Audio Player */}
+              <ConsentAudioNotice
+                currentLanguage={currentLanguage}
+                agreeToParticipate={formData.agreeToParticipate}
+                onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
+              />
+
               {/* Consent Decision Radio Buttons */}
               <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2">
                 <label className="text-xs font-bold text-slate-900 block">
@@ -1065,7 +1074,7 @@ export default function EditRecordPage() {
                   2
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Child Demographics &amp; Residence
                   </h2>
                   <p className="text-[11px] text-slate-500">
@@ -1220,11 +1229,7 @@ export default function EditRecordPage() {
                 placeholder="e.g. Pune"
               />
 
-              <div className="flex flex-col space-y-1.5">
-                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-indigo-600 block flex items-center justify-between">
-                  <span>GPS Location</span>
-                  <span className="text-[9px] font-bold text-indigo-600/90 bg-indigo-100/70 px-1.5 py-0.5 rounded uppercase">Live Satellite</span>
-                </label>
+              <div className="flex flex-col justify-end">
                 <LocationFetchButton
                   onLocationFetched={(loc) => setFormData((prev) => ({
                     ...prev,
@@ -1248,7 +1253,7 @@ export default function EditRecordPage() {
                   3
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Banking &amp; KYC Documents
                   </h2>
                   <p className="text-[11px] text-slate-500">
@@ -1326,7 +1331,7 @@ export default function EditRecordPage() {
                   4
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Household &amp; Socio-Economic Profile
                   </h2>
                   <p className="text-[11px] text-slate-500">
@@ -1395,7 +1400,7 @@ export default function EditRecordPage() {
                   5
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Clinical Health, ART &amp; Viral Load
                   </h2>
                   <p className="text-[11px] text-slate-500">
@@ -1729,7 +1734,7 @@ export default function EditRecordPage() {
                   6
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Appetite &amp; Nutrition Habits
                   </h2>
                   <p className="text-[11px] text-slate-500">
@@ -1873,7 +1878,7 @@ export default function EditRecordPage() {
                   8
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Education Expenses &amp; Aid Breakdown
                   </h2>
                   <p className="text-[11px] text-slate-500">
@@ -1941,7 +1946,7 @@ export default function EditRecordPage() {
                   9
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                  <h2 className="line-1 anim-typewriter text-sm sm:text-base font-bold text-slate-900">
                     Review &amp; Submitter Attestation
                   </h2>
                   <p className="text-[11px] text-slate-500">

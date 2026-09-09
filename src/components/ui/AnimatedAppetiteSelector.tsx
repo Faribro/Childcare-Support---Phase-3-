@@ -32,6 +32,10 @@ export function AnimatedAppetiteSelector({
 
   // Automatically calculate appetite based on meals per day
   const handleMealsInput = (rawVal: string | number) => {
+    if (rawVal === '' || rawVal === undefined || rawVal === null) {
+      onMealsChange('' as any);
+      return;
+    }
     const val = typeof rawVal === 'string' ? parseInt(rawVal, 10) : rawVal;
     const safeMeals = isNaN(val) ? 0 : Math.max(0, Math.min(10, val));
     onMealsChange(safeMeals);
@@ -155,7 +159,7 @@ export function AnimatedAppetiteSelector({
               min="0"
               max="10"
               required
-              value={mealsPerDay === 0 || mealsPerDay === '0' ? '0' : (mealsPerDay || '')}
+              value={mealsPerDay ? mealsPerDay : ''}
               onChange={(e) => handleMealsInput(e.target.value)}
               placeholder="e.g. 3"
               className="w-full h-10 px-3 text-center text-lg font-black text-slate-900 bg-slate-50 border border-slate-300 focus:border-lime-500 focus:ring-2 focus:ring-lime-400/30 rounded-xl transition-all outline-none"

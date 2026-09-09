@@ -24,8 +24,9 @@ const num = (v: unknown) => typeof v === 'number' && !isNaN(v) && v > 0;
 const bool = (v: unknown) => v === true || v === false;
 
 export const FORM_READING_SEQUENCE: ReadingItem[] = [
-  { id: 'sec-consent',      textKey: 'sec_consent_full' },
-  { id: 'q-consent-decision', textKey: 'consent_q',
+  { id: 'sec-consent',          textKey: 'sec_consent_full' },
+  { id: 'consent-audio-notice', textKey: 'consent_audio_statement' },
+  { id: 'q-consent-decision',   textKey: 'consent_q',
     isFilled: (fd) => bool(fd.agreeToParticipate) },
   { id: 'q-caregiver-name',  textKey: 'caregiver_name',
     isFilled: (fd) => str(fd.caregiverName) },

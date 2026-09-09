@@ -166,7 +166,6 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
               >
                 <Shield className="h-3.5 w-3.5 text-teal-700 transition-transform duration-200 group-hover:scale-110" />
                 <span>Evaluation</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-pulse" />
                 {pathname?.startsWith('/supervisor') ? (
                   <span className="absolute -bottom-1 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 shadow-[0_2px_6px_rgba(13,148,136,0.35)] animate-in fade-in duration-300" />
                 ) : (

@@ -27,7 +27,7 @@ export function SectionHeader({
   eyebrowColor = 'text-slate-400/90',
 }: SectionHeaderProps) {
   return (
-    <div className={`mb-3 pb-3 border-b ${borderColor}`}>
+    <div className={`mb-3 pb-3 border-b ${borderColor} overflow-hidden`}>
       {/* Eyebrow — only render if explicitly provided */}
       {eyebrow && (
         <p className={`text-[9.5px] font-black uppercase tracking-[0.22em] ${eyebrowColor} mb-1.5 select-none`}>
@@ -35,12 +35,14 @@ export function SectionHeader({
         </p>
       )}
 
-      {/* Heading — dark base + italic colored emphasis word */}
-      <h3 className="text-[17px] sm:text-[19px] font-extrabold text-slate-900 leading-snug tracking-tight">
-        {prefix}
-        <span className={`italic font-black ${emphasisColor}`}>{emphasis}</span>
-        {suffix}
-      </h3>
+      {/* Heading — typewriter style using CSS steps() */}
+      <div className="max-w-full overflow-hidden flex items-center">
+        <h3 className="line-1 anim-typewriter text-[16px] sm:text-[19px] font-extrabold text-slate-900 leading-snug tracking-tight">
+          <span>{prefix}</span>
+          <span className={`italic font-black ${emphasisColor}`}>{emphasis}</span>
+          <span>{suffix}</span>
+        </h3>
+      </div>
     </div>
   );
 }

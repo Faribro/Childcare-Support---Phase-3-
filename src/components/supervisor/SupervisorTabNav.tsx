@@ -117,7 +117,8 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
       <div
         ref={navContainerRef}
         onMouseLeave={handleMouseLeave}
-        className="relative flex items-center space-x-1 overflow-x-auto pb-[1px]"
+        className="relative flex items-center space-x-1 overflow-x-auto sm:overflow-x-visible no-scrollbar pb-[1px]"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {SUPERVISOR_TABS.map((tab) => {
           const isActive = tab.href === activeHref;
@@ -145,9 +146,6 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
                 }`}
               />
               <span className="relative z-10">{tab.label}</span>
-              {isActive && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
-              )}
             </Link>
           );
         })}

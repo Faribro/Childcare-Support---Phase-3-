@@ -10,6 +10,9 @@ export interface LocationResult {
   pincode: string;
   subLocality: string;
   locality: string;
+  houseNumber?: string;
+  road?: string;
+  colony?: string;
 }
 
 interface LocationFetchButtonProps {
@@ -78,101 +81,35 @@ function cleanDistrict(raw: string): string {
   return raw.replace(/\s+(District|district|Division|division)$/, '').trim();
 }
 
-function formatDetailedAddress(addr: Record<string, string>, displayName?: string): string {
-  const premises = [
-    addr.house_number,
-    addr.house_name,
-    addr.building,
-    addr.flats,
-    addr.amenity,
-    addr.shop,
-    addr.office,
-  ].filter(Boolean).join(' ');
-
-  const street = [
-    addr.road,
-    addr.street,
-    addr.pedestrian,
-    addr.footway,
-    addr.path,
-    addr.residential,
-    addr.subway,
-  ].filter(Boolean)[0] || '';
-
-  const localities = [
-    addr.neighbourhood,
-    addr.suburb,
-    addr.quarter,
-    addr.subdivision,
-    addr.block,
-    addr.sector,
-    addr.colony,
-    addr.hamlet,
-  ].filter(Boolean);
-
-  const city = addr.city || addr.town || addr.village || addr.city_district || addr.county || '';
-  const postcode = addr.postcode || '';
-
-  const parts: string[] = [];
-  if (premises) parts.push(premises);
-  if (street && !parts.some(p => p.toLowerCase().includes(street.toLowerCase()))) parts.push(street);
-  for (const loc of localities) {
-    if (!parts.some(p => p.toLowerCase().includes(loc.toLowerCase()))) parts.push(loc);
-  }
-  if (city && !parts.some(p => p.toLowerCase().includes(city.toLowerCase()))) parts.push(city);
-  if (postcode && !parts.includes(postcode)) parts.push(postcode);
-
-  let addressStr = parts.join(', ');
-
-  // If addressStr is sparse but displayName is available, clean displayName:
-  if (parts.length < 2 && displayName) {
-    const tokens = displayName.split(',').map(s => s.trim()).filter(Boolean);
-    if (tokens.length > 1 && tokens[tokens.length - 1].toLowerCase() === 'india') {
-      tokens.pop();
-    }
-    addressStr = tokens.slice(0, 4).join(', ');
-  }
-
-  return addressStr;
-}
-
-// ── 1. OpenStreetMap Nominatim with zoom=18 & addressdetails=1 (Primary High-Accuracy) ──
-async function reverseGeocodeWithNominatim(lat: number, lng: number): Promise<LocationResult | null> {
+// ── 1. ESRI ArcGIS World Geocoder (High-Precision Parcel, Street & House Numbers in India) ──
+async function reverseGeocodeWithEsri(lat: number, lng: number): Promise<any | null> {
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 ChildCareSupportApp/3.0 (India HIV/AIDS Alliance)' },
-      signal: AbortSignal.timeout(8000),
-    });
+    const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode?location=${lng},${lat}&featureTypes=PointAddress,Subaddress,StreetAddress,POI,StreetName&distance=100&f=json`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
     if (!res.ok) return null;
     const data = await res.json();
-    const addr = data.address || {};
-
-    const state = normaliseState(addr.state || addr.state_district || '');
-    const rawDistrict = addr.state_district || addr.district || addr.county || addr.city || addr.town || '';
-    const district = cleanDistrict(rawDistrict);
-    const pincode = addr.postcode || '';
-    const locality = addr.city || addr.town || addr.village || addr.city_district || addr.suburb || '';
-    const subLocality = addr.suburb || addr.neighbourhood || addr.quarter || '';
-
-    const fullAddress = formatDetailedAddress(addr, data.display_name);
-
-    if (!fullAddress && !state) return null;
-
-    return {
-      fullAddress,
-      state,
-      district,
-      pincode,
-      subLocality,
-      locality,
-    };
+    return data?.address || null;
   } catch {
     return null;
   }
 }
 
-// ── 2. Photon (Komoot OSM High-Speed Fallback) ──
+// ── 2. OpenStreetMap Nominatim (High-Accuracy Address Hierarchy, Landmarks & POIs) ──
+async function reverseGeocodeWithNominatim(lat: number, lng: number): Promise<any | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1&extratags=1&namedetails=1`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 ChildCareSupportApp/3.0 (India HIV/AIDS Alliance)' },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ── 3. Photon Fallback ──
 async function reverseGeocodeWithPhoton(lat: number, lng: number): Promise<LocationResult | null> {
   try {
     const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`;
@@ -209,7 +146,7 @@ async function reverseGeocodeWithPhoton(lat: number, lng: number): Promise<Locat
   }
 }
 
-// ── 3. BigDataCloud Fallback ──
+// ── 4. BigDataCloud Fallback ──
 async function reverseGeocodeWithBDC(lat: number, lng: number): Promise<LocationResult | null> {
   try {
     const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
@@ -245,11 +182,160 @@ async function reverseGeocodeWithBDC(lat: number, lng: number): Promise<Location
   }
 }
 
+// ── Multi-Source High-Precision Synthesizer ──
+function synthesizeAddress(esriAddr: any, nomData: any): LocationResult | null {
+  const e = esriAddr || {};
+  const n = nomData?.address || {};
+
+  // Extract house number / flat / plot
+  const rawHouseNum =
+    e.AddNum ||
+    e.StrucDet ||
+    n.house_number ||
+    n['addr:housenumber'] ||
+    n['addr:flats'] ||
+    n['addr:unit'] ||
+    n['addr:door_number'] ||
+    n['addr:plot_number'] ||
+    '';
+
+  // Extract landmark / building / society / commercial POI
+  const rawLandmark =
+    e.PlaceName ||
+    n.house_name ||
+    n.building ||
+    n.amenity ||
+    n.shop ||
+    n.office ||
+    '';
+
+  // Extract street / road name
+  const rawStreet =
+    e.Address ||
+    n.road ||
+    n.street ||
+    n.pedestrian ||
+    n.footway ||
+    '';
+
+  // Extract block / sector
+  const rawBlock =
+    e.Block ||
+    n.block ||
+    n['addr:block'] ||
+    '';
+
+  // Extract colony / neighbourhood
+  const rawColony =
+    n.neighbourhood ||
+    e.Sector ||
+    n.subdivision ||
+    n.quarter ||
+    '';
+
+  // Extract locality / suburb
+  const rawSuburb =
+    n.suburb ||
+    e.District ||
+    '';
+
+  // Extract district & city
+  const rawCity =
+    e.City ||
+    n.city ||
+    n.town ||
+    n.village ||
+    n.city_district ||
+    '';
+
+  const rawDistrict =
+    e.Subregion ||
+    n.state_district ||
+    n.district ||
+    rawCity ||
+    '';
+
+  // Extract state & pincode
+  const state = normaliseState(e.Region || n.state || n.state_district || '');
+  const district = cleanDistrict(rawDistrict);
+  const pincode = e.Postal || n.postcode || '';
+
+  if (!state && !district && !rawCity) return null;
+
+  // Build ordered address components without duplication
+  const parts: string[] = [];
+
+  // 1. House / Flat / Plot Number
+  if (rawHouseNum) {
+    const formatted = /(house|flat|plot|h.no|door)/i.test(rawHouseNum)
+      ? rawHouseNum
+      : `House No. ${rawHouseNum}`;
+    parts.push(formatted);
+  } else if (rawLandmark && rawLandmark.toLowerCase() !== rawStreet.toLowerCase()) {
+    parts.push(rawLandmark.startsWith('Near') ? rawLandmark : `Near ${rawLandmark}`);
+  }
+
+  // 2. Block
+  if (rawBlock && !parts.some(p => p.toLowerCase().includes(rawBlock.toLowerCase()))) {
+    parts.push(/(block|sector)/i.test(rawBlock) ? rawBlock : `Block ${rawBlock}`);
+  }
+
+  // 3. Street / Road (e.g. Kailash Market Road)
+  if (rawStreet && !parts.some(p => p.toLowerCase().includes(rawStreet.toLowerCase()))) {
+    parts.push(rawStreet);
+  }
+
+  // 4. Colony / Sector (e.g. Kailash Colony)
+  if (rawColony && !parts.some(p => p.toLowerCase().includes(rawColony.toLowerCase()))) {
+    parts.push(rawColony);
+  }
+
+  // 5. Suburb / Sub-locality (e.g. Greater Kailash)
+  if (rawSuburb && !parts.some(p => p.toLowerCase().includes(rawSuburb.toLowerCase()))) {
+    parts.push(rawSuburb);
+  }
+
+  // 6. City (e.g. Delhi / South Delhi)
+  if (rawCity && !parts.some(p => p.toLowerCase().includes(rawCity.toLowerCase()))) {
+    parts.push(rawCity);
+  } else if (district && !parts.some(p => p.toLowerCase().includes(district.toLowerCase()))) {
+    parts.push(district);
+  }
+
+  // 7. Pincode
+  if (pincode && !parts.includes(pincode)) {
+    parts.push(pincode);
+  }
+
+  let fullAddress = parts.join(', ');
+
+  // If address has less than 2 parts, use clean display_name from Nominatim
+  if (parts.length < 2 && nomData?.display_name) {
+    const tokens = nomData.display_name.split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (tokens.length > 1 && tokens[tokens.length - 1].toLowerCase() === 'india') {
+      tokens.pop();
+    }
+    fullAddress = tokens.slice(0, 5).join(', ');
+  }
+
+  return {
+    fullAddress,
+    state,
+    district: district || rawCity,
+    pincode,
+    subLocality: rawSuburb || rawColony,
+    locality: rawCity || district,
+    houseNumber: rawHouseNum,
+    road: rawStreet,
+    colony: rawColony,
+  };
+}
+
 const STATUS_MSG: Record<FetchStatus, string> = {
   idle: 'Fetch Live Address',
   requesting: 'Getting GPS Coords…',
-  geocoding: 'Locating House & Street…',
-  success: 'Address Auto-Filled!',
+  geocoding: 'Pinpointing House & Street…',
+  success: 'Accurate Address Located!',
   error: 'Retry GPS Fetch',
 };
 
@@ -257,6 +343,7 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
   const [status, setStatus] = useState<FetchStatus>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [locatedDetail, setLocatedDetail] = useState<string | null>(null);
 
   const handleFetch = useCallback(async () => {
     if (disabled) return;
@@ -264,9 +351,10 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
 
     setErrorMsg('');
     setAccuracy(null);
+    setLocatedDetail(null);
     setStatus('requesting');
 
-    // ── 1. Request GPS with high accuracy + 15s timeout ──
+    // ── 1. Request GPS with maximum hardware satellite accuracy ──
     let coords: GeolocationCoordinates;
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -277,7 +365,8 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
         });
       });
       coords = pos.coords;
-      setAccuracy(Math.round(pos.coords.accuracy));
+      const acc = Math.round(pos.coords.accuracy);
+      setAccuracy(acc);
     } catch (err) {
       const geoErr = err as GeolocationPositionError;
       const msg =
@@ -291,9 +380,25 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
       return;
     }
 
-    // ── 2. Reverse geocode: Nominatim (zoom=18) first, then Photon, then BigDataCloud ──
+    // ── 2. Multi-tier High-Precision Geocoding: ESRI + OSM Nominatim in parallel ──
     setStatus('geocoding');
-    let result = await reverseGeocodeWithNominatim(coords.latitude, coords.longitude);
+    let result: LocationResult | null = null;
+
+    try {
+      const [esriRes, nomRes] = await Promise.allSettled([
+        reverseGeocodeWithEsri(coords.latitude, coords.longitude),
+        reverseGeocodeWithNominatim(coords.latitude, coords.longitude),
+      ]);
+
+      const esriData = esriRes.status === 'fulfilled' ? esriRes.value : null;
+      const nomData = nomRes.status === 'fulfilled' ? nomRes.value : null;
+
+      result = synthesizeAddress(esriData, nomData);
+    } catch (e) {
+      console.warn('Primary geocoding exception:', e);
+    }
+
+    // ── 3. Fallbacks if primary synthesis yielded insufficient data ──
     if (!result || !result.state) {
       result = await reverseGeocodeWithPhoton(coords.latitude, coords.longitude);
     }
@@ -302,15 +407,26 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
     }
 
     if (!result || !result.state) {
-      setErrorMsg('Could not detect address. Check your internet connection.');
+      setErrorMsg('Could not detect address. Check internet connectivity.');
       setStatus('error');
       return;
     }
 
-    // ── 3. Deliver result ──
+    // ── 4. Deliver result & show pinpointed detail toast ──
     onLocationFetched(result);
     setStatus('success');
-    setTimeout(() => setStatus('idle'), 5000);
+
+    const detailText = result.houseNumber
+      ? `House ${result.houseNumber}, ${result.road || result.colony || ''}`
+      : result.road && result.colony
+      ? `${result.road}, ${result.colony}`
+      : result.colony || result.fullAddress.split(',')[0];
+
+    setLocatedDetail(detailText);
+    setTimeout(() => {
+      setStatus('idle');
+      setLocatedDetail(null);
+    }, 6000);
   }, [disabled, onLocationFetched, status]);
 
   const isLoading = status === 'requesting' || status === 'geocoding';
@@ -333,7 +449,7 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
         title={
           status === 'success' && accuracy
             ? `GPS accuracy: ±${accuracy}m`
-            : 'Auto-fill house, street, district & state from live GPS'
+            : 'Pinpoint exact house, street, colony & city from live GPS'
         }
         className={`
           w-full h-11 px-3.5 rounded-xl border font-bold text-xs
@@ -348,28 +464,28 @@ export function LocationFetchButton({ onLocationFetched, disabled, className }: 
         ) : status === 'success' ? (
           <CheckCircle2 className="w-4 h-4 shrink-0 text-white" />
         ) : status === 'error' ? (
-          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
         ) : (
-          <span className="relative shrink-0 flex items-center justify-center">
-            <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
-            <span className="absolute -inset-1 rounded-full border border-indigo-400 animate-ping opacity-40 pointer-events-none" />
-          </span>
+          <Navigation className="w-4 h-4 text-indigo-600 shrink-0" />
         )}
-
-        <span className="truncate">{STATUS_MSG[status]}</span>
-
-        {status === 'success' && accuracy && (
-          <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-700 text-white text-[10px] font-mono font-black shrink-0">
-            ±{accuracy}m
-          </span>
-        )}
+        <span>{STATUS_MSG[status]}</span>
       </button>
 
+      {/* Accuracy & Pinpointed Location Micro Badge */}
+      {status === 'success' && (
+        <div className="w-full flex items-center justify-between px-1 text-[10px] text-emerald-800 font-semibold animate-fadeIn">
+          <span className="truncate">✓ Located: {locatedDetail || 'Pinpoint address'}</span>
+          {accuracy !== null && (
+            <span className="shrink-0 bg-emerald-100/90 px-1.5 py-0.5 rounded font-mono text-[9.5px]">
+              ±{accuracy}m
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Error detail */}
       {status === 'error' && errorMsg && (
-        <p className="text-[11px] text-rose-600 font-medium leading-snug flex items-center gap-1 mt-0.5">
-          <MapPin className="w-3 h-3 shrink-0 text-rose-500" />
-          <span>{errorMsg}</span>
-        </p>
+        <p className="text-[10.5px] text-rose-600 px-1 font-medium">{errorMsg}</p>
       )}
     </div>
   );

@@ -189,7 +189,7 @@ export default function HomePage() {
         {/* Minimal Clean Footer Matching Reference */}
         <footer className="pt-8 pb-4 text-center">
           <p className="text-xs text-slate-400 font-normal">
-            Child Nutrition &amp; Support Platform • ART Centre Linelist Standard
+            Child Nutrition &amp; Support Platform
           </p>
         </footer>
       </div>

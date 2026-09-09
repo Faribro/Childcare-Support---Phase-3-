@@ -11,6 +11,7 @@ import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndAppro
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { SectionVerticalTitle, type SectionColorScheme } from '@/components/ui/SectionVerticalTitle';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
@@ -907,6 +908,13 @@ export default function ResumeDraftSinglePage() {
           <SectionHeader prefix="Caregiver's " emphasis="agreement" suffix=" to participate" emphasisColor="text-rose-600" borderColor="border-rose-100/80" eyebrowColor="text-rose-400/90" />
 
           <div className="space-y-4">
+            {/* Verbatim Caregiver Audio Consent Statement & Interactive Audio Player */}
+            <ConsentAudioNotice
+              currentLanguage={currentLanguage}
+              agreeToParticipate={formData.agreeToParticipate}
+              onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
+            />
+
             {/* Consent Decision */}
             <div
               id="q-consent-decision"
@@ -1195,11 +1203,7 @@ export default function ResumeDraftSinglePage() {
               placeholder="e.g. Pune"
             />
 
-            <div className="flex flex-col space-y-1.5">
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-indigo-600 block flex items-center justify-between">
-                <span>{t('gps_location', currentLanguage)}</span>
-                <span className="text-[9px] font-bold text-indigo-600/90 bg-indigo-100/70 px-1.5 py-0.5 rounded uppercase">Live Satellite</span>
-              </label>
+            <div className="flex flex-col justify-end">
               <LocationFetchButton
                 onLocationFetched={(loc) => setFormData((prev) => ({
                   ...prev,
