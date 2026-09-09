@@ -107,6 +107,15 @@ const recordsByUuid = new Map<string, StoredSheetRecord>();
 const idempotencyMap = new Map<string, { remoteId: string; response: CreateRecordResult }>();
 const auditLogsByRemoteId = new Map<string, SheetAuditEvent[]>();
 
+function simulateDriveUrl(val?: string, assetName: string = 'asset'): string {
+  if (!val) return '';
+  if (val.startsWith('http://') || val.startsWith('https://')) return val;
+  if (val.startsWith('data:')) {
+    return `https://drive.google.com/file/d/staging-drive-${assetName}-${Date.now().toString(36)}/view`;
+  }
+  return val;
+}
+
 
 export const MockSheetStore = {
   /**
@@ -247,18 +256,18 @@ export const MockSheetStore = {
       bank_name: payload.bankDetails?.bankName || 'State Bank of India',
       branch_name: payload.bankDetails?.branchName || 'Main',
       passbook_photo_captured: !!payload.bankingAndKyc?.passbookPhotoUrl || payload.bankDetails?.passbookPhotoCaptured || true,
-      passbook_photo_url: payload.bankingAndKyc?.passbookPhotoUrl || (payload as any).passbookPhotoUrl || '',
-      aadhaar_card_photo_url: payload.bankingAndKyc?.aadhaarCardPhotoUrl || (payload as any).aadhaarCardPhotoUrl || '',
-      child_photo_url: payload.bankingAndKyc?.childPhotoUrl || (payload as any).childPhotoUrl || '',
-      fee_receipt_photo_url: payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl || '',
-      marksheet_photo_url: payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl || '',
-      signature_data_url: payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl || '',
-      passbookPhotoUrl: payload.bankingAndKyc?.passbookPhotoUrl || (payload as any).passbookPhotoUrl || '',
-      aadhaarCardPhotoUrl: payload.bankingAndKyc?.aadhaarCardPhotoUrl || (payload as any).aadhaarCardPhotoUrl || '',
-      childPhotoUrl: payload.bankingAndKyc?.childPhotoUrl || (payload as any).childPhotoUrl || '',
-      feeReceiptPhotoUrl: payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl || '',
-      marksheetPhotoUrl: payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl || '',
-      signatureDataUrl: payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl || '',
+      passbook_photo_url: simulateDriveUrl(payload.bankingAndKyc?.passbookPhotoUrl || (payload as any).passbookPhotoUrl, 'passbook'),
+      aadhaar_card_photo_url: simulateDriveUrl(payload.bankingAndKyc?.aadhaarCardPhotoUrl || (payload as any).aadhaarCardPhotoUrl, 'aadhaar'),
+      child_photo_url: simulateDriveUrl(payload.bankingAndKyc?.childPhotoUrl || (payload as any).childPhotoUrl, 'child-photo'),
+      fee_receipt_photo_url: simulateDriveUrl(payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl, 'fee-receipt'),
+      marksheet_photo_url: simulateDriveUrl(payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl, 'marksheet'),
+      signature_data_url: simulateDriveUrl(payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl, 'caregiver-sig'),
+      passbookPhotoUrl: simulateDriveUrl(payload.bankingAndKyc?.passbookPhotoUrl || (payload as any).passbookPhotoUrl, 'passbook'),
+      aadhaarCardPhotoUrl: simulateDriveUrl(payload.bankingAndKyc?.aadhaarCardPhotoUrl || (payload as any).aadhaarCardPhotoUrl, 'aadhaar'),
+      childPhotoUrl: simulateDriveUrl(payload.bankingAndKyc?.childPhotoUrl || (payload as any).childPhotoUrl, 'child-photo'),
+      feeReceiptPhotoUrl: simulateDriveUrl(payload.educationExpenses?.feeReceiptPhotoUrl || (payload as any).feeReceiptPhotoUrl, 'fee-receipt'),
+      marksheetPhotoUrl: simulateDriveUrl(payload.educationExpenses?.marksheetPhotoUrl || (payload as any).marksheetPhotoUrl, 'marksheet'),
+      signatureDataUrl: simulateDriveUrl(payload.caregiverConsent?.signatureDataUrl || payload.consent?.signatureDataUrl || (payload as any).signatureDataUrl, 'caregiver-sig'),
       approved_alliance_india: payload.finalReview?.approvedAllianceIndia || (payload as any).approvedAllianceIndia || 'Pending',
       approvedAllianceIndia: payload.finalReview?.approvedAllianceIndia || (payload as any).approvedAllianceIndia || 'Pending',
       caseworker_name: payload.finalReview?.formSubmittedBy || payload.declaration?.caseworkerName || payload.interviewerName || 'Caseworker',
@@ -490,33 +499,39 @@ export const MockSheetStore = {
       changedFields.push('passbookPhotoCaptured');
     }
     if (patch.passbookPhotoUrl !== undefined) {
-      existing.passbook_photo_url = patch.passbookPhotoUrl;
-      existing.passbookPhotoUrl = patch.passbookPhotoUrl;
+      const url = simulateDriveUrl(patch.passbookPhotoUrl, 'passbook');
+      existing.passbook_photo_url = url;
+      existing.passbookPhotoUrl = url;
       changedFields.push('passbookPhotoUrl');
     }
     if (patch.aadhaarCardPhotoUrl !== undefined) {
-      existing.aadhaar_card_photo_url = patch.aadhaarCardPhotoUrl;
-      existing.aadhaarCardPhotoUrl = patch.aadhaarCardPhotoUrl;
+      const url = simulateDriveUrl(patch.aadhaarCardPhotoUrl, 'aadhaar');
+      existing.aadhaar_card_photo_url = url;
+      existing.aadhaarCardPhotoUrl = url;
       changedFields.push('aadhaarCardPhotoUrl');
     }
     if (patch.childPhotoUrl !== undefined) {
-      existing.child_photo_url = patch.childPhotoUrl;
-      existing.childPhotoUrl = patch.childPhotoUrl;
+      const url = simulateDriveUrl(patch.childPhotoUrl, 'child-photo');
+      existing.child_photo_url = url;
+      existing.childPhotoUrl = url;
       changedFields.push('childPhotoUrl');
     }
     if (patch.feeReceiptPhotoUrl !== undefined) {
-      existing.fee_receipt_photo_url = patch.feeReceiptPhotoUrl;
-      existing.feeReceiptPhotoUrl = patch.feeReceiptPhotoUrl;
+      const url = simulateDriveUrl(patch.feeReceiptPhotoUrl, 'fee-receipt');
+      existing.fee_receipt_photo_url = url;
+      existing.feeReceiptPhotoUrl = url;
       changedFields.push('feeReceiptPhotoUrl');
     }
     if (patch.marksheetPhotoUrl !== undefined) {
-      existing.marksheet_photo_url = patch.marksheetPhotoUrl;
-      existing.marksheetPhotoUrl = patch.marksheetPhotoUrl;
+      const url = simulateDriveUrl(patch.marksheetPhotoUrl, 'marksheet');
+      existing.marksheet_photo_url = url;
+      existing.marksheetPhotoUrl = url;
       changedFields.push('marksheetPhotoUrl');
     }
     if (patch.signatureDataUrl !== undefined) {
-      existing.signature_data_url = patch.signatureDataUrl;
-      existing.signatureDataUrl = patch.signatureDataUrl;
+      const url = simulateDriveUrl(patch.signatureDataUrl, 'caregiver-sig');
+      existing.signature_data_url = url;
+      existing.signatureDataUrl = url;
       changedFields.push('signatureDataUrl');
     }
     if (patch.approvedAllianceIndia !== undefined) {

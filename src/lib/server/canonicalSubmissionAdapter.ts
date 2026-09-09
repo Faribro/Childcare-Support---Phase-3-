@@ -153,11 +153,29 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
 
 class CanonicalSubmissionAdapterService {
   public isConfigured(): boolean {
+    // Under test or local development environments, require E2E_STAGING_ENABLED=true
+    // before attempting outbound Google Apps Script calls. This strictly enforces
+    // Safety Rule 4 & 5 and protects the operational spreadsheet from test mutations.
+    if (
+      process.env.E2E_STAGING_ENABLED !== 'true' &&
+      (process.env.NODE_ENV === 'test' ||
+        process.env.NEXT_PUBLIC_APP_ENV === 'development' ||
+        process.env.E2E_ALLOW_LOCAL_MOCK === 'true')
+    ) {
+      return false;
+    }
     const url = process.env.APPS_SCRIPT_URL;
     return !!(url && url.startsWith('https://script.google.com'));
   }
 
   public isProductionOrStaging(): boolean {
+    if (
+      process.env.E2E_ALLOW_LOCAL_MOCK === 'true' ||
+      process.env.NEXT_PUBLIC_APP_ENV === 'development' ||
+      process.env.NEXT_PUBLIC_APP_ENV === 'test'
+    ) {
+      return false;
+    }
     return process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
   }
 
