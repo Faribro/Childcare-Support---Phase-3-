@@ -5,10 +5,11 @@ import React, { useRef, useEffect } from 'react';
 /**
  * MiniatureGardenPlayground
  * Compact physics-based miniature live garden with children PLAYING
- * (running, passing the soccer ball back and forth, skipping, twirling,
+ * (running, passing, authentic soccer kicking, skipping, twirling,
  * chasing butterflies, and cheering) on a rolling green hill.
- * Zero constant frantic jumping, sleek reduced height, no unwanted white spaces,
- * and no hint badges.
+ * Features a miniature soccer goal with flexible net on the left,
+ * realistic rolling & kicking physics, and goal celebration where the
+ * scoring player raises arms and shouts "GOAL! ⚽" in a comic speech bubble.
  */
 export function MiniatureGardenPlayground() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,16 +44,43 @@ export function MiniatureGardenPlayground() {
       return baseLine - arch;
     };
 
-    // Interactive Soccer / Play Ball
+    // Soccer Goal Dimensions on Left Slope
+    const goal = {
+      mouthX: 50,    // Front goal line
+      backX: 18,     // Back of the net
+      height: 22,    // Crossbar height
+      netBulge: 0,   // Dynamic net ripple/bulge when ball enters
+      netBulgeVel: 0,
+    };
+
+    // Goal event tracking
+    let goalTimer = 0;       // frames countdown during celebration (~160 frames)
+    let scorerId: number | null = null;
+
+    // Celebration Confetti Particles
+    const celebrationParticles: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      size: number;
+      color: string;
+      life: number;
+    }> = [];
+
+    // Interactive Soccer Ball with Realistic Physics
     const ball = {
-      x: 180,
+      x: 160,
       y: 60,
       vx: 2.2,
       vy: 0,
-      radius: 5.5,
+      radius: 5.2,
       rotation: 0,
       rotSpeed: 0.08,
-      bounciness: 0.72,
+      bounciness: 0.52, // Turf restitution
+      lastKickerId: 1,  // Who kicked the ball
+      inNet: false,
+      kickImpulsePending: false,
     };
 
     // Fluttering Butterflies
@@ -69,15 +97,14 @@ export function MiniatureGardenPlayground() {
       { x: 760, y: 18, speed: 0.2, scale: 0.7, opacity: 0.65 },
     ];
 
-    // Playing Children definitions
+    // Playing Children definitions with Real Kicking Physics & Animation
     interface PlayingChild {
       id: number;
       baseRatioX: number;
       curX: number;
       yOffset: number;
       vy: number;
-      // Play behavior & personality
-      behavior: 'kicker-left' | 'skipping' | 'chaser-center' | 'butterfly-catcher' | 'runner-right' | 'twirler' | 'cheerer';
+      behavior: 'striker-left' | 'skipping' | 'playmaker-center' | 'butterfly-catcher' | 'winger-right' | 'twirler' | 'cheerer';
       facing: 1 | -1; // 1 = right, -1 = left
       hairColor: string;
       hairStyle: 'short-brown' | 'ponytail-red' | 'spiky-black' | 'blonde-bob' | 'beanie' | 'orange-pigtails' | 'curly-brown';
@@ -88,31 +115,40 @@ export function MiniatureGardenPlayground() {
       twirlAngle: number;
       kickCooldown: number;
       runCycle: number;
+      // Realistic 4-phase kicking motion
+      kickPhase: 'idle' | 'windup' | 'strike' | 'followthrough';
+      kickProgress: number; // 0 to 1
+      kickLegAngle: number; // in radians
+      kickSide: 1 | -1;     // right leg or left leg
       particles: Array<{ x: number; y: number; vy: number; vx: number; life: number; color: string }>;
     }
 
     const children: PlayingChild[] = [
       {
         id: 1,
-        baseRatioX: 0.10,
+        baseRatioX: 0.14,
         curX: 0,
         yOffset: 0,
         vy: 0,
-        behavior: 'kicker-left',
-        facing: 1,
+        behavior: 'striker-left',
+        facing: -1,
         hairColor: '#b45309',
         hairStyle: 'short-brown',
-        shirtColor: '#38bdf8', // Blue tee
+        shirtColor: '#0284c7', // Sky blue jersey
         pantsColor: '#1e293b',
         skinColor: '#fde68a',
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
       {
         id: 2,
-        baseRatioX: 0.22,
+        baseRatioX: 0.26,
         curX: 0,
         yOffset: 0,
         vy: 0,
@@ -127,29 +163,37 @@ export function MiniatureGardenPlayground() {
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
       {
         id: 3,
-        baseRatioX: 0.38,
+        baseRatioX: 0.40,
         curX: 0,
         yOffset: 0,
         vy: 0,
-        behavior: 'chaser-center',
+        behavior: 'playmaker-center',
         facing: -1,
         hairColor: '#334155',
         hairStyle: 'spiky-black',
-        shirtColor: '#f59e0b', // Yellow shirt
+        shirtColor: '#f59e0b', // Yellow jersey
         pantsColor: '#15803d',
         skinColor: '#fde68a',
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
       {
         id: 4,
-        baseRatioX: 0.52,
+        baseRatioX: 0.54,
         curX: 0,
         yOffset: 0,
         vy: 0,
@@ -164,24 +208,32 @@ export function MiniatureGardenPlayground() {
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
       {
         id: 5,
-        baseRatioX: 0.66,
+        baseRatioX: 0.68,
         curX: 0,
         yOffset: 0,
         vy: 0,
-        behavior: 'runner-right',
+        behavior: 'winger-right',
         facing: -1,
         hairColor: '#7c2d12',
         hairStyle: 'beanie',
-        shirtColor: '#84cc16', // Olive green shirt
+        shirtColor: '#84cc16', // Lime green jersey
         pantsColor: '#1e3a8a',
         skinColor: '#fde68a',
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
       {
@@ -194,13 +246,17 @@ export function MiniatureGardenPlayground() {
         facing: 1,
         hairColor: '#d97706',
         hairStyle: 'orange-pigtails',
-        shirtColor: '#2563eb', // Blue striped dress
+        shirtColor: '#2563eb', // Blue dress
         pantsColor: '#2563eb',
         skinColor: '#fef3c7',
         hasDress: true,
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
       {
@@ -220,18 +276,22 @@ export function MiniatureGardenPlayground() {
         twirlAngle: 0,
         kickCooldown: 0,
         runCycle: 0,
+        kickPhase: 'idle',
+        kickProgress: 0,
+        kickLegAngle: 0,
+        kickSide: 1,
         particles: [],
       },
     ];
 
     // Flower patches
     const flowers = [
-      { ratioX: 0.05, color: '#f43f5e', size: 2.8, sway: 0 },
-      { ratioX: 0.16, color: '#a855f7', size: 2.5, sway: 1.2 },
-      { ratioX: 0.30, color: '#38bdf8', size: 2.8, sway: 2.4 },
-      { ratioX: 0.46, color: '#f59e0b', size: 2.5, sway: 0.8 },
-      { ratioX: 0.60, color: '#ec4899', size: 3.2, sway: 3.1 },
-      { ratioX: 0.75, color: '#f97316', size: 2.8, sway: 1.7 },
+      { ratioX: 0.08, color: '#f43f5e', size: 2.8, sway: 0 },
+      { ratioX: 0.18, color: '#a855f7', size: 2.5, sway: 1.2 },
+      { ratioX: 0.32, color: '#38bdf8', size: 2.8, sway: 2.4 },
+      { ratioX: 0.48, color: '#f59e0b', size: 2.5, sway: 0.8 },
+      { ratioX: 0.62, color: '#ec4899', size: 3.2, sway: 3.1 },
+      { ratioX: 0.77, color: '#f97316', size: 2.8, sway: 1.7 },
       { ratioX: 0.89, color: '#a855f7', size: 2.8, sway: 2.1 },
     ];
 
@@ -269,14 +329,17 @@ export function MiniatureGardenPlayground() {
       const rect = canvas.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
 
-      // Nudge ball towards click
-      ball.vx = (clickX - ball.x) * 0.06;
-      ball.vy = -5.5;
+      if (!ball.inNet) {
+        // Nudge ball towards click with realistic arc
+        ball.vx = (clickX - ball.x) * 0.055;
+        ball.vy = -4.5;
+        ball.rotSpeed = ball.vx * 0.15;
+      }
 
       // Nearby child celebrates with playful hop
       children.forEach((c) => {
-        if (Math.abs(clickX - c.curX) < 40 && c.yOffset === 0) {
-          c.vy = -4.5; // gentle joyful hop
+        if (Math.abs(clickX - c.curX) < 35 && c.yOffset === 0 && c.kickPhase === 'idle') {
+          c.vy = -4; // gentle joyful hop
           for (let p = 0; p < 4; p++) {
             c.particles.push({
               x: c.curX + (Math.random() - 0.5) * 12,
@@ -295,8 +358,11 @@ export function MiniatureGardenPlayground() {
       if (e.touches.length > 0) {
         const rect = canvas.getBoundingClientRect();
         const clickX = e.touches[0].clientX - rect.left;
-        ball.vx = (clickX - ball.x) * 0.06;
-        ball.vy = -5.5;
+        if (!ball.inNet) {
+          ball.vx = (clickX - ball.x) * 0.055;
+          ball.vy = -4.5;
+          ball.rotSpeed = ball.vx * 0.15;
+        }
       }
     };
 
@@ -305,6 +371,16 @@ export function MiniatureGardenPlayground() {
     canvas.addEventListener('touchstart', onTouchStart, { passive: true });
 
     let tick = 0;
+
+    // Helper to start kick animation for a player
+    const triggerPlayerKick = (c: PlayingChild, kickDirection: -1 | 1) => {
+      c.kickPhase = 'windup';
+      c.kickProgress = 0;
+      c.facing = kickDirection;
+      c.kickSide = 1; // right foot strike
+      c.kickLegAngle = 0;
+      c.kickCooldown = 75;
+    };
 
     // MAIN ANIMATION / PLAY PHYSICS LOOP
     const render = () => {
@@ -584,57 +660,318 @@ export function MiniatureGardenPlayground() {
 
       ctx.restore();
 
-      // 7. SOCCER BALL PASSING PHYSICS
-      const ballGroundY = getGroundY(ball.x, width, height) - ball.radius;
-      ball.vy += 0.28; // Gravity
-      ball.x += ball.vx;
-      ball.y += ball.vy;
-      ball.rotation += ball.rotSpeed;
+      // 7. MINIATURE SOCCER NET ON THE LEFT (Real 3D Goal with Net Mesh & Bulge Physics)
+      const mouthGroundY = getGroundY(goal.mouthX, width, height);
+      const backGroundY = getGroundY(goal.backX, width, height);
+      const crossbarY = mouthGroundY - goal.height;
+      const backTopY = backGroundY - (goal.height * 0.78);
 
-      // Ground bounce
-      if (ball.y >= ballGroundY) {
-        ball.y = ballGroundY;
-        ball.vy = -ball.vy * ball.bounciness;
-        const slope = (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
-        ball.vx += slope * 0.2;
-        ball.vx *= 0.99; // rolling friction
-        ball.rotSpeed = ball.vx * 0.18;
-        if (Math.abs(ball.vy) < 0.4) ball.vy = 0;
-      }
+      // Dynamic net bulge damping
+      goal.netBulgeVel += -goal.netBulge * 0.12 - goal.netBulgeVel * 0.22;
+      goal.netBulge += goal.netBulgeVel;
+      const currentBulge = Math.max(0, goal.netBulge);
 
-      // Boundaries
-      if (ball.x <= ball.radius + 10) {
-        ball.x = ball.radius + 10;
-        ball.vx = Math.abs(ball.vx) * 0.9 + 1;
-      } else if (ball.x >= width - ball.radius - 10) {
-        ball.x = width - ball.radius - 10;
-        ball.vx = -(Math.abs(ball.vx) * 0.9 + 1);
-      }
-
-      // Render ball shadow & body
-      ctx.fillStyle = 'rgba(0,0,0,0.14)';
+      // Draw Goal Line on Turf
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.ellipse(ball.x, ballGroundY + 3, ball.radius * 1.1, ball.radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.moveTo(goal.mouthX, mouthGroundY - 1);
+      ctx.lineTo(goal.mouthX, mouthGroundY + 3);
+      ctx.stroke();
+
+      // Goal Back Shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      ctx.beginPath();
+      ctx.ellipse((goal.mouthX + goal.backX) * 0.5, mouthGroundY + 1, (goal.mouthX - goal.backX) * 0.6, 2.5, 0, 0, Math.PI * 2);
       ctx.fill();
 
+      // A) BACK NETTING AND SIDE MESH (Drawn behind the ball for authentic depth)
+      ctx.save();
+      // Translucent net fill
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.moveTo(goal.mouthX, crossbarY);
+      ctx.lineTo(goal.backX - currentBulge, backTopY);
+      ctx.lineTo(goal.backX - currentBulge, backGroundY);
+      ctx.lineTo(goal.mouthX, mouthGroundY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Net Mesh Grid Lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.68)';
+      ctx.lineWidth = 0.85;
+
+      // Horizontal mesh ropes
+      const netRows = 5;
+      for (let r = 1; r <= netRows; r++) {
+        const t = r / (netRows + 1);
+        const frontY = crossbarY + t * (mouthGroundY - crossbarY);
+        const rearY = backTopY + t * (backGroundY - backTopY);
+        const rearX = goal.backX - currentBulge * (1 - t * 0.3);
+
+        ctx.beginPath();
+        ctx.moveTo(goal.mouthX, frontY);
+        ctx.quadraticCurveTo((goal.mouthX + rearX) * 0.5, (frontY + rearY) * 0.5 + 1, rearX, rearY);
+        ctx.stroke();
+      }
+
+      // Angled vertical net cords
+      const netCols = 5;
+      for (let c = 1; c <= netCols; c++) {
+        const t = c / (netCols + 1);
+        const topX = goal.mouthX - t * (goal.mouthX - (goal.backX - currentBulge));
+        const topY = crossbarY - t * (crossbarY - backTopY);
+        const botX = goal.mouthX - t * (goal.mouthX - (goal.backX - currentBulge));
+        const botY = mouthGroundY - t * (mouthGroundY - backGroundY);
+
+        ctx.beginPath();
+        ctx.moveTo(topX, topY);
+        ctx.lineTo(botX, botY);
+        ctx.stroke();
+      }
+
+      // Back Support Frame
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      // Rear post
+      ctx.moveTo(goal.backX - currentBulge, backGroundY);
+      ctx.lineTo(goal.backX - currentBulge, backTopY);
+      // Top diagonal strut
+      ctx.lineTo(goal.mouthX, crossbarY);
+      // Bottom ground anchor
+      ctx.moveTo(goal.backX - currentBulge, backGroundY);
+      ctx.lineTo(goal.mouthX, mouthGroundY);
+      ctx.stroke();
+      ctx.restore();
+
+      // 8. SOCCER BALL WITH AUTHENTIC ROLLING, DRAG, AND TURF SLOPE PHYSICS
+      const ballGroundY = getGroundY(ball.x, width, height) - ball.radius;
+
+      // Hill slope computation at ball position
+      const slopeDelta = (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
+      const slopeAngle = Math.atan(slopeDelta);
+
+      // GOAL DETECTION: Did ball enter the soccer goal on the left?
+      const isInsideGoalMouth =
+        ball.x <= goal.mouthX + 2 &&
+        ball.x >= goal.backX - 8 &&
+        ball.y >= crossbarY - 3 &&
+        ball.y <= mouthGroundY + 4;
+
+      if (isInsideGoalMouth && !ball.inNet && goalTimer === 0) {
+        // GOAL SCORED!
+        ball.inNet = true;
+        goalTimer = 175; // ~2.9 seconds celebration
+        scorerId = ball.lastKickerId || 1;
+
+        // Impart net bulge from kick velocity
+        goal.netBulge = Math.min(13, Math.abs(ball.vx) * 2.4 + 4);
+        goal.netBulgeVel = -goal.netBulge * 0.2;
+
+        // Soft net deceleration
+        ball.vx *= 0.2;
+        ball.vy = Math.min(ball.vy * 0.2, 0.5);
+
+        // Confetti explosion around the goal net
+        for (let i = 0; i < 18; i++) {
+          celebrationParticles.push({
+            x: goal.mouthX + (Math.random() - 0.5) * 16,
+            y: crossbarY + Math.random() * goal.height,
+            vx: (Math.random() - 0.5) * 3,
+            vy: -1.8 - Math.random() * 2.8,
+            size: 2 + Math.random() * 2.2,
+            color: ['#10b981', '#f59e0b', '#ec4899', '#38bdf8', '#fbbf24', '#ffffff'][Math.floor(Math.random() * 6)],
+            life: 1,
+          });
+        }
+      }
+
+      // Ball Physics Loop
+      if (ball.inNet) {
+        // Ball resting or settling inside net
+        ball.vy += 0.2;
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+        ball.vx *= 0.85;
+
+        // Ground constraint in net
+        if (ball.y >= ballGroundY) {
+          ball.y = ballGroundY;
+          ball.vy = -ball.vy * 0.25;
+          if (Math.abs(ball.vy) < 0.2) ball.vy = 0;
+        }
+        // Contain within back net wall
+        if (ball.x < goal.backX + ball.radius) {
+          ball.x = goal.backX + ball.radius;
+          ball.vx = Math.abs(ball.vx) * 0.3;
+        }
+
+        // Countdown goal celebration
+        if (goalTimer > 0) {
+          goalTimer--;
+          if (goalTimer === 1) {
+            // Kickoff restart from midfield after celebration
+            ball.inNet = false;
+            scorerId = null;
+            ball.x = width * 0.42;
+            ball.y = getGroundY(ball.x, width, height) - 22;
+            ball.vx = 1.6 + Math.random() * 1.2;
+            ball.vy = -3.2;
+            ball.lastKickerId = 3;
+          }
+        }
+      } else {
+        // Normal Turf & Air Ball Physics
+        const onGround = ball.y >= ballGroundY - 0.8;
+
+        if (onGround) {
+          // Ball is rolling on grass
+          ball.y = ballGroundY;
+
+          // Realistic gravity component along the slope
+          const gravitySlopeForce = Math.sin(slopeAngle) * 0.22;
+          ball.vx += gravitySlopeForce;
+
+          // Rolling friction on natural grass turf
+          ball.vx *= 0.984;
+
+          // No-slip condition: rotation is strictly proportional to linear velocity (v = omega * r)
+          ball.rotSpeed = ball.vx / ball.radius;
+          ball.rotation += ball.rotSpeed;
+
+          // If vertical bounce is tiny, kill bounce so ball rolls smoothly
+          if (Math.abs(ball.vy) < 0.5) {
+            ball.vy = 0;
+          } else {
+            ball.vy = -ball.vy * ball.bounciness;
+          }
+        } else {
+          // Ball is airborne
+          ball.vy += 0.24; // Gravity
+          ball.vx *= 0.995; // Air drag
+          ball.vy *= 0.995;
+          ball.rotation += ball.rotSpeed;
+
+          // Ground impact collision
+          if (ball.y >= ballGroundY) {
+            ball.y = ballGroundY;
+            ball.vy = -ball.vy * ball.bounciness;
+
+            // Transfer linear velocity to spin upon bounce
+            ball.rotSpeed = ball.vx * 0.16;
+
+            // Small grass particle puff on impact
+            if (Math.abs(ball.vy) > 1.8) {
+              celebrationParticles.push({
+                x: ball.x,
+                y: ballGroundY,
+                vx: (Math.random() - 0.5) * 1.5,
+                vy: -0.8 - Math.random() * 1.2,
+                size: 1.5,
+                color: '#65a30d',
+                life: 0.7,
+              });
+            }
+          }
+        }
+
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        // Boundaries: Right edge turnback
+        if (ball.x >= width - ball.radius - 8) {
+          ball.x = width - ball.radius - 8;
+          ball.vx = -(Math.abs(ball.vx) * 0.75 + 1.2);
+        }
+        // Left boundary if misses goal
+        if (ball.x <= ball.radius + 6) {
+          ball.x = ball.radius + 6;
+          ball.vx = Math.abs(ball.vx) * 0.8 + 1.2;
+        }
+      }
+
+      // Ball Shadow on Turf
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+      ctx.beginPath();
+      ctx.ellipse(ball.x, ballGroundY + 2.5, ball.radius * 1.15, ball.radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // RENDER SOCCER BALL (Classic 32-Panel Geometric Hexagon/Pentagon Texture)
       ctx.save();
       ctx.translate(ball.x, ball.y);
       ctx.rotate(ball.rotation);
+
+      // Ball white sphere base
       ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#0f172a';
+      ctx.strokeStyle = '#1e293b';
       ctx.lineWidth = 1.1;
       ctx.beginPath();
       ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
+      // Classic center black pentagon
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
-      ctx.arc(0, 0, ball.radius * 0.38, 0, Math.PI * 2);
+      const pentaRadius = ball.radius * 0.44;
+      for (let p = 0; p < 5; p++) {
+        const pAngle = (p * Math.PI * 2) / 5 - Math.PI / 2;
+        const px = Math.cos(pAngle) * pentaRadius;
+        const py = Math.sin(pAngle) * pentaRadius;
+        if (p === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Outer seam segments
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 0.8;
+      for (let p = 0; p < 5; p++) {
+        const pAngle = (p * Math.PI * 2) / 5 - Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(pAngle) * pentaRadius, Math.sin(pAngle) * pentaRadius);
+        ctx.lineTo(Math.cos(pAngle) * ball.radius, Math.sin(pAngle) * ball.radius);
+        ctx.stroke();
+      }
+
+      // Ball 3D shine
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.beginPath();
+      ctx.arc(-ball.radius * 0.35, -ball.radius * 0.35, ball.radius * 0.3, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // 8. BUTTERFLIES
+      // B) FRONT GOAL POSTS & CROSSBAR (Drawn IN FRONT of the ball for realistic 3D depth)
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      // Front Upright Post
+      ctx.moveTo(goal.mouthX, mouthGroundY);
+      ctx.lineTo(goal.mouthX, crossbarY);
+      ctx.stroke();
+
+      // Front Crossbar
+      ctx.beginPath();
+      ctx.moveTo(goal.mouthX, crossbarY);
+      ctx.lineTo(goal.backX - currentBulge * 0.5, crossbarY - 2);
+      ctx.stroke();
+
+      // Post outline for crisp clarity against green hill
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(goal.mouthX - 1.2, mouthGroundY);
+      ctx.lineTo(goal.mouthX - 1.2, crossbarY - 1);
+      ctx.moveTo(goal.mouthX + 1.2, mouthGroundY);
+      ctx.lineTo(goal.mouthX + 1.2, crossbarY - 1);
+      ctx.stroke();
+      ctx.restore();
+
+      // 9. BUTTERFLIES
       butterflies.forEach((bf) => {
         bf.x += bf.vx;
         bf.y += bf.vy + Math.sin(tick * 0.08) * 0.6;
@@ -661,115 +998,208 @@ export function MiniatureGardenPlayground() {
         ctx.restore();
       });
 
-      // 9. AUTHENTIC PLAYGROUND BEHAVIORS (RUNNING, PASSING BALL, SKIPPING, DANCING)
+      // 10. AUTHENTIC PLAYGROUND & SOCCER MATCH BEHAVIORS
       children.forEach((c) => {
         const baseX = c.baseRatioX * width;
         const groundY = getGroundY(c.curX, width, height);
 
         if (c.kickCooldown > 0) c.kickCooldown--;
 
-        // REAL PLAYGROUND BEHAVIORS:
-        switch (c.behavior) {
-          case 'kicker-left': {
-            // Player 1: Runs towards ball when ball is on left half!
-            const targetX = Math.max(baseX - 15, Math.min(baseX + 30, ball.x - 12));
-            const dx = targetX - c.curX;
-            if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 0.75;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.22;
-            } else {
-              c.runCycle = 0;
+        const isScorerCelebrating = scorerId === c.id && goalTimer > 0;
+
+        // REALISTIC 4-PHASE KICKING ANIMATION STATE MACHINE
+        if (c.kickPhase === 'windup') {
+          // Phase 1: Wind-up (leg pulls back, torso leans into the ball)
+          c.kickProgress += 0.22;
+          c.kickLegAngle = -0.75 * Math.sin(c.kickProgress * Math.PI * 0.5);
+
+          if (c.kickProgress >= 1) {
+            c.kickPhase = 'strike';
+            c.kickProgress = 0;
+          }
+        } else if (c.kickPhase === 'strike') {
+          // Phase 2: Forward Strike (snappy kick stroke delivering impulse)
+          c.kickProgress += 0.32;
+          c.kickLegAngle = 0.85 * Math.sin(c.kickProgress * Math.PI * 0.5);
+
+          // EXACT PHYSICAL IMPACT POINT: Mid-strike
+          if (c.kickProgress >= 0.5 && c.kickCooldown >= 70) {
+            c.kickCooldown = 68; // mark impacted
+            ball.lastKickerId = c.id;
+
+            // Calculate realistic kick trajectory based on position & game flow:
+            if (c.behavior === 'striker-left' || c.curX < width * 0.32) {
+              // Striker shoots toward left soccer goal!
+              const distToGoal = ball.x - goal.mouthX;
+              const power = Math.max(4.2, Math.min(6.2, distToGoal * 0.08 + 3.8));
+              ball.vx = -power;
+              ball.vy = -2.6 - Math.random() * 2.0; // Low drive or dipped volley
+              ball.rotSpeed = -0.32; // aggressive top/backspin
+            } else if (c.behavior === 'playmaker-center') {
+              // Center playmaker passes forward to striker or takes long shot!
+              if (Math.random() < 0.55) {
+                // Shoot toward goal
+                ball.vx = -5.0 - Math.random() * 1.5;
+                ball.vy = -3.2 - Math.random() * 1.5;
+              } else {
+                // Pass to left striker
+                ball.vx = -3.8 - Math.random() * 1.0;
+                ball.vy = -2.4;
+              }
+              ball.rotSpeed = -0.25;
+            } else if (c.behavior === 'winger-right') {
+              // Right winger crosses ball back into the box / midfield!
+              ball.vx = -4.5 - Math.random() * 1.4;
+              ball.vy = -3.8 - Math.random() * 1.2;
+              ball.rotSpeed = -0.28;
             }
 
-            // Kick ball towards center if close
-            const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
-            if (distToBall < 20 && c.kickCooldown === 0) {
-              ball.vx = 3.5 + Math.random() * 1.5; // kick right
-              ball.vy = -4.5 - Math.random() * 2;
-              c.kickCooldown = 60;
-              c.facing = 1;
+            // Turf kick puff
+            for (let k = 0; k < 5; k++) {
+              c.particles.push({
+                x: c.curX + c.facing * 8,
+                y: groundY - 2,
+                vx: c.facing * (1 + Math.random() * 2),
+                vy: -1 - Math.random() * 1.5,
+                life: 0.7,
+                color: '#65a30d',
+              });
             }
-            break;
           }
 
-          case 'skipping': {
-            // Player 2: Joyfully skipping in place
-            c.yOffset = -Math.abs(Math.sin(tick * 0.12 + c.id)) * 4;
-            c.runCycle += 0.12;
-            break;
+          if (c.kickProgress >= 1) {
+            c.kickPhase = 'followthrough';
+            c.kickProgress = 0;
           }
+        } else if (c.kickPhase === 'followthrough') {
+          // Phase 3: Follow-through (leg decelerates smoothly back to stance)
+          c.kickProgress += 0.16;
+          c.kickLegAngle = 0.85 * (1 - c.kickProgress);
 
-          case 'chaser-center': {
-            // Player 3: Playful receiver / kicker in center
-            const targetX = Math.max(baseX - 25, Math.min(baseX + 25, ball.x));
-            const dx = targetX - c.curX;
-            if (Math.abs(dx) > 3) {
-              c.curX += Math.sign(dx) * 0.7;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.2;
-            } else {
-              c.runCycle = 0;
-            }
-
-            // Kick ball back towards left or right
-            const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
-            if (distToBall < 20 && c.kickCooldown === 0) {
-              ball.vx = ball.x > c.curX ? -3.5 : 3.5;
-              ball.vy = -4.5 - Math.random() * 1.5;
-              c.kickCooldown = 60;
-            }
-            break;
-          }
-
-          case 'butterfly-catcher': {
-            // Player 4: Jogs playfully chasing the nearest butterfly
-            const nearestBf = butterflies[1];
-            const targetX = Math.max(baseX - 20, Math.min(baseX + 20, nearestBf.x));
-            const dx = targetX - c.curX;
-            if (Math.abs(dx) > 2) {
-              c.curX += Math.sign(dx) * 0.65;
-              c.facing = Math.sign(dx) as 1 | -1;
-              c.runCycle += 0.18;
-            } else {
-              c.runCycle = 0;
-            }
-            break;
-          }
-
-          case 'runner-right': {
-            // Player 5: Running playful tag route
-            const route = Math.sin(tick * 0.04) * 20;
-            c.curX = baseX + route;
-            c.facing = Math.cos(tick * 0.04) > 0 ? 1 : -1;
-            c.runCycle += 0.22;
-
-            // Kicks ball if ball rolls right
-            const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
-            if (distToBall < 20 && c.kickCooldown === 0) {
-              ball.vx = -3.8 - Math.random(); // kick left back to game
-              ball.vy = -4 - Math.random() * 2;
-              c.kickCooldown = 60;
-              c.facing = -1;
-            }
-            break;
-          }
-
-          case 'twirler': {
-            // Player 6: Gentle twirling / dancing
-            c.twirlAngle = Math.sin(tick * 0.08) * 0.15;
-            c.runCycle += 0.08;
-            break;
-          }
-
-          case 'cheerer': {
-            // Player 7: Cheering, bobbing knees & clapping hands
-            c.yOffset = -Math.abs(Math.sin(tick * 0.14)) * 2.5;
-            break;
+          if (c.kickProgress >= 1) {
+            c.kickPhase = 'idle';
+            c.kickLegAngle = 0;
+            c.kickProgress = 0;
           }
         }
 
-        // Apply physics to gentle hops (if triggered by click)
+        // REALISTIC PLAYGROUND BEHAVIORS
+        if (isScorerCelebrating) {
+          // CELEBRATION MODE: Scorer jumps joyfully, raises both arms, and shouts GOAL!
+          c.yOffset = -Math.abs(Math.sin(tick * 0.22)) * 5.5;
+          c.runCycle = 0;
+        } else if (goalTimer > 0) {
+          // Other kids celebrate the goal: clapping & cheering
+          c.yOffset = -Math.abs(Math.sin(tick * 0.15 + c.id)) * 2.5;
+          c.facing = c.curX > goal.mouthX ? -1 : 1; // turn towards goal
+        } else {
+          // STANDARD MATCH PLAY & PLAYGROUND ACTIVITIES
+          switch (c.behavior) {
+            case 'striker-left': {
+              // Player 1 (Striker): Runs to intercept ball and shoot into the net
+              const targetX = Math.max(goal.mouthX + 16, Math.min(baseX + 45, ball.x + (ball.vx > 0 ? 10 : -8)));
+              const dx = targetX - c.curX;
+
+              if (c.kickPhase === 'idle') {
+                if (Math.abs(dx) > 3) {
+                  c.curX += Math.sign(dx) * 0.85;
+                  c.facing = Math.sign(dx) as 1 | -1;
+                  c.runCycle += 0.24;
+                } else {
+                  c.runCycle = 0;
+                }
+
+                // Check kicking distance to ball
+                const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
+                if (distToBall < 18 && c.kickCooldown === 0 && !ball.inNet) {
+                  triggerPlayerKick(c, -1); // Kick towards left goal
+                }
+              }
+              break;
+            }
+
+            case 'skipping': {
+              // Player 2: Skipping joyfully with dress swaying
+              c.yOffset = -Math.abs(Math.sin(tick * 0.12 + c.id)) * 3.5;
+              c.runCycle += 0.12;
+              break;
+            }
+
+            case 'playmaker-center': {
+              // Player 3 (Midfielder / Playmaker): Controls center, passes or shoots
+              const targetX = Math.max(baseX - 35, Math.min(baseX + 35, ball.x + 8));
+              const dx = targetX - c.curX;
+
+              if (c.kickPhase === 'idle') {
+                if (Math.abs(dx) > 3) {
+                  c.curX += Math.sign(dx) * 0.8;
+                  c.facing = Math.sign(dx) as 1 | -1;
+                  c.runCycle += 0.22;
+                } else {
+                  c.runCycle = 0;
+                }
+
+                const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
+                if (distToBall < 18 && c.kickCooldown === 0 && !ball.inNet) {
+                  triggerPlayerKick(c, -1); // Kick towards left goal / striker
+                }
+              }
+              break;
+            }
+
+            case 'butterfly-catcher': {
+              // Player 4: Playfully chases fluttering butterfly
+              const nearestBf = butterflies[1];
+              const targetX = Math.max(baseX - 22, Math.min(baseX + 22, nearestBf.x));
+              const dx = targetX - c.curX;
+              if (Math.abs(dx) > 2) {
+                c.curX += Math.sign(dx) * 0.65;
+                c.facing = Math.sign(dx) as 1 | -1;
+                c.runCycle += 0.18;
+              } else {
+                c.runCycle = 0;
+              }
+              break;
+            }
+
+            case 'winger-right': {
+              // Player 5 (Right Winger): Keeps ball in play, crosses back left
+              const targetX = Math.max(baseX - 30, Math.min(baseX + 35, ball.x + 10));
+              const dx = targetX - c.curX;
+
+              if (c.kickPhase === 'idle') {
+                if (Math.abs(dx) > 3) {
+                  c.curX += Math.sign(dx) * 0.85;
+                  c.facing = Math.sign(dx) as 1 | -1;
+                  c.runCycle += 0.22;
+                } else {
+                  c.runCycle = 0;
+                }
+
+                const distToBall = Math.hypot(ball.x - c.curX, ball.y - groundY);
+                if (distToBall < 18 && c.kickCooldown === 0 && !ball.inNet) {
+                  triggerPlayerKick(c, -1); // Cross ball left towards center
+                }
+              }
+              break;
+            }
+
+            case 'twirler': {
+              // Player 6: Twirling & dancing
+              c.twirlAngle = Math.sin(tick * 0.08) * 0.15;
+              c.runCycle += 0.08;
+              break;
+            }
+
+            case 'cheerer': {
+              // Player 7: Cheering on sideline
+              c.yOffset = -Math.abs(Math.sin(tick * 0.14)) * 2.5;
+              break;
+            }
+          }
+        }
+
+        // Apply physics to gentle hops from mouse clicks
         if (c.vy !== 0) {
           c.vy += 0.35;
           c.yOffset += c.vy;
@@ -792,33 +1222,67 @@ export function MiniatureGardenPlayground() {
           ctx.rotate(c.twirlAngle);
         }
 
-        // Proportional scale for compact banner: head at -30, feet at 0
+        // Proportional scale for compact banner: head at -28, feet at 0
         const headY = -28;
         const headRadius = 5.8;
         const bodyY = -18;
         const waistY = -9;
 
-        // 1) LEGS (Dynamic running / walking cycle)
+        // 1) LEGS: REAL KICKING DYNAMICS OR RUNNING CYCLE
         ctx.strokeStyle = '#334155';
         ctx.lineWidth = 1.8;
         ctx.lineCap = 'round';
 
-        const legSwing = Math.sin(c.runCycle) * 4;
-        // Left leg
-        ctx.beginPath();
-        ctx.moveTo(-2.5, waistY);
-        ctx.lineTo(-2.5 - legSwing, 0);
-        // Right leg
-        ctx.moveTo(2.5, waistY);
-        ctx.lineTo(2.5 + legSwing, 0);
-        ctx.stroke();
+        if (c.kickPhase !== 'idle') {
+          // REALISTIC SOCCER KICK STANCE
+          // Plant leg (supporting weight firmly on the turf)
+          const plantLegX = -c.facing * 2.6;
+          ctx.beginPath();
+          ctx.moveTo(plantLegX, waistY);
+          ctx.lineTo(plantLegX, 0);
+          ctx.stroke();
 
-        // Shoes
-        ctx.fillStyle = '#0f172a';
-        ctx.beginPath();
-        ctx.arc(-2.5 - legSwing, 0, 1.8, 0, Math.PI * 2);
-        ctx.arc(2.5 + legSwing, 0, 1.8, 0, Math.PI * 2);
-        ctx.fill();
+          // Plant foot shoe
+          ctx.fillStyle = '#0f172a';
+          ctx.beginPath();
+          ctx.arc(plantLegX, 0, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Kicking leg (swinging with authentic joint rotation angle)
+          const kickHipX = c.facing * 2.2;
+          const legLen = 9.2;
+          const footX = kickHipX + Math.sin(c.kickLegAngle * c.facing) * legLen;
+          const footY = waistY + Math.cos(c.kickLegAngle * c.facing) * legLen;
+
+          ctx.beginPath();
+          ctx.moveTo(kickHipX, waistY);
+          ctx.lineTo(footX, footY);
+          ctx.stroke();
+
+          // Kicking shoe
+          ctx.fillStyle = '#dc2626'; // Red soccer cleat
+          ctx.beginPath();
+          ctx.arc(footX, footY, 2.0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Standard running / walking stride
+          const legSwing = Math.sin(c.runCycle) * 4;
+          // Left leg
+          ctx.beginPath();
+          ctx.moveTo(-2.5, waistY);
+          ctx.lineTo(-2.5 - legSwing, 0);
+          // Right leg
+          ctx.moveTo(2.5, waistY);
+          ctx.lineTo(2.5 + legSwing, 0);
+          ctx.stroke();
+
+          // Shoes
+          ctx.fillStyle = '#0f172a';
+          ctx.beginPath();
+          ctx.arc(-2.5 - legSwing, 0, 1.8, 0, Math.PI * 2);
+          ctx.arc(2.5 + legSwing, 0, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         // 2) CLOTHES
         if (c.hasDress) {
@@ -836,19 +1300,38 @@ export function MiniatureGardenPlayground() {
           // Shorts
           ctx.fillStyle = c.pantsColor;
           ctx.fillRect(-4.5, waistY - 1.5, 9, 5);
-          // Shirt
+          // Shirt / Jersey
           ctx.fillStyle = c.shirtColor;
           ctx.fillRect(-5, bodyY, 10, 9);
         }
 
-        // 3) ARMS (Pumping while running, clapping, or cheering)
+        // 3) ARMS: TRIUMPHANT GOAL CELEBRATION, ATHLETIC KICK BALANCE, OR RUNNING
         ctx.strokeStyle = '#334155';
         ctx.lineWidth = 1.8;
         ctx.lineCap = 'round';
 
-        if (c.behavior === 'cheerer') {
-          // Clapping hands
-          const clap = Math.sin(tick * 0.2) * 3;
+        if (isScorerCelebrating) {
+          // TRIUMPHANT RAISED ARMS IN A 'V' SHAPE!
+          const celebrateWiggle = Math.sin(tick * 0.25) * 2;
+          ctx.beginPath();
+          ctx.moveTo(-4, bodyY + 3);
+          ctx.lineTo(-10 + celebrateWiggle, bodyY - 11);
+          ctx.moveTo(4, bodyY + 3);
+          ctx.lineTo(10 - celebrateWiggle, bodyY - 11);
+          ctx.stroke();
+        } else if (c.kickPhase !== 'idle') {
+          // ATHLETIC KICK BALANCE: Counter-balancing arm forward, kicking-side arm back
+          ctx.beginPath();
+          // Forward balancing arm
+          ctx.moveTo(c.facing * 4, bodyY + 2);
+          ctx.lineTo(c.facing * 10, bodyY - 2);
+          // Rear arm
+          ctx.moveTo(-c.facing * 4, bodyY + 2);
+          ctx.lineTo(-c.facing * 8, bodyY + 7);
+          ctx.stroke();
+        } else if (goalTimer > 0 || c.behavior === 'cheerer') {
+          // Clapping / cheering hands
+          const clap = Math.sin(tick * 0.22) * 3;
           ctx.beginPath();
           ctx.moveTo(-4, bodyY + 3);
           ctx.lineTo(-1 + clap, bodyY + 4);
@@ -884,7 +1367,7 @@ export function MiniatureGardenPlayground() {
         ctx.fill();
         ctx.stroke();
 
-        // Eyes (looking in facing direction)
+        // Eyes
         const eyeLookX = c.facing * 1.2;
         ctx.fillStyle = '#0f172a';
         ctx.beginPath();
@@ -892,12 +1375,23 @@ export function MiniatureGardenPlayground() {
         ctx.arc(1.8 + eyeLookX, headY - 1, 0.9, 0, Math.PI * 2);
         ctx.fill();
 
-        // Smiling mouth
-        ctx.strokeStyle = '#7c2d12';
-        ctx.lineWidth = 1.1;
-        ctx.beginPath();
-        ctx.arc(0, headY + 0.8, 2.6, 0.15 * Math.PI, 0.85 * Math.PI, false);
-        ctx.stroke();
+        // Mouth (Open shouting smile during celebration!)
+        if (isScorerCelebrating) {
+          ctx.fillStyle = '#991b1b';
+          ctx.strokeStyle = '#7c2d12';
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.arc(0, headY + 1.2, 2.6, 0, Math.PI);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = '#7c2d12';
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.arc(0, headY + 0.8, 2.6, 0.15 * Math.PI, 0.85 * Math.PI, false);
+          ctx.stroke();
+        }
 
         // Rosy cheeks
         ctx.fillStyle = 'rgba(244, 63, 94, 0.4)';
@@ -968,9 +1462,84 @@ export function MiniatureGardenPlayground() {
           }
         }
 
+        // 6) "GOAL! ⚽" COMIC SPEECH BUBBLE OVER SCORER'S HEAD
+        if (isScorerCelebrating) {
+          const bubbleAnim = Math.min(1, (175 - goalTimer) / 12);
+          const bounce = 1 + Math.sin(tick * 0.2) * 0.08;
+
+          ctx.save();
+          ctx.translate(0, headY - 22);
+          ctx.scale(bubbleAnim * bounce, bubbleAnim * bounce);
+
+          // Bubble background pill
+          const bw = 46;
+          const bh = 18;
+          const br = 7;
+
+          const drawBubbleRect = (rx: number, ry: number) => {
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(rx, ry, bw, bh, br);
+            } else {
+              // Universal canvas rounded rect fallback
+              ctx.moveTo(rx + br, ry);
+              ctx.lineTo(rx + bw - br, ry);
+              ctx.quadraticCurveTo(rx + bw, ry, rx + bw, ry + br);
+              ctx.lineTo(rx + bw, ry + bh - br);
+              ctx.quadraticCurveTo(rx + bw, ry + bh, rx + bw - br, ry + bh);
+              ctx.lineTo(rx + br, ry + bh);
+              ctx.quadraticCurveTo(rx, ry + bh, rx, ry + bh - br);
+              ctx.lineTo(rx, ry + br);
+              ctx.quadraticCurveTo(rx, ry, rx + br, ry);
+              ctx.closePath();
+            }
+          };
+
+          // Drop shadow
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+          drawBubbleRect(-bw / 2 + 1, -bh / 2 + 1);
+          ctx.fill();
+
+          // Bubble fill
+          const bGrad = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
+          bGrad.addColorStop(0, '#ffffff');
+          bGrad.addColorStop(1, '#ecfdf5');
+          ctx.fillStyle = bGrad;
+          ctx.strokeStyle = '#059669';
+          ctx.lineWidth = 1.4;
+          drawBubbleRect(-bw / 2, -bh / 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // Speech Bubble Pointer Tail pointing to head
+          ctx.fillStyle = '#ecfdf5';
+          ctx.strokeStyle = '#059669';
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(-3, bh / 2 - 0.5);
+          ctx.lineTo(0, bh / 2 + 5);
+          ctx.lineTo(4, bh / 2 - 0.5);
+          ctx.fill();
+          ctx.stroke();
+
+          // White mask over tail top seam
+          ctx.fillStyle = '#ecfdf5';
+          ctx.beginPath();
+          ctx.fillRect(-2, bh / 2 - 2, 5, 2.5);
+
+          // "GOAL! ⚽" Text
+          ctx.font = 'bold 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#047857';
+          ctx.fillText('GOAL! ⚽', 0, 0);
+
+          ctx.restore();
+        }
+
         ctx.restore();
 
-        // Celebration star particles if any
+        // Celebration star particles
         for (let p = c.particles.length - 1; p >= 0; p--) {
           const pt = c.particles[p];
           pt.x += pt.vx;
@@ -991,6 +1560,28 @@ export function MiniatureGardenPlayground() {
           }
         }
       });
+
+      // 11. CELEBRATION CONFETTI PARTICLES (During Goal Event)
+      for (let cp = celebrationParticles.length - 1; cp >= 0; cp--) {
+        const cpItem = celebrationParticles[cp];
+        cpItem.x += cpItem.vx;
+        cpItem.y += cpItem.vy;
+        cpItem.vy += 0.07;
+        cpItem.vx *= 0.98;
+        cpItem.life -= 0.018;
+
+        if (cpItem.life <= 0) {
+          celebrationParticles.splice(cp, 1);
+        } else {
+          ctx.save();
+          ctx.globalAlpha = cpItem.life;
+          ctx.fillStyle = cpItem.color;
+          ctx.beginPath();
+          ctx.arc(cpItem.x, cpItem.y, cpItem.size * cpItem.life, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
 
       animationFrameId = requestAnimationFrame(render);
     };
