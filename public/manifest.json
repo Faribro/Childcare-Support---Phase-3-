@@ -1,12 +1,15 @@
 {
+  "id": "alliance-child-nutrition-pwa",
   "name": "Alliance Child Nutrition & Education Support",
   "short_name": "Child Nutrition",
-  "description": "Offline-First Child Nutrition & Education Assessment Platform for India HIV/AIDS Alliance",
-  "start_url": "/",
+  "description": "Institutional Offline-First Child Nutrition & Education Assessment Platform for India HIV/AIDS Alliance",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#F8FAFC",
   "theme_color": "#1E3A8A",
+  "categories": ["medical", "health", "productivity", "government"],
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -19,6 +22,22 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Child Survey",
+      "short_name": "New Survey",
+      "description": "Start a new child nutrition & education survey",
+      "url": "/assessment/new",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Sync Pending Drafts",
+      "short_name": "Sync",
+      "description": "Synchronize pending drafts with the cloud database",
+      "url": "/assessment/sync",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
     }
   ]
 }

@@ -53,6 +53,7 @@
     "jsdom": "^24.1.1",
     "postcss": "^8.4.41",
     "prettier": "^3.3.3",
+    "sharp": "^0.35.4",
     "tailwindcss": "^3.4.10",
     "tsx": "^4.17.0",
     "typescript": "^5.5.4",

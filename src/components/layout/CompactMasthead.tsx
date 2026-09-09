@@ -15,6 +15,7 @@ import {
   Globe,
   Lock,
   Unlock,
+  BookOpen,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
@@ -88,8 +89,9 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
   const displayCount = submittedCount !== undefined ? submittedCount : internalSubmittedCount;
 
   const navLinks = [
-    { href: '/', label: 'Forms', icon: Home },
+    { href: '/app', label: 'Forms', icon: Home },
     { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: pendingSyncCount },
+    { href: '/', label: 'Field Guide', icon: BookOpen },
   ];
 
   return (
@@ -98,7 +100,7 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
         <div className="flex items-center justify-between h-14 sm:h-16">
           {/* Brand & Platform Identity - Alliance India Logo Only (No text in top left) */}
           <Link
-            href="/"
+            href="/app"
             className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             title="India HIV/AIDS Alliance"
           >
@@ -118,6 +120,8 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
               const isActive =
                 link.href === '/'
                   ? pathname === '/'
+                  : link.href === '/app'
+                  ? pathname === '/app'
                   : pathname?.startsWith(link.href);
 
               return (
