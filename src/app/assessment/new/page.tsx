@@ -11,6 +11,7 @@ import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndAppro
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { SectionVerticalTitle, type SectionColorScheme } from '@/components/ui/SectionVerticalTitle';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
@@ -104,18 +105,18 @@ export default function NewSinglePageAssessment() {
     dateOfFilling: new Date().toISOString().split('T')[0],
     childName: '',
     dob: '',
-    gender: 'Male' as Gender,
-    orphanStatus: 'Both parents alive' as OrphanStatus,
+    gender: '' as Gender,
+    orphanStatus: '' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: 'Mother' as CaregiverRelationship,
+    caregiverRelationship: '' as CaregiverRelationship,
     contactNumber: '',
     fullAddress: '',
-    state: 'Maharashtra',
-    district: 'Pune',
+    state: '',
+    district: '',
     childAadhaarNumber: '',
 
     // Section 2: Consent
-    agreeToParticipate: true,
+    agreeToParticipate: null as boolean | null,
 
     // Section 3: Banking & Identification (KYC) Details
     bankAccountHolderName: '',
@@ -127,36 +128,36 @@ export default function NewSinglePageAssessment() {
     childPhotoUrl: '',
 
     // Section 4: Household & Financial Details
-    totalFamilyMembers: 4,
-    numberOfChildrenUnder18: 2,
-    monthlyIncomeRs: 5000,
-    mainSourceOfIncome: 'Daily wage labour' as MainSourceOfIncome,
+    totalFamilyMembers: 0,
+    numberOfChildrenUnder18: 0,
+    monthlyIncomeRs: 0,
+    mainSourceOfIncome: '' as MainSourceOfIncome,
 
     // Section 5: Health, Clinical, ART & Viral Load
-    weightKg: 14.5,
-    heightCm: 100,
+    weightKg: 0,
+    heightCm: 0,
     haemoglobinGdl: '',
     otherHealthConditions: [] as string[],
     otherHealthConditionSpecify: '',
-    artStatus: 'On ART' as ARTStatus,
+    artStatus: '' as ARTStatus,
     artRegistrationDate: '',
     artIdNumber: '',
-    vlStatus: 'Tested in last 6 months' as VLStatus,
+    vlStatus: '' as VLStatus,
     vlDate: '',
-    viralLoad: '< 50',
+    viralLoad: '',
 
     // Section 6: Nutrition Habits
-    appetite: 'Good' as AppetiteLevel,
-    mealsPerDay: 3,
+    appetite: '' as AppetiteLevel,
+    mealsPerDay: 0,
 
     // Section 7: Education Status
-    educationStatus: 'Currently going to school' as EducationStatus,
+    educationStatus: '' as EducationStatus,
     educationStatusSpecify: '',
     schoolName: '',
     schoolSessionStartDate: '',
-    schoolType: 'Government school' as SchoolType,
-    currentClass: 'Class 2',
-    attendance: 'Regular' as AttendanceType,
+    schoolType: '' as SchoolType,
+    currentClass: '',
+    attendance: '' as AttendanceType,
 
     // Section 8: Current Expenses & Documents
     schoolFees: 0,
@@ -180,10 +181,10 @@ export default function NewSinglePageAssessment() {
 
     // Section 9: Programme Approval & Final Review
     approvedAllianceIndia: 'Pending' as ApprovedAllianceStatus,
-    allInfoCorrect: true,
-    organizationName: 'India HIV/AIDS Alliance',
-    formSubmittedBy: 'Sunita Sharma',
-    organizationEmail: 'fieldworker@allianceindia.org',
+    allInfoCorrect: null as boolean | null,
+    organizationName: '',
+    formSubmittedBy: '',
+    organizationEmail: '',
   });
 
   // Client init: UUID & Reference ID
@@ -319,11 +320,11 @@ export default function NewSinglePageAssessment() {
             childAadhaarNumber: formData.childAadhaarNumber,
           },
           consent: {
-            agreeToParticipate: formData.agreeToParticipate,
+            agreeToParticipate: formData.agreeToParticipate ?? false,
             signatureTimestamp: new Date().toISOString(),
           },
           caregiverConsent: {
-            consentProvided: formData.agreeToParticipate,
+            consentProvided: formData.agreeToParticipate ?? false,
             consentVersion: 'v1.0-2026',
             caregiverName: formData.caregiverName || 'Caregiver',
             caregiverRelationship: formData.caregiverRelationship || 'Mother',
@@ -401,15 +402,15 @@ export default function NewSinglePageAssessment() {
             totalRequiredSupport: totalRequiredSupport,
           },
           finalReview: {
-            allInfoCorrect: formData.allInfoCorrect,
+            allInfoCorrect: formData.allInfoCorrect ?? false,
             organizationName: formData.organizationName,
             formSubmittedBy: formData.formSubmittedBy,
             organizationEmail: formData.organizationEmail,
             approvedAllianceIndia: formData.approvedAllianceIndia,
-            reviewConfirmed: formData.allInfoCorrect,
+            reviewConfirmed: formData.allInfoCorrect ?? false,
           },
           approvedAllianceIndia: formData.approvedAllianceIndia,
-          reviewConfirmed: formData.allInfoCorrect,
+          reviewConfirmed: formData.allInfoCorrect ?? false,
           syncNeeded: 'NO',
           syncStatus: 'draft',
           updatedAt: new Date().toISOString(),
@@ -528,12 +529,12 @@ export default function NewSinglePageAssessment() {
           childAadhaarNumber: formData.childAadhaarNumber,
         },
         consent: {
-          agreeToParticipate: formData.agreeToParticipate,
+          agreeToParticipate: formData.agreeToParticipate ?? false,
           signatureDataUrl: signatureDataUrl,
           signatureTimestamp: new Date().toISOString(),
         },
         caregiverConsent: {
-          consentProvided: formData.agreeToParticipate,
+          consentProvided: formData.agreeToParticipate ?? false,
           consentVersion: 'v1.0-2026',
           caregiverName: formData.caregiverName || 'Caregiver',
           caregiverRelationship: formData.caregiverRelationship || 'Mother',
@@ -612,15 +613,15 @@ export default function NewSinglePageAssessment() {
           totalRequiredSupport: totalRequiredSupport,
         },
         finalReview: {
-          allInfoCorrect: formData.allInfoCorrect,
+          allInfoCorrect: formData.allInfoCorrect ?? false,
           organizationName: formData.organizationName,
           formSubmittedBy: formData.formSubmittedBy,
           organizationEmail: formData.organizationEmail,
           approvedAllianceIndia: formData.approvedAllianceIndia,
-          reviewConfirmed: formData.allInfoCorrect,
+          reviewConfirmed: formData.allInfoCorrect ?? false,
         },
         approvedAllianceIndia: formData.approvedAllianceIndia,
-        reviewConfirmed: formData.allInfoCorrect,
+        reviewConfirmed: formData.allInfoCorrect ?? false,
         syncNeeded: 'NO',
         syncStatus: 'queued',
         createdAt: new Date().toISOString(),
@@ -714,7 +715,7 @@ export default function NewSinglePageAssessment() {
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
         <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
-          <SectionHeader eyebrow="01 — CONSENT" prefix="Caregiver's " emphasis="agreement" suffix=" to participate" emphasisColor="text-rose-600" borderColor="border-rose-100/80" eyebrowColor="text-rose-400/90" />
+          <SectionHeader prefix="Caregiver's " emphasis="agreement" suffix=" to participate" emphasisColor="text-rose-600" borderColor="border-rose-100/80" eyebrowColor="text-rose-400/90" />
 
           <div className="space-y-4">
             {/* Consent Decision */}
@@ -843,7 +844,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 2: Child Demographics & Residence */}
         <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
-          <SectionHeader eyebrow="02 — CHILD PROFILE" prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" />
+          <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* System Generated Unique ID Display: Unique ID directly in place of NACO REGISTRY */}
@@ -1010,7 +1011,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 3: Banking & Identification (KYC) Details */}
         <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
-          <SectionHeader eyebrow="03 — BANKING KYC" prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" />
+          <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-bank-holder" className={`sm:col-span-2 ${getHighlightClass('q-bank-holder')}`}>
@@ -1080,7 +1081,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 4: Household & Financial Details */}
         <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
-          <SectionHeader eyebrow="04 — HOUSEHOLD" prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" />
+          <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-hh-members" className={getHighlightClass('q-hh-members')}>
@@ -1149,7 +1150,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
         <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
-          <SectionHeader eyebrow="05 — HEALTH & ART" prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
+          <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
@@ -1351,7 +1352,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 6: Nutrition Habits */}
         <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
-          <SectionHeader eyebrow="06 — APPETITE" prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" />
+          <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div id="q-nut-appetite" className={`sm:col-span-2 space-y-1.5 ${getHighlightClass('q-nut-appetite')}`}>
@@ -1399,7 +1400,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 7: Education Status */}
         <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
-          <SectionHeader eyebrow="07 — EDUCATION" prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" />
+          <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" />
 
           <div className="space-y-4">
             <div id="q-edu-status" className={`space-y-1.5 ${getHighlightClass('q-edu-status')}`}>
@@ -1526,7 +1527,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 8: Expenses & Programme Support */}
         <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
-          <SectionHeader eyebrow="08 — PROGRAMME SUPPORT" prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" />
+          <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" />
 
           <ExpensesAndApprovalGrid
             currentExpenses={{
@@ -1564,7 +1565,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 9: Programme Approval & Final Review */}
         <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
-          <SectionHeader eyebrow="09 — FINAL REVIEW" prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" />
+          <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" />
 
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
