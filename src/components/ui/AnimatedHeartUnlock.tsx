@@ -197,7 +197,7 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   }
 
   return (
-    <div className={`relative inline-flex items-center select-none ${className}`}>
+    <div className={`relative inline-flex flex-col items-center select-none pb-4 ${className}`}>
       {/* SVG ClipPath Definition & Wave Path */}
       <svg width="0" height="0" className="absolute pointer-events-none opacity-0" aria-hidden="true">
         <defs>
@@ -213,7 +213,7 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
         role="button"
         tabIndex={0}
         aria-label="Child Nutrition Support"
-        className={`heart-wrap group focus:outline-none rounded-full p-0.5 cursor-pointer ${
+        className={`heart-wrap group focus:outline-none rounded-full p-0.5 cursor-pointer relative ${
           isShaking ? 'animate-heart-shake' : ''
         }`}
         style={{
@@ -298,11 +298,11 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
           </svg>
         </div>
 
-        {/* Passcode Click Counter Badge: starts as (0) circle, expands to (3 - -) pill */}
+        {/* Passcode Click Counter Badge: positioned below heart so heart is completely visible while clicking */}
         <div
-          className={`absolute -bottom-1 -right-1 flex items-center justify-center ${
-            isExpandedPill ? 'px-1.5 h-[18px] min-w-[34px] rounded-full' : 'w-[18px] h-[18px] rounded-full'
-          } text-[10px] font-bold border-2 border-white shadow-xs transition-all duration-200 select-none ${badgeBg}`}
+          className={`absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 flex items-center justify-center ${
+            isExpandedPill ? 'px-2 h-[19px] min-w-[36px] rounded-full' : 'w-[19px] h-[19px] rounded-full'
+          } text-[10px] font-bold border-2 border-white shadow-sm transition-all duration-200 select-none z-10 ${badgeBg}`}
         >
           {renderBadgeContent()}
         </div>
