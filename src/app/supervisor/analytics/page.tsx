@@ -10,7 +10,6 @@ import {
   TrendingUp,
   Activity,
   TableProperties,
-  CheckCircle2,
   Award,
   PieChart,
   Globe,
@@ -34,7 +33,6 @@ interface ClinicalAnalyticsRecord {
 export default function AnalyticsDashboardPage() {
   const [records, setRecords] = useState<ClinicalAnalyticsRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeStateFilter, setActiveStateFilter] = useState('ALL');
 
   // Fetch genuine records from central server submissions API
   const fetchLiveRecords = useCallback(async () => {
@@ -103,11 +101,8 @@ export default function AnalyticsDashboardPage() {
     fetchLiveRecords();
   }, [fetchLiveRecords]);
 
-  // Apply state filter to the authentic records
-  const filteredDataset = useMemo(() => {
-    if (activeStateFilter === 'ALL') return records;
-    return records.filter((r) => r.state.toLowerCase() === activeStateFilter.toLowerCase());
-  }, [records, activeStateFilter]);
+  // Active genuine records
+  const filteredDataset = records;
 
   // Total metrics
   const totalCount = filteredDataset.length;
@@ -165,15 +160,6 @@ export default function AnalyticsDashboardPage() {
       underweight: stats.underweight,
       grant: stats.grant,
     }));
-  }, [records]);
-
-  // Unique state names for filter dropdown
-  const uniqueStates = useMemo(() => {
-    const set = new Set<string>();
-    records.forEach((r) => {
-      if (r.state) set.add(r.state);
-    });
-    return Array.from(set);
   }, [records]);
 
   return (
@@ -752,105 +738,6 @@ export default function AnalyticsDashboardPage() {
           </div>
         </div>
 
-        {/* SECTION 3: State Surveillance Linelist Data Table */}
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm sm:text-base font-bold text-slate-900">State Surveillance Linelist Matrix</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Authentic state epidemiological aggregation derived from verified field records
-              </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <select
-                value={activeStateFilter}
-                onChange={(e) => setActiveStateFilter(e.target.value)}
-                className="py-1.5 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 font-semibold text-slate-700"
-              >
-                <option value="ALL">All States ({stateSummary.length})</option>
-                {uniqueStates.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 uppercase font-bold tracking-wider text-[11px]">
-                  <th className="py-3 px-4">State</th>
-                  <th className="py-3 px-4 text-center">Total Children</th>
-                  <th className="py-3 px-4 text-center">VL Suppressed (&lt;1000)</th>
-                  <th className="py-3 px-4 text-center">Suppression Rate</th>
-                  <th className="py-3 px-4 text-center">Nutritional Risk</th>
-                  <th className="py-3 px-4 text-right">DBT Disbursed (INR)</th>
-                  <th className="py-3 px-4 text-center">Protocol Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {stateSummary.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400 font-medium bg-slate-50/30">
-                      <div className="flex flex-col items-center justify-center space-y-1.5">
-                        <TableProperties className="h-6 w-6 text-slate-300" />
-                        <p className="text-xs font-semibold text-slate-600">No Survey Records in Central Database</p>
-                        <p className="text-[11px] text-slate-400">
-                          When field caseworkers submit surveys, state-level epidemiological records will appear here in real time.
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  stateSummary.map((s) => (
-                    <tr key={s.name} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3.5 px-4 font-bold text-slate-900">{s.name}</td>
-                      <td className="py-3.5 px-4 text-center font-semibold text-slate-700">{s.total}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-teal-800">{s.vlSuppressed}</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                            s.suppressionRate >= 90
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                              : s.suppressionRate >= 75
-                              ? 'bg-teal-50 text-teal-800 border border-teal-200'
-                              : 'bg-rose-50 text-rose-800 border border-rose-200'
-                          }`}
-                        >
-                          {s.suppressionRate}%
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[11px] ${
-                            s.underweight > 0
-                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {s.underweight} Children
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-bold text-teal-900">
-                        ₹{s.grant.toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex items-center text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                          <CheckCircle2 className="h-3 w-3 mr-1 text-emerald-600" /> Verified
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
     </AppShell>
   );

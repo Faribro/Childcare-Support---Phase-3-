@@ -143,6 +143,12 @@ export default function SupervisorDashboardPage() {
   // Financial Entitlement
   const totalGrant = records.reduce((sum, r) => sum + r.grantAmount, 0);
 
+  // Education & Attendance Status (Live dynamic calculations)
+  const enrolledCount = records.filter((r) => r.schoolEnrolled).length;
+  const outOfSchoolCount = Math.max(0, totalEvaluated - enrolledCount);
+  const enrolledRate = totalEvaluated > 0 ? Math.round((enrolledCount / totalEvaluated) * 100) : 0;
+  const outOfSchoolRate = totalEvaluated > 0 ? Math.round((outOfSchoolCount / totalEvaluated) * 100) : 0;
+
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 lg:py-8">
@@ -339,25 +345,29 @@ export default function SupervisorDashboardPage() {
             {/* Segmented bar */}
             <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
               <div
-                style={{ width: '80%' }}
+                style={{ width: `${totalEvaluated > 0 ? enrolledRate : 0}%` }}
                 className="bg-sky-600 h-full transition-all"
-                title="School Enrolled (80%)"
+                title={`School Enrolled (${enrolledRate}%)`}
               />
               <div
-                style={{ width: '20%' }}
+                style={{ width: `${totalEvaluated > 0 ? outOfSchoolRate : 0}%` }}
                 className="bg-slate-300 h-full transition-all"
-                title="Out of School (20%)"
+                title={`Out of School (${outOfSchoolRate}%)`}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-center text-xs">
               <div className="p-2 rounded-xl bg-sky-50/70 border border-sky-200">
                 <span className="block text-[10px] text-slate-500 font-medium">Enrolled in School</span>
-                <span className="text-sm font-bold text-sky-900">4 Children (80%)</span>
+                <span className="text-sm font-bold text-sky-900">
+                  {totalEvaluated > 0 ? `${enrolledCount} (${enrolledRate}%)` : '0 (0%)'}
+                </span>
               </div>
               <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="block text-[10px] text-slate-500 font-medium">Out of School</span>
-                <span className="text-sm font-bold text-slate-700">1 Child (20%)</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {totalEvaluated > 0 ? `${outOfSchoolCount} (${outOfSchoolRate}%)` : '0 (0%)'}
+                </span>
               </div>
             </div>
           </div>

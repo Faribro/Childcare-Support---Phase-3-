@@ -57,5 +57,11 @@
     "tsx": "^4.17.0",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "overrides": {
+    "eslint-import-resolver-typescript": "3.8.3"
   }
 }
