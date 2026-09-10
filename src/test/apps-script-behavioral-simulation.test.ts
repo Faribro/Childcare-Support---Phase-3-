@@ -539,7 +539,26 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
   // ==========================================================================
   // SCENARIO 9: applyProtectedRanges_ enforces warningOnly: false on all required ranges
   // ==========================================================================
-  it('Scenario 9: applyProtectedRanges_ enforces warningOnly: false on Rows 1-3, Cols 1-2, Cols 67-68, Col 73', () => {
+  it('Scenario 9: applyProtectedRanges_ enforces warningOnly: false on Rows 1-3, Cols 1-2, Cols 67-68, Col 73 and preserves unrelated admin protections', () => {
+    // Add an unrelated administrator protection that should NOT be wiped
+    const adminProt = {
+      description: 'Finance Dept Custom Budget Lock',
+      warningOnly: true,
+      editors: ['finance@alliance.org'],
+      isWarningOnly: () => true,
+      getDescription: () => 'Finance Dept Custom Budget Lock',
+      getRange: () => ({ getA1Notation: () => 'Z100:AA105', getRow: () => 100, getNumRows: () => 5, getColumn: () => 26, getLastColumn: () => 27, getNumColumns: () => 2 }),
+      remove: function() {
+        mockProtections = mockProtections.filter(p => p !== this);
+      },
+      setWarningOnly: () => {},
+      removeEditors: () => {},
+      addEditor: () => {},
+      getEditors: () => ['finance@alliance.org'],
+      canEdit: () => false
+    };
+    mockProtections.push(adminProt as any);
+
     const res = sandbox.doPost({
       postData: {
         contents: JSON.stringify({ action: 'applyProtectedRanges', secret: 'TEST_SECRET_KEY_888999' })
@@ -551,17 +570,16 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     expect(data.warningOnly).toBe(false);
     expect(data.totalApplied).toBe(4);
 
-    // Verify all 4 protections have warningOnly === false
-    expect(mockProtections.length).toBe(4);
-    mockProtections.forEach(prot => {
-      expect(prot.isWarningOnly()).toBe(false);
-    });
-
+    // Verify all 4 managed protections have warningOnly === false AND namespaced prefix
     const descs = mockProtections.map(p => p.getDescription());
-    expect(descs).toContain('Header & System Definitions (Rows 1-3)');
-    expect(descs).toContain('System Identifiers (Cols 1-2)');
-    expect(descs).toContain('Governance Columns (Cols 67-68)');
-    expect(descs).toContain('System Timestamp: Last Updated (Col 73)');
+    expect(descs).toContain('Childcare Phase 3 — Header & System Definitions (Rows 1-3)');
+    expect(descs).toContain('Childcare Phase 3 — System Identifiers (Cols 1-2)');
+    expect(descs).toContain('Childcare Phase 3 — Governance Columns (Cols 67-68)');
+    expect(descs).toContain('Childcare Phase 3 — System Timestamp: Last Updated (Col 73)');
+
+    // Invariant: Unrelated administrator protection MUST be preserved!
+    expect(descs).toContain('Finance Dept Custom Budget Lock');
+    expect(mockProtections.length).toBe(5); // 4 managed + 1 preserved admin protection
   });
 
   // ==========================================================================
@@ -611,6 +629,8 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     const data = JSON.parse(res.getContent());
     expect(data.status).toBe('success');
     expect(data.revisionNumber).toBe(2);
+    expect(data.assetState).toBe('ACTIVE');
+    expect(data.oldAssetStatus).toBe('SUPERSEDED');
 
     // Old file 'passbook-file-111' should NOT be trashed or deleted; it is moved to revisions as SUPERSEDED
     const oldFile = mockDriveFiles['passbook-file-111'];

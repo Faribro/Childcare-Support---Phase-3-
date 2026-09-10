@@ -12,8 +12,9 @@ All tests were executed against synthetic test fixtures exclusively (`SYN-`, `TE
 
 ### Suite 1: Apps Script Advanced Services & Fail-Closed Security
 - **Command**: `npx vitest run src/test/apps-script-advanced-services.test.ts`
-- **Result**: **26 / 26 Passed (100%)**
+- **Result**: **30 / 30 Passed (100%)**
 - **Execution Time**: ~1.3s
+- **Coverage**: Includes manifest verification, fail-closed auth, 73-column schema, DPDP redaction, two-phase asset OCC replacement, server-verified role enforcement, and namespaced range protection preservation.
 
 ### Suite 2: Google Apps Script Behavioral Simulation Suite (14 Security Review Scenarios)
 - **Command**: `npx vitest run src/test/apps-script-behavioral-simulation.test.ts`
@@ -29,9 +30,9 @@ All tests were executed against synthetic test fixtures exclusively (`SYN-`, `TE
 6. `Scenario 6: listSubmissions_ DTO contains no prohibited PII, no raw formulas, and strictly no rowNumber`: PASS
 7. `Scenario 7: readSubmission_ conforms to role allowlist and contains no internal rowNumber`: PASS
 8. `Scenario 8: previewProtectedRanges_ inspects state non-destructively without mutating protections`: PASS
-9. `Scenario 9: applyProtectedRanges_ enforces warningOnly: false on Rows 1-3, Cols 1-2, Cols 67-68, Col 73`: PASS
+9. `Scenario 9: applyProtectedRanges_ enforces warningOnly: false on Rows 1-3, Cols 1-2, Cols 67-68, Col 73 and preserves unrelated admin protections`: PASS
 10. `Scenario 10: inspectDriveAsset_ and auditDriveAssets_ redact IDs and emails`: PASS
-11. `Scenario 11: replaceAssetTwoPhase_ commits OCC pointer and moves old asset to revisions as SUPERSEDED`: PASS
+11. `Scenario 11: replaceAssetTwoPhase_ commits OCC pointer and moves old asset to revisions as SUPERSEDED (active state and recovery tracking)`: PASS
 12. `Scenario 12: Pointer update failure on OCC conflict quarantines or aborts and preserves old asset`: PASS
 13. `Scenario 13: Public anyone ACL violation is detected and remediable via enforceRestrictedAcl`: PASS
 14. `Scenario 14: cleanupStagingRun_ strictly operates inside _e2e_staging_runs and requires token`: PASS
@@ -40,13 +41,13 @@ All tests were executed against synthetic test fixtures exclusively (`SYN-`, `TE
 
 ### Suite 3: Full Platform Automated Test Run
 - **Command**: `npm run test:run`
-- **Result**: **15 Test Files Passed, 147 / 147 Tests Passed (100%)**
+- **Result**: **15 Test Files Passed, 151 / 151 Tests Passed (100%)**
 - **Execution Time**: ~4.6s
 
 ```text
  ✓ src/test/apps-script-behavioral-simulation.test.ts (14 tests)
  ✓ src/test/sync-request-builders.test.ts (18 tests)
- ✓ src/test/apps-script-advanced-services.test.ts (26 tests)
+ ✓ src/test/apps-script-advanced-services.test.ts (30 tests)
  ✓ src/test/integration/immediate-autosync.test.ts (13 tests)
  ✓ src/test/integration/blocker-remediation.test.ts (11 tests)
  ✓ src/test/api-contract-envelope.test.ts (10 tests)

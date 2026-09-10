@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { extractUpstreamStatusCode } from '@/lib/server/canonicalSubmissionAdapter';
+import { resolveServerVerifiedRole } from '@/lib/server/authorisation';
+import { NextRequest } from 'next/server';
 
 describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
   const gasCodePath = path.join(process.cwd(), 'gas', 'Code.js');
@@ -254,6 +256,50 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
       expect(gasContent).toContain("str.indexOf('rate') !== -1");
       expect(gasContent).toContain("str.indexOf('quota') !== -1");
       expect(gasContent).toContain('Utilities.sleep(');
+    });
+  });
+
+  // ==========================================================================
+  // 8. SERVER-VERIFIED ROLE ENFORCEMENT & NAMESPACED PROTECTIONS
+  // ==========================================================================
+  describe('8. Server-Verified Role Enforcement & Range Namespacing', () => {
+    it('strictly falls back to least-privilege supervisor when browser client claims caseworker without session', () => {
+      const untrustedReq = new NextRequest('http://localhost:3000/api/submissions/BEN-SYN-001', {
+        headers: {
+          'x-user-role': 'caseworker',
+        },
+      });
+
+      const res = resolveServerVerifiedRole(untrustedReq);
+      expect(res.isVerified).toBe(false);
+      expect(res.role).toBe('supervisor'); // Never trust unauthenticated browser claim
+      expect(res.reason).toBe('untrusted_fallback');
+    });
+
+    it('honors role for trusted server-to-server actor with matching secret', () => {
+      process.env.WEBHOOK_SECRET = 'TEST_SERVER_SECRET_123';
+      const trustedReq = new NextRequest('http://localhost:3000/api/submissions/BEN-SYN-001', {
+        headers: {
+          'Authorization': 'Bearer TEST_SERVER_SECRET_123',
+          'x-user-role': 'caseworker',
+        },
+      });
+
+      const res = resolveServerVerifiedRole(trustedReq);
+      expect(res.isVerified).toBe(true);
+      expect(res.role).toBe('caseworker');
+      expect(res.reason).toBe('trusted_bearer');
+    });
+
+    it('enforces namespaced prefix Childcare Phase 3 — on managed range protections', () => {
+      expect(gasContent).toContain("var PROTECTED_PREFIX = 'Childcare Phase 3 — ';");
+      expect(gasContent).toContain('d.indexOf(PROTECTED_PREFIX) === 0');
+    });
+
+    it('preserves asset replacement recovery states including SUPERSEDED_PENDING_MOVE', () => {
+      expect(gasContent).toContain("oldAssetStatus = 'SUPERSEDED_PENDING_MOVE'");
+      expect(gasContent).toContain("oldAssetStatus = 'SUPERSEDED'");
+      expect(gasContent).toContain("assetState: 'ACTIVE'");
     });
   });
 });

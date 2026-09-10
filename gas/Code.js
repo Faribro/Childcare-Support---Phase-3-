@@ -1852,39 +1852,45 @@ function applyProtectedRanges_(payload, requestId) {
   var maxRows = Math.max(sheet.getMaxRows(), 100);
   var maxCols = Math.max(sheet.getMaxColumns(), COLUMN_HEADERS.length);
 
-  // Remove existing range protections to ensure a clean, authoritative state
+  var PROTECTED_PREFIX = 'Childcare Phase 3 — ';
+
+  // Remove ONLY existing range protections managed by Childcare Phase 3
+  // Unrelated administrator range protections are preserved intact
   var existing = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
   for (var i = 0; i < existing.length; i++) {
     try {
-      existing[i].remove();
+      var d = existing[i].getDescription() || '';
+      if (d.indexOf(PROTECTED_PREFIX) === 0) {
+        existing[i].remove();
+      }
     } catch (e) {}
   }
 
   var applied = [];
 
   // 1. Protect Header Rows 1-3
-  var headerDesc = 'Header & System Definitions (Rows 1-3)';
+  var headerDesc = PROTECTED_PREFIX + 'Header & System Definitions (Rows 1-3)';
   var headerRange = sheet.getRange(1, 1, 3, maxCols);
   var headerProt = headerRange.protect().setDescription(headerDesc);
   headerProt.setWarningOnly(false);
   applied.push({ description: headerDesc, rangeA1: headerRange.getA1Notation(), warningOnly: false });
 
   // 2. Protect Columns 1 & 2 (Unique ID and Revision Number)
-  var idDesc = 'System Identifiers (Cols 1-2)';
+  var idDesc = PROTECTED_PREFIX + 'System Identifiers (Cols 1-2)';
   var idRange = sheet.getRange(4, 1, maxRows - 3, 2);
   var idProt = idRange.protect().setDescription(idDesc);
   idProt.setWarningOnly(false);
   applied.push({ description: idDesc, rangeA1: idRange.getA1Notation(), warningOnly: false });
 
   // 3. Protect Columns 67 & 68 (Approved Alliance India & Review Confirmed)
-  var govDesc = 'Governance Columns (Cols 67-68)';
+  var govDesc = PROTECTED_PREFIX + 'Governance Columns (Cols 67-68)';
   var govRange = sheet.getRange(4, 67, maxRows - 3, 2);
   var govProt = govRange.protect().setDescription(govDesc);
   govProt.setWarningOnly(false);
   applied.push({ description: govDesc, rangeA1: govRange.getA1Notation(), warningOnly: false });
 
   // 4. Protect Column 73 (Last Updated)
-  var col73Desc = 'System Timestamp: Last Updated (Col 73)';
+  var col73Desc = PROTECTED_PREFIX + 'System Timestamp: Last Updated (Col 73)';
   var col73Range = sheet.getRange(4, 73, maxRows - 3, 1);
   var col73Prot = col73Range.protect().setDescription(col73Desc);
   col73Prot.setWarningOnly(false);
@@ -2245,7 +2251,11 @@ function replaceAssetTwoPhase_(payload, requestId) {
     return errorResponse_('Pointer verification mismatch. Asset quarantined and sheet write rolled back.', 'INTERNAL_ERROR', 500, requestId);
   }
 
-  // Pointer verified! Move old file to revisions folder as SUPERSEDED (Never delete inline)
+  // Pointer verified! New asset is ACTIVE.
+  // Move old file to revisions folder as SUPERSEDED (Never delete inline).
+  // Recovery states preserved: ACTIVE (new file), SUPERSEDED (old file moved),
+  // or SUPERSEDED_PENDING_MOVE / DELETE_PENDING (if moving old file fails).
+  var oldAssetStatus = oldFileId ? 'PENDING_MOVE' : 'NONE';
   if (oldFileId) {
     try {
       var oldFile = DriveApp.getFileById(oldFileId);
@@ -2255,9 +2265,31 @@ function replaceAssetTwoPhase_(payload, requestId) {
         try {
           oldFile.setName('SUPERSEDED_' + Date.now() + '_' + oldFile.getName());
         } catch (renErr) {}
+        oldAssetStatus = 'SUPERSEDED';
+      } else {
+        oldAssetStatus = 'NOT_FOUND';
       }
     } catch (oldErr) {
       Logger.log('Notice: could not move old file to revisions: ' + oldErr);
+      // Moving old file failed, but new asset remains ACTIVE in sheet pointer.
+      // Mark old asset as SUPERSEDED_PENDING_MOVE and record in container metadata.
+      oldAssetStatus = 'SUPERSEDED_PENDING_MOVE';
+      try {
+        if (container.metadataFolder) {
+          container.metadataFolder.createFile(
+            'pending_move_' + Date.now() + '.json',
+            JSON.stringify({
+              submissionId: submissionId,
+              oldFileId: oldFileId,
+              status: 'SUPERSEDED_PENDING_MOVE',
+              recoveryAction: 'DELETE_PENDING',
+              error: String(oldErr),
+              timestamp: new Date().toISOString()
+            }),
+            'application/json'
+          );
+        }
+      } catch (mErr) {}
     }
   }
 
@@ -2269,6 +2301,8 @@ function replaceAssetTwoPhase_(payload, requestId) {
       fileName: slotFilename,
       revisionNumber: nextRev,
       version: nextRev,
+      assetState: 'ACTIVE',
+      oldAssetStatus: oldAssetStatus,
       requestId: requestId || null
     })
   ).setMimeType(ContentService.MimeType.JSON);

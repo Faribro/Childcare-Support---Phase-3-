@@ -77,21 +77,39 @@ Removes public sharing permissions (`type === 'anyone'`) using `Drive.Permission
 
 ---
 
-## 4. Atomic Asset Replacement & Safe Trashing
+## 4. Two-Phase Commit Asset Replacement & Lifecycle Recovery States
 
-To prevent data loss during updates or document re-scans, `replaceAssetSafely_(options)` enforces a **verify-before-trash** contract:
+To guarantee zero data loss across uncoordinated Google Sheets and Google Drive APIs, `replaceAssetTwoPhase_` replaces inline trashing with a **two-phase commit with Optimistic Concurrency Control (OCC) pointer verification**:
 
 ```text
-[Step 1] Decode and write replacement blob to assessments/{remoteSubmissionId}/current/{slot}.jpg
-         |
-[Step 2] VERIFICATION CHECK:
-         Is newFileId valid? AND is fileSize > 0 bytes?
-         |
-         +--> [FAIL] Stop immediately. Retain old asset. Return error response.
-         |
-         +--> [PASS] Proceed to Step 3.
-         |
-[Step 3] Move old file ID to Trash (DriveApp.getFileById(oldId).setTrashed(true)).
-         |
-[Step 4] Update Google Sheet cell with formula: =HYPERLINK("https://drive.google.com/file/d/.../view", "Restricted Doc")
+Recovery State Lifecycle:
+[PENDING_UPLOAD]
+       │
+       ▼
+   [STAGED] (New asset created in assessments/{assetContainerId}/current/)
+       │
+       ▼
+[POINTER_UPDATED] (OCC commit: updates revision and =HYPERLINK formula in Sheet)
+       │
+       ├─────────────────────────────────┐
+  [Read-Back Match]             [Read-Back Mismatch]
+       │                                 │
+       ▼                                 ▼
+    [ACTIVE]                        [QUARANTINE]
+(New asset is confirmed)     (New asset moved to quarantine/)
+       │                     (Sheet cell rolled back to old formula)
+       ▼
+   Move Old Asset to revisions/
+       │
+       ├─────────────────────────────────┐
+    [Success]                         [Failure]
+       │                                 │
+       ▼                                 ▼
+  [SUPERSEDED]               [SUPERSEDED_PENDING_MOVE / DELETE_PENDING]
+(Old asset renamed and      (Old asset marked pending move; provenance logged
+ stored in revisions/)       in metadata/ for asynchronous retry; new asset stays ACTIVE)
 ```
+
+1. **Phase 1: Stage & Validate**: New asset is written to `current/`. If zero bytes or invalid ID, new file is moved to `quarantine/` and aborted.
+2. **Phase 2: OCC Commit & Read-Back Verification**: Sheet cell pointer is updated and immediately read back. If verified pointer matches new file ID, the new asset transition to `ACTIVE` is complete. If mismatch occurs, sheet pointer is rolled back and new file is moved to `quarantine/`.
+3. **Old Asset Archival**: Verified old asset is moved to `revisions/` tagged as `SUPERSEDED`. If moving the old file fails, the new asset **remains ACTIVE** and the old asset is marked **`SUPERSEDED_PENDING_MOVE`** with an audit log in `metadata/`, preventing silent data loss. Old assets are never deleted or trashed inline.

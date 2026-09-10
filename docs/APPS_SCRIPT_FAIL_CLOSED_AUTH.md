@@ -112,6 +112,12 @@ public getWebhookSecret(): string | undefined {
 - In absence of `WEBHOOK_SECRET`, the adapter fails closed and returns `503 CONFIGURATION_ERROR` without leaking fallback credentials.
 - URL query parameters are strictly forbidden from carrying secrets: `adapterContent` never contains `?secret=` or `searchParams.set('secret')`. Secrets travel strictly via HTTPS POST body and headers.
 
+### C. Server-Verified Role Authorization (`src/lib/server/authorisation.ts`)
+
+- **Security Mandate**: Never trust raw `x-user-role` headers from browser callers. A malicious browser client could set `x-user-role: caseworker` to bypass DPDP Act field masking and view unredacted document links.
+- **Verification Rule**: Legitimate roles must originate from a verified server-side session or authenticated server actor with a matching secret token (`WEBHOOK_SECRET`, `INTERNAL_AUTH_SECRET`, `SESSION_SECRET`).
+- **Safe Interim Default**: Unverified callers strictly receive the least-privilege `'supervisor'` view, ensuring Aadhaar, bank accounts, and phone numbers are masked and sensitive document URLs are removed.
+
 ---
 
 ## 4. Operational Setup Runbook

@@ -66,12 +66,12 @@ Google Sheets Top Menu:
 
 ### 7. Apply: Protect Header & Governance Ranges
 - **Function**: `menuApplyProtectedRanges()`
-- **Action**: **Administrator-confirmed mutation** requiring explicit confirmation prompt (`ui.ButtonSet.YES_NO`).
+- **Namespacing & Safe Cleanup**: Prefixes all managed protections with `Childcare Phase 3 — `. Upon execution, only existing protections with this namespaced prefix are reset; unrelated spreadsheet protections created by administrators are preserved intact.
 - **Enforcement**: Applies `warningOnly: false` (hard lock) on:
-  - Header Rows 1–3
-  - Columns 1–2 (`Unique ID`, `Revision Number`)
-  - Columns 67–68 (`Approved Alliance India`, `Review Confirmed`)
-  - Column 73 (`Last Updated`)
+  - Header Rows 1–3 (`Childcare Phase 3 — Header & System Definitions (Rows 1-3)`)
+  - Columns 1–2 (`Childcare Phase 3 — System Identifiers (Cols 1-2)`)
+  - Columns 67–68 (`Childcare Phase 3 — Governance Columns (Cols 67-68)`)
+  - Column 73 (`Childcare Phase 3 — System Timestamp: Last Updated (Col 73)`)
 - **Editors**: Restricts editing rights strictly to the script owner / effective service user, revoking unauthorized domain editor permissions.
 
 ### 8. Apply: Refresh Linelist Formatting
