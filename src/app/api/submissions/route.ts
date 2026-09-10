@@ -9,9 +9,35 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const cursor = searchParams.get('cursor') || undefined;
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 50;
     const status = searchParams.get('status') || undefined;
     const updatedAfter = searchParams.get('updatedAfter') || undefined;
+
+    const rawLimit = searchParams.get('limit');
+    let limit = 50;
+
+    if (rawLimit !== null) {
+      const trimmed = rawLimit.trim();
+      const parsed = parseInt(trimmed, 10);
+      if (isNaN(parsed) || !/^\d+$/.test(trimmed) || parsed < 1) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'VALIDATION_ERROR',
+            message: 'Query parameter "limit" must be a positive integer between 1 and 100.',
+            requestId,
+            retryable: false,
+          },
+          {
+            status: 400,
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+              'X-Request-Id': requestId,
+            },
+          }
+        );
+      }
+      limit = Math.min(parsed, 100);
+    }
 
     const result = await canonicalSubmissionAdapter.listSubmissions({
       cursor,
@@ -21,16 +47,18 @@ export async function GET(req: NextRequest) {
     });
 
     if (result.status === 'error') {
+      const statusCode = result.statusCode || 502;
+      const code = result.code || (statusCode === 400 ? 'VALIDATION_ERROR' : 'UPSTREAM_UNAVAILABLE');
       return NextResponse.json(
         {
           status: 'error',
-          code: result.code || 'UPSTREAM_UNAVAILABLE',
-          message: result.message || 'Failed to list submissions',
+          code,
+          message: result.message || 'Failed to list submissions from central bridge',
           requestId,
-          retryable: result.statusCode !== 401 && result.statusCode !== 403 && result.code !== 'CONFIGURATION_ERROR',
+          retryable: statusCode !== 401 && statusCode !== 403 && code !== 'CONFIGURATION_ERROR' && code !== 'VALIDATION_ERROR',
         },
         {
-          status: result.statusCode || 502,
+          status: statusCode,
           headers: {
             'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
             'X-Request-Id': requestId,
@@ -56,6 +84,8 @@ export async function GET(req: NextRequest) {
         items: records,
         pagination: {
           totalCount: total,
+          limit,
+          offset: 0,
           hasMore: Boolean(nextCursor),
           nextCursor,
         },

@@ -21,8 +21,12 @@ var AUDIT_SHEET_NAME = 'Audit_Log';
 var HEADER_ROW_INDEX = 3;
 var LOCK_TIMEOUT_MS = 30000;
 var BANNER_TITLE = 'CHILD HIV CARE & NUTRITION LINELIST';
-var DASHBOARD_URL = 'https://childcare-support-phase-3.onrender.com';
-var ROOT_DOCUMENTS_FOLDER_NAME = 'Child_Nutrition_Phase3_Documents';
+var ROOT_DOCUMENTS_FOLDER_NAME = 'Alliance India Child PDFs';
+var CANDIDATE_ROOT_FOLDER_NAMES = [
+  'Alliance India Child PDFs',
+  'Child_Nutrition_Phase3_Documents',
+  'ChildCare Attachments'
+];
 
 // Exact 73 Rectified Column Headers (Number on top + newline)
 var COLUMN_HEADERS = [
@@ -394,9 +398,12 @@ function applyColumnWidths_(sheet) {
 
 function getOrCreateRootDocumentsFolder_() {
   try {
-    var folders = DriveApp.getFoldersByName(ROOT_DOCUMENTS_FOLDER_NAME);
-    if (folders.hasNext()) {
-      return folders.next();
+    for (var i = 0; i < CANDIDATE_ROOT_FOLDER_NAMES.length; i++) {
+      var candidate = CANDIDATE_ROOT_FOLDER_NAMES[i];
+      var folders = DriveApp.getFoldersByName(candidate);
+      if (folders.hasNext()) {
+        return folders.next();
+      }
     }
     // Create folder with default restricted domain/owner ACLs (Public link sharing disabled)
     var root = DriveApp.createFolder(ROOT_DOCUMENTS_FOLDER_NAME);

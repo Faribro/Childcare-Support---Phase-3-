@@ -20,6 +20,7 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
+  Cloud,
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
@@ -46,6 +47,7 @@ export default function AnalyticsDashboardPage() {
     isLoading,
     isError,
     isEmpty,
+    isOfflineCache,
     error,
     refresh,
     retry,
@@ -217,8 +219,28 @@ export default function AnalyticsDashboardPage() {
           </div>
         )}
 
+        {/* Offline Cache Indicator Banner */}
+        {isOfflineCache && !isError && (
+          <div className="bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs">
+            <div className="flex items-center space-x-2.5 text-xs">
+              <Cloud className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>
+                <strong>Showing Offline Cached Snapshot:</strong> Upstream network is currently offline or unreachable. Cached analytics dataset is displayed.
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refresh}
+              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl"
+            >
+              Reconnect
+            </Button>
+          </div>
+        )}
+
         {/* Empty State Banner */}
-        {isEmpty && !isLoading && (
+        {isEmpty && !isLoading && !isError && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center space-y-2">
             <h4 className="text-sm font-bold text-slate-700">No Clinical Data Available</h4>
             <p className="text-xs text-slate-500 max-w-md mx-auto">
@@ -235,10 +257,20 @@ export default function AnalyticsDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider">Children Evaluated</span>
               <Users className="h-4 w-4 text-teal-700" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">{totalCount}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900">
+              {isLoading && totalCount === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalCount === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                totalCount
+              )}
+            </div>
             <p className="text-[11px] text-teal-700 font-medium mt-1 flex items-center">
               <TrendingUp className="h-3 w-3 mr-1" />
-              <span>Active Linelist Surveillance</span>
+              <span>
+                {isError && totalCount === 0 ? 'Data Unavailable' : 'Active Linelist Surveillance'}
+              </span>
             </p>
           </div>
 
@@ -248,9 +280,21 @@ export default function AnalyticsDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">VL Suppressed</span>
               <Activity className="h-4 w-4 text-emerald-600" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-emerald-700">{suppressionRate}%</div>
+            <div className="text-2xl sm:text-3xl font-bold text-emerald-700">
+              {isLoading && totalCount === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalCount === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                `${suppressionRate}%`
+              )}
+            </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              {totalSuppressed} of {totalCount} &lt;1,000 c/mL (Target: 95%)
+              {isError && totalCount === 0 ? (
+                <span className="text-rose-600">Connection error</span>
+              ) : (
+                `${totalSuppressed} of ${totalCount} <1,000 c/mL (Target: 95%)`
+              )}
             </p>
           </div>
 
@@ -260,9 +304,21 @@ export default function AnalyticsDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-amber-800">Nutritional Risk</span>
               <HeartPulse className="h-4 w-4 text-amber-600" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-amber-600">{totalNutritionalRisk}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-amber-600">
+              {isLoading && totalCount === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalCount === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                totalNutritionalRisk
+              )}
+            </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              {severeUnderweightCount} Severe • {moderateUnderweightCount} Moderate Underweight
+              {isError && totalCount === 0 ? (
+                <span className="text-rose-600">Connection error</span>
+              ) : (
+                `${severeUnderweightCount} Severe • ${moderateUnderweightCount} Moderate Underweight`
+              )}
             </p>
           </div>
 
@@ -272,9 +328,21 @@ export default function AnalyticsDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-teal-800">DBT Committed</span>
               <Award className="h-4 w-4 text-teal-700" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-teal-900">₹{totalGrant.toLocaleString('en-IN')}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-teal-900">
+              {isLoading && totalCount === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalCount === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                `₹${totalGrant.toLocaleString('en-IN')}`
+              )}
+            </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              Avg ₹{avgGrant.toLocaleString('en-IN')}/child • 100% verified
+              {isError && totalCount === 0 ? (
+                <span className="text-rose-600">Connection error</span>
+              ) : (
+                `Avg ₹${avgGrant.toLocaleString('en-IN')}/child • 100% verified`
+              )}
             </p>
           </div>
         </div>
@@ -298,11 +366,23 @@ export default function AnalyticsDashboardPage() {
 
               {totalCount === 0 ? (
                 <div className="w-full h-56 flex flex-col items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200 p-6 text-center">
-                  <Activity className="h-8 w-8 text-slate-300 mb-2" />
-                  <p className="text-sm font-bold text-slate-700">No Viral Load Submissions Recorded</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                    Live clinical suppression cascades (&lt;50, 50-999, &ge;1000 copies/mL) will calculate dynamically as surveys are submitted from the field.
-                  </p>
+                  {isError ? (
+                    <>
+                      <AlertCircle className="h-8 w-8 text-rose-500 mb-2" />
+                      <p className="text-sm font-bold text-slate-800">Cascade Metrics Unavailable</p>
+                      <p className="text-xs text-rose-600 mt-1 max-w-xs">
+                        Unable to compute viral load suppression cascade due to upstream spreadsheet bridge error.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Activity className="h-8 w-8 text-slate-300 mb-2" />
+                      <p className="text-sm font-bold text-slate-700">No Viral Load Submissions Recorded</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                        Live clinical suppression cascades (&lt;50, 50-999, &ge;1000 copies/mL) will calculate dynamically as surveys are submitted from the field.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="w-full h-56 flex items-center justify-center bg-radial from-slate-50 to-white rounded-xl border border-slate-100 p-2 relative overflow-hidden">
@@ -504,11 +584,23 @@ export default function AnalyticsDashboardPage() {
 
               {totalCount === 0 ? (
                 <div className="w-full h-56 flex flex-col items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200 p-6 text-center">
-                  <PieChart className="h-8 w-8 text-slate-300 mb-2" />
-                  <p className="text-sm font-bold text-slate-700">No Pediatric Growth Data Recorded</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                    WHO growth stunting tiers (Normal, Moderate, Severe Underweight, Overweight) will visualize dynamically once child weight and height measurements are submitted.
-                  </p>
+                  {isError ? (
+                    <>
+                      <AlertCircle className="h-8 w-8 text-rose-500 mb-2" />
+                      <p className="text-sm font-bold text-slate-800">Growth Stunting Metrics Unavailable</p>
+                      <p className="text-xs text-rose-600 mt-1 max-w-xs">
+                        Unable to compute pediatric BMI distributions due to upstream spreadsheet bridge error.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <PieChart className="h-8 w-8 text-slate-300 mb-2" />
+                      <p className="text-sm font-bold text-slate-700">No Pediatric Growth Data Recorded</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                        WHO growth stunting tiers (Normal, Moderate, Severe Underweight, Overweight) will visualize dynamically once child weight and height measurements are submitted.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="w-full h-56 flex items-center justify-center bg-radial from-slate-50 to-white rounded-xl border border-slate-100 p-2 relative">
@@ -612,11 +704,23 @@ export default function AnalyticsDashboardPage() {
 
               {totalCount === 0 ? (
                 <div className="w-full h-52 flex flex-col items-center justify-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200 p-6 text-center">
-                  <HeartPulse className="h-8 w-8 text-slate-300 mb-2" />
-                  <p className="text-sm font-bold text-slate-700">No Haemoglobin Test Results Recorded</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                    WHO anemia spectrum density wave will plot automatically across severe (&lt;7.0 g/dL), moderate, mild, and normal thresholds as hemoglobin levels are submitted.
-                  </p>
+                  {isError ? (
+                    <>
+                      <AlertCircle className="h-8 w-8 text-rose-500 mb-2" />
+                      <p className="text-sm font-bold text-slate-800">Haemoglobin Spectrum Unavailable</p>
+                      <p className="text-xs text-rose-600 mt-1 max-w-xs">
+                        Unable to plot anemia spectrum curve due to upstream spreadsheet bridge error.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <HeartPulse className="h-8 w-8 text-slate-300 mb-2" />
+                      <p className="text-sm font-bold text-slate-700">No Haemoglobin Test Results Recorded</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                        WHO anemia spectrum density wave will plot automatically across severe (&lt;7.0 g/dL), moderate, mild, and normal thresholds as hemoglobin levels are submitted.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="w-full h-52 bg-slate-50/70 rounded-xl border border-slate-200 p-3 relative overflow-hidden flex items-end">

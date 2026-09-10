@@ -51,6 +51,7 @@ export default function SupervisorAssessmentsPage() {
     isLoading,
     isError,
     isEmpty,
+    isOfflineCache,
     error,
     refresh,
     retry,
@@ -365,6 +366,26 @@ export default function SupervisorAssessmentsPage() {
                 Refresh
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Offline Cache Indicator Banner */}
+        {isOfflineCache && !isError && (
+          <div className="mb-5 bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs">
+            <div className="flex items-center space-x-2.5 text-xs">
+              <Cloud className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>
+                <strong>Showing Offline Cached Snapshot:</strong> Network connection to central bridge is offline or unavailable. Cached linelist records are preserved.
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refresh}
+              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl"
+            >
+              Reconnect
+            </Button>
           </div>
         )}
 
@@ -822,8 +843,13 @@ export default function SupervisorAssessmentsPage() {
               </div>
             </div>
           ) : filteredData.length === 0 ? (
-            <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200">
-              {hasActiveFilters ? 'No records match the current filters.' : 'No survey records found.'}
+            <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200 space-y-2">
+              <p>{hasActiveFilters ? 'No records match the current filters.' : 'No survey records found.'}</p>
+              {hasActiveFilters && (
+                <Button variant="secondary" size="sm" onClick={resetFilters} className="text-xs">
+                  Reset Filters
+                </Button>
+              )}
             </div>
           ) : (
             filteredData.map((row) => (

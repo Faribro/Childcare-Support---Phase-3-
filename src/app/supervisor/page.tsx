@@ -19,6 +19,7 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
+  Cloud,
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
@@ -32,6 +33,7 @@ export default function SupervisorDashboardPage() {
     isLoading,
     isError,
     isEmpty,
+    isOfflineCache,
     error,
     refresh,
     retry,
@@ -158,8 +160,28 @@ export default function SupervisorDashboardPage() {
           </div>
         )}
 
+        {/* Offline Cache Indicator Banner */}
+        {isOfflineCache && !isError && (
+          <div className="mb-6 bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs">
+            <div className="flex items-center space-x-2.5 text-xs">
+              <Cloud className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>
+                <strong>Showing Offline Cached Snapshot:</strong> Upstream network is currently offline or unreachable. Cached surveillance metrics are displayed.
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refresh}
+              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl"
+            >
+              Reconnect
+            </Button>
+          </div>
+        )}
+
         {/* Empty State Banner */}
-        {isEmpty && !isLoading && (
+        {isEmpty && !isLoading && !isError && (
           <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center space-y-1">
             <h4 className="text-sm font-bold text-slate-700">No Survey Submissions Yet</h4>
             <p className="text-xs text-slate-500">
@@ -176,10 +198,20 @@ export default function SupervisorDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider">Total Evaluated</span>
               <Users className="h-4 w-4 text-teal-700" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">{totalEvaluated}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900">
+              {isLoading && totalEvaluated === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalEvaluated === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                totalEvaluated
+              )}
+            </div>
             <p className="text-[11px] text-teal-700 font-medium mt-1 flex items-center">
               <TrendingUp className="h-3 w-3 mr-1" />
-              <span>Active Linelist Beneficiaries</span>
+              <span>
+                {isError && totalEvaluated === 0 ? 'Data Unavailable' : 'Active Linelist Beneficiaries'}
+              </span>
             </p>
           </div>
 
@@ -189,10 +221,24 @@ export default function SupervisorDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">VL Suppression Rate</span>
               <Activity className="h-4 w-4 text-emerald-600" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-emerald-700">{suppressionRate}%</div>
+            <div className="text-2xl sm:text-3xl font-bold text-emerald-700">
+              {isLoading && totalEvaluated === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalEvaluated === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                `${suppressionRate}%`
+              )}
+            </div>
             <p className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-              <span>{suppressedCount} of {totalEvaluated} Suppressed</span>
-              <span className="text-emerald-700 font-bold">(&lt;1,000 c/mL)</span>
+              {isError && totalEvaluated === 0 ? (
+                <span className="text-rose-600">Connection error</span>
+              ) : (
+                <>
+                  <span>{suppressedCount} of {totalEvaluated} Suppressed</span>
+                  <span className="text-emerald-700 font-bold">(&lt;1,000 c/mL)</span>
+                </>
+              )}
             </p>
           </div>
 
@@ -202,9 +248,21 @@ export default function SupervisorDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-amber-800">Nutritional Risk</span>
               <HeartPulse className="h-4 w-4 text-amber-600" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-amber-600">{nutritionalRiskCount}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-amber-600">
+              {isLoading && totalEvaluated === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalEvaluated === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                nutritionalRiskCount
+              )}
+            </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              {severeUnderweightCount} Severe • {moderateUnderweightCount} Moderate Underweight
+              {isError && totalEvaluated === 0 ? (
+                <span className="text-rose-600">Connection error</span>
+              ) : (
+                `${severeUnderweightCount} Severe • ${moderateUnderweightCount} Moderate Underweight`
+              )}
             </p>
           </div>
 
@@ -214,18 +272,46 @@ export default function SupervisorDashboardPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-teal-800">DBT Entitlement</span>
               <GraduationCap className="h-4 w-4 text-teal-700" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-teal-900">₹{totalGrant.toLocaleString('en-IN')}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-teal-900">
+              {isLoading && totalEvaluated === 0 ? (
+                <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isError && totalEvaluated === 0 ? (
+                <span className="text-slate-400 font-normal">—</span>
+              ) : (
+                `₹${totalGrant.toLocaleString('en-IN')}`
+              )}
+            </div>
             <p className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-              <span>Committed child grant pool</span>
-              <span className="text-teal-700 font-bold">100% KYC</span>
+              {isError && totalEvaluated === 0 ? (
+                <span className="text-rose-600">Connection error</span>
+              ) : (
+                <>
+                  <span>Committed child grant pool</span>
+                  <span className="text-teal-700 font-bold">100% KYC</span>
+                </>
+              )}
             </p>
           </div>
         </div>
 
         {/* Clinical Health & Surveillance Visualizations */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
-          {/* Growth & BMI Breakdown */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        {isError && totalEvaluated === 0 ? (
+          <div className="bg-white rounded-2xl border border-rose-200 p-8 text-center space-y-3 mb-8 shadow-xs">
+            <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-800">Clinical Surveillance Visualizations Unavailable</h4>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Nutritional risk distributions, HIV viral load cascades, and education indicators could not be calculated because upstream linelist records failed to load.
+            </p>
+            <div className="pt-1">
+              <Button variant="secondary" size="sm" onClick={retry} className="text-xs">
+                Retry Connection
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
+            {/* Growth & BMI Breakdown */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Paediatric BMI & Growth</h3>
               <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">WHO Standard</span>
@@ -339,6 +425,7 @@ export default function SupervisorDashboardPage() {
             </div>
           </div>
         </div>
+      )}
       </div>
     </AppShell>
   );

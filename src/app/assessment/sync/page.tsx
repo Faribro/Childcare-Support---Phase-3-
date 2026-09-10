@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
-import { getAllQueueItems, migrateLegacyQueueItems, isSyncLocked } from '@/lib/db/syncQueueRepository';
+import { getAllQueueItems, getPendingQueue, migrateLegacyQueueItems, isSyncLocked } from '@/lib/db/syncQueueRepository';
+import { useSupervisorData } from '@/hooks/useSupervisorData';
 import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import type { SyncQueueItem } from '@/types/domain';
 import {
@@ -299,13 +300,20 @@ function SyncCentreContent() {
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
-  const [serverSubmissions, setServerSubmissions] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isReachable, setIsReachable] = useState(true);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [viewingItem, setViewingItem] = useState<UnifiedAssessmentItem | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const {
+    records: serverSubmissions,
+    status: serverStatus,
+    error: serverError,
+    refresh: refreshServer,
+    retry: retryServer,
+    isLoading: isServerLoading,
+  } = useSupervisorData();
 
   // Tab State: 'all' | 'outbox' | 'synced'
   const [activeTab, setActiveTab] = useState<'all' | 'outbox' | 'synced'>('all');
@@ -315,69 +323,86 @@ function SyncCentreContent() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const checkReachability = async () => {
-    try {
-      const res = await fetch('/api/health', { method: 'GET', cache: 'no-store' });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  };
-
-  const loadData = useCallback(async () => {
+  const loadLocalData = useCallback(async () => {
     try {
       await migrateLegacyQueueItems();
-      const [q, serverRes, reachable] = await Promise.all([
-        getAllQueueItems(),
-        fetch('/api/submissions?limit=100', { cache: 'no-store' })
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-        checkReachability(),
-      ]);
-
+      const q = await getAllQueueItems();
       setQueueItems(q || []);
-
-      // Resilient array extraction:
-      const rawData = serverRes?.data;
-      let records: any[] = [];
-      if (Array.isArray(rawData)) {
-        records = rawData;
-      } else if (rawData && Array.isArray(rawData.records)) {
-        records = rawData.records;
-      } else if (Array.isArray(serverRes)) {
-        records = serverRes;
-      }
-      setServerSubmissions(records);
-
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(online);
-      setIsReachable(reachable);
     } catch (err) {
-      console.error('[SyncCentre] Error loading data:', err);
+      console.error('[SyncCentre] Error loading local queue:', err);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-    const handleSyncUpdate = () => {
-      loadData();
+    loadLocalData();
+
+    let active = true;
+    const triggerAutoSync = async (reason: string) => {
+      if (!active || typeof navigator === 'undefined' || !navigator.onLine) return;
+      try {
+        const pending = await getPendingQueue(false);
+        if (pending.length > 0) {
+          await syncOrchestrator.flushQueue('interval');
+          await loadLocalData();
+        }
+      } catch (err) {
+        console.warn('[SyncCentre] Auto-sync cycle caught error:', err);
+      }
     };
+
+    triggerAutoSync('mount');
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      triggerAutoSync('online');
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        triggerAutoSync('visibility');
+      }
+    };
+
+    const handleSyncUpdate = () => {
+      loadLocalData();
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('child_nutrition:sync_completed', handleSyncUpdate);
     window.addEventListener('child_nutrition:record_synced', handleSyncUpdate);
-    const interval = setInterval(loadData, 5000);
+    window.addEventListener('child_nutrition:record_queued', handleSyncUpdate);
+
+    // Heartbeat pulse every 25s only when page is visible and device online
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        triggerAutoSync('interval');
+      }
+    }, 25000);
+
     return () => {
+      active = false;
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('child_nutrition:sync_completed', handleSyncUpdate);
       window.removeEventListener('child_nutrition:record_synced', handleSyncUpdate);
+      window.removeEventListener('child_nutrition:record_queued', handleSyncUpdate);
       clearInterval(interval);
     };
-  }, [loadData]);
+  }, [loadLocalData]);
 
   const handleSyncAll = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
       await syncOrchestrator.flushQueue('manual');
-      await loadData();
+      await loadLocalData();
+      await refreshServer();
     } catch (err) {
       console.error('[SyncCentre] Error during manual sync:', err);
     } finally {
@@ -835,7 +860,7 @@ function SyncCentreContent() {
               <Button
                 variant="primary"
                 onClick={handleSyncAll}
-                disabled={isSyncing || !isOnline || !isReachable}
+                disabled={isSyncing || !isOnline}
                 className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer touch-target min-h-[44px]"
               >
                 {isSyncing ? (

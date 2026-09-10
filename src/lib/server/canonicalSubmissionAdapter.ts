@@ -585,10 +585,13 @@ class CanonicalSubmissionAdapterService {
         const gasData = await res.json().catch(() => ({}));
         if (!res.ok || gasData.status === 'error') {
           const upstreamCode = extractUpstreamStatusCode(res, gasData);
+          // If upstream returns 400 (e.g. Unsupported action: list), that represents an
+          // upstream bridge capability limitation (502), not an invalid client request from the PWA.
+          const isUpstreamCapabilityIssue = upstreamCode === 400;
           return {
             status: 'error',
-            statusCode: upstreamCode,
-            code: gasData.code || 'UPSTREAM_FAILURE',
+            statusCode: isUpstreamCapabilityIssue ? 502 : upstreamCode,
+            code: isUpstreamCapabilityIssue ? 'UPSTREAM_UNAVAILABLE' : (gasData.code || 'UPSTREAM_FAILURE'),
             message: gasData.message || 'Failed to list records from central bridge',
           };
         }
