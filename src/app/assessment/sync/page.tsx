@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
-import { getAllQueueItems, getPendingQueue, migrateLegacyQueueItems, isSyncLocked } from '@/lib/db/syncQueueRepository';
+import { getAllQueueItems, migrateLegacyQueueItems } from '@/lib/db/syncQueueRepository';
 import { clearAllLocalData } from '@/lib/db/dexieDb';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
-import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
+import { processQueue, isWorkerRunning } from '@/features/submission/submissionWorker';
+import { submissionEvents } from '@/features/submission/submissionEvents';
 import type { SyncQueueItem } from '@/types/domain';
 import {
   Search,
@@ -37,7 +38,7 @@ export interface UnifiedAssessmentItem {
   state?: string;
   revisionNumber: number;
   status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict' | 'needs_review';
-  chipStatus: 'Waiting to send' | 'Waiting to retry' | 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict — review required' | 'Conflict';
+  chipStatus: 'Waiting to send' | 'Waiting to retry' | 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs correction' | 'Conflict';
   serverStatus: 'accepted' | 'syncing' | 'waiting' | 'error';
   sheetsStatus: 'exported' | 'exporting' | 'waiting' | 'failed';
   createdAt: string;
@@ -74,19 +75,18 @@ function StatusChip({ chipStatus }: { chipStatus: UnifiedAssessmentItem['chipSta
           Waiting to retry
         </span>
       );
-    case 'Conflict — review required':
     case 'Conflict':
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-300">
           <AlertTriangle className="w-2.5 h-2.5" />
-          Conflict — review required
+          Conflict
         </span>
       );
-    case 'Needs attention':
+    case 'Needs correction':
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
           <AlertCircle className="w-2.5 h-2.5" />
-          Needs attention
+          Needs correction
         </span>
       );
     case 'Waiting to send':
@@ -281,13 +281,13 @@ function SubmissionStatusBanner({
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-bold text-rose-950">Assessment saved locally. Requires attention.</h4>
+            <h4 className="text-sm font-bold text-rose-950">Assessment saved locally. Needs correction before sending.</h4>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
-              Needs attention
+              Needs correction
             </span>
           </div>
           <p className="text-xs text-rose-800 mt-1">
-            Reference: <strong className="font-mono font-bold text-rose-950">{submittedRef || 'Local'}</strong>. The server rejected the submission format. Your data is safe locally on this device. Please review the details.
+            Reference: <strong className="font-mono font-bold text-rose-950">{submittedRef || 'Local'}</strong>. One item needs correction before it can be submitted. Your assessment is safe on this device.
             {errorMessage && <span className="block mt-1 font-mono text-[11px] text-rose-900">Details: {errorMessage}</span>}
           </p>
         </div>
@@ -352,33 +352,11 @@ function SyncCentreContent() {
   useEffect(() => {
     loadLocalData();
 
-    let active = true;
-    const triggerAutoSync = async (reason: string) => {
-      if (!active || typeof navigator === 'undefined' || !navigator.onLine) return;
-      try {
-        const pending = await getPendingQueue(false);
-        if (pending.length > 0) {
-          await syncOrchestrator.flushQueue('interval');
-          await loadLocalData();
-        }
-      } catch (err) {
-        console.warn('[SyncCentre] Auto-sync cycle caught error:', err);
-      }
-    };
-
-    triggerAutoSync('mount');
-
     const handleOnline = () => {
       setIsOnline(true);
-      triggerAutoSync('online');
+      loadLocalData();
     };
     const handleOffline = () => setIsOnline(false);
-
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        triggerAutoSync('visibility');
-      }
-    };
 
     const handleSyncUpdate = () => {
       loadLocalData();
@@ -386,64 +364,53 @@ function SyncCentreContent() {
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    document.addEventListener('visibilitychange', handleVisibility);
+
+    const unsubSuccess = submissionEvents.on('submission:success', handleSyncUpdate);
+    const unsubFailed = submissionEvents.on('submission:failed', handleSyncUpdate);
+    const unsubRetrying = submissionEvents.on('submission:retrying', handleSyncUpdate);
+    const unsubConflict = submissionEvents.on('submission:conflict', handleSyncUpdate);
+    const unsubSending = submissionEvents.on('submission:sending', handleSyncUpdate);
+
     window.addEventListener('child_nutrition:sync_completed', handleSyncUpdate);
     window.addEventListener('child_nutrition:record_synced', handleSyncUpdate);
     window.addEventListener('child_nutrition:record_queued', handleSyncUpdate);
 
-    // Heartbeat pulse every 25s only when page is visible and device online
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible' && navigator.onLine) {
-        triggerAutoSync('interval');
-      }
-    }, 25000);
-
     return () => {
-      active = false;
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      unsubSuccess();
+      unsubFailed();
+      unsubRetrying();
+      unsubConflict();
+      unsubSending();
       window.removeEventListener('child_nutrition:sync_completed', handleSyncUpdate);
       window.removeEventListener('child_nutrition:record_synced', handleSyncUpdate);
       window.removeEventListener('child_nutrition:record_queued', handleSyncUpdate);
-      clearInterval(interval);
     };
   }, [loadLocalData]);
 
   const [retryingItemId, setRetryingItemId] = useState<number | null>(null);
   const [noEligibleWarning, setNoEligibleWarning] = useState<string | null>(null);
 
-  const handleSyncAll = async () => {
+  /**
+   * Optional secondary "Try again now" action for eligible retryable records.
+   */
+  const handleRetryAll = async () => {
     if (isSyncing) return;
-    // Guard: if nothing actionable, do not dispatch — this was the original silent no-op bug
-    if (actionableCount === 0) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.info('[SyncCentre] handleSyncAll: no actionable items — outbox contains only terminal/attention items, skipping dispatch');
-      }
-      setNoEligibleWarning('This record needs attention before it can be sent. Open Review to see what must be corrected.');
-      return;
-    }
-    setNoEligibleWarning(null);
     setIsSyncing(true);
-    if (process.env.NODE_ENV !== 'production') {
-      console.info(`[SyncCentre] handleSyncAll: dispatching flushQueue for ${actionableCount} actionable item(s)`);
-    }
     try {
-      const result = await syncOrchestrator.flushQueue('manual');
-      if (process.env.NODE_ENV !== 'production') {
-        console.info(`[SyncCentre] flushQueue result: status=${result.status} synced=${result.syncedCount} failed=${result.failedCount} conflicts=${result.conflictCount}`);
-      }
+      await processQueue('manual_retry');
       await loadLocalData();
       await refreshServer();
     } catch (err) {
-      console.error('[SyncCentre] Error during manual sync:', err);
+      console.error('[SubmissionStatus] Error during retry:', err);
     } finally {
       setIsSyncing(false);
     }
   };
 
   /**
-   * Per-item manual retry for a single failed_retryable outbox record.
+   * Per-item secondary "Try again now" for a single eligible failed_retryable record.
    * MUST NOT be called for terminal items (failed_final, conflict, needs_review).
    */
   const handleRetryItem = async (item: UnifiedAssessmentItem) => {
@@ -452,18 +419,12 @@ function SyncCentreContent() {
     if (retryingItemId === item.queueId) return; // already in flight
 
     setRetryingItemId(item.queueId);
-    if (process.env.NODE_ENV !== 'production') {
-      console.info(`[SyncCentre] handleRetryItem: retrying queueId=${item.queueId} status=${item.status}`);
-    }
     try {
-      const result = await syncOrchestrator.retryQueueItem(item.queueId);
-      if (process.env.NODE_ENV !== 'production') {
-        console.info(`[SyncCentre] retryQueueItem result: queueId=${item.queueId} outcome=${result.status} httpCode=${result.statusCode ?? 'n/a'} requestAttempted=true`);
-      }
+      await processQueue('manual_retry');
       await loadLocalData();
       await refreshServer();
     } catch (err) {
-      console.error('[SyncCentre] retryQueueItem threw unexpectedly:', err);
+      console.error('[SubmissionStatus] handleRetryItem threw unexpectedly:', err);
     } finally {
       setRetryingItemId(null);
     }
@@ -473,7 +434,7 @@ function SyncCentreContent() {
     if (
       typeof window !== 'undefined' &&
       window.confirm(
-        'Are you sure you want to clear all local device drafts, outbox queue items, and cached linelist records on this device?'
+        'Are you sure you want to clear all local device drafts, pending queue items, and cached linelist records on this device?'
       )
     ) {
       await clearAllLocalData();
@@ -581,7 +542,7 @@ function SyncCentreContent() {
         isOutbox = false;
       } else if (rawStatus === 'syncing') {
         const isActivelySyncing =
-          isSyncLocked() &&
+          isWorkerRunning() &&
           Boolean(qItem.lastAttempt && Date.now() - new Date(qItem.lastAttempt).getTime() < 15000);
 
         if (isActivelySyncing || isSyncing) {
@@ -597,17 +558,17 @@ function SyncCentreContent() {
         }
       } else if (isConflict) {
         status = 'conflict';
-        chipStatus = 'Conflict — review required';
+        chipStatus = 'Conflict';
         serverStatus = 'error';
         sheetsStatus = 'failed';
       } else if (isNeedsReview) {
         status = 'needs_review';
-        chipStatus = 'Needs attention';
+        chipStatus = 'Needs correction';
         serverStatus = 'error';
         sheetsStatus = 'failed';
       } else if (rawStatus === 'failed_final' || (rawStatus === 'failed' && (isTerminal4xx || isTerminalHalted))) {
         status = 'failed_final';
-        chipStatus = 'Needs attention';
+        chipStatus = 'Needs correction';
         serverStatus = 'error';
         sheetsStatus = 'failed';
       } else if (rawStatus === 'failed_retryable' || rawStatus === 'failed') {
@@ -700,11 +661,17 @@ function SyncCentreContent() {
     return outboxItems.filter((i) => i.status === 'failed_final' || i.status === 'conflict' || i.status === 'needs_review');
   }, [outboxItems]);
 
-  /** Actionable count — used for banner text and button. Never includes terminal items. */
+  const retryableItems = useMemo(() => {
+    return outboxItems.filter((i) => i.status === 'failed_retryable');
+  }, [outboxItems]);
+
+  /** Actionable count — used for banner text. Never includes terminal items. */
   const actionableCount = actionableItems.length;
-  /** Attention count — shown as an informational warning, never as "waiting to sync". */
+  /** Retryable count — eligible for secondary "Try again now" */
+  const retryableCount = retryableItems.length;
+  /** Attention count — records that require user correction. */
   const attentionCount = attentionItems.length;
-  /** Legacy alias: pendingCount now tracks ONLY actionable items (the bug fix). */
+  /** Legacy alias: pendingCount now tracks ONLY actionable items. */
   const pendingCount = actionableCount;
   const submittedCount = syncedItems.length;
 
@@ -819,7 +786,7 @@ function SyncCentreContent() {
                 </p>
                 {item.isOutbox && (
                   <span className="font-medium text-amber-700 sm:before:content-['•'] sm:before:mx-1 sm:before:text-slate-300">
-                    On this device (Outbox)
+                    Saved on this device
                   </span>
                 )}
               </div>
@@ -845,22 +812,16 @@ function SyncCentreContent() {
 
               {/* Per-status semantic action button */}
               {item.status === 'ready_to_sync' && (
-                <button
-                  type="button"
-                  onClick={handleSyncAll}
-                  disabled={isSyncing || !isOnline}
-                  aria-label="Send this record now"
-                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-purple-700 hover:bg-purple-800 text-white rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
-                >
-                  Send now
-                </button>
+                <span className="text-[11px] text-slate-500 font-medium self-center px-2">
+                  Sending automatically
+                </span>
               )}
 
               {item.status === 'syncing' && (
                 <button
                   type="button"
                   disabled
-                  aria-label="Record is sending"
+                  aria-label="Sending your assessment"
                   className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded-xl flex items-center justify-center gap-1.5 flex-1 sm:flex-initial cursor-not-allowed opacity-75"
                 >
                   <RefreshCw className="w-3 h-3 animate-spin" />
@@ -873,7 +834,7 @@ function SyncCentreContent() {
                   type="button"
                   onClick={() => handleRetryItem(item)}
                   disabled={retryingItemId === item.queueId || isSyncing || !isOnline}
-                  aria-label="Retry sending this record"
+                  aria-label="Try sending this record again"
                   aria-live="polite"
                   className={`touch-target-44 min-h-[44px] text-xs px-3.5 font-bold border rounded-xl transition-colors flex items-center justify-center gap-1.5 flex-1 sm:flex-initial ${
                     retryingItemId === item.queueId
@@ -884,50 +845,26 @@ function SyncCentreContent() {
                   {retryingItemId === item.queueId ? (
                     <>
                       <RefreshCw className="w-3 h-3 animate-spin" />
-                      Retrying…
+                      Sending…
                     </>
                   ) : (
                     <>
                       <RefreshCw className="w-3 h-3" />
-                      Retry now
+                      Try again now
                     </>
                   )}
                 </button>
               )}
 
-              {item.status === 'failed_final' && (
+              {(item.status === 'failed_final' || item.status === 'needs_review' || item.status === 'conflict') && (
                 <button
                   type="button"
                   onClick={() => handleEditSubmission(item)}
-                  aria-label="Review and correct this record"
+                  aria-label="Open and correct this record"
                   className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
                 >
                   <AlertCircle className="w-3 h-3" />
-                  Review record
-                </button>
-              )}
-
-              {item.status === 'needs_review' && (
-                <button
-                  type="button"
-                  onClick={() => handleEditSubmission(item)}
-                  aria-label="Review and correct this record"
-                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
-                >
-                  <AlertCircle className="w-3 h-3" />
-                  Review record
-                </button>
-              )}
-
-              {item.status === 'conflict' && (
-                <button
-                  type="button"
-                  onClick={() => handleEditSubmission(item)}
-                  aria-label="Review and resolve the data conflict"
-                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
-                >
-                  <AlertTriangle className="w-3 h-3" />
-                  Review conflict
+                  Open and correct
                 </button>
               )}
 
@@ -998,7 +935,7 @@ function SyncCentreContent() {
               )}
 
               <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 pt-1 border-t border-slate-200">
-                <span>Storage: {item.isOutbox ? 'Local Outbox (Dexie)' : 'Central Linelist (Google Sheets)'}</span>
+                <span>Storage: {item.isOutbox ? 'Saved on this device' : 'Central register'}</span>
                 <span>
                   {item.sheetRow ? `Report Row: ${item.sheetRow}` : 'Report Status: In queue'}
                 </span>
@@ -1057,57 +994,56 @@ function SyncCentreContent() {
             </div>
           )}
 
-          {/* Outbox Banner: Actionable items waiting to send */}
+          {/* Waiting/Retry Banner */}
           {actionableCount > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
               <div className="flex items-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
                 <div>
                   <p className="text-xs font-bold text-amber-950">
-                    {actionableCount} assessment{actionableCount === 1 ? '' : 's'} on this device waiting to synchronize
-                    {attentionCount > 0 && (
-                      <span className="ml-1 font-normal text-amber-800">
-                        · {attentionCount} need{attentionCount === 1 ? 's' : ''} attention
-                      </span>
-                    )}
+                    {actionableCount} assessment{actionableCount === 1 ? '' : 's'} saved on this device
                   </p>
                   <p className="text-[11px] text-amber-800">
                     {isOnline
-                      ? 'Network connection active. Automatic sync in progress or tap to send immediately.'
-                      : 'You are offline. Records will synchronize automatically when connection is restored.'}
+                      ? 'Sending your assessment… Submissions send automatically when online.'
+                      : 'Saved on this device. It will send automatically when you reconnect.'}
                   </p>
                 </div>
               </div>
 
-              <Button
-                variant="primary"
-                onClick={handleSyncAll}
-                disabled={isSyncing || !isOnline}
-                aria-live="polite"
-                className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer touch-target min-h-[44px]"
-              >
-                {isSyncing ? (
-                  <span className="flex items-center gap-2">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    Sending…
-                  </span>
-                ) : (
-                  `Send ${actionableCount} Waiting Record${actionableCount === 1 ? '' : 's'}`
-                )}
-              </Button>
+              {retryableCount > 0 && isOnline && (
+                <Button
+                  variant="secondary"
+                  onClick={handleRetryAll}
+                  disabled={isSyncing}
+                  aria-live="polite"
+                  className="font-bold px-4 py-2 text-xs shadow-xs flex-shrink-0 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 cursor-pointer touch-target min-h-[44px]"
+                >
+                  {isSyncing ? (
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Sending…
+                    </span>
+                  ) : (
+                    'Try again now'
+                  )}
+                </Button>
+              )}
             </div>
           )}
 
-          {/* Attention Banner: Only shown when there are terminal items and NO actionable ones */}
-          {actionableCount === 0 && attentionCount > 0 && (
+          {/* Correction Required Banner */}
+          {attentionCount > 0 && (
             <div className="flex items-center gap-2.5 p-3.5 bg-rose-50/80 border border-rose-200 rounded-xl">
               <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
               <div>
                 <p className="text-xs font-bold text-rose-900">
-                  {attentionCount} record{attentionCount === 1 ? '' : 's'} need{attentionCount === 1 ? 's' : ''} attention — manual review required
+                  {attentionCount === 1
+                    ? 'One item needs correction before it can be submitted.'
+                    : `${attentionCount} items need correction before they can be submitted.`}
                 </p>
                 <p className="text-[11px] text-rose-700">
-                  This record needs attention before it can be sent. Open Review to see what must be corrected.
+                  Select &quot;Open and correct&quot; on any affected record below.
                 </p>
               </div>
             </div>
@@ -1228,7 +1164,7 @@ function SyncCentreContent() {
                 {searchQuery || fromDate || toDate
                   ? 'No surveys match your search or date filter'
                   : activeTab === 'outbox'
-                  ? 'All records have been sent to the server. No pending items in outbox.'
+                  ? 'All records have been sent to the server. No pending items on this device.'
                   : activeTab === 'synced'
                   ? 'No confirmed server records found.'
                   : 'No submitted surveys yet'}
@@ -1240,19 +1176,19 @@ function SyncCentreContent() {
               </p>
             </div>
           ) : activeTab === 'all' ? (
-            /* When 'all' is selected: visually separate outbox from submitted */
+            /* When 'all' is selected: visually separate pending device items from submitted */
             <div className="space-y-6">
-              {/* Outbox Section (if any items match filter) */}
+              {/* Pending device items section */}
               {filteredItems.some((i) => i.isOutbox) && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-2">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900">
-                        On this device / Waiting to send ({filteredItems.filter((i) => i.isOutbox).length})
+                        Saved on this device ({filteredItems.filter((i) => i.isOutbox).length})
                       </h3>
                       <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
                     </div>
-                    <span className="text-[11px] text-slate-500">Local outbox</span>
+                    <span className="text-[11px] text-slate-500">Saved on this device</span>
                   </div>
                   <div className="space-y-3">
                     {filteredItems.filter((i) => i.isOutbox).map(renderItemCard)}

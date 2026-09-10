@@ -1,4 +1,4 @@
-﻿/**
+/**
  * submissionStateMachine.ts — Canonical State Machine for Submission Lifecycle
  *
  * This is the single authority for valid state transitions.
@@ -147,16 +147,16 @@ export function getActionRequiredContext(
 
     case 'conflict':
       return {
-        message: 'This record was updated elsewhere. Please review the current version.',
-        actionLabel: 'View current version',
+        message: 'This record was updated elsewhere. One item needs correction before it can be submitted.',
+        actionLabel: 'Open and correct',
         canRetryNow: false,
       };
 
+    case 'invalid_update_identity':
     case 'not_found':
       return {
-        message:
-          'This saved record is not linked to the central register. Please confirm whether it should be submitted as a new record.',
-        actionLabel: 'Review record',
+        message: 'This saved record needs help before it can be updated.',
+        actionLabel: 'Open and correct',
         canRetryNow: false,
       };
 
@@ -169,7 +169,7 @@ export function getActionRequiredContext(
 
     default:
       return {
-        message: 'One item needs attention before it can be submitted.',
+        message: 'One item needs correction before it can be submitted.',
         actionLabel: 'Open and correct',
         canRetryNow: true,
       };

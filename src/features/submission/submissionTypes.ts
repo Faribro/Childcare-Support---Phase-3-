@@ -1,4 +1,4 @@
-﻿/**
+/**
  * submissionTypes.ts — Canonical Identity Contract
  *
  * This is the single source of truth for submission identity fields across the
@@ -221,6 +221,7 @@ export type SubmissionErrorCategory =
   | 'conflict'
   | 'not_found'
   | 'malformed_acknowledgement'
+  | 'invalid_update_identity'
   | 'unknown';
 
 export interface SubmissionError {

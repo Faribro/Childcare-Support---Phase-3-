@@ -7,9 +7,9 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
 import { getDraftByAnyId } from '@/lib/db/draftRepository';
-import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
-import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
-import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
+import { processQueue } from '@/features/submission/submissionWorker';
+import { db, getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
   calculateBMI,
@@ -138,19 +138,24 @@ export default function DraftReviewPage() {
         syncStatus: 'queued',
         updatedAt: new Date().toISOString(),
       };
-      await enqueueSubmission(finalPayload, { operationType: 'CREATE' });
+      await enqueueCreate({
+        clientSubmissionId: finalPayload.clientSubmissionId || finalPayload.uuid,
+        createIdempotencyKey: `create-${finalPayload.clientSubmissionId || finalPayload.uuid}`,
+        snapshot: finalPayload,
+      });
 
-      // Immediate Autosync Trigger
+      // Immediate Autosync Trigger via canonical worker
       const refId = finalPayload.demographics.artNumber || finalPayload.uuid;
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         try {
-          const flushPromise = syncOrchestrator.flushQueue('form_submit');
-          const outcome = await Promise.race([
-            flushPromise,
+          const dispatchPromise = processQueue('form_submit');
+          await Promise.race([
+            dispatchPromise,
             new Promise<null>((r) => setTimeout(() => r(null), 1500)),
           ]);
 
-          if (outcome && outcome.syncedCount > 0) {
+          const updated = await db.drafts.where('uuid').equals(finalPayload.uuid).first();
+          if (updated?.syncStatus === 'synced') {
             router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
             return;
           }

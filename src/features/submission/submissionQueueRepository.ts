@@ -1,4 +1,4 @@
-﻿/**
+/**
  * submissionQueueRepository.ts — The Only Owner of IndexedDB Queue Reads/Writes
  *
  * Responsibilities:
@@ -14,7 +14,11 @@
 
 import { db } from '@/lib/db/dexieDb';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
-import type { ServerAcknowledgement } from './submissionTypes';
+import {
+  assertValidRemoteSubmissionId,
+  type ServerAcknowledgement,
+  type SubmissionErrorCategory,
+} from './submissionTypes';
 
 // ---------------------------------------------------------------------------
 // Enqueue a new CREATE operation (snapshot + identity)
@@ -90,6 +94,68 @@ export async function enqueueCreate(options: EnqueueCreateOptions): Promise<numb
 }
 
 // ---------------------------------------------------------------------------
+// Enqueue an UPDATE operation (canonical identity verified)
+// ---------------------------------------------------------------------------
+
+export interface EnqueueUpdateOptions {
+  clientSubmissionId: string;
+  submissionUuid: string;
+  remoteSubmissionId: string;
+  expectedVersion: number;
+  changes?: Record<string, any>;
+  snapshot: AssessmentRecord;
+}
+
+/**
+ * Atomically persists an assessment update and enqueues an UPDATE operation
+ * in one Dexie transaction.
+ *
+ * Invariant: remoteSubmissionId MUST be a confirmed server-assigned UUID v4.
+ * Never allows ART IDs, local IDs, or unconfirmed client IDs in UPDATE items.
+ */
+export async function enqueueUpdate(options: EnqueueUpdateOptions): Promise<number> {
+  const { clientSubmissionId, submissionUuid, remoteSubmissionId, expectedVersion, changes, snapshot } = options;
+  assertValidRemoteSubmissionId(remoteSubmissionId, 'enqueueUpdate');
+  const now = new Date().toISOString();
+  const idempotencyKey = `update-${remoteSubmissionId}-v${expectedVersion}-${Date.now()}`;
+
+  return await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
+    if (snapshot.id) {
+      await db.drafts.update(snapshot.id, {
+        ...snapshot,
+        remoteSubmissionId,
+        version: expectedVersion,
+        syncStatus: 'queued',
+        updatedAt: now,
+      });
+    }
+
+    const payload = {
+      ...snapshot,
+      clientSubmissionId,
+      remoteSubmissionId,
+      version: expectedVersion,
+      changes: changes || {},
+    };
+
+    return await db.syncQueue.add({
+      schemaVersion: 2,
+      submissionUuid,
+      idempotencyKey,
+      operationType: 'UPDATE',
+      payload,
+      status: 'queued',
+      expectedVersion,
+      retryCount: 0,
+      lastAttempt: null,
+      nextRetryTimestamp: Date.now(),
+      errorMessage: null,
+      conflictMetadata: null,
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Mark a queue item as SUBMITTED after server acknowledgement
 // ---------------------------------------------------------------------------
 
@@ -133,7 +199,8 @@ export async function markActionRequired(
   queueId: number,
   submissionUuid: string,
   errorMessage: string,
-  statusCode?: number
+  statusCode?: number,
+  errorCategory?: SubmissionErrorCategory
 ): Promise<void> {
   const now = new Date().toISOString();
 
@@ -161,40 +228,53 @@ export async function markActionRequired(
 // Mark a queue item for automatic retry
 // ---------------------------------------------------------------------------
 
-const MAX_RETRY_COUNT = 8;
 const BASE_BACKOFF_MS = 2000;
-const MAX_BACKOFF_MS = 120_000;
+const MAX_BACKOFF_MS = 1_800_000; // 30 minutes cap
+
+const NON_RETRYABLE_CATEGORIES: SubmissionErrorCategory[] = [
+  'validation',
+  'unauthorized',
+  'conflict',
+  'malformed_acknowledgement',
+  'invalid_update_identity',
+  'not_found',
+];
 
 /**
  * Records a transient failure and schedules automatic retry with bounded
- * exponential backoff and full jitter.
+ * exponential backoff and jitter.
+ *
+ * Rules:
+ * - Transient errors (network, timeout, rate_limited, upstream_unavailable)
+ *   remain safely retryable indefinitely. They are NOT promoted to action-required
+ *   merely because retryCount is high.
+ * - Non-retryable errors (validation, auth, conflict) transition immediately
+ *   to ACTION_REQUIRED.
  */
 export async function markRetryable(
   queueId: number,
   submissionUuid: string,
   errorMessage: string,
-  statusCode?: number
+  statusCode?: number,
+  errorCategory?: SubmissionErrorCategory
 ): Promise<{ willRetry: boolean; nextRetryMs: number }> {
   const now = new Date().toISOString();
+
+  // If a non-retryable error reaches markRetryable, transition to ACTION_REQUIRED immediately
+  if (errorCategory && NON_RETRYABLE_CATEGORIES.includes(errorCategory)) {
+    await markActionRequired(queueId, submissionUuid, errorMessage, statusCode, errorCategory);
+    return { willRetry: false, nextRetryMs: 0 };
+  }
 
   const item = await db.syncQueue.get(queueId);
   if (!item) return { willRetry: false, nextRetryMs: 0 };
 
   const newRetryCount = (item.retryCount ?? 0) + 1;
 
-  if (newRetryCount > MAX_RETRY_COUNT) {
-    await markActionRequired(
-      queueId,
-      submissionUuid,
-      `Maximum retry attempts reached (${MAX_RETRY_COUNT}). ${errorMessage}`
-    );
-    return { willRetry: false, nextRetryMs: 0 };
-  }
-
-  // Exponential backoff with full jitter
-  const exponential = Math.min(BASE_BACKOFF_MS * Math.pow(2, newRetryCount - 1), MAX_BACKOFF_MS);
+  // Exponential backoff with full jitter, capped at 30 minutes
+  const exponential = Math.min(BASE_BACKOFF_MS * Math.pow(2, Math.min(newRetryCount - 1, 10)), MAX_BACKOFF_MS);
   const jitter = Math.random() * exponential;
-  const nextRetryMs = Math.round(jitter);
+  const nextRetryMs = Math.max(1000, Math.round(jitter));
 
   await db.syncQueue.update(queueId, {
     status: 'failed_retryable',
@@ -291,6 +371,15 @@ export async function getDispatchQueue(): Promise<SyncQueueItem[]> {
 
 /**
  * Migrates legacy queue items (schemaVersion < 2) to the canonical format.
+ *
+ * MIGRATION RULES:
+ * 1. A valid legacy item may become CREATE only when it has no evidence of a
+ *    previous remote acknowledgement and has no canonical remoteSubmissionId.
+ * 2. An item with an invalid or non-canonical remote identity (e.g. ART ID in remoteSubmissionId)
+ *    must NEVER be auto-converted to CREATE, as this could produce duplicate records.
+ *    Instead, it is quarantined to ACTION_REQUIRED ('failed_final').
+ * 3. Never infer remote identity from ART/reference ID, child ID, local ID, or client submission ID.
+ *
  * Safe to call multiple times — idempotent.
  */
 export async function migrateLegacyItems(): Promise<number> {
@@ -325,9 +414,45 @@ export async function migrateLegacyItems(): Promise<number> {
       continue;
     }
 
-    // Valid items without remoteSubmissionId: treat as CREATE
-    const hasRemoteId = Boolean(payload.remoteSubmissionId);
-    const operationType = hasRemoteId ? item.operationType || 'CREATE' : 'CREATE';
+    // Check remote identity
+    const rawRemoteId = payload.remoteSubmissionId;
+    let hasValidRemoteId = false;
+    if (rawRemoteId) {
+      try {
+        assertValidRemoteSubmissionId(rawRemoteId, 'migrateLegacyItems');
+        hasValidRemoteId = true;
+      } catch {
+        // Has a remote ID but it's an ART ID or non-UUID — corrupt/legacy identity!
+        // Do NOT convert to CREATE — quarantine to ACTION_REQUIRED.
+        await db.syncQueue.update(item.id, {
+          schemaVersion: 2,
+          status: 'failed_final',
+          errorMessage: 'This saved record needs help before it can be updated.',
+          payload,
+          idempotencyKey,
+        });
+        migrated++;
+        continue;
+      }
+    }
+
+    // If item was previously marked UPDATE or version > 1, but has no valid remote ID:
+    const isUpdateIntent = item.operationType === 'UPDATE' || (item.expectedVersion && item.expectedVersion > 1);
+    if (isUpdateIntent && !hasValidRemoteId) {
+      // Evidence of remote acknowledgement attempt without valid canonical ID — quarantine
+      await db.syncQueue.update(item.id, {
+        schemaVersion: 2,
+        status: 'failed_final',
+        errorMessage: 'This saved record needs help before it can be updated.',
+        payload,
+        idempotencyKey,
+      });
+      migrated++;
+      continue;
+    }
+
+    // Valid items without remoteSubmissionId and without update intent: treat as CREATE
+    const operationType = hasValidRemoteId ? 'UPDATE' : 'CREATE';
 
     await db.syncQueue.update(item.id, {
       schemaVersion: 2,

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * submissionWorker.ts — The Single Active Owner of Submission Dispatch
  *
  * This is the ONLY module that:
@@ -114,11 +114,17 @@ async function processItem(item: SyncQueueItem, trigger: string): Promise<void> 
   const submissionUuid = item.submissionUuid;
   const startMs = Date.now();
 
-  // Determine operation using the canonical invariant
-  const operation = getSubmissionOperation({
-    remoteSubmissionId: payload?.remoteSubmissionId,
-    version: item.expectedVersion ?? payload?.version,
-  });
+  // Determine operation: UPDATE items must always route to handleUpdate
+  // to prevent auto-converting invalid UPDATE items into CREATE (R2).
+  const operation =
+    item.operationType === 'UPDATE'
+      ? 'UPDATE'
+      : item.operationType === 'CREATE'
+      ? 'CREATE'
+      : getSubmissionOperation({
+          remoteSubmissionId: payload?.remoteSubmissionId,
+          version: item.expectedVersion ?? payload?.version,
+        });
 
   // Emit "sending" event
   submissionEvents.emit('submission:sending', {
@@ -209,7 +215,7 @@ async function handleCreate(
   });
 
   if (error.isTerminal) {
-    await markActionRequired(item.id!, submissionUuid, error.message, error.statusCode);
+    await markActionRequired(item.id!, submissionUuid, error.message, error.statusCode, error.category);
     submissionEvents.emit('submission:failed', {
       clientSubmissionId,
       correlationId,
@@ -223,7 +229,8 @@ async function handleCreate(
       item.id!,
       submissionUuid,
       error.message,
-      error.statusCode
+      error.statusCode,
+      error.category
     );
 
     submissionEvents.emit('submission:retrying', {
@@ -256,22 +263,50 @@ async function handleUpdate(
   const remoteSubmissionId = payload?.remoteSubmissionId;
   const expectedVersion = item.expectedVersion ?? payload?.version ?? payload?.expectedVersion;
 
-  // Guard: must have a valid remote ID — if not, fall back to CREATE
+  // Guard: must have a valid canonical remote ID AND expectedVersion >= 1
+  let hasValidIdentity = false;
   try {
     assertValidRemoteSubmissionId(remoteSubmissionId, 'handleUpdate');
+    if (expectedVersion !== undefined && Number(expectedVersion) >= 1) {
+      hasValidIdentity = true;
+    }
   } catch (err: any) {
-    // Identity invariant violation — treat as CREATE
-    console.warn('[SubmissionWorker] UPDATE has no valid remoteSubmissionId, reclassifying as CREATE:', err.message);
-    // Update queue item to CREATE and retry
-    const { db } = await import('@/lib/db/dexieDb');
-    await db.syncQueue.update(item.id!, {
-      operationType: 'CREATE',
-      status: 'queued',
-      nextRetryTimestamp: Date.now(),
-      errorMessage: null,
+    hasValidIdentity = false;
+  }
+
+  if (!hasValidIdentity) {
+    const elapsed = Date.now() - startMs;
+    logDiagnostic({
+      timestamp: new Date().toISOString(),
+      operation: 'UPDATE',
+      clientSubmissionId,
+      correlationId,
+      stateBefore: String(item.status),
+      stateAfter: 'failed_final',
+      statusCode: 422,
+      errorCategory: 'invalid_update_identity',
+      retryCount: item.retryCount,
+      elapsedMs: elapsed,
     });
-    const updatedItem = { ...item, operationType: 'CREATE' as const };
-    return handleCreate(updatedItem, clientSubmissionId, submissionUuid, correlationId, startMs);
+
+    await markActionRequired(
+      item.id!,
+      submissionUuid,
+      'This saved record needs help before it can be updated.',
+      422,
+      'invalid_update_identity'
+    );
+
+    submissionEvents.emit('submission:failed', {
+      clientSubmissionId,
+      correlationId,
+      errorCategory: 'invalid_update_identity',
+      message: 'This saved record needs help before it can be updated.',
+      timestamp: new Date().toISOString(),
+      retryCount: item.retryCount,
+    });
+
+    return;
   }
 
   const changes = payload.changes ?? {};
@@ -359,7 +394,7 @@ async function handleUpdate(
 
   // Conflict: move to ACTION_REQUIRED
   if (error.category === 'conflict') {
-    await markActionRequired(item.id!, submissionUuid, error.message, 409);
+    await markActionRequired(item.id!, submissionUuid, error.message, 409, 'conflict');
     submissionEvents.emit('submission:conflict', {
       clientSubmissionId,
       remoteSubmissionId,
@@ -384,7 +419,7 @@ async function handleUpdate(
   });
 
   if (error.isTerminal) {
-    await markActionRequired(item.id!, submissionUuid, error.message, error.statusCode);
+    await markActionRequired(item.id!, submissionUuid, error.message, error.statusCode, error.category);
     submissionEvents.emit('submission:failed', {
       clientSubmissionId,
       correlationId,
@@ -398,7 +433,8 @@ async function handleUpdate(
       item.id!,
       submissionUuid,
       error.message,
-      error.statusCode
+      error.statusCode,
+      error.category
     );
     if (willRetry) {
       scheduleRetry(nextRetryMs);

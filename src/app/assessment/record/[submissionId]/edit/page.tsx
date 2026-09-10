@@ -12,10 +12,11 @@ import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
-import { getAllQueueItems, enqueueSubmission } from '@/lib/db/syncQueueRepository';
-import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
+import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { enqueueCreate, enqueueUpdate } from '@/features/submission/submissionQueueRepository';
+import { processQueue } from '@/features/submission/submissionWorker';
 import { getAllDrafts } from '@/lib/db/draftRepository';
-import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { db, getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
   calculateBMI,
@@ -657,37 +658,7 @@ export default function EditRecordPage() {
     };
 
     try {
-      // 1. Send PATCH to server API
-      let serverSaved = false;
-      try {
-        const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'If-Match': `"${currentVersion}"`,
-          },
-          body: JSON.stringify(patchPayload),
-        });
-
-        if (res.status === 409) {
-          const body = await res.json();
-          setConflictError({
-            currentVersion: body.currentVersion || currentVersion + 1,
-            expectedVersion: currentVersion,
-            message: body.message || 'This assessment was updated elsewhere. Please refresh before saving.',
-          });
-          setIsSaving(false);
-          return;
-        }
-
-        if (res.ok) {
-          serverSaved = true;
-        }
-      } catch (_) {
-        // Network offline / fallback to local queue
-      }
-
-      // 2. Also enqueue / record in local Dexie Sync Queue
+      // 1. Enqueue in local Dexie Sync Queue via canonical pipeline
       try {
         const queuePayload: any = {
           uuid: submissionId,
@@ -806,24 +777,26 @@ export default function EditRecordPage() {
         // INVARIANT: Only enqueue UPDATE if the record has a confirmed server remoteSubmissionId.
         // If no remoteSubmissionId is present, this record was never acknowledged by the server
         // and must use POST (CREATE), never PATCH (UPDATE).
-        if (!serverSaved) {
-          const confirmedRemoteId = (queuePayload as any).remoteSubmissionId;
-          const confirmedVersion = currentVersion;
+        const confirmedRemoteId = (queuePayload as any).remoteSubmissionId;
+        const confirmedVersion = currentVersion;
 
-          if (confirmedRemoteId && confirmedVersion >= 1) {
-            // Safe UPDATE: record has a server-confirmed remote ID
-            await enqueueSubmission(queuePayload as any, {
-              operationType: 'UPDATE',
-              expectedVersion: confirmedVersion,
-            });
-          } else {
-            // No server confirmation — must CREATE, not UPDATE.
-            // Preserve the existing localDraft queue entry as CREATE if present.
-            await enqueueSubmission(queuePayload as any, {
-              operationType: 'CREATE',
-              expectedVersion: 1,
-            });
-          }
+        if (confirmedRemoteId && confirmedVersion >= 1) {
+          // Safe UPDATE: record has a server-confirmed remote ID and version >= 1
+          await enqueueUpdate({
+            clientSubmissionId: queuePayload.clientSubmissionId || queuePayload.uuid || submissionId,
+            submissionUuid: queuePayload.uuid || submissionId,
+            remoteSubmissionId: confirmedRemoteId,
+            expectedVersion: confirmedVersion,
+            changes: (queuePayload as any).changes || {},
+            snapshot: queuePayload as any,
+          });
+        } else {
+          // No server confirmation — must CREATE, not UPDATE.
+          await enqueueCreate({
+            clientSubmissionId: queuePayload.clientSubmissionId || queuePayload.uuid || submissionId,
+            createIdempotencyKey: `create-${queuePayload.clientSubmissionId || queuePayload.uuid || submissionId}`,
+            snapshot: queuePayload as any,
+          });
         }
 
       } catch (dexieErr) {
@@ -835,13 +808,14 @@ export default function EditRecordPage() {
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         try {
-          const flushPromise = syncOrchestrator.flushQueue('form_update');
-          const outcome = await Promise.race([
-            flushPromise,
+          const dispatchPromise = processQueue('form_update');
+          await Promise.race([
+            dispatchPromise,
             new Promise<null>((r) => setTimeout(() => r(null), 1500)),
           ]);
 
-          if (outcome && outcome.syncedCount > 0) {
+          const updated = await db.drafts.where('uuid').equals(submissionId).first();
+          if (updated?.syncStatus === 'synced') {
             router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
             return;
           }
