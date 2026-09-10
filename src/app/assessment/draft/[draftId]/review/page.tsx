@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndApprovalGrid';
 import { getDraftByAnyId } from '@/lib/db/draftRepository';
 import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
+import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
@@ -138,11 +139,27 @@ export default function DraftReviewPage() {
         updatedAt: new Date().toISOString(),
       };
       await enqueueSubmission(finalPayload, { operationType: 'CREATE' });
-      router.push(
-        `/assessment/sync?submitted=true&ref=${encodeURIComponent(
-          finalPayload.demographics.artNumber || finalPayload.uuid
-        )}`
-      );
+
+      // Immediate Autosync Trigger
+      const refId = finalPayload.demographics.artNumber || finalPayload.uuid;
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          const flushPromise = syncOrchestrator.flushQueue('form_submit');
+          const outcome = await Promise.race([
+            flushPromise,
+            new Promise<null>((r) => setTimeout(() => r(null), 1500)),
+          ]);
+
+          if (outcome && outcome.syncedCount > 0) {
+            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+            return;
+          }
+        } catch (_) {}
+
+        router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+      } else {
+        router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
+      }
     } catch (err: any) {
       console.error('Failed to queue draft for sync:', err);
       setError(err?.message || 'Failed to queue assessment for sync.');

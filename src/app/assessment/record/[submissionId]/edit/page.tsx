@@ -13,6 +13,7 @@ import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelect
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { getAllQueueItems, enqueueSubmission } from '@/lib/db/syncQueueRepository';
+import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
@@ -798,13 +799,26 @@ export default function EditRecordPage() {
       }
 
       setSaveSuccess(true);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('child_nutrition:sync_completed'));
-      }
+      const refId = formData.artNumber || submissionId;
 
-      setTimeout(() => {
-        router.push(`/assessment/sync?submitted=true&ref=${encodeURIComponent(formData.artNumber || submissionId)}`);
-      }, 900);
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          const flushPromise = syncOrchestrator.flushQueue('form_update');
+          const outcome = await Promise.race([
+            flushPromise,
+            new Promise<null>((r) => setTimeout(() => r(null), 1500)),
+          ]);
+
+          if (outcome && outcome.syncedCount > 0) {
+            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+            return;
+          }
+        } catch (_) {}
+
+        router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+      } else {
+        router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
+      }
     } catch (err: any) {
       alert('Error updating record: ' + (err.message || 'Unknown network error'));
     } finally {

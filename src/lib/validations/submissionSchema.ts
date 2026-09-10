@@ -84,7 +84,9 @@ export const demographicsSchema = z.object({
   caregiverRelationship: z.string().min(2, 'Caregiver relationship is required'),
   contactNumber: z
     .string()
-    .regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number')
+    .refine((val) => !val || /^[6-9]\d{9}$/.test(val), {
+      message: 'Must be a valid 10-digit Indian mobile number starting with 6-9',
+    })
     .optional()
     .or(z.literal('')),
   caregiverPhone: z.string().optional(),
@@ -100,12 +102,12 @@ export const demographicsSchema = z.object({
 // Step 2: Caregiver Consent & Signature Schema
 export const caregiverConsentSchema = z.object({
   consentProvided: z.literal(true, {
-    errorMap: () => ({ message: 'Caregiver consent must be provided to continue and submit' }),
+    errorMap: () => ({ message: 'Caregiver consent must be provided to record this assessment' }),
   }),
   consentVersion: z.string().default('v1.0-2026'),
-  caregiverName: z.string().min(2, 'Caregiver name is required for signature'),
-  caregiverRelationship: z.string().min(2, 'Caregiver relationship is required'),
-  consentCapturedAt: z.string().min(8, 'Consent timestamp is required'),
+  caregiverName: z.string().min(1, 'Caregiver name is required for signature').default('Caregiver'),
+  caregiverRelationship: z.string().min(1, 'Caregiver relationship is required').default('Caregiver'),
+  consentCapturedAt: z.string().default(() => new Date().toISOString()),
   signatureRequired: z.boolean().default(true),
   signatureStatus: signatureStatusEnum.default('CAPTURED_LOCAL'),
   signatureAssetId: z.string().optional(),
@@ -141,11 +143,11 @@ export const householdFinancialSchema = z.object({
 
 // Step 4: Health & Clinical Information
 export const healthSchema = z.object({
-  weightKg: z.number().min(2, 'Weight must be at least 2 kg').max(150),
-  heightCm: z.number().min(40, 'Height must be at least 40 cm').max(220),
-  bmi: z.number().min(5).max(60),
+  weightKg: z.number().min(0).max(150).optional(),
+  heightCm: z.number().min(0).max(220).optional(),
+  bmi: z.number().min(0).max(60).optional(),
   bmiCategory: z.string().optional(),
-  haemoglobinGdl: z.number().min(2).max(25).optional(),
+  haemoglobinGdl: z.number().min(0).max(25).optional(),
   hbCategory: z.string().optional(),
   otherHealthConditions: z.array(z.string()).default([]),
   otherHealthConditionSpecify: z.string().optional(),
@@ -165,13 +167,13 @@ export const healthSchema = z.object({
 
 // Step 5: Nutrition & Eating Habits
 export const nutritionHabitsSchema = z.object({
-  appetite: appetiteEnum.default('Good'),
-  mealsPerDay: z.number().min(1).max(10).default(3),
+  appetite: z.string().optional().default('Good'),
+  mealsPerDay: z.number().min(0).max(10).default(3),
 });
 
 // Step 6: Education Status
 export const educationStatusSchema = z.object({
-  educationStatus: educationStatusEnum.default('Currently going to school'),
+  educationStatus: z.string().optional().default('Currently going to school'),
   educationStatusSpecify: z.string().optional(),
   schoolName: z.string().optional(),
   schoolSessionStartDate: z.string().optional(),
@@ -214,10 +216,10 @@ export const educationSupportRequiredSchema = z.object({
 // Step 9: Final Review & Attestation
 export const finalReviewSchema = z.object({
   allInfoCorrect: z.literal(true, {
-    errorMap: () => ({ message: 'All information must be confirmed correct before submission' }),
+    errorMap: () => ({ message: 'You must confirm that all information is correct' }),
   }),
   organizationName: z.string().default('India HIV/AIDS Alliance'),
-  formSubmittedBy: z.string().min(2, 'Submitter name is required'),
+  formSubmittedBy: z.string().default('Caseworker'),
   organizationEmail: z.string().email().optional().or(z.literal('')),
   submissionDate: z.string().optional(),
   approvedAllianceIndia: z.string().optional(),

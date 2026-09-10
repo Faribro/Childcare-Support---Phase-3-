@@ -5,16 +5,21 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
-import {
-  getAllQueueItems,
-  markSynced,
-  markFailed,
-  markConflict,
-  acquireSyncLock,
-  releaseSyncLock,
-} from '@/lib/db/syncQueueRepository';
+import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import type { SyncQueueItem } from '@/types/domain';
-import { Search, Calendar, X } from 'lucide-react';
+import {
+  Search,
+  Calendar,
+  X,
+  CheckCircle2,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  AlertCircle,
+  AlertTriangle,
+  Clock,
+} from 'lucide-react';
 
 export interface UnifiedAssessmentItem {
   id: string;
@@ -26,7 +31,8 @@ export interface UnifiedAssessmentItem {
   district?: string;
   state?: string;
   revisionNumber: number;
-  status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_requires_attention';
+  status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict';
+  chipStatus: 'Local' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict';
   serverStatus: 'accepted' | 'syncing' | 'waiting' | 'error';
   sheetsStatus: 'exported' | 'exporting' | 'waiting' | 'failed';
   createdAt: string;
@@ -34,7 +40,253 @@ export interface UnifiedAssessmentItem {
   editReason?: string;
   sheetRow?: number | string;
   lastError?: string;
+  retryCount?: number;
   rawRecord: any;
+  isOutbox: boolean;
+}
+
+function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict' }) {
+  switch (chipStatus) {
+    case 'Submitted':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+          Submitted
+        </span>
+      );
+    case 'Sending':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 animate-pulse">
+          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+          Sending…
+        </span>
+      );
+    case 'Conflict':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-300">
+          <AlertTriangle className="w-2.5 h-2.5" />
+          Conflict
+        </span>
+      );
+    case 'Needs attention':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
+          <AlertCircle className="w-2.5 h-2.5" />
+          Needs attention
+        </span>
+      );
+    case 'Local':
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
+          <Clock className="w-2.5 h-2.5" />
+          On device
+        </span>
+      );
+  }
+}
+
+function SubmissionStatusBanner({
+  submittedRef,
+  status,
+  errorMessage,
+  isOnline,
+  onDismiss,
+}: {
+  submittedRef: string | null;
+  status: string | null;
+  errorMessage?: string | null;
+  isOnline: boolean;
+  onDismiss: () => void;
+}) {
+  const effectiveStatus = status || (isOnline ? 'syncing' : 'offline');
+
+  if (effectiveStatus === 'synced') {
+    return (
+      <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700 shrink-0 mt-0.5">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-emerald-950">Assessment submitted &amp; saved to server</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Submitted
+              </span>
+            </div>
+            <p className="text-xs text-emerald-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-emerald-950">{submittedRef || 'Recorded'}</strong>. Canonical server confirmation received. Your assessment is recorded in the central linelist.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-emerald-700 hover:text-emerald-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (effectiveStatus === 'syncing') {
+    return (
+      <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0 mt-0.5">
+            <RefreshCw className="w-5 h-5 animate-spin" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-amber-950">Assessment recorded locally. Sending to server…</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                Sending
+              </span>
+            </div>
+            <p className="text-xs text-amber-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-amber-950">{submittedRef || 'Local'}</strong>. Your assessment is safely saved on this device. Automatic background sync is in progress.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-amber-700 hover:text-amber-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (effectiveStatus === 'offline') {
+    return (
+      <div className="bg-slate-50 border border-slate-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center text-slate-700 shrink-0 mt-0.5">
+            <WifiOff className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-slate-900">Saved safely to device (Offline)</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 border border-slate-300">
+                Local
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 mt-1">
+              Reference: <strong className="font-mono font-bold text-slate-900">{submittedRef || 'Local'}</strong>. You are currently offline. This record is protected in local storage and will automatically send once your connection is restored.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-slate-600 hover:text-slate-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (effectiveStatus === 'retryable') {
+    return (
+      <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0 mt-0.5">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-amber-950">Assessment saved locally. Waiting to retry send.</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                Retrying soon
+              </span>
+            </div>
+            <p className="text-xs text-amber-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-amber-950">{submittedRef || 'Local'}</strong>. A network or server pause occurred. Automatic retry with exponential backoff is scheduled.
+              {errorMessage && <span className="block mt-1 font-mono text-[11px] text-amber-900">Details: {errorMessage}</span>}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-amber-700 hover:text-amber-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (effectiveStatus === 'conflict') {
+    return (
+      <div className="bg-purple-50 border border-purple-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-purple-100 border border-purple-300 flex items-center justify-center text-purple-700 shrink-0 mt-0.5">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-purple-950">Assessment saved locally. Version conflict detected.</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
+                Conflict
+              </span>
+            </div>
+            <p className="text-xs text-purple-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-purple-950">{submittedRef || 'Local'}</strong>. A newer version of this record exists on the central server. Please review before overwriting.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-purple-700 hover:text-purple-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  // Failed final / needs attention
+  return (
+    <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-700 shrink-0 mt-0.5">
+          <AlertCircle className="w-5 h-5" />
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-bold text-rose-950">Assessment saved locally. Requires attention.</h4>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+              Needs attention
+            </span>
+          </div>
+          <p className="text-xs text-rose-800 mt-1">
+            Reference: <strong className="font-mono font-bold text-rose-950">{submittedRef || 'Local'}</strong>. The server rejected the submission format. Your data is safe locally on this device. Please review the details.
+            {errorMessage && <span className="block mt-1 font-mono text-[11px] text-rose-900">Details: {errorMessage}</span>}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="text-rose-700 hover:text-rose-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+        aria-label="Dismiss banner"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
 }
 
 function SyncCentreContent() {
@@ -42,7 +294,10 @@ function SyncCentreContent() {
   const searchParams = useSearchParams();
   const justSubmitted = searchParams.get('submitted') === 'true';
   const submittedRef = searchParams.get('ref');
+  const submittedStatus = searchParams.get('status');
+  const submittedErr = searchParams.get('err');
 
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
   const [serverSubmissions, setServerSubmissions] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -51,6 +306,9 @@ function SyncCentreContent() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [viewingItem, setViewingItem] = useState<UnifiedAssessmentItem | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Tab State: 'all' | 'outbox' | 'synced'
+  const [activeTab, setActiveTab] = useState<'all' | 'outbox' | 'synced'>('all');
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,9 +335,18 @@ function SyncCentreContent() {
       ]);
 
       setQueueItems(q || []);
-      if (serverRes && (serverRes.data || Array.isArray(serverRes))) {
-        setServerSubmissions(serverRes.data || serverRes);
+
+      // Resilient array extraction:
+      const rawData = serverRes?.data;
+      let records: any[] = [];
+      if (Array.isArray(rawData)) {
+        records = rawData;
+      } else if (rawData && Array.isArray(rawData.records)) {
+        records = rawData.records;
+      } else if (Array.isArray(serverRes)) {
+        records = serverRes;
       }
+      setServerSubmissions(records);
 
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(online);
@@ -91,102 +358,28 @@ function SyncCentreContent() {
 
   useEffect(() => {
     loadData();
-    const handleSyncComplete = () => {
+    const handleSyncUpdate = () => {
       loadData();
     };
-    window.addEventListener('child_nutrition:sync_completed', handleSyncComplete);
+    window.addEventListener('child_nutrition:sync_completed', handleSyncUpdate);
+    window.addEventListener('child_nutrition:record_synced', handleSyncUpdate);
     const interval = setInterval(loadData, 5000);
     return () => {
-      window.removeEventListener('child_nutrition:sync_completed', handleSyncComplete);
+      window.removeEventListener('child_nutrition:sync_completed', handleSyncUpdate);
+      window.removeEventListener('child_nutrition:record_synced', handleSyncUpdate);
       clearInterval(interval);
     };
   }, [loadData]);
 
   const handleSyncAll = async () => {
     if (isSyncing) return;
-    if (!acquireSyncLock()) return;
-
     setIsSyncing(true);
     try {
-      const pending = queueItems.filter(
-        (i) => i.status === 'queued' || i.status === 'failed'
-      );
-
-      for (const item of pending) {
-        try {
-          let res: Response;
-          const payloadAny = (item.payload as any) || {};
-          const targetId = item.submissionUuid || payloadAny.uuid || payloadAny.uniqueId || payloadAny.artNumber;
-          const isUpdate = item.operationType === 'UPDATE';
-
-          if (isUpdate) {
-            // BLOCKER A FIX: Route UPDATE operations to PATCH /api/submissions/[targetId]
-            const expectedVersion = item.expectedVersion || payloadAny.expectedVersion || payloadAny.version || 1;
-            res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}`, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-                'If-Match': `"${expectedVersion}"`,
-                'Idempotency-Key': item.idempotencyKey || `update-${targetId}-${expectedVersion}`,
-              },
-              body: JSON.stringify({
-                expectedVersion,
-                ...(typeof item.payload === 'object' ? item.payload : {}),
-              }),
-            });
-          } else {
-            res = await fetch('/api/submissions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Idempotency-Key': item.idempotencyKey || `idem-${item.submissionUuid}`,
-              },
-              body: JSON.stringify(item.payload),
-            });
-          }
-
-          if (res.ok) {
-            const data = await res.json();
-            // Invariant: Must verify canonical acknowledgment before marking synced
-            const remoteId = data.remoteSubmissionId || data.uniqueId || data.data?.remote_submission_id || data.data?.uniqueId;
-            const ack = data.acknowledged !== false && Boolean(remoteId);
-            if (ack && item.id) {
-              await markSynced(
-                item.id,
-                item.submissionUuid,
-                remoteId,
-                data.version || data.revisionNumber || data.data?.version || 1
-              );
-            } else if (item.id) {
-              await markFailed(item.id, 'Unacknowledged server response without remote identifier', 500);
-            }
-          } else if (res.status === 409) {
-            const conflictBody = await res.json().catch(() => ({}));
-            if (item.id) {
-              await markConflict(item.id, conflictBody);
-            }
-          } else {
-            const errBody = await res.json().catch(() => ({}));
-            if (item.id) {
-              await markFailed(
-                item.id,
-                errBody.message || `Server returned HTTP ${res.status}`,
-                res.status
-              );
-            }
-          }
-        } catch {
-          if (item.id) {
-            await markFailed(item.id, 'Network connection unreachable', 503);
-          }
-        }
-      }
+      await syncOrchestrator.flushQueue('manual');
       await loadData();
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('child_nutrition:sync_completed'));
-      }
+    } catch (err) {
+      console.error('[SyncCentre] Error during manual sync:', err);
     } finally {
-      releaseSyncLock();
       setIsSyncing(false);
     }
   };
@@ -241,6 +434,7 @@ function SyncCentreContent() {
         state,
         revisionNumber,
         status: 'synced',
+        chipStatus: 'Submitted',
         serverStatus: 'accepted',
         sheetsStatus: 'exported',
         createdAt,
@@ -248,6 +442,7 @@ function SyncCentreContent() {
         editReason,
         sheetRow,
         rawRecord: r,
+        isOutbox: false,
       });
     });
 
@@ -268,21 +463,40 @@ function SyncCentreContent() {
       const editReason = (payload as any).editReason;
 
       let status: UnifiedAssessmentItem['status'] = 'ready_to_sync';
+      let chipStatus: UnifiedAssessmentItem['chipStatus'] = 'Local';
       let serverStatus: UnifiedAssessmentItem['serverStatus'] = 'waiting';
       let sheetsStatus: UnifiedAssessmentItem['sheetsStatus'] = 'waiting';
+      let isOutbox = true;
 
       if (qItem.status === 'synced') {
         status = 'synced';
+        chipStatus = 'Submitted';
         serverStatus = 'accepted';
         sheetsStatus = 'exported';
+        isOutbox = false;
       } else if (qItem.status === 'syncing') {
         status = 'syncing';
+        chipStatus = 'Sending';
         serverStatus = 'syncing';
         sheetsStatus = 'exporting';
       } else if (qItem.status === 'failed') {
-        status = 'failed_retryable';
-        serverStatus = 'error';
-        sheetsStatus = 'failed';
+        const code = Number(qItem.statusCode || qItem.lastErrorCode || 0);
+        if (code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict')) {
+          status = 'conflict';
+          chipStatus = 'Conflict';
+          serverStatus = 'error';
+          sheetsStatus = 'failed';
+        } else if (code >= 400 && code < 500 && code !== 408 && code !== 429) {
+          status = 'failed_final';
+          chipStatus = 'Needs attention';
+          serverStatus = 'error';
+          sheetsStatus = 'failed';
+        } else {
+          status = 'failed_retryable';
+          chipStatus = 'Local';
+          serverStatus = 'waiting';
+          sheetsStatus = 'waiting';
+        }
       }
 
       if (map.has(id)) {
@@ -292,12 +506,15 @@ function SyncCentreContent() {
             ...existing,
             revisionNumber: Math.max(revisionNumber, existing.revisionNumber),
             status,
+            chipStatus,
             serverStatus,
             sheetsStatus,
             lastEditedAt: lastEditedAt || existing.lastEditedAt,
             editReason: editReason || existing.editReason,
             lastError: qItem.errorMessage || undefined,
+            retryCount: qItem.retryCount,
             rawRecord: payload,
+            isOutbox,
           });
         }
       } else {
@@ -312,13 +529,16 @@ function SyncCentreContent() {
           state,
           revisionNumber,
           status,
+          chipStatus,
           serverStatus,
           sheetsStatus,
           createdAt,
           lastEditedAt,
           editReason,
           lastError: qItem.errorMessage || undefined,
+          retryCount: qItem.retryCount,
           rawRecord: payload,
+          isOutbox,
         });
       }
     });
@@ -330,17 +550,27 @@ function SyncCentreContent() {
     });
   }, [serverSubmissions, queueItems]);
 
-  const pendingCount = unifiedItems.filter(
-    (i) => i.status === 'ready_to_sync' || i.status === 'failed_retryable' || i.status === 'syncing' || i.sheetsStatus !== 'exported'
-  ).length;
+  const outboxItems = useMemo(() => {
+    return unifiedItems.filter((i) => i.isOutbox);
+  }, [unifiedItems]);
 
-  const syncedCount = unifiedItems.filter(
-    (i) => i.status === 'synced' && i.sheetsStatus === 'exported'
-  ).length;
+  const syncedItems = useMemo(() => {
+    return unifiedItems.filter((i) => !i.isOutbox);
+  }, [unifiedItems]);
 
-  // Filter with Search Query + From/To Date
+  const pendingCount = outboxItems.length;
+  const submittedCount = syncedItems.length;
+
+  // Filter with Tab + Search Query + From/To Date
   const filteredItems = useMemo(() => {
-    return unifiedItems.filter((item) => {
+    const list =
+      activeTab === 'outbox'
+        ? outboxItems
+        : activeTab === 'synced'
+        ? syncedItems
+        : unifiedItems;
+
+    return list.filter((item) => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const match =
@@ -362,10 +592,190 @@ function SyncCentreContent() {
 
       return true;
     });
-  }, [unifiedItems, searchQuery, fromDate, toDate]);
+  }, [unifiedItems, outboxItems, syncedItems, activeTab, searchQuery, fromDate, toDate]);
+
+  const handleDismissBanner = () => {
+    setBannerDismissed(true);
+    router.replace('/assessment/sync', { scroll: false });
+  };
+
+  const renderItemCard = (item: UnifiedAssessmentItem) => {
+    const isExpanded = expandedId === item.localId;
+    const revisionCount = item.revisionNumber || 1;
+    const isAmended = revisionCount > 1;
+
+    return (
+      <div
+        key={item.localId}
+        className={`flex bg-white rounded-xl border transition-colors shadow-2xs overflow-hidden ${
+          item.isOutbox ? 'border-amber-200 hover:border-amber-300' : 'border-slate-200 hover:border-slate-300'
+        }`}
+      >
+        {/* Left Vertical ID Column (Tablet / Desktop) */}
+        <div className="hidden sm:flex w-12 sm:w-14 bg-slate-50 border-r border-slate-200/80 items-center justify-center shrink-0 py-3.5 select-all">
+          <div className="flex items-center gap-1.5 [writing-mode:vertical-rl] rotate-180">
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+              Id
+            </span>
+            <span className="text-slate-300">•</span>
+            <span className="font-mono font-bold text-teal-800 text-xs tracking-wider">
+              {item.id}
+            </span>
+          </div>
+        </div>
+
+        {/* Main Card Content */}
+        <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="sm:hidden font-mono font-bold text-teal-800 text-[11px] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                  {item.id}
+                </span>
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+                  {item.childName}
+                </h3>
+                <span className="text-slate-400">•</span>
+                <span className="text-xs text-slate-600">
+                  Caregiver: <strong className="text-slate-800">{item.caregiverName}</strong>
+                </span>
+                {item.district && (
+                  <>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-xs text-slate-500">
+                      {item.district}{item.state ? `, ${item.state}` : ''}
+                    </span>
+                  </>
+                )}
+
+                {/* Status Chip */}
+                <StatusChip chipStatus={item.chipStatus} />
+
+                {isAmended && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                    Updated {revisionCount} times
+                  </span>
+                )}
+              </div>
+
+              {/* Timestamps & Outbox Context */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 text-[11px] text-slate-500">
+                <p>
+                  Saved on {new Date(item.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
+                  at {new Date(item.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                  {item.lastEditedAt && (
+                    <span>
+                      {' '}• Last updated on {new Date(item.lastEditedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
+                      at {new Date(item.lastEditedAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                    </span>
+                  )}
+                </p>
+                {item.isOutbox && (
+                  <span className="font-medium text-amber-700 sm:before:content-['•'] sm:before:mx-1 sm:before:text-slate-300">
+                    On this device (Outbox)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons: View, Edit, History */}
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t border-slate-100 sm:border-t-0 justify-end">
+              <button
+                type="button"
+                onClick={() => setViewingItem(item)}
+                className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
+              >
+                View
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleEditSubmission(item)}
+                className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
+              >
+                Edit
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExpandedId(isExpanded ? null : item.localId)}
+                className="touch-target-44 min-h-[44px] text-xs px-3 font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                {isExpanded ? 'Hide' : 'History'}
+              </button>
+            </div>
+          </div>
+
+          {/* Expandable Technical Details & History Drawer */}
+          {isExpanded && (
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-2.5 pt-3">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+                <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                  Technical details &amp; History
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  Id: {item.id}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div>
+                  <span className="font-semibold text-slate-500 block">
+                    Full Submission ID:
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="font-mono text-slate-800 break-all select-all font-medium">
+                      {item.submissionId}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyId(item.submissionId)}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold transition-colors flex-shrink-0 cursor-pointer"
+                    >
+                      {copiedId === item.submissionId ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="font-semibold text-slate-500 block">
+                    Revision Number:
+                  </span>
+                  <span className="font-medium text-slate-800">
+                    Revision {revisionCount} {isAmended ? `(Updated ${revisionCount} times)` : '(Original submission)'}
+                  </span>
+                </div>
+              </div>
+
+              {item.editReason && (
+                <div className="p-2.5 rounded bg-blue-50 border border-blue-200 text-blue-900 text-[11px]">
+                  <span className="font-bold block">Reason for Update (Revision {item.revisionNumber}):</span>
+                  <span>{item.editReason}</span>
+                </div>
+              )}
+
+              {item.lastError && (
+                <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-900 text-[11px]">
+                  <span className="font-bold block">Status Note:</span>
+                  <span>{item.lastError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 pt-1 border-t border-slate-200">
+                <span>Storage: {item.isOutbox ? 'Local Outbox (Dexie)' : 'Central Linelist (Google Sheets)'}</span>
+                <span>
+                  {item.sheetRow ? `Report Row: ${item.sheetRow}` : 'Report Status: In queue'}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <AppShell pendingSyncCount={pendingCount} submittedCount={unifiedItems.length}>
+    <AppShell pendingSyncCount={pendingCount} submittedCount={submittedCount}>
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5 animate-in fade-in duration-200">
         {/* Read-only Submission View Modal */}
         {viewingItem && (
@@ -380,47 +790,103 @@ function SyncCentreContent() {
           />
         )}
 
-        {/* Just Submitted Notification Banner */}
-        {justSubmitted && (
-          <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 flex items-center justify-between shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-              <p className="text-xs sm:text-sm text-emerald-950 font-semibold">
-                Survey recorded! Reference: <strong className="font-mono">{submittedRef || 'Saved'}</strong>
-              </p>
-            </div>
-            <span className="text-[11px] text-emerald-700 font-medium">Saved to device</span>
-          </div>
+        {/* Truthful Submission Status Banner */}
+        {justSubmitted && !bannerDismissed && (
+          <SubmissionStatusBanner
+            submittedRef={submittedRef}
+            status={submittedStatus}
+            errorMessage={submittedErr}
+            isOnline={isOnline}
+            onDismiss={handleDismissBanner}
+          />
         )}
 
-        {/* Search, Date Filter & Sync Actions Bar */}
-        <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-3">
-          {/* Top Action: Send Pending Surveys (Shown when > 0 waiting) */}
+        {/* Top Control Bar: Search, Date Filter & Sync Actions Bar */}
+        <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
+          {/* Outbox Banner (Shown when records are waiting on device) */}
           {pendingCount > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-              <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
-                {pendingCount} survey{pendingCount === 1 ? '' : 's'} waiting to synchronize
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <div>
+                  <p className="text-xs font-bold text-amber-950">
+                    {pendingCount} assessment{pendingCount === 1 ? '' : 's'} on this device waiting to synchronize
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    {isOnline
+                      ? 'Network connection active. Automatic sync in progress or tap to send immediately.'
+                      : 'You are offline. Records will synchronize automatically when connection is restored.'}
+                  </p>
+                </div>
+              </div>
+
               <Button
                 variant="primary"
                 onClick={handleSyncAll}
-                disabled={isSyncing || !isReachable}
+                disabled={isSyncing || !isOnline || !isReachable}
                 className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer touch-target min-h-[44px]"
               >
                 {isSyncing ? (
                   <span className="flex items-center gap-2">
-                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Sending surveys…
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Sending…
                   </span>
                 ) : (
-                  `Send ${pendingCount} Pending Survey${pendingCount === 1 ? '' : 's'}`
+                  `Send ${pendingCount} Waiting Record${pendingCount === 1 ? '' : 's'}`
                 )}
               </Button>
             </div>
           )}
+
+          {/* Tab Navigation: All | Waiting to Send | Submitted Records */}
+          <div className="flex items-center gap-2 border-b border-slate-200 pb-3 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('all')}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer touch-target min-h-[40px] flex items-center gap-1.5 ${
+                activeTab === 'all'
+                  ? 'bg-purple-100 text-purple-900 border border-purple-300'
+                  : 'text-slate-600 hover:bg-slate-100 border border-transparent'
+              }`}
+            >
+              <span>All Records</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/80 font-bold border border-slate-200">
+                {unifiedItems.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('outbox')}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer touch-target min-h-[40px] flex items-center gap-1.5 ${
+                activeTab === 'outbox'
+                  ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                  : 'text-slate-600 hover:bg-slate-100 border border-transparent'
+              }`}
+            >
+              <span>Waiting to Send</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold border ${
+                pendingCount > 0 ? 'bg-amber-200 text-amber-900 border-amber-300' : 'bg-white/80 border-slate-200'
+              }`}>
+                {pendingCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('synced')}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer touch-target min-h-[40px] flex items-center gap-1.5 ${
+                activeTab === 'synced'
+                  ? 'bg-emerald-100 text-emerald-950 border border-emerald-300'
+                  : 'text-slate-600 hover:bg-slate-100 border border-transparent'
+              }`}
+            >
+              <span>Submitted Records</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/80 font-bold border border-slate-200">
+                {submittedCount}
+              </span>
+            </button>
+          </div>
 
           {/* Search Bar & Date Range Filters */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -478,195 +944,64 @@ function SyncCentreContent() {
           )}
         </div>
 
-        {/* Your Surveys List */}
-        <section className="space-y-3">
+        {/* Survey Lists Section */}
+        <section className="space-y-4">
           {filteredItems.length === 0 ? (
-            <div className="p-8 rounded-xl border border-dashed border-[hsl(215,18%,85%)] text-center space-y-1.5 bg-white">
-              <p className="text-xs font-semibold text-[hsl(220,15%,25%)]">
-                {searchQuery || fromDate || toDate ? 'No surveys match your search or date filter' : 'No submitted surveys yet'}
+            <div className="p-8 rounded-xl border border-dashed border-slate-300 text-center space-y-1.5 bg-white">
+              <p className="text-xs font-semibold text-slate-800">
+                {searchQuery || fromDate || toDate
+                  ? 'No surveys match your search or date filter'
+                  : activeTab === 'outbox'
+                  ? 'All records have been sent to the server. No pending items in outbox.'
+                  : activeTab === 'synced'
+                  ? 'No confirmed server records found.'
+                  : 'No submitted surveys yet'}
               </p>
-              <p className="text-[11px] text-[hsl(215,12%,50%)] max-w-md mx-auto">
+              <p className="text-[11px] text-slate-500 max-w-md mx-auto">
                 {searchQuery || fromDate || toDate
                   ? 'Try clearing or changing your search criteria.'
-                  : 'When you complete a survey, it will appear here so you can check that it has been safely sent for reporting.'}
+                  : 'When you complete a survey, it will appear here so you can verify that it has been safely sent for reporting.'}
               </p>
+            </div>
+          ) : activeTab === 'all' ? (
+            /* When 'all' is selected: visually separate outbox from submitted */
+            <div className="space-y-6">
+              {/* Outbox Section (if any items match filter) */}
+              {filteredItems.some((i) => i.isOutbox) && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                        On this device / Waiting to send ({filteredItems.filter((i) => i.isOutbox).length})
+                      </h3>
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                    </div>
+                    <span className="text-[11px] text-slate-500">Local outbox</span>
+                  </div>
+                  <div className="space-y-3">
+                    {filteredItems.filter((i) => i.isOutbox).map(renderItemCard)}
+                  </div>
+                </div>
+              )}
+
+              {/* Confirmed Submissions Section (if any items match filter) */}
+              {filteredItems.some((i) => !i.isOutbox) && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Submitted records ({filteredItems.filter((i) => !i.isOutbox).length})
+                    </h3>
+                    <span className="text-[11px] text-emerald-700 font-medium">Confirmed on server</span>
+                  </div>
+                  <div className="space-y-3">
+                    {filteredItems.filter((i) => !i.isOutbox).map(renderItemCard)}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredItems.map((item) => {
-                const isExpanded = expandedId === item.localId;
-                const isFailed = item.status === 'failed_requires_attention' || item.status === 'failed_retryable' || item.sheetsStatus === 'failed';
-                const isSending = item.status === 'syncing' || item.serverStatus === 'syncing' || item.sheetsStatus === 'exporting' || isSyncing;
-
-                const revisionCount = item.revisionNumber || 1;
-                const isAmended = revisionCount > 1;
-
-                return (
-                  <div
-                    key={item.localId}
-                    className="flex bg-white rounded-xl border border-[hsl(215,18%,85%)] hover:border-[hsl(215,18%,75%)] transition-colors shadow-2xs overflow-hidden"
-                  >
-                    {/* Left Vertical ID Column (Tablet / Desktop) */}
-                    <div className="hidden sm:flex w-12 sm:w-14 bg-slate-50 border-r border-slate-200/80 items-center justify-center shrink-0 py-3.5 select-all">
-                      <div className="flex items-center gap-1.5 [writing-mode:vertical-rl] rotate-180">
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-                          Id
-                        </span>
-                        <span className="text-slate-300">•</span>
-                        <span className="font-mono font-bold text-teal-800 text-xs tracking-wider">
-                          {item.id}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Main Card Content */}
-                    <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="space-y-1.5 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="sm:hidden font-mono font-bold text-teal-800 text-[11px] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                              {item.id}
-                            </span>
-                            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
-                              {item.childName}
-                            </h3>
-                            <span className="text-slate-400">•</span>
-                            <span className="text-xs text-slate-600">
-                              Caregiver: <strong className="text-slate-800">{item.caregiverName}</strong>
-                            </span>
-                            {item.district && (
-                              <>
-                                <span className="text-slate-400">•</span>
-                                <span className="text-xs text-slate-500">
-                                  {item.district}{item.state ? `, ${item.state}` : ''}
-                                </span>
-                              </>
-                            )}
-                            {isAmended && (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                                Updated {revisionCount} times
-                              </span>
-                            )}
-                            {isSending && (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
-                                Sending…
-                              </span>
-                            )}
-                            {isFailed && (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                                Could not update
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Timestamps */}
-                          <p className="text-[11px] text-[hsl(215,12%,50%)]">
-                            Saved on {new Date(item.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
-                            at {new Date(item.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
-                            {item.lastEditedAt && (
-                              <span>
-                                {' '}• Last updated on {new Date(item.lastEditedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
-                                at {new Date(item.lastEditedAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
-                              </span>
-                            )}
-                          </p>
-                        </div>
-
-                        {/* Action Buttons: View, Edit, History */}
-                        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t border-slate-100 sm:border-t-0 justify-end">
-                          <button
-                            type="button"
-                            onClick={() => setViewingItem(item)}
-                            className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
-                          >
-                            View
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleEditSubmission(item)}
-                            className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setExpandedId(isExpanded ? null : item.localId)}
-                            className="touch-target-44 min-h-[44px] text-xs px-3 font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer flex items-center justify-center"
-                          >
-                            {isExpanded ? 'Hide' : 'History'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Expandable Technical Details & History Drawer */}
-                      {isExpanded && (
-                        <div className="p-3.5 rounded-lg bg-[hsl(215,20%,97%)] border border-[hsl(215,18%,88%)] text-xs space-y-2.5 pt-3">
-                          <div className="flex items-center justify-between pb-1.5 border-b border-[hsl(215,18%,90%)]">
-                            <span className="font-bold text-[hsl(220,15%,20%)] text-[11px] uppercase tracking-wider">
-                              Technical details &amp; History
-                            </span>
-                            <span className="text-[10px] text-[hsl(215,12%,50%)]">
-                              Id: {item.id}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                            <div>
-                              <span className="font-semibold text-[hsl(215,12%,45%)] block">
-                                Full Submission ID:
-                              </span>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="font-mono text-[hsl(220,15%,20%)] break-all select-all font-medium">
-                                  {item.submissionId}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyId(item.submissionId)}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(215,20%,90%)] hover:bg-[hsl(215,20%,85%)] text-[hsl(220,15%,25%)] font-semibold transition-colors flex-shrink-0 cursor-pointer"
-                                >
-                                  {copiedId === item.submissionId ? 'Copied' : 'Copy'}
-                                </button>
-                              </div>
-                            </div>
-
-                            <div>
-                              <span className="font-semibold text-[hsl(215,12%,45%)] block">
-                                Revision Number:
-                              </span>
-                              <span className="font-medium text-[hsl(220,15%,20%)]">
-                                Revision {revisionCount} {isAmended ? `(Updated ${revisionCount} times)` : '(Original submission)'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {item.editReason && (
-                            <div className="p-2.5 rounded bg-[hsl(210,80%,97%)] border border-[hsl(210,80%,85%)] text-[hsl(210,80%,25%)] text-[11px]">
-                              <span className="font-bold block">Reason for Update (Revision {item.revisionNumber}):</span>
-                              <span>{item.editReason}</span>
-                            </div>
-                          )}
-
-                          {item.lastError && (
-                            <div className="p-2.5 rounded bg-[hsl(0,72%,96%)] border border-[hsl(0,72%,80%)] text-[hsl(0,72%,35%)] text-[11px]">
-                              <span className="font-bold block">Status Note:</span>
-                              <span>{item.lastError}</span>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between text-[11px] font-semibold text-[hsl(215,12%,40%)] pt-1 border-t border-[hsl(215,18%,90%)]">
-                            <span>Form Version: 3.0.0</span>
-                            <span>
-                              {item.sheetRow ? `Report Row: ${item.sheetRow}` : 'Report Status: In queue'}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {filteredItems.map(renderItemCard)}
             </div>
           )}
         </section>
@@ -691,7 +1026,7 @@ export default function SyncCentrePage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[hsl(40,20%,98%)] flex items-center justify-center">
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
           <div className="text-xs text-slate-500 font-medium">Loading sync centre...</div>
         </div>
       }

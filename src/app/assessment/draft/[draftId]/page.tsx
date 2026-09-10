@@ -18,6 +18,7 @@ import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls
 import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
+import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
@@ -740,11 +741,27 @@ export default function ResumeDraftSinglePage() {
       };
 
       await enqueueSubmission(finalRecord, { operationType: 'CREATE' });
-      router.push(
-        `/assessment/sync?submitted=true&ref=${encodeURIComponent(
-          finalRecord.demographics.artNumber || finalRecord.uuid
-        )}`
-      );
+
+      // Immediate Autosync Trigger
+      const refId = finalRecord.demographics.artNumber || finalRecord.uuid;
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          const flushPromise = syncOrchestrator.flushQueue('form_submit');
+          const outcome = await Promise.race([
+            flushPromise,
+            new Promise<null>((r) => setTimeout(() => r(null), 1500)),
+          ]);
+
+          if (outcome && outcome.syncedCount > 0) {
+            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+            return;
+          }
+        } catch (_) {}
+
+        router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+      } else {
+        router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
+      }
     } catch (e: any) {
       console.error('Submission error:', e);
       setFormError(e?.message || 'Failed to submit survey to sync queue.');

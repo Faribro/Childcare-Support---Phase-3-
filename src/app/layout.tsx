@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { PwaRegistration } from '@/components/pwa/PwaRegistration';
+import { SyncProvider } from '@/components/sync/SyncProvider';
 
 export const metadata: Metadata = {
   title: 'Child Nutrition & Education Support | India HIV/AIDS Alliance',
@@ -21,6 +22,9 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'default',
     title: 'Alliance Childcare',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
   formatDetection: {
     telephone: false,
@@ -43,9 +47,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full bg-surface-canvas text-ink-900 antialiased">
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
       <body className="min-h-screen flex flex-col">
         <PwaRegistration />
-        {children}
+        <SyncProvider>
+          {children}
+        </SyncProvider>
       </body>
     </html>
   );

@@ -89,11 +89,23 @@ export type ApprovedAllianceStatus =
 
 export type SyncStatus =
   | 'draft'
+  | 'finalized_local'
   | 'queued'
   | 'syncing'
   | 'synced'
   | 'failed'
-  | 'conflict';
+  | 'failed_retryable'
+  | 'failed_final'
+  | 'conflict'
+  | 'needs_review'
+  | 'DRAFT'
+  | 'FINALIZED_LOCAL'
+  | 'QUEUED'
+  | 'SYNCING'
+  | 'SYNCED'
+  | 'FAILED_RETRYABLE'
+  | 'FAILED_FINAL'
+  | 'NEEDS_REVIEW';
 
 export type OutboxOperationType = 'CREATE' | 'UPDATE';
 
@@ -370,6 +382,7 @@ export interface SyncQueueItem {
   lastAttempt: string | null;
   nextRetryTimestamp: number | null;
   lastErrorCode?: string | number | null;
+  statusCode?: number | null;
   requestId?: string | null;
   errorMessage: string | null;
   conflictMetadata?: {
