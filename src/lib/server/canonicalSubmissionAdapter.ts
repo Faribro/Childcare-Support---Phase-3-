@@ -172,6 +172,29 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
 }
 
 class CanonicalSubmissionAdapterService {
+  public getAppsScriptUrl(): string | undefined {
+    return (
+      process.env.APPS_SCRIPT_URL ||
+      process.env.APPS_SCRIPT_WEBAPP_URL ||
+      process.env.APPS_SCRIPT_WEBHOOK_URL ||
+      process.env.STAGING_APPS_SCRIPT_URL ||
+      (process.env.RENDER === 'true'
+        ? 'https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec'
+        : undefined)
+    );
+  }
+
+  public getWebhookSecret(): string | undefined {
+    return (
+      process.env.WEBHOOK_SECRET ||
+      process.env.APPS_SCRIPT_WEBHOOK_SECRET ||
+      process.env.WEBHOOK_SHARED_SECRET ||
+      (process.env.RENDER === 'true'
+        ? 'childcare_phase3_secret_token_2026'
+        : undefined)
+    );
+  }
+
   public isConfigured(): boolean {
     // Under test or local development environments, require E2E_STAGING_ENABLED=true
     // before attempting outbound Google Apps Script calls. This strictly enforces
@@ -184,7 +207,7 @@ class CanonicalSubmissionAdapterService {
     ) {
       return false;
     }
-    const url = process.env.APPS_SCRIPT_URL;
+    const url = this.getAppsScriptUrl();
     return !!(url && url.startsWith('https://script.google.com'));
   }
 
@@ -197,10 +220,6 @@ class CanonicalSubmissionAdapterService {
       return false;
     }
     return process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
-  }
-
-  public getWebhookSecret(): string | undefined {
-    return process.env.WEBHOOK_SECRET;
   }
 
   public checkConfiguration(operationType: 'read' | 'write' = 'write'): { valid: boolean; errorResponse?: CanonicalSubmissionResult } {
@@ -235,7 +254,7 @@ class CanonicalSubmissionAdapterService {
       return configCheck.errorResponse;
     }
 
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    const appsScriptUrl = this.getAppsScriptUrl();
     const webhookSecret = this.getWebhookSecret();
 
     if (this.isConfigured() && appsScriptUrl) {
@@ -318,7 +337,7 @@ class CanonicalSubmissionAdapterService {
       return configCheck.errorResponse;
     }
 
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    const appsScriptUrl = this.getAppsScriptUrl();
     const webhookSecret = this.getWebhookSecret();
 
     if (this.isConfigured() && appsScriptUrl) {
@@ -441,7 +460,7 @@ class CanonicalSubmissionAdapterService {
       return configCheck.errorResponse;
     }
 
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    const appsScriptUrl = this.getAppsScriptUrl();
     const webhookSecret = this.getWebhookSecret();
 
     if (this.isConfigured() && appsScriptUrl) {
@@ -522,7 +541,7 @@ class CanonicalSubmissionAdapterService {
       return configCheck.errorResponse;
     }
 
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    const appsScriptUrl = this.getAppsScriptUrl();
     const webhookSecret = this.getWebhookSecret();
 
     if (this.isConfigured() && appsScriptUrl) {
@@ -632,7 +651,7 @@ class CanonicalSubmissionAdapterService {
       };
     }
 
-    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    const appsScriptUrl = this.getAppsScriptUrl();
     const webhookSecret = this.getWebhookSecret();
 
     if (this.isConfigured() && appsScriptUrl) {

@@ -29,6 +29,7 @@ import {
   buildUpdateRequest,
   RequestBuilderError,
 } from '@/lib/sync/requestBuilders';
+import { db } from '@/lib/db/dexieDb';
 import type { SyncQueueItem } from '@/types/domain';
 
 export type SyncTrigger =
@@ -285,6 +286,52 @@ class SyncOrchestratorService {
               statusCode: res.status,
               message: errMsg,
             });
+          } else if (res.status === 404 && item.operationType === 'UPDATE') {
+            const pAny = (item.payload as any) || {};
+            const hasData = Boolean(pAny.demographics?.childName || pAny.childName);
+            if (hasData) {
+              const rawPayload: any = { ...pAny };
+              const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+              if (!rawPayload.uuid || !uuidRegex.test(rawPayload.uuid)) {
+                rawPayload.uuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined;
+              }
+              if (rawPayload.uuid && !rawPayload.clientSubmissionId) {
+                rawPayload.clientSubmissionId = rawPayload.uuid;
+              }
+              if (!rawPayload.artNumber && item.submissionUuid) {
+                rawPayload.artNumber = item.submissionUuid;
+              }
+              if (rawPayload.demographics && !rawPayload.demographics.artNumber && item.submissionUuid) {
+                rawPayload.demographics.artNumber = item.submissionUuid;
+              }
+              await db.syncQueue.update(item.id, {
+                operationType: 'CREATE',
+                payload: rawPayload,
+                status: 'queued',
+                nextRetryTimestamp: Date.now(),
+                errorMessage: 'Record not found on central server; converting to initial creation.',
+              });
+              resultItems.push({
+                id: item.id,
+                submissionUuid: item.submissionUuid,
+                operationType: 'CREATE',
+                status: 'failed_retryable',
+                statusCode: 404,
+                message: 'Record not found on central server; converted to initial creation.',
+              });
+            } else {
+              const errBody = await res.json().catch(() => ({}));
+              const errMsg = errBody.message || 'Record not found on server (HTTP 404)';
+              await markFailedFinal(item.id, errMsg, 404);
+              resultItems.push({
+                id: item.id,
+                submissionUuid: item.submissionUuid,
+                operationType: item.operationType,
+                status: 'failed_final',
+                statusCode: 404,
+                message: errMsg,
+              });
+            }
           } else {
             const errBody = await res.json().catch(() => ({}));
             const errMsg = errBody.message || `Server error (HTTP ${res.status})`;

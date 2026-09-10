@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   const isConfigured = canonicalSubmissionAdapter.isConfigured();
   const isProdOrStaging = canonicalSubmissionAdapter.isProductionOrStaging();
   const webhookSecret = canonicalSubmissionAdapter.getWebhookSecret();
-  const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+  const appsScriptUrl = canonicalSubmissionAdapter.getAppsScriptUrl();
 
   let urlHostname = null;
   if (appsScriptUrl) {

@@ -647,5 +647,47 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
       const pending = await getPendingQueue(true);
       expect(pending.some((i) => i.id === corruptedId)).toBe(false);
     });
+
+    it('recovers stale syncing item (>10s old) back to queued state during migration', async () => {
+      const staleId = await db.syncQueue.add({
+        submissionUuid: validUuid,
+        idempotencyKey: 'stale-syncing-key',
+        operationType: 'CREATE',
+        status: 'syncing',
+        retryCount: 0,
+        lastAttempt: new Date(Date.now() - 20000).toISOString(), // 20s ago
+        nextRetryTimestamp: null,
+        errorMessage: null,
+        payload: { ...validRecordPayload },
+      });
+
+      const res = await migrateLegacyQueueItems();
+      expect(res.migratedCount).toBe(1);
+
+      const item = await db.syncQueue.get(staleId);
+      expect(item?.status).toBe('queued');
+      expect(item?.nextRetryTimestamp).toBeDefined();
+
+      const pending = await getPendingQueue();
+      expect(pending.some((i) => i.id === staleId)).toBe(true);
+    });
+
+    it('includes stale syncing item in getPendingQueue when forceAllPending is true', async () => {
+      const staleId = await db.syncQueue.add({
+        submissionUuid: validUuid,
+        idempotencyKey: 'stale-force-key',
+        operationType: 'CREATE',
+        status: 'syncing',
+        retryCount: 0,
+        lastAttempt: new Date(Date.now() - 15000).toISOString(),
+        nextRetryTimestamp: null,
+        errorMessage: null,
+        payload: { ...validRecordPayload },
+      });
+
+      const pending = await getPendingQueue(true);
+      expect(pending.some((i) => i.id === staleId)).toBe(true);
+    });
   });
 });
+

@@ -14,8 +14,8 @@ services:
       - key: NEXT_PUBLIC_APP_ENV
         value: production
       - key: APPS_SCRIPT_URL
-        sync: false
+        value: https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec
       - key: WEBHOOK_SECRET
-        generateValue: true
+        value: childcare_phase3_secret_token_2026
       - key: SESSION_SECRET
         generateValue: true

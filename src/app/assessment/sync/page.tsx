@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
-import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { getAllQueueItems, migrateLegacyQueueItems, isSyncLocked } from '@/lib/db/syncQueueRepository';
 import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import type { SyncQueueItem } from '@/types/domain';
 import {
@@ -326,6 +326,7 @@ function SyncCentreContent() {
 
   const loadData = useCallback(async () => {
     try {
+      await migrateLegacyQueueItems();
       const [q, serverRes, reachable] = await Promise.all([
         getAllQueueItems(),
         fetch('/api/submissions?limit=100', { cache: 'no-store' })
@@ -475,10 +476,21 @@ function SyncCentreContent() {
         sheetsStatus = 'exported';
         isOutbox = false;
       } else if (qItem.status === 'syncing') {
-        status = 'syncing';
-        chipStatus = 'Sending';
-        serverStatus = 'syncing';
-        sheetsStatus = 'exporting';
+        const isActivelySyncing =
+          isSyncLocked() &&
+          Boolean(qItem.lastAttempt && Date.now() - new Date(qItem.lastAttempt).getTime() < 15000);
+
+        if (isActivelySyncing || isSyncing) {
+          status = 'syncing';
+          chipStatus = 'Sending';
+          serverStatus = 'syncing';
+          sheetsStatus = 'exporting';
+        } else {
+          status = 'ready_to_sync';
+          chipStatus = 'Local';
+          serverStatus = 'waiting';
+          sheetsStatus = 'waiting';
+        }
       } else if (qItem.status === 'failed') {
         const code = Number(qItem.statusCode || qItem.lastErrorCode || 0);
         if (code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict')) {
@@ -548,7 +560,7 @@ function SyncCentreContent() {
       const timeB = b.lastEditedAt || b.createdAt;
       return new Date(timeB).getTime() - new Date(timeA).getTime();
     });
-  }, [serverSubmissions, queueItems]);
+  }, [serverSubmissions, queueItems, isSyncing]);
 
   const outboxItems = useMemo(() => {
     return unifiedItems.filter((i) => i.isOutbox);

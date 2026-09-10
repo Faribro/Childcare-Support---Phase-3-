@@ -147,6 +147,18 @@ export async function migrateLegacyQueueItems(): Promise<{ migratedCount: number
       }
     }
 
+    // Recover stale syncing locks: if an item was left in 'syncing' state
+    // (e.g. from page navigation, network interruption, or browser reload),
+    // reset it back to 'queued' so it can be retried safely.
+    if (item.status === 'syncing' || (item.status as any) === 'SYNCING') {
+      const isStale = !item.lastAttempt || (Date.now() - new Date(item.lastAttempt).getTime() > 10000);
+      if (isStale) {
+        updates.status = 'queued';
+        updates.nextRetryTimestamp = Date.now();
+        modified = true;
+      }
+    }
+
     // Terminal 422 records: ensure retry is halted permanently
     if (item.status === 'failed' && (item.lastErrorCode === 422 || item.lastErrorCode === '422')) {
       if (item.nextRetryTimestamp !== null) {
@@ -190,11 +202,18 @@ export async function getPendingQueue(forceAllPending: boolean = false): Promise
         return false;
       }
 
+      // Stale syncing recovery: include syncing items if forceAllPending is requested (e.g. manual flush)
+      // or if lastAttempt was > 10 seconds ago (interrupted sync)
+      const isStaleSyncing =
+        (item.status === 'syncing' || (item.status as any) === 'SYNCING') &&
+        (forceAllPending || !item.lastAttempt || (now - new Date(item.lastAttempt).getTime() > 10000));
+
       const isCandidate =
         item.status === 'queued' ||
         item.status === 'QUEUED' ||
         item.status === 'failed_retryable' ||
         item.status === 'FAILED_RETRYABLE' ||
+        isStaleSyncing ||
         (item.status === 'failed' && item.nextRetryTimestamp !== null && item.nextRetryTimestamp <= now);
 
       if (!isCandidate) return false;
