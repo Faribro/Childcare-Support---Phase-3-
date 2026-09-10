@@ -33,182 +33,31 @@ import {
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import {
+  useSupervisorData,
+  type SupervisorBeneficiaryRow,
+  type BeneficiaryDocumentStatus,
+} from '@/hooks/useSupervisorData';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
 
-export interface BeneficiaryDocumentStatus {
-  isComplete: boolean;
-  totalRequired: number;
-  uploadedCount: number;
-  pendingDocs: string[];
-  uploadedDocs: string[];
-}
-
-function isFieldPresent(val: any): boolean {
-  if (val === true) return true;
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    if (!trimmed) return false;
-    if (trimmed === '—' || trimmed === '-' || trimmed === 'N/A' || trimmed === 'n/a') return false;
-    const lower = trimmed.toLowerCase();
-    if (
-      lower.includes('not uploaded') ||
-      lower.includes('no fee receipt') ||
-      lower.includes('no marksheet') ||
-      lower === 'none' ||
-      lower === 'null' ||
-      lower === 'undefined'
-    ) {
-      return false;
-    }
-    return true;
-  }
-  return false;
-}
-
-function evaluateDocuments(it: any, schoolTypeStr: string): BeneficiaryDocumentStatus {
-  const pendingDocs: string[] = [];
-  const uploadedDocs: string[] = [];
-
-  // 1. Bank Passbook Front Page
-  const passbook =
-    it['25\nPassbook Front Page Link'] ||
-    it['25\\nPassbook Front Page Link'] ||
-    it['Passbook Front Page Link'] ||
-    it.passbookPhotoUrl ||
-    it.passbook_photo_url ||
-    it.bankingAndKyc?.passbookPhotoUrl ||
-    it.bankDetails?.passbookPhotoCaptured ||
-    it.raw_payload?.bankingAndKyc?.passbookPhotoUrl;
-  if (isFieldPresent(passbook)) {
-    uploadedDocs.push('Bank Passbook Front Page');
-  } else {
-    pendingDocs.push('Bank Passbook Front Page');
-  }
-
-  // 2. Aadhaar Card
-  const aadhaar =
-    it['26\nAadhaar Card Link'] ||
-    it['26\\nAadhaar Card Link'] ||
-    it['Aadhaar Card Link'] ||
-    it.aadhaarCardPhotoUrl ||
-    it.aadhaar_card_photo_url ||
-    it.bankingAndKyc?.aadhaarCardPhotoUrl ||
-    it.raw_payload?.bankingAndKyc?.aadhaarCardPhotoUrl;
-  if (isFieldPresent(aadhaar)) {
-    uploadedDocs.push('Aadhaar Card');
-  } else {
-    pendingDocs.push('Aadhaar Card');
-  }
-
-  // 3. Child Beneficiary Photo
-  const childPhoto =
-    it['27\nPassport Size Photo Link'] ||
-    it['27\\nPassport Size Photo Link'] ||
-    it['Passport Size Photo Link'] ||
-    it.childPhotoUrl ||
-    it.child_photo_url ||
-    it.bankingAndKyc?.childPhotoUrl ||
-    it.raw_payload?.bankingAndKyc?.childPhotoUrl;
-  if (isFieldPresent(childPhoto)) {
-    uploadedDocs.push('Child Beneficiary Photo');
-  } else {
-    pendingDocs.push('Child Beneficiary Photo');
-  }
-
-  // 4. Caregiver Consent Signature
-  const signature =
-    it['72\nSignature Link'] ||
-    it['72\\nSignature Link'] ||
-    it['Signature Link'] ||
-    it.signatureDataUrl ||
-    it.signature_data_url ||
-    it.consent?.signatureDataUrl ||
-    it.caregiverConsent?.signatureDataUrl ||
-    it.raw_payload?.caregiverConsent?.signatureDataUrl ||
-    it.raw_payload?.consent?.signatureDataUrl;
-  if (isFieldPresent(signature)) {
-    uploadedDocs.push('Caregiver Signature');
-  } else {
-    pendingDocs.push('Caregiver Signature');
-  }
-
-  // 5 & 6. Educational proofs (if child is enrolled in school)
-  const isOutOfSchool =
-    schoolTypeStr.toLowerCase().includes('out of school') ||
-    schoolTypeStr.toLowerCase().includes('not in school') ||
-    schoolTypeStr.toLowerCase().includes('dropped out') ||
-    schoolTypeStr.toLowerCase().includes('never enrolled');
-
-  if (!isOutOfSchool) {
-    const feeReceipt =
-      it['64\nSchool Fee Receipt Link'] ||
-      it['64\\nSchool Fee Receipt Link'] ||
-      it['School Fee Receipt Link'] ||
-      it.feeReceiptPhotoUrl ||
-      it.fee_receipt_photo_url ||
-      it.educationExpenses?.feeReceiptPhotoUrl ||
-      it.raw_payload?.educationExpenses?.feeReceiptPhotoUrl;
-    if (isFieldPresent(feeReceipt)) {
-      uploadedDocs.push('School Fee Receipt');
-    } else {
-      pendingDocs.push('School Fee Receipt');
-    }
-
-    const marksheet =
-      it['65\nMarksheet Photo Link'] ||
-      it['65\\nMarksheet Photo Link'] ||
-      it['Marksheet Photo Link'] ||
-      it.marksheetPhotoUrl ||
-      it.marksheet_photo_url ||
-      it.educationExpenses?.marksheetPhotoUrl ||
-      it.raw_payload?.educationExpenses?.marksheetPhotoUrl;
-    if (isFieldPresent(marksheet)) {
-      uploadedDocs.push('Academic Marksheet');
-    } else {
-      pendingDocs.push('Academic Marksheet');
-    }
-  }
-
-  const totalRequired = uploadedDocs.length + pendingDocs.length;
-  const isComplete = pendingDocs.length === 0;
-
-  return {
-    isComplete,
-    totalRequired,
-    uploadedCount: uploadedDocs.length,
-    pendingDocs,
-    uploadedDocs,
-  };
-}
-
-interface BeneficiaryRow {
-  id: string;
-  artNumber: string;
-  childName: string;
-  age: number;
-  gender: string;
-  district: string;
-  schoolType: string;
-  orphanStatus: string;
-  bmi: number;
-  bmiCategory: BMICategory;
-  viralLoad: string | number;
-  vlCategory: VLCategory;
-  hemoglobin: string | number;
-  hbCategory: HbCategory;
-  grantAmount: number;
-  syncState: 'SYNCED' | 'QUEUED';
-  lastVisit?: string;
-  version: number;
-  documentStatus: BeneficiaryDocumentStatus;
-  isApproved: boolean;
-  approvedStatus: string;
-}
+type BeneficiaryRow = SupervisorBeneficiaryRow;
 
 export default function SupervisorAssessmentsPage() {
   const { isUnlocked, isLoaded } = useEvaluationAccess();
-  const [data, setData] = useState<BeneficiaryRow[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    records: data,
+    total,
+    status,
+    isLoading,
+    isError,
+    isEmpty,
+    error,
+    refresh,
+    retry,
+    setRecords: setData,
+    lastRefreshed,
+  } = useSupervisorData();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [schoolTypeFilter, setSchoolTypeFilter] = useState('ALL');
   const [orphanStatusFilter, setOrphanStatusFilter] = useState('ALL');
@@ -307,114 +156,6 @@ export default function SupervisorAssessmentsPage() {
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
   }, [activeDocModal]);
-
-  const fetchSubmissions = async () => {
-    try {
-      setIsLoading(true);
-      const res = await fetch('/api/submissions?limit=100');
-      if (res.ok) {
-        const json = await res.json();
-        const rawItems = Array.isArray(json.data) ? json.data : Array.isArray(json.items) ? json.items : [];
-        if (rawItems.length >= 0) {
-          const mapped: BeneficiaryRow[] = rawItems.map((it: any) => {
-            const rawBmi = it['34\nBMI'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? it.bmi ?? 0;
-            let bmiCat: BMICategory = 'Normal';
-            const numBmi = Number(rawBmi) || 0;
-            if (numBmi > 0) {
-              if (numBmi < 13.5) bmiCat = 'Severe Underweight';
-              else if (numBmi < 15.0) bmiCat = 'Moderate Underweight';
-              else if (numBmi > 22.0) bmiCat = 'Overweight / Obese';
-            }
-
-            const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '';
-            const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
-            let vlCat: VLCategory = 'Unknown / Pending';
-            if (String(rawVl).toLowerCase().includes('undetect') || String(rawVl).includes('<50') || numVl < 50) {
-              vlCat = 'Undetectable (<50 copies/mL)';
-            } else if (!isNaN(numVl)) {
-              if (numVl < 1000) vlCat = 'Suppressed (<1000 copies/mL)';
-              else vlCat = 'Unsuppressed (≥1000 copies/mL)';
-            }
-
-            const rawHb = it['36\nHemoglobin (g/dL)'] ?? it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '';
-            const numHb = parseFloat(String(rawHb));
-            let hbCat: HbCategory = 'Normal';
-            if (!isNaN(numHb) && numHb > 0) {
-              if (numHb < 7.0) hbCat = 'Severe Anemia';
-              else if (numHb < 10.0) hbCat = 'Moderate Anemia';
-              else if (numHb < 11.0) hbCat = 'Mild Anemia';
-            }
-
-            const id = it['1\nUnique ID'] || it.id || it._uuid || it.client_submission_id || it.clientSubmissionId;
-            const artNumber = it['42\nART ID Number'] || it['1\nUnique ID'] || it.demographics?.artNumber || it.art_number || id || 'MH-BEN-00';
-            const childName = it['9\nChild Name'] || it.demographics?.childName || it.child_name || 'Beneficiary Child';
-            const age = Number(it['11\nAge'] ?? it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 0);
-            const gender = it['12\nGender'] || it.demographics?.gender || it.gender || '—';
-            const district = it['19\nDistrict'] || it.demographics?.district || it.district || 'General';
-            const schoolType = it['53\nSchool Type'] || it.educationStatus?.schoolType || it.education?.schoolType || it.school_type || 'Government school';
-            const orphanStatus = it['13\nOrphan Status'] || it.demographics?.orphanStatus || it.orphan_status || 'Both parents alive';
-            const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? it.educationExpenses?.totalRequiredSupport ?? 0);
-            const lastVisit = (it['7\nVisit Date'] || it['73\nLast Updated'] || it['3\nSubmission Time'] || it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0];
-            const version = Number(it['2\nRevision Number'] ?? it.version ?? 1);
-            const documentStatus = evaluateDocuments(it, schoolType);
-
-            const rawApproved =
-              it['67\nApproved Alliance India'] ||
-              it['67\\nApproved Alliance India'] ||
-              it['Approved Alliance India'] ||
-              it.approvedAllianceIndia ||
-              it.approved_alliance_india ||
-              it.finalReview?.approvedAllianceIndia ||
-              it.raw_payload?.finalReview?.approvedAllianceIndia;
-
-            const isApproved =
-              typeof rawApproved === 'boolean'
-                ? rawApproved
-                : String(rawApproved || '').toLowerCase().includes('approv') ||
-                  String(rawApproved || '').toLowerCase() === 'yes';
-
-            const approvedStatus = isApproved ? 'Approved' : String(rawApproved || 'Pending');
-
-            return {
-              id,
-              artNumber,
-              childName,
-              age,
-              gender,
-              district,
-              schoolType,
-              orphanStatus,
-              bmi: numBmi,
-              bmiCategory: (it['35\nBMI Category'] || it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
-              viralLoad: String(rawVl || '—'),
-              vlCategory: (it['46\nVL Category'] || it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
-              hemoglobin: String(rawHb || '—'),
-              hbCategory: (it['37\nHb Category'] || it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
-              grantAmount,
-              syncState: 'SYNCED',
-              lastVisit,
-              version,
-              documentStatus,
-              isApproved,
-              approvedStatus,
-            };
-          });
-          setData(mapped);
-        } else {
-          setData([]);
-        }
-      }
-    } catch (err) {
-      console.warn('Error fetching linelist:', err);
-      setData([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSubmissions();
-  }, []);
 
   const handleDeleteRecord = async () => {
     if (!deleteConfirmId) return;
@@ -569,17 +310,63 @@ export default function SupervisorAssessmentsPage() {
         {/* Supervisor Tab Navigation with Smooth Animations */}
         <SupervisorTabNav
           rightAction={
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={fetchSubmissions}
-              className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
-              <span>Refresh</span>
-            </Button>
+            <div className="flex items-center space-x-2">
+              {lastRefreshed && (
+                <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
+                  Updated: {lastRefreshed.toLocaleTimeString()}
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={refresh}
+                className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
+                <span>Refresh</span>
+              </Button>
+            </div>
           }
         />
+
+        {/* Error State Banner */}
+        {isError && (
+          <div className="mb-5 bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Failed to Load Beneficiary Records</h4>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  {error?.message || 'Upstream spreadsheet bridge returned an error.'}
+                  {error?.code && (
+                    <span className="ml-2 font-mono text-[11px] bg-rose-200/80 px-1.5 py-0.5 rounded text-rose-800 font-semibold">
+                      [{error.code}]
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={retry}
+                className="text-xs border-rose-300 text-rose-800 hover:bg-rose-100/80"
+              >
+                Retry Connection
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={refresh}
+                className="text-xs bg-rose-700 hover:bg-rose-800 text-white"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Precision Command Ribbon: Search, Smart Filter Suite, Open GIS & CSV Export */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 mb-5 shadow-xs transition-all">
@@ -704,7 +491,10 @@ export default function SupervisorAssessmentsPage() {
               <Button
                 variant="primary"
                 onClick={handleExportCSV}
-                className="flex-1 sm:flex-initial h-10 px-4 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-xs flex items-center justify-center space-x-2 transition-all shrink-0"
+                disabled={isError || filteredData.length === 0}
+                className={`flex-1 sm:flex-initial h-10 px-4 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-xs flex items-center justify-center space-x-2 transition-all shrink-0 ${
+                  isError || filteredData.length === 0 ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
+                }`}
               >
                 <Download className="h-3.5 w-3.5 text-slate-300 shrink-0" />
                 <span>Export CSV</span>
@@ -793,7 +583,30 @@ export default function SupervisorAssessmentsPage() {
                 {isLoading ? (
                   <tr>
                     <td colSpan={11} className="py-12 text-center text-xs text-slate-400">
-                      Loading linelist surveys...
+                      <div className="flex items-center justify-center space-x-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
+                        <span>Loading linelist surveys...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : isError ? (
+                  <tr>
+                    <td colSpan={11} className="py-16 text-center">
+                      <div className="max-w-md mx-auto text-center space-y-3">
+                        <AlertCircle className="h-10 w-10 text-rose-500 mx-auto" />
+                        <h4 className="text-sm font-bold text-slate-800">Linelist Upstream Connection Failed</h4>
+                        <p className="text-xs text-slate-500">
+                          {error?.message || 'Unable to retrieve survey rows from central Google Sheets bridge.'}
+                        </p>
+                        <div className="flex justify-center gap-2 pt-2">
+                          <Button variant="secondary" size="sm" onClick={retry} className="text-xs">
+                            Retry
+                          </Button>
+                          <Button variant="primary" size="sm" onClick={refresh} className="text-xs">
+                            Refresh Data
+                          </Button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 ) : filteredData.length === 0 ? (
@@ -801,7 +614,9 @@ export default function SupervisorAssessmentsPage() {
                     <td colSpan={11} className="py-16 text-center">
                       <div className="max-w-xs mx-auto text-center space-y-2">
                         <AlertCircle className="h-8 w-8 text-slate-300 mx-auto" />
-                        <h4 className="text-sm font-bold text-slate-700">No Survey Records Found</h4>
+                        <h4 className="text-sm font-bold text-slate-700">
+                          {hasActiveFilters ? 'No Matching Records' : 'No Survey Records Found'}
+                        </h4>
                         <p className="text-xs text-slate-400">
                           {hasActiveFilters
                             ? 'No records match the selected filters.'
@@ -988,10 +803,27 @@ export default function SupervisorAssessmentsPage() {
         {/* Mobile View: Cards Over Tables (< 768px) - Dynamic highlights & Approval */}
         <div className="md:hidden space-y-3">
           {isLoading ? (
-            <div className="p-8 text-center text-xs text-slate-400">Loading surveys...</div>
+            <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center space-x-2 bg-white rounded-2xl border border-slate-200">
+              <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
+              <span>Loading surveys...</span>
+            </div>
+          ) : isError ? (
+            <div className="p-6 text-center bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 space-y-3">
+              <AlertCircle className="w-8 h-8 text-rose-600 mx-auto" />
+              <h4 className="text-sm font-bold">Failed to Load Surveys</h4>
+              <p className="text-xs text-rose-700">{error?.message || 'Connection error with central bridge.'}</p>
+              <div className="flex justify-center gap-2 pt-1">
+                <Button variant="secondary" size="sm" onClick={retry} className="text-xs">
+                  Retry
+                </Button>
+                <Button variant="primary" size="sm" onClick={refresh} className="text-xs">
+                  Refresh
+                </Button>
+              </div>
+            </div>
           ) : filteredData.length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200">
-              No survey records found.
+              {hasActiveFilters ? 'No records match the current filters.' : 'No survey records found.'}
             </div>
           ) : (
             filteredData.map((row) => (

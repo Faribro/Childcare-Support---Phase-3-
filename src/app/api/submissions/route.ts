@@ -5,10 +5,11 @@ import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdap
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const requestId = req.headers.get('x-request-id') || `req-list-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
     const { searchParams } = new URL(req.url);
     const cursor = searchParams.get('cursor') || undefined;
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 20;
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 50;
     const status = searchParams.get('status') || undefined;
     const updatedAfter = searchParams.get('updatedAfter') || undefined;
 
@@ -23,29 +24,68 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           status: 'error',
-          code: result.code || 'UPSTREAM_FAILURE',
+          code: result.code || 'UPSTREAM_UNAVAILABLE',
           message: result.message || 'Failed to list submissions',
+          requestId,
+          retryable: result.statusCode !== 401 && result.statusCode !== 403 && result.code !== 'CONFIGURATION_ERROR',
         },
-        { status: result.statusCode || 502 }
+        {
+          status: result.statusCode || 502,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'X-Request-Id': requestId,
+          },
+        }
       );
     }
+
+    const records = result.data?.records || (Array.isArray(result.data) ? result.data : []);
+    const total = result.data?.total ?? result.pagination?.totalCount ?? records.length;
+    const nextCursor = result.data?.nextCursor ?? result.pagination?.nextCursor ?? null;
+    const sourceUpdatedAt = result.data?.sourceUpdatedAt ?? new Date().toISOString();
 
     return NextResponse.json(
       {
         status: 'success',
-        data: result.data || [],
-        pagination: result.pagination || {
-          totalCount: Array.isArray(result.data) ? result.data.length : 0,
-          hasMore: false,
+        data: {
+          records,
+          total,
+          nextCursor,
+          sourceUpdatedAt,
         },
+        items: records,
+        pagination: {
+          totalCount: total,
+          hasMore: Boolean(nextCursor),
+          nextCursor,
+        },
+        requestId,
       },
-      { status: 200 }
+      {
+        status: 200,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'X-Request-Id': requestId,
+        },
+      }
     );
   } catch (err: any) {
     console.error('GET /api/submissions error:', err);
     return NextResponse.json(
-      { status: 'error', code: 'INTERNAL_ERROR', message: 'Failed to list submissions' },
-      { status: 500 }
+      {
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to list submissions',
+        requestId,
+        retryable: true,
+      },
+      {
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'X-Request-Id': requestId,
+        },
+      }
     );
   }
 }

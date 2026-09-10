@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -17,8 +17,12 @@ import {
   Globe,
   Maximize2,
   Lock,
+  AlertCircle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
+import { useSupervisorData } from '@/hooks/useSupervisorData';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
 interface ClinicalAnalyticsRecord {
@@ -36,75 +40,32 @@ interface ClinicalAnalyticsRecord {
 
 export default function AnalyticsDashboardPage() {
   const { isUnlocked, isLoaded } = useEvaluationAccess();
-  const [records, setRecords] = useState<ClinicalAnalyticsRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    records: rawRecords,
+    status,
+    isLoading,
+    isError,
+    isEmpty,
+    error,
+    refresh,
+    retry,
+    lastRefreshed,
+  } = useSupervisorData();
 
-  // Fetch genuine records from central server submissions API
-  const fetchLiveRecords = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const res = await fetch('/api/submissions?limit=100');
-      if (res.ok) {
-        const json = await res.json();
-        const items = Array.isArray(json.data) ? json.data : Array.isArray(json.items) ? json.items : [];
-        const mapped: ClinicalAnalyticsRecord[] = items.map((it: any) => {
-          const rawBmi = Number(it['34\nBMI'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? it.bmi ?? 14.5);
-          let bmiCategory: BMICategory = 'Normal';
-          if (rawBmi < 13.5) bmiCategory = 'Severe Underweight';
-          else if (rawBmi < 15.0) bmiCategory = 'Moderate Underweight';
-          else if (rawBmi > 22.0) bmiCategory = 'Overweight / Obese';
-
-          const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
-          const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
-          let vlCategory: VLCategory = 'Suppressed (<1000 copies/mL)';
-          if (String(rawVl).toLowerCase().includes('undetect') || numVl < 50) {
-            vlCategory = 'Undetectable (<50 copies/mL)';
-          } else if (!isNaN(numVl) && numVl >= 1000) {
-            vlCategory = 'Unsuppressed (≥1000 copies/mL)';
-          }
-
-          const rawHb = Number(it['36\nHemoglobin (g/dL)'] ?? it.clinical?.haemoglobinGdl ?? it.clinical?.hemoglobin ?? 11.5);
-          let hbCategory: HbCategory = 'Normal';
-          if (rawHb < 7.0) hbCategory = 'Severe Anemia';
-          else if (rawHb < 10.0) hbCategory = 'Moderate Anemia';
-          else if (rawHb < 11.0) hbCategory = 'Mild Anemia';
-
-          const id = it['1\nUnique ID'] || it.id || it._uuid || it.client_submission_id || it.demographics?.artNumber || it.clientSubmissionId;
-          const rawState = it['18\nState'] || it.demographics?.state || it.state || '';
-          const state = rawState && String(rawState).trim() ? String(rawState).trim() : 'Maharashtra';
-          const rawDistrict = it['19\nDistrict'] || it.demographics?.district || it.district || '';
-          const district = rawDistrict && String(rawDistrict).trim() ? String(rawDistrict).trim() : 'Pune';
-          const grant = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? 2500);
-          const enrolled = it['49\nEducation Status'] ? !String(it['49\nEducation Status']).toLowerCase().includes('not') : (it.education?.educationStatus?.includes('going') ?? true);
-
-          return {
-            id,
-            state,
-            district,
-            bmi: rawBmi,
-            bmiCategory,
-            vlCategory,
-            hb: rawHb,
-            hbCategory,
-            grant,
-            enrolled,
-          };
-        });
-        setRecords(mapped);
-      } else {
-        setRecords([]);
-      }
-    } catch (err) {
-      console.warn('Could not load live submissions for analytics:', err);
-      setRecords([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchLiveRecords();
-  }, [fetchLiveRecords]);
+  const records: ClinicalAnalyticsRecord[] = useMemo(() => {
+    return rawRecords.map((r) => ({
+      id: r.id,
+      state: r.state || 'Maharashtra',
+      district: r.district || 'General',
+      bmi: r.bmi,
+      bmiCategory: r.bmiCategory,
+      vlCategory: r.vlCategory,
+      hb: parseFloat(String(r.hemoglobin)) || 0,
+      hbCategory: r.hbCategory,
+      grant: r.grantAmount,
+      enrolled: r.schoolEnrolled,
+    }));
+  }, [rawRecords]);
 
   // Active genuine records
   const filteredDataset = records;
@@ -196,7 +157,75 @@ export default function AnalyticsDashboardPage() {
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8 space-y-6">
         {/* Supervisor Tab Navigation with Smooth Animations */}
-        <SupervisorTabNav />
+        <SupervisorTabNav
+          rightAction={
+            <div className="flex items-center space-x-2">
+              {lastRefreshed && (
+                <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
+                  Updated: {lastRefreshed.toLocaleTimeString()}
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={refresh}
+                className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
+                <span>Refresh</span>
+              </Button>
+            </div>
+          }
+        />
+
+        {/* Error State Banner */}
+        {isError && (
+          <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Failed to Load Clinical Analytics</h4>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  {error?.message || 'Upstream spreadsheet bridge returned an error.'}
+                  {error?.code && (
+                    <span className="ml-2 font-mono text-[11px] bg-rose-200/80 px-1.5 py-0.5 rounded text-rose-800 font-semibold">
+                      [{error.code}]
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={retry}
+                className="text-xs border-rose-300 text-rose-800 hover:bg-rose-100/80"
+              >
+                Retry Connection
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={refresh}
+                className="text-xs bg-rose-700 hover:bg-rose-800 text-white"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Empty State Banner */}
+        {isEmpty && !isLoading && (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center space-y-2">
+            <h4 className="text-sm font-bold text-slate-700">No Clinical Data Available</h4>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Sample size N = 0. All clinical visualizations will populate automatically as soon as surveys are submitted from the field.
+            </p>
+          </div>
+        )}
 
         {/* 4 Core Clinical Surveillance KPI Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5">

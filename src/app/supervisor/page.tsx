@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -16,112 +16,27 @@ import {
   Globe,
   Maximize2,
   Lock,
+  AlertCircle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
+import { useSupervisorData } from '@/hooks/useSupervisorData';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
-
-interface SupervisorRecord {
-  id: string;
-  artNumber: string;
-  childName: string;
-  age: number;
-  gender: string;
-  district: string;
-  bmi: number;
-  bmiCategory: BMICategory;
-  viralLoad: string | number;
-  vlCategory: VLCategory;
-  hemoglobin: string | number;
-  hbCategory: HbCategory;
-  grantAmount: number;
-  syncState: 'SYNCED' | 'QUEUED';
-  lastVisit: string;
-  version: number;
-  schoolEnrolled?: boolean;
-}
-
-const DEFAULT_RECORDS: SupervisorRecord[] = [];
 
 export default function SupervisorDashboardPage() {
   const { isUnlocked, isLoaded } = useEvaluationAccess();
-  const [records, setRecords] = useState<SupervisorRecord[]>(DEFAULT_RECORDS);
-  const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    async function loadServerRecords() {
-      try {
-        setIsLoading(true);
-        const res = await fetch('/api/submissions?limit=50');
-        if (res.ok) {
-          const data = await res.json();
-          const items = Array.isArray(data.data) ? data.data : Array.isArray(data.items) ? data.items : [];
-          const mapped: SupervisorRecord[] = items.map((it: any) => {
-            const rawBmi = it['34\nBMI'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? it.bmi ?? 14;
-            let bmiCat: BMICategory = 'Normal';
-            const numBmi = Number(rawBmi) || 14;
-            if (numBmi < 13.5) bmiCat = 'Severe Underweight';
-            else if (numBmi < 15.0) bmiCat = 'Moderate Underweight';
-            else if (numBmi > 22.0) bmiCat = 'Overweight / Obese';
-
-            const rawVl = it['45\nViral Load'] ?? it.clinical?.viralLoad ?? it.clinical?.viralload ?? it.viralload ?? '40';
-            const numVl = parseFloat(String(rawVl).replace(/[^0-9.]/g, ''));
-            let vlCat: VLCategory = 'Suppressed (<1000 copies/mL)';
-            if (String(rawVl).toLowerCase().includes('undetect') || numVl < 50) {
-              vlCat = 'Undetectable (<50 copies/mL)';
-            } else if (!isNaN(numVl) && numVl >= 1000) {
-              vlCat = 'Unsuppressed (≥1000 copies/mL)';
-            }
-
-            const rawHb = it['36\nHemoglobin (g/dL)'] ?? it.clinical?.hemoglobin ?? it.clinical?.haemoglobin ?? it.hemoglobin ?? '11.5';
-            const numHb = parseFloat(String(rawHb));
-            let hbCat: HbCategory = 'Normal';
-            if (!isNaN(numHb)) {
-              if (numHb < 7.0) hbCat = 'Severe Anemia';
-              else if (numHb < 10.0) hbCat = 'Moderate Anemia';
-              else if (numHb < 11.0) hbCat = 'Mild Anemia';
-            }
-
-            const id = it['1\nUnique ID'] || it.id || it._uuid || it.client_submission_id || it.remote_submission_id || it.clientSubmissionId || it.demographics?.artNumber;
-            const artNumber = it['42\nART ID Number'] || it['1\nUnique ID'] || it.art_number || it.demographics?.artNumber || id || 'MH-GEN-00';
-            const childName = it['9\nChild Name'] || it.child_name || it.demographics?.childName || 'Beneficiary Child';
-            const age = Number(it['11\nAge'] ?? it.calculated_age ?? it.demographics?.calculatedAgeYears ?? 5);
-            const gender = it['12\nGender'] || it.gender || it.demographics?.gender || 'Unknown';
-            const district = it['19\nDistrict'] || it.district || it.demographics?.district || 'Pune';
-            const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? 2000);
-            const lastVisit = (it['7\nVisit Date'] || it['73\nLast Updated'] || it['3\nSubmission Time'] || it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0];
-            const version = Number(it['2\nRevision Number'] ?? it.version ?? 1);
-            const schoolEnrolled = it['49\nEducation Status'] ? !String(it['49\nEducation Status']).toLowerCase().includes('not') : (it.education?.educationStatus?.includes('going') ?? true);
-
-            return {
-              id,
-              artNumber,
-              childName,
-              age,
-              gender,
-              district,
-              bmi: numBmi,
-              bmiCategory: (it['35\nBMI Category'] || it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
-              viralLoad: String(rawVl),
-              vlCategory: (it['46\nVL Category'] || it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
-              hemoglobin: String(rawHb),
-              hbCategory: (it['37\nHb Category'] || it.clinical?.hbCategory || it.hb_category || hbCat) as HbCategory,
-              grantAmount,
-              syncState: 'SYNCED',
-              lastVisit,
-              version,
-              schoolEnrolled,
-            };
-          });
-          setRecords(mapped);
-        }
-      } catch (err) {
-        console.warn('Using default supervisor dataset:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadServerRecords();
-  }, []);
+  const {
+    records,
+    status,
+    isLoading,
+    isError,
+    isEmpty,
+    error,
+    refresh,
+    retry,
+    lastRefreshed,
+  } = useSupervisorData();
 
 
 
@@ -183,7 +98,75 @@ export default function SupervisorDashboardPage() {
     <AppShell>
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8">
         {/* Supervisor Tab Navigation with Smooth Animations */}
-        <SupervisorTabNav />
+        <SupervisorTabNav
+          rightAction={
+            <div className="flex items-center space-x-2">
+              {lastRefreshed && (
+                <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
+                  Updated: {lastRefreshed.toLocaleTimeString()}
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={refresh}
+                className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
+                <span>Refresh</span>
+              </Button>
+            </div>
+          }
+        />
+
+        {/* Error State Banner */}
+        {isError && (
+          <div className="mb-6 bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Failed to Load Surveillance Metrics</h4>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  {error?.message || 'Upstream spreadsheet bridge returned an error.'}
+                  {error?.code && (
+                    <span className="ml-2 font-mono text-[11px] bg-rose-200/80 px-1.5 py-0.5 rounded text-rose-800 font-semibold">
+                      [{error.code}]
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={retry}
+                className="text-xs border-rose-300 text-rose-800 hover:bg-rose-100/80"
+              >
+                Retry Connection
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={refresh}
+                className="text-xs bg-rose-700 hover:bg-rose-800 text-white"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Empty State Banner */}
+        {isEmpty && !isLoading && (
+          <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center space-y-1">
+            <h4 className="text-sm font-bold text-slate-700">No Survey Submissions Yet</h4>
+            <p className="text-xs text-slate-500">
+              Surveillance indicators are currently displaying zero because no assessments have been submitted to the central database yet.
+            </p>
+          </div>
+        )}
 
         {/* 4 Refined Executive KPI Cards - AUTHENTIC CLINICAL INDICATORS (NO SAM / NO MAM) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5 mb-8">

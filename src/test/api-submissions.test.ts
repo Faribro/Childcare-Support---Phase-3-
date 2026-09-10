@@ -130,8 +130,9 @@ describe('API Gateway & OCC Integration Test Suite', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe('success');
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBeGreaterThanOrEqual(1);
+    const records = body.data?.records || body.items;
+    expect(Array.isArray(records)).toBe(true);
+    expect(records.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should fetch single record by ID and apply PATCH with optimistic concurrency control', async () => {

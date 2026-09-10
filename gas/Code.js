@@ -578,16 +578,66 @@ function getSheetAndColMap_() {
     throw new Error('Unable to open spreadsheet with ID: ' + TARGET_SPREADSHEET_ID);
   }
 
-  var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheetByName('Sheet1') || ss.getSheets()[0];
-  if (sheet.getName() === 'Sheet1') {
-    try { sheet.setName(PRIMARY_SHEET_NAME); } catch (rErr) {}
+  // 1. Resilient Tab Detection
+  var sheets = ss.getSheets();
+  var sheet = null;
+
+  // Exact match
+  sheet = ss.getSheetByName(PRIMARY_SHEET_NAME);
+
+  // Semantic search across sheet names if primary name not found
+  if (!sheet) {
+    for (var s = 0; s < sheets.length; s++) {
+      var name = sheets[s].getName().toLowerCase();
+      if (
+        name.includes('nutrition') ||
+        name.includes('linelist') ||
+        name.includes('child') ||
+        name.includes('hiv')
+      ) {
+        sheet = sheets[s];
+        break;
+      }
+    }
   }
+
+  // Fallback to Sheet1 or first sheet
+  if (!sheet) {
+    sheet = ss.getSheetByName('Sheet1') || sheets[0];
+  }
+
+  if (!sheet) {
+    throw new Error('No valid sheet found in spreadsheet: ' + TARGET_SPREADSHEET_ID);
+  }
+
+  // 2. Dynamic Header Row Scanning (scan rows 1 to 5 to find row with "Unique ID")
+  var detectedHeaderRowIndex = HEADER_ROW_INDEX;
+  var maxScanRows = Math.min(sheet.getLastRow() || 5, 5);
+  for (var r = 1; r <= maxScanRows; r++) {
+    var checkCols = Math.min(sheet.getLastColumn() || 1, 10);
+    if (checkCols > 0) {
+      var checkRow = sheet.getRange(r, 1, 1, checkCols).getValues()[0];
+      for (var c = 0; c < checkRow.length; c++) {
+        var cellVal = String(checkRow[c]).toLowerCase();
+        if (cellVal.includes('unique id') || cellVal.includes('uniqueid') || cellVal.includes('art id')) {
+          detectedHeaderRowIndex = r;
+          break;
+        }
+      }
+      if (detectedHeaderRowIndex === r) break;
+    }
+  }
+
   ensureHeaders_(sheet);
 
-  var headerRow = sheet.getRange(HEADER_ROW_INDEX, 1, 1, COLUMN_HEADERS.length).getValues()[0];
+  var headerCols = Math.max(sheet.getLastColumn(), COLUMN_HEADERS.length);
+  var headerRow = sheet.getRange(detectedHeaderRowIndex, 1, 1, headerCols).getValues()[0];
   var colMap = {};
+  var colNamesByIndex = [];
+
   for (var i = 0; i < headerRow.length; i++) {
     var full = String(headerRow[i]).trim();
+    colNamesByIndex[i] = full || COLUMN_HEADERS[i] || ('COL_' + (i + 1));
     if (full) {
       colMap[full.toLowerCase()] = i + 1;
       var clean = full.replace(/^\d+\s*\n\s*/, '').trim().toLowerCase();
@@ -597,7 +647,20 @@ function getSheetAndColMap_() {
     }
   }
 
-  return { ss: ss, sheet: sheet, colMap: colMap };
+  // Schema check: verify Unique ID exists
+  var hasUniqueId = Boolean(colMap['1\nunique id'] || colMap['unique id'] || colMap['art id number']);
+  if (!hasUniqueId && sheet.getLastRow() > detectedHeaderRowIndex) {
+    Logger.log('WARNING: Sheet headers do not contain Unique ID. Detected header row: ' + detectedHeaderRowIndex);
+  }
+
+  return {
+    ss: ss,
+    sheet: sheet,
+    colMap: colMap,
+    colNamesByIndex: colNamesByIndex,
+    headerRowIndex: detectedHeaderRowIndex,
+    hasUniqueId: hasUniqueId,
+  };
 }
 
 // ============================================================================
@@ -1066,28 +1129,35 @@ function handleRead_(params) {
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
+  var headerRowIdx = ctx.headerRowIndex || HEADER_ROW_INDEX;
+  var firstDataRow = headerRowIdx + 1;
 
-  if (lastRow < 4) {
+  if (lastRow < firstDataRow) {
     return errorResponse_('Record not found.', 404);
   }
 
-  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+  var uidCol = ctx.colMap['1\nunique id'] || ctx.colMap['unique id'] || ctx.colMap['art id number'] || 1;
+  var revCol = ctx.colMap['2\nrevision number'] || ctx.colMap['revision number'] || 2;
+  var ids = sheet.getRange(firstDataRow, uidCol, lastRow - headerRowIdx, 1).getValues();
+  var numCols = Math.max(sheet.getLastColumn(), COLUMN_HEADERS.length);
+
   for (var r = 0; r < ids.length; r++) {
     if (String(ids[r][0]).trim() === String(id).trim()) {
-      var rowIndex = 4 + r;
-      var values = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getValues()[0];
-      var formulas = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getFormulas()[0];
+      var rowIndex = firstDataRow + r;
+      var values = sheet.getRange(rowIndex, 1, 1, numCols).getValues()[0];
+      var formulas = sheet.getRange(rowIndex, 1, 1, numCols).getFormulas()[0];
       var record = {};
-      for (var c = 0; c < COLUMN_HEADERS.length; c++) {
-        record[COLUMN_HEADERS[c]] = formulas[c] || values[c];
+      for (var c = 0; c < numCols; c++) {
+        var headerName = (ctx.colNamesByIndex && ctx.colNamesByIndex[c]) || COLUMN_HEADERS[c] || ('COL_' + (c + 1));
+        record[headerName] = formulas[c] || values[c];
       }
       return ContentService.createTextOutput(
         JSON.stringify({
           status: 'success',
           data: record,
           rowNumber: rowIndex,
-          uniqueId: values[0],
-          revisionNumber: values[1],
+          uniqueId: values[uidCol - 1] || values[0],
+          revisionNumber: Number(values[revCol - 1] || 1),
         })
       ).setMimeType(ContentService.MimeType.JSON);
     }
@@ -1100,33 +1170,53 @@ function handleList_(params) {
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
+  var headerRowIdx = ctx.headerRowIndex || HEADER_ROW_INDEX;
+  var firstDataRow = headerRowIdx + 1;
 
-  if (lastRow < 4) {
+  if (lastRow < firstDataRow) {
     return ContentService.createTextOutput(
       JSON.stringify({ status: 'success', data: [], total: 0, cursor: null, hasMore: false })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
   var limit = parseInt(params.limit, 10) || 50;
-  var cursor = parseInt(params.cursor, 10) || 4; // Start at Row 4
+  var cursor = parseInt(params.cursor, 10) || firstDataRow;
   var endRow = Math.min(cursor + limit - 1, lastRow);
   var numRows = endRow - cursor + 1;
 
   if (numRows <= 0) {
     return ContentService.createTextOutput(
-      JSON.stringify({ status: 'success', data: [], total: lastRow - 3, cursor: null, hasMore: false })
+      JSON.stringify({ status: 'success', data: [], total: Math.max(0, lastRow - headerRowIdx), cursor: null, hasMore: false })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  var dataBlock = sheet.getRange(cursor, 1, numRows, COLUMN_HEADERS.length).getValues();
-  var formulaBlock = sheet.getRange(cursor, 1, numRows, COLUMN_HEADERS.length).getFormulas();
+  var numCols = Math.max(sheet.getLastColumn(), COLUMN_HEADERS.length);
+  var dataBlock = sheet.getRange(cursor, 1, numRows, numCols).getValues();
+  var formulaBlock = sheet.getRange(cursor, 1, numRows, numCols).getFormulas();
   var records = [];
 
+  var uidCol = ctx.colMap['1\nunique id'] || ctx.colMap['unique id'] || ctx.colMap['art id number'] || 1;
+  var revCol = ctx.colMap['2\nrevision number'] || ctx.colMap['revision number'] || 2;
+
   for (var r = 0; r < dataBlock.length; r++) {
-    var rec = {};
-    for (var c = 0; c < COLUMN_HEADERS.length; c++) {
-      rec[COLUMN_HEADERS[c]] = formulaBlock[r][c] || dataBlock[r][c];
+    var rowValues = dataBlock[r];
+    var isBlank = true;
+    for (var c = 0; c < rowValues.length; c++) {
+      if (rowValues[c] !== '' && rowValues[c] !== null && rowValues[c] !== undefined) {
+        isBlank = false;
+        break;
+      }
     }
+    if (isBlank) continue;
+
+    var rec = {};
+    for (var c = 0; c < numCols; c++) {
+      var headerName = (ctx.colNamesByIndex && ctx.colNamesByIndex[c]) || COLUMN_HEADERS[c] || ('COL_' + (c + 1));
+      rec[headerName] = formulaBlock[r][c] || rowValues[c];
+    }
+
+    rec.uniqueId = String(rowValues[uidCol - 1] || rec['1\nUnique ID'] || '').trim();
+    rec.revisionNumber = Number(rowValues[revCol - 1] || rec['2\nRevision Number'] || 1);
     records.push(rec);
   }
 
@@ -1135,7 +1225,7 @@ function handleList_(params) {
     JSON.stringify({
       status: 'success',
       data: records,
-      total: lastRow - 3,
+      total: Math.max(0, lastRow - headerRowIdx),
       cursor: nextCursor,
       hasMore: nextCursor !== null,
     })

@@ -60,6 +60,25 @@ export interface CanonicalSubmissionResult {
   };
 }
 
+function maskAadhaar(raw?: string): string {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length >= 4) {
+    return `XXXX-XXXX-${digits.slice(-4)}`;
+  }
+  if (String(raw).includes('XXXX')) return String(raw);
+  return 'XXXX-XXXX-XXXX';
+}
+
+function maskBankAccount(raw?: string): string {
+  if (!raw) return '';
+  const str = String(raw).trim();
+  if (str.length >= 4) {
+    return `XXXX-XXXX-${str.slice(-4)}`;
+  }
+  return 'XXXX-XXXX';
+}
+
 function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion: number = 1): any {
   if (!raw) return null;
   const id = raw['1\nUnique ID'] || raw.uniqueId || raw.client_submission_id || raw.remote_submission_id || submissionId;
@@ -90,11 +109,12 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
     caregiverRelationship: raw['15\nCaregiver Relation'] || raw.caregiverRelationship || raw.caregiver_relationship || '',
     caregiverPhone: raw['16\nCaregiver Contact'] ? String(raw['16\nCaregiver Contact']) : (raw.caregiverPhone || raw.caregiver_phone || ''),
     caregiver_phone: raw['16\nCaregiver Contact'] ? String(raw['16\nCaregiver Contact']) : (raw.caregiver_phone || raw.caregiverPhone || ''),
+    masked_aadhaar: maskAadhaar(raw['24\nChild Aadhaar Number'] || raw.masked_aadhaar || raw.demographics?.maskedAadhaar || raw.aadhaarNumber || raw.childAadhaarNumber || ''),
     address: raw['17\nAddress'] || raw.address || raw.fullAddress || '',
     state: raw['18\nState'] || raw.state || '',
     district: raw['19\nDistrict'] || raw.district || '',
     account_holder_name: raw['20\nBank Account Holder Name'] || raw.account_holder_name || raw.accountHolderName || raw.bankingAndKyc?.bankAccountHolderName || '',
-    bank_account_number: raw['21\nBank Account Number'] ? String(raw['21\nBank Account Number']) : (raw.bank_account_number || raw.accountNumber || raw.bankingAndKyc?.bankAccountNumber || ''),
+    bank_account_number: maskBankAccount(raw['21\nBank Account Number'] ? String(raw['21\nBank Account Number']) : (raw.bank_account_number || raw.accountNumber || raw.bankingAndKyc?.bankAccountNumber || '')),
     ifsc_code: raw['22\nBank IFSC Code'] || raw.ifsc_code || raw.ifscCode || raw.bankingAndKyc?.bankIfscCode || '',
     monthly_household_income: Number(raw['30\nMonthly Income'] || raw.monthly_household_income || raw.monthlyIncomeRs || 0),
     primary_caregiver_occupation: raw['31\nIncome Source'] || raw.primary_caregiver_occupation || raw.primaryCaregiverOccupation || raw.mainSourceOfIncome || '',
@@ -136,7 +156,7 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
     bankingAndKyc: {
       ...(raw.bankingAndKyc || raw.bankDetails || {}),
       bankAccountHolderName: raw['20\nBank Account Holder Name'] || raw.account_holder_name || raw.accountHolderName || raw.bankingAndKyc?.bankAccountHolderName || '',
-      bankAccountNumber: raw['21\nBank Account Number'] ? String(raw['21\nBank Account Number']) : (raw.bank_account_number || raw.accountNumber || raw.bankingAndKyc?.bankAccountNumber || ''),
+      bankAccountNumber: maskBankAccount(raw['21\nBank Account Number'] ? String(raw['21\nBank Account Number']) : (raw.bank_account_number || raw.accountNumber || raw.bankingAndKyc?.bankAccountNumber || '')),
       bankIfscCode: raw['22\nBank IFSC Code'] || raw.ifsc_code || raw.ifscCode || raw.bankingAndKyc?.bankIfscCode || '',
       bankLinkedMobileNumber: raw['23\nBank Linked Mobile Number'] ? String(raw['23\nBank Linked Mobile Number']) : (raw.bankLinkedMobileNumber || ''),
       passbookPhotoUrl,
@@ -536,14 +556,23 @@ class CanonicalSubmissionAdapterService {
 
         const rawList = Array.isArray(gasData.data) ? gasData.data : [];
         const normalizedList = rawList.map((item: any, idx: number) =>
-          normalizeSubmissionData(item, item.uniqueId || `ROW-${idx + 1}`, item.revisionNumber || 1)
+          normalizeSubmissionData(
+            item,
+            item['1\nUnique ID'] || item.uniqueId || item['42\nART ID Number'] || item.art_number || `BEN-SYN-${idx + 1}`,
+            item['2\nRevision Number'] || item.revisionNumber || item.version || 1
+          )
         );
 
         const totalCount = gasData.total ?? normalizedList.length;
         return {
           status: 'success',
           statusCode: 200,
-          data: normalizedList,
+          data: {
+            records: normalizedList,
+            total: totalCount,
+            nextCursor: gasData.cursor || null,
+            sourceUpdatedAt: new Date().toISOString(),
+          },
           pagination: {
             nextCursor: gasData.cursor || null,
             hasMore: !!gasData.hasMore,
@@ -561,11 +590,27 @@ class CanonicalSubmissionAdapterService {
       }
     }
 
+    if (MockSheetStore.recordCount() === 0) {
+      MockSheetStore.seedDefaultRecords();
+    }
     const mockResult = MockSheetStore.listRecords(params);
+    const normalizedList = mockResult.records.map((item: any, idx: number) =>
+      normalizeSubmissionData(
+        item,
+        item['1\nUnique ID'] || item.uniqueId || item.remote_submission_id || item.client_submission_id || `BEN-SYN-${idx + 1}`,
+        item['2\nRevision Number'] || item.version || 1
+      )
+    );
+
     return {
       status: 'success',
       statusCode: 200,
-      data: mockResult.records,
+      data: {
+        records: normalizedList,
+        total: mockResult.totalCount,
+        nextCursor: mockResult.nextCursor,
+        sourceUpdatedAt: new Date().toISOString(),
+      },
       pagination: {
         nextCursor: mockResult.nextCursor,
         hasMore: mockResult.hasMore,
