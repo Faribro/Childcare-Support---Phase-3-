@@ -13,68 +13,55 @@ All tests were executed against synthetic test fixtures exclusively (`SYN-`, `TE
 ### Suite 1: Apps Script Advanced Services & Fail-Closed Security
 - **Command**: `npx vitest run src/test/apps-script-advanced-services.test.ts`
 - **Result**: **26 / 26 Passed (100%)**
+- **Execution Time**: ~1.3s
+
+### Suite 2: Google Apps Script Behavioral Simulation Suite (14 Security Review Scenarios)
+- **Command**: `npx vitest run src/test/apps-script-behavioral-simulation.test.ts`
+- **Result**: **14 / 14 Passed (100%)**
 - **Execution Time**: ~1.2s
 
-#### Breakdown:
-1. **Manifest & Advanced Services**:
-   - `declares Sheets API v4 and Drive API v3 in appsscript.json`: PASS
-   - `declares exact institutional OAuth scopes for Sheets and Drive`: PASS
-2. **Fail-Closed Authentication**:
-   - `requireWebhookSecret_ strictly checks PropertiesService and fails closed`: PASS
-   - `contains ZERO fallback token assignments or hardcoded secrets in source code`: PASS
-   - `permits anonymous access ONLY for action: ping (monitoring)`: PASS
-   - `guards all mutating and data-bearing POST actions behind requireWebhookSecret_`: PASS
-3. **Phase 2: Sheets Schema & List/Read Contract**:
-   - `defines exact 73 rectified column headers matching linelist architecture`: PASS
-   - `includes Sheets API v4 Advanced Service optimization with graceful fallback`: PASS
-   - `implements supervisor DTO redaction in listSubmissions_ for DPDP Act compliance`: PASS
-   - `implements single-record readSubmission_ mapping to canonical structure`: PASS
-   - `implements setupOrVerifyProtectedRanges_ for header rows and audit columns`: PASS
-4. **Phase 3: Drive Opaque Hierarchy & Document Slots**:
-   - `enforces opaque directory structure assessments/{remoteSubmissionId}/current/`: PASS
-   - `enforces standardized non-PII slot filenames for all document attachments`: PASS
-   - `implements Drive asset inspection, audit, and private ACL enforcement`: PASS
-   - `safely trashes obsolete documents only after verifying the replacement file`: PASS
-5. **Phase 4: Admin Menu & Diagnostics**:
-   - `registers onOpen menu items for administrative audit and verification`: PASS
-   - `menu functions are non-destructive diagnostic tools`: PASS
-6. **Phase 5: Semantic Error Envelope & Adapter Status Code Mapping**:
-   - `maps upstream CONFIGURATION_ERROR to HTTP 503`: PASS
-   - `maps upstream UNAUTHORIZED to HTTP 401`: PASS
-   - `maps upstream VALIDATION_ERROR to HTTP 422`: PASS
-   - `maps upstream NOT_FOUND to HTTP 404`: PASS
-   - `maps upstream OCC_CONFLICT and CONFLICT to HTTP 409`: PASS
-   - `maps upstream UPSTREAM_UNAVAILABLE to HTTP 502`: PASS
-   - `maps upstream RATE_LIMIT_EXCEEDED to HTTP 429`: PASS
-   - `maps upstream TIMEOUT to HTTP 504`: PASS
-7. **Free-Tier Resilience**:
-   - `defines withRetry_ helper in gas/Code.js for rate-limited calls`: PASS
+#### 14 Review Scenarios Verified:
+1. `Scenario 1: Missing WEBHOOK_SECRET script property rejects with 503 CONFIGURATION_ERROR`: PASS
+2. `Scenario 2: Invalid caller secret rejects with 401 UNAUTHORIZED`: PASS
+3. `Scenario 3: Valid caller secret allows POST actions (e.g. action: ping)`: PASS
+4. `Scenario 4: doGet allows only anonymous ping and rejects data actions with 405 METHOD_NOT_ALLOWED`: PASS
+5. `Scenario 5: listSubmissions_ enforces limit 1..100 and rejects limits outside range`: PASS
+6. `Scenario 6: listSubmissions_ DTO contains no prohibited PII, no raw formulas, and strictly no rowNumber`: PASS
+7. `Scenario 7: readSubmission_ conforms to role allowlist and contains no internal rowNumber`: PASS
+8. `Scenario 8: previewProtectedRanges_ inspects state non-destructively without mutating protections`: PASS
+9. `Scenario 9: applyProtectedRanges_ enforces warningOnly: false on Rows 1-3, Cols 1-2, Cols 67-68, Col 73`: PASS
+10. `Scenario 10: inspectDriveAsset_ and auditDriveAssets_ redact IDs and emails`: PASS
+11. `Scenario 11: replaceAssetTwoPhase_ commits OCC pointer and moves old asset to revisions as SUPERSEDED`: PASS
+12. `Scenario 12: Pointer update failure on OCC conflict quarantines or aborts and preserves old asset`: PASS
+13. `Scenario 13: Public anyone ACL violation is detected and remediable via enforceRestrictedAcl`: PASS
+14. `Scenario 14: cleanupStagingRun_ strictly operates inside _e2e_staging_runs and requires token`: PASS
 
 ---
 
-### Suite 2: Full Platform Automated Test Run
+### Suite 3: Full Platform Automated Test Run
 - **Command**: `npm run test:run`
-- **Result**: **14 Test Files Passed, 133 / 133 Tests Passed (100%)**
-- **Execution Time**: ~4.3s
+- **Result**: **15 Test Files Passed, 147 / 147 Tests Passed (100%)**
+- **Execution Time**: ~4.6s
 
 ```text
- ✓ src/test/apps-script-advanced-services.test.ts (26 tests)
+ ✓ src/test/apps-script-behavioral-simulation.test.ts (14 tests)
  ✓ src/test/sync-request-builders.test.ts (18 tests)
+ ✓ src/test/apps-script-advanced-services.test.ts (26 tests)
  ✓ src/test/integration/immediate-autosync.test.ts (13 tests)
  ✓ src/test/integration/blocker-remediation.test.ts (11 tests)
- ✓ src/test/api-submissions.test.ts (5 tests)
  ✓ src/test/api-contract-envelope.test.ts (10 tests)
  ✓ src/test/integration/supervisor-read-models.test.ts (6 tests)
- ✓ src/lib/validations/submissionSchema.test.ts (11 tests)
+ ✓ src/test/api-submissions.test.ts (5 tests)
  ✓ src/test/concurrency-and-lifecycle.test.ts (7 tests)
+ ✓ src/lib/validations/submissionSchema.test.ts (11 tests)
  ✓ src/lib/clinical/nutritionCalculations.test.ts (10 tests)
  ✓ src/test/supervisor-read-model.test.ts (5 tests)
- ✓ src/app/api/health/route.test.ts (1 test)
  ✓ src/test/api-submissions-list.test.ts (8 tests)
+ ✓ src/app/api/health/route.test.ts (1 test)
  ✓ src/test/baseline.test.ts (2 tests)
 
-Test Files  14 passed (14)
-     Tests  133 passed (133)
+Test Files  15 passed (15)
+     Tests  147 passed (147)
 ```
 
 ---

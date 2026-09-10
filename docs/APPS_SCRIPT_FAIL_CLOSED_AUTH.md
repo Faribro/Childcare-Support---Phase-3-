@@ -13,39 +13,48 @@ Under this security revision, the architecture operates under a **Zero-Trust, Fa
 - **Server Script Properties Sole Authority**: Apps Script reads the secret solely from `PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET')`.
 - **Fail-Closed on Misconfiguration**: If `WEBHOOK_SECRET` is not configured in Apps Script Properties, Apps Script immediately rejects requests with `503 CONFIGURATION_ERROR`.
 - **Fail-Closed on Bad Credentials**: If the caller's provided secret is missing, empty, or mismatched, Apps Script rejects the request with `401 UNAUTHORIZED`.
-- **Restricted Anonymous Surface**: Anonymous requests are allowed exclusively on `doGet` where `action === 'ping'` (returning operational uptime only, with zero schema, sheet, or PII data).
+- **Zero GET Query Secrets**: Query string parameters in Google Apps Script `doGet` are logged across intermediate proxies and browser histories. Passing secrets in query strings is strictly eliminated.
+- **Strict doGet Liveness Restriction**: `doGet` permits ONLY anonymous `action=ping`, returning minimal liveness `{ status: 'ok', timestamp }` with zero sheet, schema, or PII data. Any data-bearing actions (`list`, `read`, `schema`, `history`, audits, asset inspection, protected range checks) sent to `doGet` are rejected with HTTP 405 `METHOD_NOT_ALLOWED`.
+- **POST-Only Data Gateway**: All data-bearing and mutating operations must be POST JSON routed through the Render Next.js server with the secret in the JSON request body.
 
 ---
 
 ## 2. Authentication Flow Diagram
 
 ```text
-+------------------------+
-| Next.js Server Gateway |
-| process.env            |
-| .WEBHOOK_SECRET        |
-+-----------+------------+
-            |
-            | POST payload { action, secret: WEBHOOK_SECRET, ... }
-            | Header: X-Webhook-Secret: WEBHOOK_SECRET
-            v
-+-------------------------------------------------------+
-| Google Apps Script Web App (doPost / doGet)           |
-|                                                       |
-| 1. Read Script Properties:                            |
-|    PropertiesService.getScriptProperties()            |
-|      .getProperty('WEBHOOK_SECRET')                   |
-|                                                       |
-|    IF NOT CONFIGURED:                                 |
-|      -> Return 503 CONFIGURATION_ERROR                |
-|                                                       |
-| 2. Compare caller secret vs configured secret:        |
-|    IF MISMATCH / MISSING:                             |
-|      -> Return 401 UNAUTHORIZED                       |
-|                                                       |
-| 3. IF VALID:                                          |
-|      -> Grant dispatch to protected action            |
-+-------------------------------------------------------+
+Browser PWA
+   |
+   | (Authenticated user session via Render)
+   v
++-----------------------------------+
+| Next.js Server Gateway            |
+| process.env.APPS_SCRIPT_...SECRET |
++-----------------+-----------------+
+                  |
+                  | POST JSON { action, secret: WEBHOOK_SECRET, ... }
+                  | Header: X-Webhook-Secret: WEBHOOK_SECRET
+                  v
++-------------------------------------------------------------+
+| Google Apps Script Web App (doPost)                         |
+|                                                             |
+| 1. Read Script Properties:                                  |
+|    PropertiesService.getScriptProperties()                  |
+|      .getProperty('WEBHOOK_SECRET')                         |
+|                                                             |
+|    IF NOT CONFIGURED:                                       |
+|      -> Return 503 CONFIGURATION_ERROR                      |
+|                                                             |
+| 2. Compare caller secret vs configured secret:              |
+|    IF MISMATCH / MISSING:                                   |
+|      -> Return 401 UNAUTHORIZED                             |
+|                                                             |
+| 3. IF VALID:                                                |
+|      -> Grant dispatch to protected action                  |
++-------------------------------------------------------------+
+
+Note: HTTP GET is restricted exclusively to:
+  doGet?action=ping -> Returns minimal { status: 'ok', timestamp }
+  All other actions -> HTTP 405 METHOD_NOT_ALLOWED
 ```
 
 ---

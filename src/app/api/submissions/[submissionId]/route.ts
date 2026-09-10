@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
-import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import { canonicalSubmissionAdapter, UserRole } from '@/lib/server/canonicalSubmissionAdapter';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,12 @@ export async function GET(
       );
     }
 
-    const result = await canonicalSubmissionAdapter.getSubmission(submissionId);
+    const rawRole = req.headers.get('x-user-role') || 'caseworker';
+    const role: UserRole = (rawRole === 'supervisor' || rawRole === 'auditor' || rawRole === 'caseworker')
+      ? rawRole
+      : 'caseworker';
+
+    const result = await canonicalSubmissionAdapter.getSubmission(submissionId, role);
 
     if (result.status === 'error') {
       return NextResponse.json(

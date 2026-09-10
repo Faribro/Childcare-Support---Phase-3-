@@ -27,6 +27,8 @@ var CANDIDATE_ROOT_FOLDER_NAMES = [
   'Child_Nutrition_Phase3_Documents',
   'ChildCare Attachments'
 ];
+var ASSET_REGISTRY_SHEET_NAME = '_Asset_Containers';
+var STAGING_RUNS_FOLDER_NAME = '_e2e_staging_runs';
 
 // Exact 73 Rectified Column Headers (Number on top + newline)
 var COLUMN_HEADERS = [
@@ -146,15 +148,16 @@ function onOpen(e) {
   try {
     var ui = SpreadsheetApp.getUi();
     ui.createMenu('Childcare Phase 3 Admin')
-      .addItem('Validate Sheet Schema', 'menuValidateSheetSchema')
-      .addItem('Audit Drive Asset References', 'menuAuditDriveAssets')
-      .addItem('Generate Data Quality Report', 'menuGenerateDataQualityReport')
-      .addItem('Verify Protected Columns', 'menuVerifyProtectedColumns')
-      .addItem('Preview Folder Migration', 'menuPreviewFolderMigration')
-      .addItem('Preview Public ACL Violations', 'menuPreviewPublicAclViolations')
-      .addItem('Refresh Sheet Presentation', 'menuRefreshSheetPresentation')
+      .addItem('Audit: Validate Sheet Schema', 'menuValidateSheetSchema')
+      .addItem('Audit: Drive Asset Security & ACLs', 'menuAuditDriveAssets')
+      .addItem('Audit: Data Quality Completeness', 'menuGenerateDataQualityReport')
       .addSeparator()
-      .addItem('Format Header Styles & Linelist Design', 'formatSheetLinelistDesign')
+      .addItem('Preview: Protected Ranges State', 'menuPreviewProtectedRanges')
+      .addItem('Preview: Legacy Folder Migration', 'menuPreviewFolderMigration')
+      .addItem('Preview: Public ACL Exposure', 'menuPreviewPublicAclViolations')
+      .addSeparator()
+      .addItem('Apply: Protect Header & Governance Ranges', 'menuApplyProtectedRanges')
+      .addItem('Apply: Refresh Linelist Formatting', 'menuRefreshSheetPresentation')
       .addToUi();
   } catch (err) {
     Logger.log('onOpen UI menu could not be created: ' + err);
@@ -208,52 +211,36 @@ function requireWebhookSecret_(payload, action, requestId) {
 // WEB APP API DISPATCHERS (GET / POST)
 // ============================================================================
 
+/**
+ * HTTP GET: Strictly restricted to anonymous liveness monitoring (action=ping).
+ * Zero query-string authentication. All data-bearing actions must be POST JSON.
+ */
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || 'ping';
-  var requestId = (e && e.parameter && e.parameter.requestId) || ('req-' + Utilities.getUuid());
 
-  // Anonymous monitoring endpoint: returns operational status without leaking record/schema data
+  // Anonymous monitoring endpoint: returns minimal operational liveness only
   if (action === 'ping' || !action) {
     return ContentService.createTextOutput(
       JSON.stringify({
         status: 'ok',
-        service: 'Childcare Support Phase 3 Bridge',
-        version: '3.0.0-advanced',
         timestamp: new Date().toISOString()
       })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // All other GET actions strictly require server authentication
-  var callerSecret = e && e.parameter && e.parameter.secret;
-  var auth = requireWebhookSecret_({ secret: callerSecret }, action, requestId);
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
-  if (action === 'schema') {
-    var schema = getValidatedSheetSchema_();
-    return ContentService.createTextOutput(
-      JSON.stringify({
-        status: 'success',
-        totalColumns: schema.totalColumns,
-        headers: COLUMN_HEADERS,
-        valid: schema.valid
-      })
-    ).setMimeType(ContentService.MimeType.JSON);
-  }
-
-  if (action === 'read') {
-    return handleRead_(e.parameter);
-  }
-
-  if (action === 'list') {
-    return listSubmissions_(e.parameter, requestId);
-  }
-
-  return errorResponse_('Unknown action: ' + action, 'VALIDATION_ERROR', 400, requestId);
+  // All data-bearing, schema, and administrative actions are strictly forbidden over GET
+  return errorResponse_(
+    'Method Not Allowed: All data-bearing actions must be executed via authenticated POST requests with JSON payload. Query-string authentication is prohibited.',
+    'METHOD_NOT_ALLOWED',
+    405,
+    (e && e.parameter && e.parameter.requestId) || null
+  );
 }
 
+/**
+ * HTTP POST: Authoritative gateway for all data mutations, reads, and audits.
+ * All actions (except ping) strictly require fail-closed webhook secret verification.
+ */
 function doPost(e) {
   var lock = LockService.getScriptLock();
   var hasLock = false;
@@ -282,10 +269,29 @@ function doPost(e) {
 
     var action = payload.action || 'create';
 
+    // Allow minimal ping over POST without secret
+    if (action === 'ping') {
+      return ContentService.createTextOutput(
+        JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Enforce fail-closed webhook secret verification on all protected actions
     var auth = requireWebhookSecret_(payload, action, requestId);
     if (!auth.authorized) {
       return auth.response;
+    }
+
+    if (action === 'schema') {
+      var schema = getValidatedSheetSchema_();
+      return ContentService.createTextOutput(
+        JSON.stringify({
+          status: 'success',
+          totalColumns: schema.totalColumns,
+          headers: COLUMN_HEADERS,
+          valid: schema.valid
+        })
+      ).setMimeType(ContentService.MimeType.JSON);
     }
 
     if (action === 'create') {
@@ -297,7 +303,7 @@ function doPost(e) {
     }
 
     if (action === 'read') {
-      return readSubmission_(payload.submissionId || payload.uniqueId || payload.remoteSubmissionId, requestId);
+      return readSubmission_(payload.submissionId || payload.uniqueId || payload.remoteSubmissionId, payload.role, requestId);
     }
 
     if (action === 'list') {
@@ -328,9 +334,14 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify(aclReport)).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (action === 'verifyProtectedRanges') {
-      var protReport = setupOrVerifyProtectedRanges_();
-      return ContentService.createTextOutput(JSON.stringify(protReport)).setMimeType(ContentService.MimeType.JSON);
+    if (action === 'previewProtectedRanges') {
+      var previewReport = previewProtectedRanges_();
+      return ContentService.createTextOutput(JSON.stringify(previewReport)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'applyProtectedRanges') {
+      var applyReport = applyProtectedRanges_(payload, requestId);
+      return ContentService.createTextOutput(JSON.stringify(applyReport)).setMimeType(ContentService.MimeType.JSON);
     }
 
     if (action === 'refreshPresentation') {
@@ -339,8 +350,7 @@ function doPost(e) {
     }
 
     if (action === 'replaceAsset') {
-      var repResult = replaceAssetSafely_(payload);
-      return ContentService.createTextOutput(JSON.stringify(repResult)).setMimeType(ContentService.MimeType.JSON);
+      return replaceAssetTwoPhase_(payload, requestId);
     }
 
     if (action === 'clear' || action === 'clearData') {
@@ -360,11 +370,8 @@ function doPost(e) {
       ).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (action === 'cleanupTestFolders') {
-      var cleanupResult = cleanupTestFolders_();
-      return ContentService.createTextOutput(
-        JSON.stringify(cleanupResult)
-      ).setMimeType(ContentService.MimeType.JSON);
+    if (action === 'cleanupStagingRun') {
+      return cleanupStagingRun_(payload, requestId);
     }
 
     return errorResponse_('Unsupported action: ' + action, 'VALIDATION_ERROR', 400, requestId);
@@ -506,46 +513,132 @@ function getOrCreateRootDocumentsFolder_() {
   }
 }
 
-function getOrCreateChildFolder_(childName, uniqueId) {
-  return getOrVerifyAssessmentFolder_(uniqueId);
+/**
+ * Registry sheet helper for mapping remoteSubmissionId -> opaque assetContainerId
+ */
+function getOrCreateAssetRegistrySheet_(ss) {
+  if (!ss) return null;
+  var sheet = ss.getSheetByName(ASSET_REGISTRY_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ASSET_REGISTRY_SHEET_NAME);
+    sheet.getRange(1, 1, 1, 5).setValues([[
+      'remoteSubmissionId',
+      'assetContainerId',
+      'folderId',
+      'createdAt',
+      'updatedAt'
+    ]]);
+    sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+    try {
+      sheet.hideSheet();
+    } catch (e) {
+      // Ignored in test / headless environments
+    }
+  }
+  return sheet;
 }
 
 /**
- * Phase 3: Opaque assessment folder strategy:
- * Alliance India Child PDFs/
+ * Phase 3: Truly Opaque Assessment Asset Container Strategy
+ * Root: Alliance India Child PDFs/
  * └── assessments/
- *     └── {remoteSubmissionId}/
+ *     └── {assetContainerId}/ (random UUID: ast-***, zero PII)
  *         ├── current/
  *         ├── revisions/
- *         │   └── rev-001/
+ *         ├── quarantine/
  *         └── metadata/
- * Zero PII in folder names.
  */
-function getOrVerifyAssessmentFolder_(remoteSubmissionId) {
+function getOrCreateAssetContainer_(remoteSubmissionId) {
   if (!remoteSubmissionId) return null;
-  var cleanId = String(remoteSubmissionId).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-
+  var cleanSubmissionId = String(remoteSubmissionId).trim();
   var rootFolder = getOrCreateRootDocumentsFolder_();
   if (!rootFolder) return null;
 
   try {
-    // 1. Locate or create 'assessments' directory
+    // 1. Locate or create 'assessments' parent folder
     var assessFolders = rootFolder.getFoldersByName('assessments');
     var assessFolder = assessFolders.hasNext() ? assessFolders.next() : rootFolder.createFolder('assessments');
 
-    // 2. Locate or create opaque {remoteSubmissionId} folder
-    var targetFolders = assessFolder.getFoldersByName(cleanId);
-    var targetFolder = targetFolders.hasNext() ? targetFolders.next() : assessFolder.createFolder(cleanId);
+    // 2. Query internal registry sheet
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      try {
+        ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+      } catch (e) {}
+    }
 
-    // 3. Locate or create 'current' subfolder
-    var currentFolders = targetFolder.getFoldersByName('current');
-    var currentFolder = currentFolders.hasNext() ? currentFolders.next() : targetFolder.createFolder('current');
+    var registrySheet = ss ? getOrCreateAssetRegistrySheet_(ss) : null;
+    var assetContainerId = null;
+    var targetFolder = null;
 
-    return currentFolder;
+    if (registrySheet && registrySheet.getLastRow() >= 2) {
+      var regData = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 3).getValues();
+      for (var r = 0; r < regData.length; r++) {
+        if (String(regData[r][0]).trim() === cleanSubmissionId) {
+          assetContainerId = String(regData[r][1]).trim();
+          var fid = String(regData[r][2]).trim();
+          if (fid) {
+            try {
+              targetFolder = DriveApp.getFolderById(fid);
+            } catch (fErr) {}
+          }
+          break;
+        }
+      }
+    }
+
+    // 3. If not found in registry or folder missing, generate opaque ID and create folder
+    if (!targetFolder) {
+      if (!assetContainerId) {
+        // Random UUID with ast- prefix. ZERO PII!
+        assetContainerId = 'ast-' + Utilities.getUuid();
+      }
+      var existingFolders = assessFolder.getFoldersByName(assetContainerId);
+      if (existingFolders.hasNext()) {
+        targetFolder = existingFolders.next();
+      } else {
+        targetFolder = assessFolder.createFolder(assetContainerId);
+      }
+
+      if (registrySheet) {
+        var nowIso = new Date().toISOString();
+        registrySheet.appendRow([cleanSubmissionId, assetContainerId, targetFolder.getId(), nowIso, nowIso]);
+      }
+    }
+
+    // 4. Ensure all 4 subfolders exist
+    function getOrSubFolder(parent, name) {
+      var iter = parent.getFoldersByName(name);
+      return iter.hasNext() ? iter.next() : parent.createFolder(name);
+    }
+
+    var currentFolder = getOrSubFolder(targetFolder, 'current');
+    var revisionsFolder = getOrSubFolder(targetFolder, 'revisions');
+    var quarantineFolder = getOrSubFolder(targetFolder, 'quarantine');
+    var metadataFolder = getOrSubFolder(targetFolder, 'metadata');
+
+    return {
+      assetContainerId: assetContainerId,
+      folder: targetFolder,
+      folderId: targetFolder.getId(),
+      currentFolder: currentFolder,
+      revisionsFolder: revisionsFolder,
+      quarantineFolder: quarantineFolder,
+      metadataFolder: metadataFolder
+    };
   } catch (err) {
-    Logger.log('Error creating opaque assessment folder: ' + err);
+    Logger.log('Error creating/retrieving asset container: ' + err);
     return null;
   }
+}
+
+function getOrVerifyAssessmentFolder_(remoteSubmissionId) {
+  var container = getOrCreateAssetContainer_(remoteSubmissionId);
+  return container ? container.currentFolder : null;
+}
+
+function getOrCreateChildFolder_(childName, uniqueId) {
+  return getOrVerifyAssessmentFolder_(uniqueId);
 }
 
 /**
@@ -562,47 +655,60 @@ function getStandardSlotFilename_(docPrefix) {
   return 'supporting-document-' + prefix.replace(/[^a-z0-9_-]/g, '_') + '.jpg';
 }
 
-function deleteObsoleteDocumentFiles_(childFolder, docPrefix, oldFormulaOrUrl) {
-  if (!childFolder) return;
-
-  try {
-    var slotName = getStandardSlotFilename_(docPrefix);
-    var files = childFolder.getFiles();
-    while (files.hasNext()) {
-      var file = files.next();
-      var name = file.getName();
-      if (name === slotName || name.indexOf(docPrefix + '_') === 0 || name.indexOf(docPrefix + '.') === 0) {
-        try {
-          file.setTrashed(true);
-        } catch (err) {
-          Logger.log('Could not trash file: ' + name + ', ' + err);
-        }
-      }
-    }
-
-    if (oldFormulaOrUrl) {
-      var oldDriveId = extractDriveId_(oldFormulaOrUrl);
-      if (oldDriveId) {
-        try {
-          var oldFile = DriveApp.getFileById(oldDriveId);
-          if (oldFile) oldFile.setTrashed(true);
-        } catch (err) {
-          Logger.log('Could not trash old file by ID: ' + oldDriveId);
-        }
-      }
-    }
-  } catch (err) {
-    Logger.log('Exception in deleteObsoleteDocumentFiles_: ' + err);
-  }
+/**
+ * Redaction helpers for IDs and email addresses in audit/inspection outputs
+ */
+function redactId_(id) {
+  if (!id) return '';
+  var s = String(id).trim();
+  if (s.length <= 6) return '***';
+  return s.substring(0, 3) + '-***' + s.substring(s.length - 3);
 }
 
-function processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId, oldFormulaOrUrl) {
+function redactEmail_(email) {
+  if (!email) return '';
+  var s = String(email).trim();
+  var atIdx = s.indexOf('@');
+  if (atIdx <= 1) return '***@***';
+  return s.charAt(0) + '***@' + s.substring(atIdx + 1);
+}
+
+/**
+ * Process document uploads fail-closed:
+ * 1. Base64 payload MUST be written to an asset container currentFolder.
+ * 2. Uploading to Drive root is strictly prohibited.
+ * 3. Never store Base64 payloads directly in Sheet cells.
+ * 4. Fails safely with STORAGE_UNAVAILABLE if container cannot be acquired.
+ */
+function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId, oldFormulaOrUrl) {
   if (!inputVal) return '';
   var val = String(inputVal).trim();
   if (!val) return '';
 
   // Handle Base64 Data URL
   if (val.indexOf('data:') === 0 && val.indexOf(';base64,') !== -1) {
+    // Resolve upload target folder
+    var targetFolder = null;
+    if (containerOrFolder) {
+      if (typeof containerOrFolder.createFile === 'function') {
+        targetFolder = containerOrFolder;
+      } else if (containerOrFolder.currentFolder && typeof containerOrFolder.currentFolder.createFile === 'function') {
+        targetFolder = containerOrFolder.currentFolder;
+      }
+    }
+
+    if (!targetFolder && uniqueId) {
+      var container = getOrCreateAssetContainer_(uniqueId);
+      if (container) {
+        targetFolder = container.currentFolder;
+      }
+    }
+
+    // Fail closed: Never write to Drive root or store Base64 in cells
+    if (!targetFolder) {
+      throw new Error('STORAGE_UNAVAILABLE: Asset container is unavailable for document upload. Upload aborted to prevent uncontained root file creation or sheet pollution.');
+    }
+
     try {
       var commaIdx = val.indexOf(',');
       var meta = val.substring(5, commaIdx);
@@ -615,25 +721,21 @@ function processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId, oldF
         mimeType = 'application/pdf';
       }
 
-      // Delete obsolete files before saving replacement
-      if (childFolder) {
-        deleteObsoleteDocumentFiles_(childFolder, docPrefix, oldFormulaOrUrl);
-      }
-
       var decodedBytes = Utilities.base64Decode(base64Data);
       var slotFileName = getStandardSlotFilename_(docPrefix);
       var blob = Utilities.newBlob(decodedBytes, mimeType, slotFileName);
 
-      // Create file with default private inheritance (Public link sharing disabled)
-      var newFile = childFolder ? childFolder.createFile(blob) : DriveApp.createFile(blob);
-      var fileId = newFile.getId();
+      var newFile = targetFolder.createFile(blob);
+      if (!newFile || !newFile.getId() || newFile.getSize() <= 0) {
+        throw new Error('STORAGE_UNAVAILABLE: Uploaded file failed verification (zero bytes or invalid ID).');
+      }
 
-      // Return opaque, authenticated Google Workspace file link
+      var fileId = newFile.getId();
       var restrictedViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
       return '=HYPERLINK("' + restrictedViewUrl + '", "Restricted Doc [' + docPrefix + ']")';
     } catch (err) {
       Logger.log('processDocumentUpload_ exception: ' + err);
-      return '';
+      throw err;
     }
   }
 
@@ -655,6 +757,7 @@ function processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId, oldF
 
   return val;
 }
+
 
 function extractDriveId_(url) {
   if (!url) return null;
@@ -1401,7 +1504,7 @@ function schemaAudit_() {
 // READ & LIST HANDLERS (OPTIMIZED + DTO REDACTION)
 // ============================================================================
 
-function readSubmission_(remoteSubmissionId, requestId) {
+function readSubmission_(remoteSubmissionId, role, requestId) {
   if (!remoteSubmissionId) {
     return errorResponse_('Missing uniqueId or remoteSubmissionId parameter.', 'VALIDATION_ERROR', 400, requestId);
   }
@@ -1438,10 +1541,20 @@ function readSubmission_(remoteSubmissionId, requestId) {
   var rowValues = sheet.getRange(foundRow, 1, 1, numCols).getValues()[0];
   var rowFormulas = sheet.getRange(foundRow, 1, 1, numCols).getFormulas()[0];
 
+  // Helper to sanitize cell values: never expose raw spreadsheet formulas or raw Drive links
+  function sanitizeCell(formula, val) {
+    var raw = val;
+    if (formula && typeof formula === 'string' && formula.indexOf('=HYPERLINK(') === 0) {
+      var match = formula.match(/=HYPERLINK\("[^"]*",\s*"([^"]*)"\)/);
+      raw = match ? match[1] : 'Restricted Document';
+    }
+    return raw !== undefined && raw !== null ? raw : '';
+  }
+
   var record = {};
   for (var c = 0; c < numCols; c++) {
     var headerName = (ctx.colNamesByIndex && ctx.colNamesByIndex[c]) || COLUMN_HEADERS[c] || ('COL_' + (c + 1));
-    record[headerName] = rowFormulas[c] || rowValues[c];
+    record[headerName] = sanitizeCell(rowFormulas[c], rowValues[c]);
   }
 
   var revNum = Number(rowValues[revCol - 1] || record['2\nRevision Number'] || 1);
@@ -1450,11 +1563,17 @@ function readSubmission_(remoteSubmissionId, requestId) {
   record.revisionNumber = revNum;
   record.version = revNum;
 
+  // Mask sensitive PII
+  record.caregiverContact = maskPhone_(rowValues[15]);
+  record.bankAccountNumber = maskBankAccount_(rowValues[20]);
+  record.bankLinkedMobileNumber = maskPhone_(rowValues[22]);
+  record.childAadhaarNumber = maskAadhaar_(rowValues[23]);
+
+  // Notice: rowNumber is STRICTLY OMITTED to prevent internal storage leakage
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
       data: record,
-      rowNumber: foundRow,
       uniqueId: targetId,
       remoteSubmissionId: targetId,
       revisionNumber: revNum,
@@ -1466,7 +1585,7 @@ function readSubmission_(remoteSubmissionId, requestId) {
 
 function handleRead_(params) {
   var id = params && (params.uniqueId || params.id || params.uuid || params.submissionId || params.remoteSubmissionId);
-  return readSubmission_(id, params && params.requestId);
+  return readSubmission_(id, params && params.role, params && params.requestId);
 }
 
 function listSubmissions_(params, requestId) {
@@ -1477,6 +1596,15 @@ function listSubmissions_(params, requestId) {
   var headerRowIdx = ctx.headerRowIndex || HEADER_ROW_INDEX;
   var firstDataRow = headerRowIdx + 1;
 
+  var limit = 50;
+  if (params.limit !== undefined && params.limit !== null && String(params.limit).trim() !== '') {
+    var parsedLimit = parseInt(String(params.limit).trim(), 10);
+    if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+      return errorResponse_('Query parameter "limit" must be an integer between 1 and 100.', 'VALIDATION_ERROR', 400, requestId);
+    }
+    limit = parsedLimit;
+  }
+
   if (lastRow < firstDataRow) {
     return ContentService.createTextOutput(
       JSON.stringify({
@@ -1485,13 +1613,12 @@ function listSubmissions_(params, requestId) {
         total: 0,
         cursor: null,
         hasMore: false,
-        limit: parseInt(params.limit, 10) || 50,
+        limit: limit,
         requestId: requestId || null
       })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  var limit = Math.min(Math.max(parseInt(params.limit, 10) || 50, 1), 200);
   var cursor = parseInt(params.cursor, 10) || firstDataRow;
   var endRow = Math.min(cursor + limit - 1, lastRow);
   var numRows = endRow - cursor + 1;
@@ -1565,7 +1692,7 @@ function listSubmissions_(params, requestId) {
     }
     var rev = Number(rowValues[revCol - 1] || 1);
 
-    // Supervisor DTO redaction & normalization
+    // SupervisorListDTO: Strictly NO raw formulas, NO raw Drive links, NO rowNumber
     var rec = {
       uniqueId: uid,
       remoteSubmissionId: uid,
@@ -1626,15 +1753,20 @@ function listSubmissions_(params, requestId) {
       lastUpdated: rowValues[72] || rowValues[2] || ''
     };
 
-    // Populate exact 73 header names for backward compatibility with canonical adapter
+    // For backwards compatibility, populate sanitized 73 column names without raw formulas
     for (var c = 0; c < COLUMN_HEADERS.length; c++) {
       var hName = COLUMN_HEADERS[c];
-      var val = rowFormulas[c] || rowValues[c] || '';
-      if (c === 15) val = maskPhone_(val);        // Caregiver Contact
-      if (c === 20) val = maskBankAccount_(val);  // Bank Account Number
-      if (c === 22) val = maskPhone_(val);        // Bank Mobile
-      if (c === 23) val = maskAadhaar_(val);      // Child Aadhaar
-      rec[hName] = val;
+      var rawVal = rowValues[c] !== undefined && rowValues[c] !== null ? rowValues[c] : '';
+      var rawFormula = rowFormulas[c] || '';
+      var safeVal = rawVal;
+      if (rawFormula && typeof rawFormula === 'string' && rawFormula.indexOf('=HYPERLINK(') === 0) {
+        safeVal = 'Restricted Document';
+      }
+      if (c === 15) safeVal = maskPhone_(safeVal);        // Caregiver Contact
+      if (c === 20) safeVal = maskBankAccount_(safeVal);  // Bank Account Number
+      if (c === 22) safeVal = maskPhone_(safeVal);        // Bank Mobile
+      if (c === 23) safeVal = maskAadhaar_(safeVal);      // Child Aadhaar
+      rec[hName] = safeVal;
     }
 
     records.push(rec);
@@ -1655,59 +1787,146 @@ function listSubmissions_(params, requestId) {
   ).setMimeType(ContentService.MimeType.JSON);
 }
 
+
 // ============================================================================
 // PHASE 2 & 3: DRIVE ADVANCED SERVICES & SHEET PROTECTIONS
 // ============================================================================
 
-function setupOrVerifyProtectedRanges_() {
+function previewProtectedRanges_() {
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
-  var protectedDescriptions = [];
+
+  var headerProtected = false;
+  var idProtected = false;
+  var govProtected = false;
+  var col73Protected = false;
+  var isEnforced = true;
+  var rangeDetails = [];
 
   for (var i = 0; i < protections.length; i++) {
-    protectedDescriptions.push(protections[i].getDescription());
-  }
+    var p = protections[i];
+    var desc = p.getDescription() || '';
+    var warnOnly = p.isWarningOnly();
+    if (warnOnly) isEnforced = false;
 
-  var results = [];
+    var r = p.getRange();
+    rangeDetails.push({
+      description: desc,
+      rangeA1: r.getA1Notation(),
+      warningOnly: warnOnly,
+      canEdit: p.canEdit()
+    });
 
-  // Protect Header Rows (Row 1 to 3)
-  var headerDesc = 'Header and Column Definitions (Rows 1-3)';
-  if (protectedDescriptions.indexOf(headerDesc) === -1) {
-    var headerRange = sheet.getRange(1, 1, 3, sheet.getMaxColumns());
-    var headerProt = headerRange.protect().setDescription(headerDesc);
-    headerProt.setWarningOnly(true);
-    results.push('Protected: ' + headerDesc);
-  } else {
-    results.push('Already Protected: ' + headerDesc);
-  }
-
-  // Protect Column 1 & 2 (Unique ID and Revision Number)
-  var idRevDesc = 'System Identifiers: Unique ID & Revision Number';
-  if (protectedDescriptions.indexOf(idRevDesc) === -1) {
-    var idRevRange = sheet.getRange(4, 1, Math.max(1, sheet.getMaxRows() - 3), 2);
-    var idRevProt = idRevRange.protect().setDescription(idRevDesc);
-    idRevProt.setWarningOnly(true);
-    results.push('Protected: ' + idRevDesc);
-  } else {
-    results.push('Already Protected: ' + idRevDesc);
-  }
-
-  // Protect Column 67, 68 & 73 (Approved Alliance India, Review Confirmed, Last Updated)
-  var auditDesc = 'Governance and Audit Columns (Cols 67, 68, 73)';
-  if (protectedDescriptions.indexOf(auditDesc) === -1) {
-    var govRange = sheet.getRange(4, 67, Math.max(1, sheet.getMaxRows() - 3), 2);
-    var govProt = govRange.protect().setDescription(auditDesc);
-    govProt.setWarningOnly(true);
-    results.push('Protected: ' + auditDesc);
-  } else {
-    results.push('Already Protected: ' + auditDesc);
+    if (desc.indexOf('Header') !== -1 || (r.getRow() === 1 && r.getNumRows() >= 3)) {
+      headerProtected = true;
+    }
+    if (desc.indexOf('Identifiers') !== -1 || (r.getColumn() === 1 && r.getNumColumns() >= 2)) {
+      idProtected = true;
+    }
+    if (desc.indexOf('Governance') !== -1 || (r.getColumn() >= 67 && r.getLastColumn() >= 68)) {
+      govProtected = true;
+    }
+    if (desc.indexOf('73') !== -1 || r.getColumn() === 73 || (r.getColumn() <= 73 && r.getLastColumn() >= 73)) {
+      col73Protected = true;
+    }
   }
 
   return {
     status: 'success',
-    message: 'Protected ranges verified.',
-    protections: results
+    mode: 'preview',
+    hasHeaderProtection: headerProtected,
+    hasIdProtection: idProtected,
+    hasGovernanceProtection: govProtected,
+    hasCol73Protection: col73Protected,
+    isFullyProtected: headerProtected && idProtected && govProtected && col73Protected && isEnforced,
+    isWarningOnly: !isEnforced,
+    ranges: rangeDetails,
+    timestamp: new Date().toISOString()
+  };
+}
+
+function applyProtectedRanges_(payload, requestId) {
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var maxRows = Math.max(sheet.getMaxRows(), 100);
+  var maxCols = Math.max(sheet.getMaxColumns(), COLUMN_HEADERS.length);
+
+  // Remove existing range protections to ensure a clean, authoritative state
+  var existing = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  for (var i = 0; i < existing.length; i++) {
+    try {
+      existing[i].remove();
+    } catch (e) {}
+  }
+
+  var applied = [];
+
+  // 1. Protect Header Rows 1-3
+  var headerDesc = 'Header & System Definitions (Rows 1-3)';
+  var headerRange = sheet.getRange(1, 1, 3, maxCols);
+  var headerProt = headerRange.protect().setDescription(headerDesc);
+  headerProt.setWarningOnly(false);
+  applied.push({ description: headerDesc, rangeA1: headerRange.getA1Notation(), warningOnly: false });
+
+  // 2. Protect Columns 1 & 2 (Unique ID and Revision Number)
+  var idDesc = 'System Identifiers (Cols 1-2)';
+  var idRange = sheet.getRange(4, 1, maxRows - 3, 2);
+  var idProt = idRange.protect().setDescription(idDesc);
+  idProt.setWarningOnly(false);
+  applied.push({ description: idDesc, rangeA1: idRange.getA1Notation(), warningOnly: false });
+
+  // 3. Protect Columns 67 & 68 (Approved Alliance India & Review Confirmed)
+  var govDesc = 'Governance Columns (Cols 67-68)';
+  var govRange = sheet.getRange(4, 67, maxRows - 3, 2);
+  var govProt = govRange.protect().setDescription(govDesc);
+  govProt.setWarningOnly(false);
+  applied.push({ description: govDesc, rangeA1: govRange.getA1Notation(), warningOnly: false });
+
+  // 4. Protect Column 73 (Last Updated)
+  var col73Desc = 'System Timestamp: Last Updated (Col 73)';
+  var col73Range = sheet.getRange(4, 73, maxRows - 3, 1);
+  var col73Prot = col73Range.protect().setDescription(col73Desc);
+  col73Prot.setWarningOnly(false);
+  applied.push({ description: col73Desc, rangeA1: col73Range.getA1Notation(), warningOnly: false });
+
+  // Restrict editors to script owner / current effective user
+  var currentUserEmail = '';
+  try {
+    var me = Session.getEffectiveUser();
+    currentUserEmail = me ? me.getEmail() : '';
+    [headerProt, idProt, govProt, col73Prot].forEach(function(prot) {
+      try {
+        prot.removeEditors(prot.getEditors());
+        if (currentUserEmail) {
+          prot.addEditor(currentUserEmail);
+        }
+      } catch (edErr) {}
+    });
+  } catch (uErr) {}
+
+  return {
+    status: 'success',
+    mode: 'applied',
+    warningOnly: false,
+    totalApplied: applied.length,
+    appliedRanges: applied,
+    enforcedBy: redactEmail_(currentUserEmail),
+    timestamp: new Date().toISOString(),
+    requestId: requestId || null
+  };
+}
+
+function setupOrVerifyProtectedRanges_() {
+  var res = applyProtectedRanges_({}, null);
+  var descriptions = [];
+  for (var i = 0; i < res.appliedRanges.length; i++) {
+    descriptions.push('Protected: ' + res.appliedRanges[i].description);
+  }
+  return {
+    status: 'success',
+    message: 'Protected ranges verified and enforced.',
+    protections: descriptions
   };
 }
 
@@ -1738,14 +1957,13 @@ function inspectDriveAsset_(fileId) {
 
   var cleanId = extractDriveId_(fileId) || String(fileId).trim();
   var report = {
-    id: cleanId,
+    id: redactId_(cleanId),
+    rawId: cleanId,
     name: '',
     mimeType: '',
     sizeBytes: 0,
     createdTime: '',
     modifiedTime: '',
-    webViewLink: '',
-    webContentLink: '',
     isPublic: false,
     isSlotCompliant: false,
     permissions: [],
@@ -1755,24 +1973,22 @@ function inspectDriveAsset_(fileId) {
   try {
     if (typeof Drive !== 'undefined' && Drive && Drive.Files && Drive.Files.get) {
       var fileObj = Drive.Files.get(cleanId, {
-        fields: 'id, name, mimeType, size, createdTime, modifiedTime, shared, permissions(id, role, type, emailAddress), webViewLink, webContentLink'
+        fields: 'id, name, mimeType, size, createdTime, modifiedTime, shared, permissions(id, role, type, emailAddress)'
       });
       report.name = fileObj.name || '';
       report.mimeType = fileObj.mimeType || '';
       report.sizeBytes = parseInt(fileObj.size, 10) || 0;
       report.createdTime = fileObj.createdTime || '';
       report.modifiedTime = fileObj.modifiedTime || '';
-      report.webViewLink = fileObj.webViewLink || '';
-      report.webContentLink = fileObj.webContentLink || '';
       report.advancedServiceUsed = true;
 
       var perms = fileObj.permissions || [];
       for (var p = 0; p < perms.length; p++) {
         report.permissions.push({
-          id: perms[p].id,
+          id: redactId_(perms[p].id),
           role: perms[p].role,
           type: perms[p].type,
-          emailAddress: perms[p].emailAddress || ''
+          emailAddress: redactEmail_(perms[p].emailAddress)
         });
         if (perms[p].type === 'anyone') {
           report.isPublic = true;
@@ -1791,7 +2007,6 @@ function inspectDriveAsset_(fileId) {
       report.sizeBytes = dFile.getSize();
       report.createdTime = dFile.getDateCreated().toISOString();
       report.modifiedTime = dFile.getLastUpdated().toISOString();
-      report.webViewLink = dFile.getUrl();
 
       var access = dFile.getSharingAccess();
       var accessStr = access ? String(access).toLowerCase() : '';
@@ -1799,14 +2014,14 @@ function inspectDriveAsset_(fileId) {
 
       var viewers = dFile.getViewers();
       for (var v = 0; v < viewers.length; v++) {
-        report.permissions.push({ role: 'viewer', type: 'user', emailAddress: viewers[v].getEmail() });
+        report.permissions.push({ role: 'viewer', type: 'user', emailAddress: redactEmail_(viewers[v].getEmail()) });
       }
       var editors = dFile.getEditors();
       for (var e = 0; e < editors.length; e++) {
-        report.permissions.push({ role: 'editor', type: 'user', emailAddress: editors[e].getEmail() });
+        report.permissions.push({ role: 'editor', type: 'user', emailAddress: redactEmail_(editors[e].getEmail()) });
       }
     } catch (appErr) {
-      report.error = String(appErr);
+      report.error = 'Asset could not be accessed';
       return report;
     }
   }
@@ -1853,6 +2068,8 @@ function auditDriveAssets_() {
           if (!inspection.isSlotCompliant) {
             slotNamingViolations++;
           }
+          // Redact raw internal ID from reports
+          delete inspection.rawId;
           assetReports.push(inspection);
         }
       }
@@ -1900,64 +2117,167 @@ function enforceRestrictedAcl_(fileId) {
 
   return {
     status: 'success',
-    fileId: cleanId,
+    fileId: redactId_(cleanId),
     restrictedEnforced: true,
     removedPublicSharing: removedPublic
   };
 }
 
-function replaceAssetSafely_(options) {
-  if (!options) return { status: 'error', message: 'Missing options' };
-  var submissionId = options.remoteSubmissionId || options.uniqueId;
-  var slot = options.slotPrefix || 'Supporting';
-  var dataUrl = options.fileDataUrl;
-  var oldFileId = options.oldFileId;
+/**
+ * Two-Phase Commit Asset Replacement with OCC & Zero Data Loss
+ * 1. Acquire opaque container (assessments/{assetContainerId}/)
+ * 2. Stage & Validate in currentFolder
+ * 3. OCC Sheet write to cell pointer
+ * 4. Verify read-back
+ * 5. On success: move old asset to revisionsFolder tagged as SUPERSEDED
+ * 6. On failure: rollback sheet, quarantine new asset to quarantineFolder
+ */
+function replaceAssetTwoPhase_(payload, requestId) {
+  if (!payload) {
+    return errorResponse_('Missing payload for replaceAsset', 'VALIDATION_ERROR', 400, requestId);
+  }
+  var submissionId = payload.remoteSubmissionId || payload.uniqueId || payload.submissionId;
+  var slotPrefix = payload.slotPrefix || 'Supporting';
+  var fileDataUrl = payload.fileDataUrl || payload.dataUrl;
+  var expectedRevision = payload.expectedRevision !== undefined ? payload.expectedRevision : payload.expectedVersion;
 
-  if (!submissionId || !dataUrl) {
-    return { status: 'error', message: 'Missing remoteSubmissionId or fileDataUrl' };
+  if (!submissionId || !fileDataUrl) {
+    return errorResponse_('Missing remoteSubmissionId or fileDataUrl for asset replacement', 'VALIDATION_ERROR', 400, requestId);
   }
 
-  var folder = getOrVerifyAssessmentFolder_(submissionId);
-  if (!folder) {
-    return { status: 'error', message: 'Unable to acquire opaque assessment folder.' };
+  var container = getOrCreateAssetContainer_(submissionId);
+  if (!container || !container.currentFolder) {
+    return errorResponse_('Asset container is unavailable. Safe replacement aborted.', 'UPSTREAM_UNAVAILABLE', 503, requestId);
   }
 
-  var slotFilename = getStandardSlotFilename_(slot);
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 4) {
+    return errorResponse_('Record not found: Sheet has no data rows.', 'NOT_FOUND', 404, requestId);
+  }
 
-  // Decode and create new file
-  var commaIdx = dataUrl.indexOf(',');
-  var meta = dataUrl.substring(5, commaIdx);
-  var base64Data = dataUrl.substring(commaIdx + 1);
+  var uidCol = ctx.colMap['1\nunique id'] || 1;
+  var revCol = ctx.colMap['2\nrevision number'] || 2;
+  var ids = sheet.getRange(4, uidCol, lastRow - 3, 1).getValues();
+  var foundRow = -1;
+  for (var r = 0; r < ids.length; r++) {
+    if (String(ids[r][0]).trim() === String(submissionId).trim()) {
+      foundRow = 4 + r;
+      break;
+    }
+  }
+  if (foundRow === -1) {
+    return errorResponse_('Record not found with ID: ' + submissionId, 'NOT_FOUND', 404, requestId);
+  }
+
+  // OCC Check
+  var currentRev = parseInt(sheet.getRange(foundRow, revCol).getValue(), 10) || 1;
+  if (expectedRevision !== undefined && currentRev > expectedRevision) {
+    return errorResponse_('OCC Conflict: expected revision ' + expectedRevision + ' but found ' + currentRev, 'OCC_CONFLICT', 409, requestId);
+  }
+
+  var slotUpper = String(slotPrefix).toUpperCase();
+  var targetCol = DOC_COLUMNS.SIGNATURE;
+  if (slotUpper.indexOf('PASSBOOK') !== -1) targetCol = DOC_COLUMNS.PASSBOOK;
+  else if (slotUpper.indexOf('AADHAAR') !== -1 || slotUpper.indexOf('ID') !== -1) targetCol = DOC_COLUMNS.AADHAAR;
+  else if (slotUpper.indexOf('PHOTO') !== -1) targetCol = DOC_COLUMNS.CHILD_PHOTO;
+  else if (slotUpper.indexOf('FEE') !== -1) targetCol = DOC_COLUMNS.FEE_RECEIPT;
+  else if (slotUpper.indexOf('MARK') !== -1) targetCol = DOC_COLUMNS.MARKSHEET;
+
+  // Phase 1: Stage & Validate
+  var slotFilename = getStandardSlotFilename_(slotPrefix);
+  var commaIdx = fileDataUrl.indexOf(',');
+  if (commaIdx === -1) {
+    return errorResponse_('Invalid base64 data URL format', 'VALIDATION_ERROR', 400, requestId);
+  }
+  var meta = fileDataUrl.substring(5, commaIdx);
+  var base64Data = fileDataUrl.substring(commaIdx + 1);
   var mimeType = 'image/png';
   if (meta.indexOf('image/jpeg') !== -1 || meta.indexOf('image/jpg') !== -1) mimeType = 'image/jpeg';
   else if (meta.indexOf('application/pdf') !== -1) mimeType = 'application/pdf';
 
   var decodedBytes = Utilities.base64Decode(base64Data);
   var blob = Utilities.newBlob(decodedBytes, mimeType, slotFilename);
-  var newFile = folder.createFile(blob);
-  var newFileId = newFile.getId();
 
-  if (!newFileId || newFile.getSize() <= 0) {
-    return { status: 'error', message: 'New file verification failed: zero bytes or invalid ID.' };
+  var newFile = container.currentFolder.createFile(blob);
+  var newFileId = newFile ? newFile.getId() : null;
+  var newFileSize = newFile ? newFile.getSize() : 0;
+
+  if (!newFileId || newFileSize <= 0) {
+    if (newFile) {
+      try {
+        container.quarantineFolder.addFile(newFile);
+        container.currentFolder.removeFile(newFile);
+      } catch (e) {}
+    }
+    return errorResponse_('New asset verification failed (zero bytes or invalid ID)', 'INTERNAL_ERROR', 500, requestId);
   }
 
+  // Phase 2: OCC Sheet Pointer Commit & Verification
+  var oldFormula = sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue();
+  var oldFileId = extractDriveId_(oldFormula);
+  var newHyperlinkFormula = '=HYPERLINK("https://drive.google.com/file/d/' + newFileId + '/view", "Restricted Doc [' + slotPrefix + ']")';
+
+  var nextRev = currentRev + 1;
+  sheet.getRange(foundRow, revCol).setValue(nextRev);
+  sheet.getRange(foundRow, targetCol).setValue(newHyperlinkFormula);
+  var nowIso = new Date().toISOString();
+  sheet.getRange(foundRow, 73).setValue(nowIso);
+
+  // Read-back verification
+  var verifiedFormula = sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue();
+  var verifiedFileId = extractDriveId_(verifiedFormula);
+
+  if (verifiedFileId !== newFileId) {
+    // Rollback Sheet cell and revision
+    sheet.getRange(foundRow, targetCol).setValue(oldFormula);
+    sheet.getRange(foundRow, revCol).setValue(currentRev);
+
+    // Quarantine the new asset
+    try {
+      container.quarantineFolder.addFile(newFile);
+      container.currentFolder.removeFile(newFile);
+    } catch (qErr) {
+      Logger.log('Quarantine move failed: ' + qErr);
+    }
+
+    return errorResponse_('Pointer verification mismatch. Asset quarantined and sheet write rolled back.', 'INTERNAL_ERROR', 500, requestId);
+  }
+
+  // Pointer verified! Move old file to revisions folder as SUPERSEDED (Never delete inline)
   if (oldFileId) {
     try {
-      var oldIdClean = extractDriveId_(oldFileId) || oldFileId;
-      var oldF = DriveApp.getFileById(oldIdClean);
-      if (oldF) oldF.setTrashed(true);
-    } catch (trashErr) {
-      Logger.log('Warning: could not trash old asset: ' + trashErr);
+      var oldFile = DriveApp.getFileById(oldFileId);
+      if (oldFile) {
+        container.revisionsFolder.addFile(oldFile);
+        container.currentFolder.removeFile(oldFile);
+        try {
+          oldFile.setName('SUPERSEDED_' + Date.now() + '_' + oldFile.getName());
+        } catch (renErr) {}
+      }
+    } catch (oldErr) {
+      Logger.log('Notice: could not move old file to revisions: ' + oldErr);
     }
   }
 
-  return {
-    status: 'success',
-    newFileId: newFileId,
-    fileName: slotFilename,
-    viewUrl: 'https://drive.google.com/file/d/' + newFileId + '/view'
-  };
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      assetContainerId: container.assetContainerId,
+      fileId: redactId_(newFileId),
+      fileName: slotFilename,
+      revisionNumber: nextRev,
+      version: nextRev,
+      requestId: requestId || null
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
 }
+
+function replaceAssetSafely_(options) {
+  return replaceAssetTwoPhase_(options, options && options.requestId);
+}
+
 
 // ============================================================================
 // PHASE 4: ADMIN MENU HANDLERS (NON-DESTRUCTIVE AUDIT & DIAGNOSTIC TOOLS)
@@ -2035,15 +2355,48 @@ function menuGenerateDataQualityReport() {
   }
 }
 
-function menuVerifyProtectedColumns() {
+function menuPreviewProtectedRanges() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var res = setupOrVerifyProtectedRanges_();
-    var msg = 'Protected Columns Report:\n\n' + res.protections.join('\n');
-    ui.alert('Protected Ranges', msg, ui.ButtonSet.OK);
+    var preview = previewProtectedRanges_();
+    var msg = 'Protected Ranges Preview (Non-destructive Audit):\n\n' +
+      'Header Rows (1-3) Protected: ' + (preview.hasHeaderProtection ? 'YES' : 'NO') + '\n' +
+      'Identifiers (Cols 1-2) Protected: ' + (preview.hasIdProtection ? 'YES' : 'NO') + '\n' +
+      'Governance (Cols 67-68) Protected: ' + (preview.hasGovernanceProtection ? 'YES' : 'NO') + '\n' +
+      'Last Updated (Col 73) Protected: ' + (preview.hasCol73Protection ? 'YES' : 'NO') + '\n' +
+      'Enforcement Mode: ' + (preview.isWarningOnly ? 'WARNING ONLY (Non-enforced)' : 'ENFORCED (warningOnly: false)') + '\n\n' +
+      'Total Active Range Protections: ' + preview.ranges.length;
+    ui.alert('Protected Ranges Preview', msg, ui.ButtonSet.OK);
   } catch (err) {
-    ui.alert('Error', 'Failed to verify protected ranges: ' + err, ui.ButtonSet.OK);
+    ui.alert('Error', 'Failed to preview protected ranges: ' + err, ui.ButtonSet.OK);
   }
+}
+
+function menuApplyProtectedRanges() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var confirm = ui.alert(
+      'Apply Protected Ranges',
+      'This action will enforce strict range protections (warningOnly: false) on Header Rows 1-3, Columns 1-2, Columns 67-68, and Column 73.\n\nAre you sure you want to proceed?',
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm !== ui.Button.YES) {
+      ui.alert('Cancelled', 'Protected ranges application was cancelled.', ui.ButtonSet.OK);
+      return;
+    }
+    var res = applyProtectedRanges_({}, null);
+    var msg = 'Protected Ranges Applied Successfully:\n\n' +
+      'Enforcement: STRICT (warningOnly: false)\n' +
+      'Protected Ranges Count: ' + res.totalApplied + '\n' +
+      'Enforced By: ' + res.enforcedBy;
+    ui.alert('Protection Enforced', msg, ui.ButtonSet.OK);
+  } catch (err) {
+    ui.alert('Error', 'Failed to apply protected ranges: ' + err, ui.ButtonSet.OK);
+  }
+}
+
+function menuVerifyProtectedColumns() {
+  menuPreviewProtectedRanges();
 }
 
 function menuPreviewFolderMigration() {
@@ -2055,18 +2408,17 @@ function menuPreviewFolderMigration() {
       return;
     }
     var subFolders = root.getFolders();
-    var legacyFolders = [];
+    var legacyCount = 0;
     while (subFolders.hasNext()) {
       var f = subFolders.next();
       var name = f.getName();
       if (name !== 'assessments' && name.indexOf(' - ') !== -1) {
-        legacyFolders.push(name);
+        legacyCount++;
       }
     }
     var msg = 'Folder Migration Preview:\n\n' +
-      'Found ' + legacyFolders.length + ' legacy child-name folder(s) eligible for migration to opaque structure (assessments/{remoteSubmissionId}/current/):\n\n' +
-      (legacyFolders.slice(0, 10).join('\n')) +
-      (legacyFolders.length > 10 ? '\n...and ' + (legacyFolders.length - 10) + ' more' : '');
+      'Found ' + legacyCount + ' legacy child-name folder(s) eligible for migration to opaque structure (assessments/{assetContainerId}/current/).\n\n' +
+      'All beneficiary identifiers and names are kept strictly confidential during migration.';
     ui.alert('Folder Migration Preview', msg, ui.ButtonSet.OK);
   } catch (err) {
     ui.alert('Error', 'Failed to preview folder migration: ' + err, ui.ButtonSet.OK);
@@ -2077,20 +2429,18 @@ function menuPreviewPublicAclViolations() {
   var ui = SpreadsheetApp.getUi();
   try {
     var audit = auditDriveAssets_();
-    var publicAssets = [];
-    for (var i = 0; i < audit.assets.length; i++) {
-      if (audit.assets[i].isPublic) {
-        publicAssets.push(audit.assets[i].name + ' (' + audit.assets[i].id + ')');
-      }
-    }
     var msg = 'Public ACL Violations Preview:\n\n' +
-      'Public Violations Found: ' + publicAssets.length + '\n\n' +
-      (publicAssets.length > 0 ? publicAssets.join('\n') : 'All Drive assets are restricted to private institutional access.');
+      'Total Assets Scanned: ' + audit.totalAssetsChecked + '\n' +
+      'Public Violations Found: ' + audit.publicViolations + '\n\n' +
+      (audit.publicViolations > 0
+        ? 'Public sharing violations detected! Use "enforceRestrictedAcl" to revoke anonymous access.'
+        : 'All scanned Drive assets are strictly restricted to authorized institutional users.');
     ui.alert('Public ACL Preview', msg, ui.ButtonSet.OK);
   } catch (err) {
     ui.alert('Error', 'Failed to preview public ACL violations: ' + err, ui.ButtonSet.OK);
   }
 }
+
 
 function menuRefreshSheetPresentation() {
   var ui = SpreadsheetApp.getUi();
@@ -2471,6 +2821,63 @@ function clearAllDataRows() {
     deletedCount: count,
     remainingRows: sheet.getLastRow(),
   };
+}
+
+function cleanupStagingRun_(payload, requestId) {
+  if (!payload) {
+    return errorResponse_('Missing payload for cleanupStagingRun', 'VALIDATION_ERROR', 400, requestId);
+  }
+  if (payload.confirm !== 'CONFIRM_STAGING_RUN_CLEANUP') {
+    return errorResponse_('Confirmation token CONFIRM_STAGING_RUN_CLEANUP required for cleanup.', 'VALIDATION_ERROR', 400, requestId);
+  }
+  var stagingRunId = String(payload.stagingRunId || '').trim();
+  var stagingRegex = /^staging-[a-zA-Z0-9_-]{8,64}$/;
+  if (!stagingRegex.test(stagingRunId)) {
+    return errorResponse_('Invalid stagingRunId format. Must match ^staging-[a-zA-Z0-9_-]{8,64}$', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var root = getOrCreateRootDocumentsFolder_();
+  if (!root) {
+    return errorResponse_('Root documents folder not found', 'NOT_FOUND', 404, requestId);
+  }
+
+  // Strictly locate _e2e_staging_runs folder inside root. Never search Drive root or assessments!
+  var stagingFolders = root.getFoldersByName(STAGING_RUNS_FOLDER_NAME);
+  if (!stagingFolders.hasNext()) {
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        status: 'success',
+        message: 'No staging runs directory found. 0 folders cleaned.',
+        cleanedCount: 0,
+        stagingRunId: stagingRunId,
+        requestId: requestId || null
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var stagingRoot = stagingFolders.next();
+  var targetSubFolders = stagingRoot.getFoldersByName(stagingRunId);
+  var trashedCount = 0;
+
+  while (targetSubFolders.hasNext()) {
+    var f = targetSubFolders.next();
+    try {
+      f.setTrashed(true);
+      trashedCount++;
+    } catch (err) {
+      Logger.log('Could not trash staging folder: ' + err);
+    }
+  }
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      message: 'Cleaned ' + trashedCount + ' folder(s) for staging run ' + stagingRunId,
+      cleanedCount: trashedCount,
+      stagingRunId: stagingRunId,
+      requestId: requestId || null
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
 }
 
 function setupCleanSheet() {

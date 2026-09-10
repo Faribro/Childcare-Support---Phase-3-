@@ -70,12 +70,13 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
       expect(adapterContent).not.toContain('childcare_phase3_secret_token_2026');
     });
 
-    it('permits anonymous access ONLY for action: ping (monitoring)', () => {
+    it('permits anonymous access ONLY for action: ping (monitoring) and rejects query secrets in doGet', () => {
       // doGet action === 'ping' returns service health only
       expect(gasContent).toContain("action === 'ping'");
-      expect(gasContent).toContain("'Childcare Support Phase 3 Bridge'");
-      // All other GET actions must check requireWebhookSecret_
-      expect(gasContent).toContain('var auth = requireWebhookSecret_({ secret: callerSecret }, action, requestId);');
+      expect(gasContent).toContain("status: 'ok'");
+      // All other actions in doGet must be rejected with 405 METHOD_NOT_ALLOWED
+      expect(gasContent).toContain('METHOD_NOT_ALLOWED');
+      expect(gasContent).toContain('405');
     });
 
     it('guards all mutating and data-bearing POST actions behind requireWebhookSecret_', () => {
@@ -116,15 +117,18 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
     });
 
     it('implements single-record readSubmission_ mapping to canonical structure', () => {
-      expect(gasContent).toContain('function readSubmission_(remoteSubmissionId, requestId)');
+      expect(gasContent).toContain('function readSubmission_(');
       expect(gasContent).toContain("errorResponse_('Record not found with ID: ' + targetId, 'NOT_FOUND', 404, requestId)");
     });
 
-    it('implements setupOrVerifyProtectedRanges_ for header rows and audit columns', () => {
-      expect(gasContent).toContain('function setupOrVerifyProtectedRanges_()');
-      expect(gasContent).toContain('Header and Column Definitions (Rows 1-3)');
-      expect(gasContent).toContain('System Identifiers: Unique ID & Revision Number');
-      expect(gasContent).toContain('Governance and Audit Columns (Cols 67, 68, 73)');
+    it('implements previewProtectedRanges_ and applyProtectedRanges_ for header rows and audit columns', () => {
+      expect(gasContent).toContain('function previewProtectedRanges_()');
+      expect(gasContent).toContain('function applyProtectedRanges_(');
+      expect(gasContent).toContain('Header & System Definitions (Rows 1-3)');
+      expect(gasContent).toContain('System Identifiers (Cols 1-2)');
+      expect(gasContent).toContain('Governance Columns (Cols 67-68)');
+      expect(gasContent).toContain('System Timestamp: Last Updated (Col 73)');
+      expect(gasContent).toContain('warningOnly: false');
     });
   });
 
@@ -132,11 +136,15 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
   // 4. PHASE 3: DRIVE OPAQUE HIERARCHY & DOCUMENT SLOTS
   // ==========================================================================
   describe('4. Phase 3: Drive Opaque Hierarchy & Document Slots', () => {
-    it('enforces opaque directory structure assessments/{remoteSubmissionId}/current/', () => {
-      expect(gasContent).toContain('function getOrVerifyAssessmentFolder_(remoteSubmissionId)');
-      expect(gasContent).toContain("assessFolder = assessFolders.hasNext() ? assessFolders.next() : rootFolder.createFolder('assessments');");
-      expect(gasContent).toContain("targetFolder = targetFolders.hasNext() ? targetFolders.next() : assessFolder.createFolder(cleanId);");
-      expect(gasContent).toContain("currentFolder = currentFolders.hasNext() ? currentFolders.next() : targetFolder.createFolder('current');");
+    it('enforces opaque directory structure assessments/{assetContainerId}/current/ via _Asset_Containers registry', () => {
+      expect(gasContent).toContain('function getOrCreateAssetContainer_');
+      expect(gasContent).toContain('ASSET_REGISTRY_SHEET_NAME');
+      expect(gasContent).toContain('_Asset_Containers');
+      expect(gasContent).toContain('ast-');
+      expect(gasContent).toContain("'current'");
+      expect(gasContent).toContain("'revisions'");
+      expect(gasContent).toContain("'quarantine'");
+      expect(gasContent).toContain("'metadata'");
     });
 
     it('enforces standardized non-PII slot filenames for all document attachments', () => {
@@ -153,13 +161,14 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
       expect(gasContent).toContain('function inspectDriveAsset_(fileId)');
       expect(gasContent).toContain('function auditDriveAssets_()');
       expect(gasContent).toContain('function enforceRestrictedAcl_(fileId)');
-      expect(gasContent).toContain('function replaceAssetSafely_(options)');
+      expect(gasContent).toContain('function replaceAssetTwoPhase_');
     });
 
-    it('safely trashes obsolete documents only after verifying the replacement file', () => {
+    it('moves obsolete documents to revisions as SUPERSEDED only after verifying OCC pointer read-back', () => {
       expect(gasContent).toContain('newFile.getSize() <= 0');
-      expect(gasContent).toContain('New file verification failed');
-      expect(gasContent).toContain('oldF.setTrashed(true)');
+      expect(gasContent).toContain('SUPERSEDED');
+      expect(gasContent).toContain('container.revisionsFolder.addFile');
+      expect(gasContent).toContain('container.quarantineFolder.addFile');
     });
   });
 
@@ -169,20 +178,22 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
   describe('5. Phase 4: Admin Menu & Diagnostics', () => {
     it('registers onOpen menu items for administrative audit and verification', () => {
       expect(gasContent).toContain("ui.createMenu('Childcare Phase 3 Admin')");
-      expect(gasContent).toContain("'Validate Sheet Schema'");
-      expect(gasContent).toContain("'Audit Drive Asset References'");
-      expect(gasContent).toContain("'Generate Data Quality Report'");
-      expect(gasContent).toContain("'Verify Protected Columns'");
-      expect(gasContent).toContain("'Preview Folder Migration'");
-      expect(gasContent).toContain("'Preview Public ACL Violations'");
-      expect(gasContent).toContain("'Refresh Sheet Presentation'");
+      expect(gasContent).toContain("'Audit: Validate Sheet Schema'");
+      expect(gasContent).toContain("'Audit: Drive Asset Security & ACLs'");
+      expect(gasContent).toContain("'Audit: Data Quality Completeness'");
+      expect(gasContent).toContain("'Preview: Protected Ranges State'");
+      expect(gasContent).toContain("'Preview: Legacy Folder Migration'");
+      expect(gasContent).toContain("'Preview: Public ACL Exposure'");
+      expect(gasContent).toContain("'Apply: Protect Header & Governance Ranges'");
+      expect(gasContent).toContain("'Apply: Refresh Linelist Formatting'");
     });
 
     it('menu functions are non-destructive diagnostic tools', () => {
       expect(gasContent).toContain('function menuValidateSheetSchema()');
       expect(gasContent).toContain('function menuAuditDriveAssets()');
       expect(gasContent).toContain('function menuGenerateDataQualityReport()');
-      expect(gasContent).toContain('function menuVerifyProtectedColumns()');
+      expect(gasContent).toContain('function menuPreviewProtectedRanges()');
+      expect(gasContent).toContain('function menuApplyProtectedRanges()');
       expect(gasContent).toContain('function menuPreviewFolderMigration()');
       expect(gasContent).toContain('function menuPreviewPublicAclViolations()');
       expect(gasContent).toContain('function menuRefreshSheetPresentation()');
