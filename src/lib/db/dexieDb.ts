@@ -100,3 +100,17 @@ export async function deleteCaregiverSignatureBlob(
 ): Promise<void> {
   await db.signatureAttachments.delete(submissionUuid);
 }
+
+/**
+ * Clears all local test/dummy drafts, syncQueue items, audit logs, and supervisor cache.
+ */
+export async function clearAllLocalData(): Promise<void> {
+  await db.drafts.clear();
+  await db.syncQueue.clear();
+  await db.auditLogs.clear();
+  await db.signatureAttachments.clear();
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    localStorage.removeItem('childcare_supervisor_cache_v1');
+  }
+}
+

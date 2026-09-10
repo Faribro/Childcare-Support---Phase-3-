@@ -6,6 +6,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
 import { getAllQueueItems, getPendingQueue, migrateLegacyQueueItems, isSyncLocked } from '@/lib/db/syncQueueRepository';
+import { clearAllLocalData } from '@/lib/db/dexieDb';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
 import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
 import type { SyncQueueItem } from '@/types/domain';
@@ -20,6 +21,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Clock,
+  Trash2,
 } from 'lucide-react';
 
 export interface UnifiedAssessmentItem {
@@ -407,6 +409,19 @@ function SyncCentreContent() {
       console.error('[SyncCentre] Error during manual sync:', err);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleClearLocalDeviceData = async () => {
+    if (
+      typeof window !== 'undefined' &&
+      window.confirm(
+        'Are you sure you want to clear all local device drafts, outbox queue items, and cached linelist records on this device?'
+      )
+    ) {
+      await clearAllLocalData();
+      await loadLocalData();
+      await refreshServer();
     }
   };
 

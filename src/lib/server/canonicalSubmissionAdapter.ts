@@ -60,6 +60,126 @@ export interface CanonicalSubmissionResult {
   };
 }
 
+export type UserRole = 'supervisor' | 'caseworker' | 'auditor';
+
+export interface SupervisorListDTO {
+  uniqueId: string;
+  remoteSubmissionId: string;
+  revisionNumber: number;
+  version: number;
+  submissionTime: string;
+  submittedBy: string;
+  consentObtained: string;
+  hasSignature: boolean;
+  visitDate: string;
+  interviewerName: string;
+  childName: string;
+  dob: string;
+  age: number;
+  gender: string;
+  orphanStatus: string;
+  caregiverName: string;
+  caregiverRelation: string;
+  caregiverContact: string;
+  address: string;
+  state: string;
+  district: string;
+  accountHolderName: string;
+  bankAccountNumberMasked: string;
+  bankIfsc: string;
+  bankMobile: string;
+  maskedAadhaar: string;
+  hasPassbook: boolean;
+  hasAadhaar: boolean;
+  hasChildPhoto: boolean;
+  householdMembers: number;
+  noOfChildren: number;
+  monthlyIncome: number;
+  incomeSource: string;
+  weightKg: number;
+  heightCm: number;
+  bmi: number;
+  bmiCategory: string;
+  hb: number;
+  hbCategory: string;
+  comorbidities: string;
+  artStatus: string;
+  artRegistrationDate: string;
+  artIdNumber: string;
+  vlStatus: string;
+  vlDate: string;
+  vlCategory: string;
+  educationStatus: string;
+  schoolName: string;
+  currentClass: string;
+  attendanceStatus: string;
+  totalAnnualEducationCost: number;
+  hasFeeReceipt: boolean;
+  hasMarksheet: boolean;
+  remarks: string;
+  approvedAllianceIndia: string;
+  reviewConfirmed: string;
+  lastUpdated: string;
+  [key: string]: any;
+}
+
+export interface AuthorisedRecordDTO {
+  uniqueId: string;
+  remoteSubmissionId: string;
+  version: number;
+  revisionNumber: number;
+  childName: string;
+  dob: string;
+  calculatedAge: number;
+  gender: string;
+  orphanStatus: string;
+  caregiverName: string;
+  caregiverRelationship: string;
+  caregiverPhone: string;
+  address: string;
+  state: string;
+  district: string;
+  maskedAadhaar: string;
+  accountHolderName: string;
+  bankAccountNumber: string;
+  ifscCode: string;
+  monthlyHouseholdIncome: number;
+  primaryCaregiverOccupation: string;
+  weightKg: number;
+  heightCm: number;
+  bmi: number;
+  nutritionStatus: string;
+  clinicalNotes: string;
+  artStatus: string;
+  artIdNumber: string;
+  vlStatus: string;
+  schoolEnrolled: boolean;
+  schoolType: string;
+  schoolGrade: string;
+  attendancePercentage: number;
+  schoolFees: number;
+  tuitionFees: number;
+  books: number;
+  stationery: number;
+  uniform: number;
+  transport: number;
+  otherExpenses: number;
+  recommendedGrantAmount: number;
+  remarks: string;
+  approvedAllianceIndia: string;
+  reviewConfirmed: string;
+  created_at: string;
+  updated_at: string;
+  interviewerName: string;
+  hasPassbook: boolean;
+  hasAadhaar: boolean;
+  hasChildPhoto: boolean;
+  hasFeeReceipt: boolean;
+  hasMarksheet: boolean;
+  hasSignature: boolean;
+  [key: string]: any;
+}
+
 function maskAadhaar(raw?: string): string {
   if (!raw) return '';
   const digits = String(raw).replace(/\D/g, '');
@@ -79,19 +199,87 @@ function maskBankAccount(raw?: string): string {
   return 'XXXX-XXXX';
 }
 
+function maskPhone(raw?: string): string {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length >= 4) {
+    return `******${digits.slice(-4)}`;
+  }
+  return '******';
+}
+
+export function filterAuthorisedRecord(record: any, role: UserRole = 'caseworker'): AuthorisedRecordDTO {
+  const safe = { ...record };
+  // Never leak internal Sheet rowNumber
+  delete safe.rowNumber;
+  delete safe.sheetRow;
+
+  // Mask sensitive PII per DPDP Act
+  const maskedAadhaarVal = maskAadhaar(safe.masked_aadhaar || safe.childAadhaarNumber || safe['24\nChild Aadhaar Number']);
+  const maskedBankVal = maskBankAccount(safe.bank_account_number || safe.bankAccountNumber || safe['21\nBank Account Number']);
+  const maskedPhoneVal = maskPhone(safe.caregiver_phone || safe.caregiverPhone || safe['16\nCaregiver Contact']);
+
+  safe.masked_aadhaar = maskedAadhaarVal;
+  safe.childAadhaarNumber = maskedAadhaarVal;
+  safe['24\nChild Aadhaar Number'] = maskedAadhaarVal;
+
+  safe.bank_account_number = maskedBankVal;
+  safe.bankAccountNumber = maskedBankVal;
+  safe['21\nBank Account Number'] = maskedBankVal;
+
+  if (role === 'supervisor' || role === 'auditor') {
+    safe.caregiver_phone = maskedPhoneVal;
+    safe.caregiverPhone = maskedPhoneVal;
+    safe['16\nCaregiver Contact'] = maskedPhoneVal;
+  }
+
+  // Remove raw file URLs for non-caseworkers
+  if (role !== 'caseworker') {
+    delete safe.passbook_photo_url;
+    delete safe.passbookPhotoUrl;
+    delete safe.aadhaar_card_photo_url;
+    delete safe.aadhaarCardPhotoUrl;
+    delete safe.child_photo_url;
+    delete safe.childPhotoUrl;
+    delete safe.fee_receipt_photo_url;
+    delete safe.feeReceiptPhotoUrl;
+    delete safe.marksheet_photo_url;
+    delete safe.marksheetPhotoUrl;
+    delete safe.signature_data_url;
+    delete safe.signatureDataUrl;
+  }
+
+  return safe as AuthorisedRecordDTO;
+}
+
+function sanitizeValue(val: any): any {
+  if (typeof val === 'string' && val.startsWith('=')) {
+    const match = val.match(/=HYPERLINK\("[^"]*",\s*"([^"]*)"\)/);
+    return match ? match[1] : 'Restricted Document';
+  }
+  return val;
+}
+
 function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion: number = 1): any {
   if (!raw) return null;
   const id = raw['1\nUnique ID'] || raw.uniqueId || raw.client_submission_id || raw.remote_submission_id || submissionId;
-  const passbookPhotoUrl = raw['25\nPassbook Front Page Link'] || raw['25\\nPassbook Front Page Link'] || raw['Passbook Front Page Link'] || raw.passbook_photo_url || raw.passbookPhotoUrl || raw.bankingAndKyc?.passbookPhotoUrl || '';
-  const aadhaarCardPhotoUrl = raw['26\nAadhaar Card Link'] || raw['26\\nAadhaar Card Link'] || raw['Aadhaar Card Link'] || raw.aadhaar_card_photo_url || raw.aadhaarCardPhotoUrl || raw.bankingAndKyc?.aadhaarCardPhotoUrl || '';
-  const childPhotoUrl = raw['27\nPassport Size Photo Link'] || raw['27\\nPassport Size Photo Link'] || raw['Passport Size Photo Link'] || raw.child_photo_url || raw.childPhotoUrl || raw.bankingAndKyc?.childPhotoUrl || '';
-  const feeReceiptPhotoUrl = raw['64\nSchool Fee Receipt Link'] || raw['64\\nSchool Fee Receipt Link'] || raw['School Fee Receipt Link'] || raw.fee_receipt_photo_url || raw.feeReceiptPhotoUrl || raw.educationExpenses?.feeReceiptPhotoUrl || '';
-  const marksheetPhotoUrl = raw['65\nMarksheet Photo Link'] || raw['65\\nMarksheet Photo Link'] || raw['Marksheet Photo Link'] || raw.marksheet_photo_url || raw.marksheetPhotoUrl || raw.educationExpenses?.marksheetPhotoUrl || '';
-  const signatureDataUrl = raw['72\nSignature Link'] || raw['72\\nSignature Link'] || raw['Signature Link'] || raw.signature_data_url || raw.signatureDataUrl || raw.caregiverConsent?.signatureDataUrl || raw.consent?.signatureDataUrl || '';
+  const passbookPhotoUrl = sanitizeValue(raw['25\nPassbook Front Page Link'] || raw['25\\nPassbook Front Page Link'] || raw['Passbook Front Page Link'] || raw.passbook_photo_url || raw.passbookPhotoUrl || raw.bankingAndKyc?.passbookPhotoUrl || '');
+  const aadhaarCardPhotoUrl = sanitizeValue(raw['26\nAadhaar Card Link'] || raw['26\\nAadhaar Card Link'] || raw['Aadhaar Card Link'] || raw.aadhaar_card_photo_url || raw.aadhaarCardPhotoUrl || raw.bankingAndKyc?.aadhaarCardPhotoUrl || '');
+  const childPhotoUrl = sanitizeValue(raw['27\nPassport Size Photo Link'] || raw['27\\nPassport Size Photo Link'] || raw['Passport Size Photo Link'] || raw.child_photo_url || raw.childPhotoUrl || raw.bankingAndKyc?.childPhotoUrl || '');
+  const feeReceiptPhotoUrl = sanitizeValue(raw['64\nSchool Fee Receipt Link'] || raw['64\\nSchool Fee Receipt Link'] || raw['School Fee Receipt Link'] || raw.fee_receipt_photo_url || raw.feeReceiptPhotoUrl || raw.educationExpenses?.feeReceiptPhotoUrl || '');
+  const marksheetPhotoUrl = sanitizeValue(raw['65\nMarksheet Photo Link'] || raw['65\\nMarksheet Photo Link'] || raw['Marksheet Photo Link'] || raw.marksheet_photo_url || raw.marksheetPhotoUrl || raw.educationExpenses?.marksheetPhotoUrl || '');
+  const signatureDataUrl = sanitizeValue(raw['72\nSignature Link'] || raw['72\\nSignature Link'] || raw['Signature Link'] || raw.signature_data_url || raw.signatureDataUrl || raw.caregiverConsent?.signatureDataUrl || raw.consent?.signatureDataUrl || '');
 
   const version = Number(raw['2\nRevision Number'] || raw.version || raw.revisionNumber || fallbackVersion || 1);
 
-  return {
+  const hasPassbook = Boolean(passbookPhotoUrl && passbookPhotoUrl !== 'Restricted Document');
+  const hasAadhaar = Boolean(aadhaarCardPhotoUrl && aadhaarCardPhotoUrl !== 'Restricted Document');
+  const hasChildPhoto = Boolean(childPhotoUrl && childPhotoUrl !== 'Restricted Document');
+  const hasFeeReceipt = Boolean(feeReceiptPhotoUrl && feeReceiptPhotoUrl !== 'Restricted Document');
+  const hasMarksheet = Boolean(marksheetPhotoUrl && marksheetPhotoUrl !== 'Restricted Document');
+  const hasSignature = Boolean(signatureDataUrl && signatureDataUrl !== 'Restricted Document');
+
+  const normalized: any = {
     ...raw,
     _uuid: id,
     client_submission_id: id,
@@ -153,6 +341,12 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
     feeReceiptPhotoUrl,
     marksheetPhotoUrl,
     signatureDataUrl,
+    hasPassbook,
+    hasAadhaar,
+    hasChildPhoto,
+    hasFeeReceipt,
+    hasMarksheet,
+    hasSignature,
     bankingAndKyc: {
       ...(raw.bankingAndKyc || raw.bankDetails || {}),
       bankAccountHolderName: raw['20\nBank Account Holder Name'] || raw.account_holder_name || raw.accountHolderName || raw.bankingAndKyc?.bankAccountHolderName || '',
@@ -169,16 +363,36 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
       marksheetPhotoUrl,
     },
   };
+
+  // Ensure internal rowNumber is strictly removed
+  delete normalized.rowNumber;
+  delete normalized.sheetRow;
+
+  // Sanitize all values against raw formulas
+  for (const k of Object.keys(normalized)) {
+    if (typeof normalized[k] === 'string' && normalized[k].startsWith('=')) {
+      normalized[k] = sanitizeValue(normalized[k]);
+    }
+  }
+
+  return normalized;
 }
 
-function extractUpstreamStatusCode(res: Response, gasData: any): number {
+
+export function extractUpstreamStatusCode(res: Response, gasData: any): number {
+  if (gasData?.code === 'CONFIGURATION_ERROR') return 503;
+  if (gasData?.code === 'UNAUTHORIZED') return 401;
+  if (gasData?.code === 'VALIDATION_ERROR') return 422;
+  if (gasData?.code === 'NOT_FOUND') return 404;
+  if (gasData?.code === 'CONFLICT' || gasData?.code === 'OCC_CONFLICT' || gasData?.status === 'conflict') return 409;
+  if (gasData?.code === 'RATE_LIMIT_EXCEEDED') return 429;
+  if (gasData?.code === 'TIMEOUT') return 504;
+  if (gasData?.code === 'UPSTREAM_UNAVAILABLE') return 502;
+
   const rawCode = gasData?.code;
   const numCode = typeof rawCode === 'number' ? rawCode : parseInt(String(rawCode), 10);
   if (!isNaN(numCode) && numCode >= 400 && numCode <= 599) {
     return numCode;
-  }
-  if (gasData?.status === 'conflict' || gasData?.code === 'OCC_CONFLICT') {
-    return 409;
   }
   if (gasData?.message && /not found/i.test(gasData.message)) {
     return 404;
@@ -207,9 +421,7 @@ class CanonicalSubmissionAdapterService {
       process.env.WEBHOOK_SECRET ||
       process.env.APPS_SCRIPT_WEBHOOK_SECRET ||
       process.env.WEBHOOK_SHARED_SECRET ||
-      (process.env.RENDER === 'true'
-        ? 'childcare_phase3_secret_token_2026'
-        : undefined)
+      undefined
     );
   }
 
@@ -474,7 +686,7 @@ class CanonicalSubmissionAdapterService {
   /**
    * CANONICAL GET (READ)
    */
-  async getSubmission(submissionId: string): Promise<CanonicalSubmissionResult> {
+  async getSubmission(submissionId: string, role: UserRole = 'caseworker'): Promise<CanonicalSubmissionResult> {
     const configCheck = this.checkConfiguration('read');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -496,6 +708,7 @@ class CanonicalSubmissionAdapterService {
             submissionId,
             uniqueId: submissionId,
             secret: webhookSecret,
+            role,
           }),
         });
 
@@ -511,11 +724,12 @@ class CanonicalSubmissionAdapterService {
         }
 
         const normalized = normalizeSubmissionData(gasData.data, submissionId, gasData.revisionNumber || gasData.version || 1);
+        const authorised = filterAuthorisedRecord(normalized, role);
 
         return {
           status: 'success',
           statusCode: 200,
-          data: normalized,
+          data: authorised,
           remoteSubmissionId: gasData.uniqueId || submissionId,
           version: gasData.revisionNumber || gasData.version || 1,
         };
@@ -542,12 +756,13 @@ class CanonicalSubmissionAdapterService {
 
     const raw = (record.raw_payload as any) || {};
     const normalized = normalizeSubmissionData({ ...raw, ...record }, submissionId, record.version);
+    const authorised = filterAuthorisedRecord(normalized, role);
 
     return {
       status: 'success',
       statusCode: 200,
-      data: normalized,
-      remoteSubmissionId: record.remote_submission_id,
+      data: authorised,
+      remoteSubmissionId: submissionId,
       version: record.version,
     };
   }

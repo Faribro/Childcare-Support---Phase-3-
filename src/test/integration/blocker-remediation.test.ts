@@ -315,9 +315,8 @@ describe('Blocker & Critical Remediation Integration Test Suite', () => {
         expect(canonicalSubmissionAdapter.getAppsScriptUrl()).toBe(
           'https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec'
         );
-        expect(canonicalSubmissionAdapter.getWebhookSecret()).toBe(
-          'childcare_phase3_secret_token_2026'
-        );
+        // Fail-closed invariant: Never fallback to hardcoded secrets, even on Render
+        expect(canonicalSubmissionAdapter.getWebhookSecret()).toBeUndefined();
       } finally {
         if (origRender !== undefined) process.env.RENDER = origRender;
         else delete process.env.RENDER;
