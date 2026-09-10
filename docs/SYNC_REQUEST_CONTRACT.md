@@ -109,7 +109,6 @@ Used when editing, appending follow-up clinical measurements, or updating caregi
   Enclosed within a canonical `{ changes }` envelope containing only allowlisted, editable fields:
   ```json
   {
-    "expectedVersion": 1,
     "changes": {
       "editReason": "Corrected school enrollment status",
       "childName": "Beneficiary Child Updated",
@@ -125,9 +124,21 @@ Used when editing, appending follow-up clinical measurements, or updating caregi
   **Strict Invariants**:
   1. Protected system keys (`uuid`, `id`, `clientSubmissionId`, `remoteSubmissionId`, `createdAt`, `syncStatus`, `idempotencyKey`) are stripped and disallowed in `changes`.
   2. Nested form sections from local Dexie storage (`educationStatus: { schoolName: ... }`) are automatically flattened into scalar patch properties before validation.
-  3. `expectedVersion` is required. The server inspects both `If-Match` header and body `expectedVersion`. If missing, invalid, or `< 1`, the server immediately responds with HTTP 422.
+  3. `expectedVersion` precondition is sent canonically via HTTP `If-Match: "<expectedVersion>"`. For backwards compatibility, the server also accepts `expectedVersion` in the JSON body. If both `If-Match` and body `expectedVersion` are provided and disagree, the server returns HTTP 400 `PRECONDITION_MISMATCH`. If missing or `< 1`, the server responds with HTTP 422 `VALIDATION_ERROR`.
 
 ---
+
+## 2.3 System Diagnostics & Health Endpoints
+
+### 2.3.1 Public Liveness (`GET /api/health`)
+Used by hosting platforms (Render, load balancers, container probes) for minimal liveness verification.
+- **Privacy Enforcement**: Emits only `{ status: 'ok', service: 'childcare-support-phase-3', version: '3.0.0', timestamp, uptimeSeconds }`.
+- Never reveals adapter mode, build commit SHA, environment markers, or upstream URLs to unauthenticated callers.
+
+### 2.3.2 Restricted Readiness Diagnostics (`GET /api/ready`)
+Used for staging diagnostics and runtime configuration verification.
+- In production (`NODE_ENV=production`), requires authentication via `Authorization: Bearer <DIAGNOSTICS_SECRET>` or `x-diagnostics-token`.
+- Returns `{ status: 'ok', ready: true, adapterMode, buildCommitSha, apiContractVersion, appEnvironmentMarker, timestamp, uptimeSeconds }`.
 
 ## 3. Server Response Envelope Specifications
 

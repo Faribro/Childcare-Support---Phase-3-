@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { POST as createSubmission } from '@/app/api/submissions/route';
 import { PATCH as updateSubmission } from '@/app/api/submissions/[submissionId]/route';
 import { GET as healthCheck } from '@/app/api/health/route';
+import { GET as readyCheck } from '@/app/api/ready/route';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
 
 describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
@@ -161,7 +162,10 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
       expect(body.requestId).toBeDefined();
     });
 
-    it('returns standardized 422 error envelope on invalid patch payload', async () => {
+    it('returns standardized 422 error envelope on invalid patch payload changes', async () => {
+      // Seed record so update finds it
+      MockSheetStore.createRecord(validSubmission as any, 'seed-key-patch-fail', 'req-fail');
+
       const patchReq = new NextRequest(`http://localhost:3000/api/submissions/${validUuid}`, {
         method: 'PATCH',
         headers: {
@@ -170,9 +174,8 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
           'Idempotency-Key': 'idem-patch-fail',
         },
         body: JSON.stringify({
-          expectedVersion: 0, // Must be positive integer >= 1
           changes: {
-            childName: 'Aarav',
+            childName: 12345, // Invalid: must be string
           },
         }),
       });
@@ -186,6 +189,51 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
       expect(body.message).toBe('The record needs correction before it can be sent.');
       expect(body.details?.fields).toBeDefined();
       expect(body.requestId).toBeDefined();
+    });
+
+    it('returns HTTP 400 PRECONDITION_MISMATCH if If-Match and body expectedVersion disagree', async () => {
+      const patchReq = new NextRequest(`http://localhost:3000/api/submissions/${validUuid}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': '"2"',
+          'Idempotency-Key': 'idem-mismatch-version',
+        },
+        body: JSON.stringify({
+          expectedVersion: 1,
+          changes: { childName: 'Aarav Disagree' },
+        }),
+      });
+
+      const res = await updateSubmission(patchReq, { params: { submissionId: validUuid } });
+      expect(res.status).toBe(400);
+
+      const body = await res.json();
+      expect(body.status).toBe('error');
+      expect(body.code).toBe('PRECONDITION_MISMATCH');
+      expect(body.message).toContain('Version preconditions disagree');
+    });
+
+    it('returns 422 VALIDATION_ERROR when expectedVersion < 1 without If-Match header', async () => {
+      const patchReq = new NextRequest(`http://localhost:3000/api/submissions/${validUuid}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': 'idem-patch-ver-fail',
+        },
+        body: JSON.stringify({
+          expectedVersion: 0,
+          changes: { childName: 'Aarav' },
+        }),
+      });
+
+      const res = await updateSubmission(patchReq, { params: { submissionId: validUuid } });
+      expect(res.status).toBe(422);
+
+      const body = await res.json();
+      expect(body.status).toBe('error');
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.details?.fields[0]?.field).toBe('expectedVersion');
     });
 
     it('returns 409 CONFLICT on OCC version mismatch', async () => {
@@ -203,7 +251,6 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
           'Idempotency-Key': 'idem-stale-update',
         },
         body: JSON.stringify({
-          expectedVersion: 1,
           changes: { childName: 'Aarav Stale' },
         }),
       });
@@ -218,18 +265,23 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
     });
   });
 
-  describe('GET /api/health Diagnostics (Phase 6)', () => {
-    it('returns safe diagnostics without leaking secrets or sheet URLs', async () => {
+  describe('GET /api/health Liveness (Phase 6)', () => {
+    it('returns minimal liveness metadata to unauthenticated callers without leaking internals', async () => {
       const res = await healthCheck();
       expect(res.status).toBe(200);
 
       const body = await res.json();
       expect(body.status).toBe('ok');
-      expect(body.apiContractVersion).toBe('v3.1.0-contract');
-      expect(body.buildCommitSha).toBeDefined();
-      expect(body.adapterMode).toBeDefined();
-      expect(['configured', 'failing_closed_unconfigured', 'mock_development']).toContain(body.adapterMode);
-      expect(body.appEnvironmentMarker).toBeDefined();
+      expect(body.service).toBe('childcare-support-phase-3');
+      expect(body.version).toBe('3.0.0');
+      expect(body.timestamp).toBeDefined();
+      expect(body.uptimeSeconds).toBeDefined();
+
+      // Ensure minimal liveness privacy: NO buildCommitSha, NO adapterMode, NO appEnvironmentMarker
+      expect(body.buildCommitSha).toBeUndefined();
+      expect(body.adapterMode).toBeUndefined();
+      expect(body.appEnvironmentMarker).toBeUndefined();
+      expect(body.apiContractVersion).toBeUndefined();
 
       // Strict security: verify no secrets or internal URLs are in the payload
       const serialized = JSON.stringify(body);
@@ -237,6 +289,58 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
       expect(serialized).not.toContain('docs.google.com');
       expect(serialized).not.toContain('secret');
       expect(serialized).not.toContain('private_key');
+    });
+  });
+
+  describe('GET /api/ready Restricted Diagnostics', () => {
+    it('returns 200 with diagnostics in non-production environments', async () => {
+      const req = new NextRequest('http://localhost:3000/api/ready');
+      const res = await readyCheck(req);
+      expect(res.status).toBe(200);
+
+      const body = await res.json();
+      expect(body.status).toBe('ok');
+      expect(body.ready).toBe(true);
+      expect(body.adapterMode).toBeDefined();
+      expect(body.buildCommitSha).toBeDefined();
+      expect(body.apiContractVersion).toBe('v3.1.0-contract');
+    });
+
+    it('requires authentication when in production with secret configured', async () => {
+      const origEnv = process.env.NODE_ENV;
+      const origSecret = process.env.DIAGNOSTICS_SECRET;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        process.env.DIAGNOSTICS_SECRET = 'super-secret-token';
+
+        // 1. Unauthenticated request in production -> 401
+        const unauthReq = new NextRequest('http://localhost:3000/api/ready');
+        const unauthRes = await readyCheck(unauthReq);
+        expect(unauthRes.status).toBe(401);
+
+        // 2. Authenticated request with Bearer token -> 200
+        const authReq = new NextRequest('http://localhost:3000/api/ready', {
+          headers: {
+            Authorization: 'Bearer super-secret-token',
+          },
+        });
+        const authRes = await readyCheck(authReq);
+        expect(authRes.status).toBe(200);
+        const authBody = await authRes.json();
+        expect(authBody.ready).toBe(true);
+
+        // 3. Authenticated request with x-diagnostics-token header -> 200
+        const diagReq = new NextRequest('http://localhost:3000/api/ready', {
+          headers: {
+            'x-diagnostics-token': 'super-secret-token',
+          },
+        });
+        const diagRes = await readyCheck(diagReq);
+        expect(diagRes.status).toBe(200);
+      } finally {
+        (process.env as any).NODE_ENV = origEnv;
+        process.env.DIAGNOSTICS_SECRET = origSecret;
+      }
     });
   });
 });

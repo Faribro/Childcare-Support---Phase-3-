@@ -175,12 +175,21 @@ export function buildUpdateRequest(item: SyncQueueItem): UpdateRequest {
     );
   }
 
-  // Resolve OCC expectedVersion canonically
+  // Resolve OCC expectedVersion canonically - do not default to 1
   const rawVersion =
     item.expectedVersion ??
     payloadAny.expectedVersion ??
-    payloadAny.version ??
-    1;
+    payloadAny.version;
+
+  if (rawVersion === undefined || rawVersion === null || rawVersion === '') {
+    throw new RequestBuilderError(
+      'UPDATE requires expectedVersion to be specified',
+      'MISSING_EXPECTED_VERSION',
+      true,
+      [{ path: 'expectedVersion', code: 'invalid_type' }]
+    );
+  }
+
   const expectedVersion = Number(rawVersion);
 
   if (isNaN(expectedVersion) || expectedVersion < 1) {

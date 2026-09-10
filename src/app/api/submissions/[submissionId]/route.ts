@@ -72,20 +72,45 @@ export async function PATCH(
       );
     }
 
-    // Support If-Match header fallback for expectedVersion
+    // Parse If-Match header
     const ifMatchHeader = req.headers.get('If-Match') || req.headers.get('if-match');
-    if (ifMatchHeader && (rawBody.expectedVersion === undefined || rawBody.expectedVersion === null || rawBody.expectedVersion === '')) {
-      const parsedHeaderVersion = parseInt(ifMatchHeader.replace(/"/g, ''), 10);
-      if (!isNaN(parsedHeaderVersion) && parsedHeaderVersion > 0) {
-        rawBody.expectedVersion = parsedHeaderVersion;
+    let parsedIfMatch: number | undefined = undefined;
+    if (ifMatchHeader) {
+      const matchNum = parseInt(ifMatchHeader.replace(/"/g, '').trim(), 10);
+      if (!isNaN(matchNum) && matchNum > 0) {
+        parsedIfMatch = matchNum;
       }
     }
 
+    const bodyVersion =
+      rawBody.expectedVersion !== undefined && rawBody.expectedVersion !== null && rawBody.expectedVersion !== ''
+        ? Number(rawBody.expectedVersion)
+        : undefined;
+
+    // Enforce consistency: If both are provided and disagree, return HTTP 400 PRECONDITION_MISMATCH
     if (
-      rawBody.expectedVersion === undefined ||
-      rawBody.expectedVersion === null ||
-      isNaN(Number(rawBody.expectedVersion)) ||
-      Number(rawBody.expectedVersion) < 1
+      bodyVersion !== undefined &&
+      parsedIfMatch !== undefined &&
+      bodyVersion !== parsedIfMatch
+    ) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'PRECONDITION_MISMATCH',
+          message: 'Version preconditions disagree: If-Match header and body expectedVersion must match',
+          requestId,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Canonical resolution: prefer parsed If-Match header, fallback to body expectedVersion
+    const resolvedVersion = parsedIfMatch ?? bodyVersion;
+
+    if (
+      resolvedVersion === undefined ||
+      isNaN(resolvedVersion) ||
+      resolvedVersion < 1
     ) {
       return NextResponse.json(
         {
@@ -107,6 +132,8 @@ export async function PATCH(
         { status: 422 }
       );
     }
+
+    rawBody.expectedVersion = resolvedVersion;
 
     const flattenedBody = flattenPatchBody(rawBody);
     const validation = patchSubmissionSchema.safeParse(flattenedBody);

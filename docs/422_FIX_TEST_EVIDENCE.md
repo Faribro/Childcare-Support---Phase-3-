@@ -53,12 +53,14 @@ All root causes were identified, isolated, systematically resolved, and verified
 - Handles `RequestBuilderError` as terminal 422 in-memory.
 - On HTTP 422 from server, marks `markFailedFinal(item.id, errMsg, 422, issues)` and immediately halts without fallback to POST.
 
-### 3.5 API Gateways & Health Check
+### 3.5 API Gateways, Precondition Consistency & Health Endpoints
 - Standardized 422 error response envelope in `/api/submissions` and `/api/submissions/[submissionId]`:
   `{ status: 'error', code: 'VALIDATION_ERROR', message: '...', details: { fields: [...] }, requestId }`.
 - Standardized 200/201 success envelope:
   `{ status: 'success', acknowledged: true, data: { remoteSubmissionId, clientSubmissionId, version, updatedAt, syncStatus: 'SYNCED' }, requestId }`.
-- Added safe diagnostics to `/api/health`: `apiContractVersion: 'v3.1.0-contract'`, `buildCommitSha`, `adapterMode`, `appEnvironmentMarker` (without leaking secrets or Google Sheet URLs).
+- **Precondition Consistency Enforcement**: In `PATCH /api/submissions/[submissionId]`, if both `If-Match` header and body `expectedVersion` are present and disagree, the gateway returns HTTP 400 `PRECONDITION_MISMATCH`.
+- **Minimal Public Liveness (`/api/health`)**: Emits strictly `{ status: 'ok', service: 'childcare-support-phase-3', version: '3.0.0', timestamp, uptimeSeconds }` without revealing internal commit SHA, adapter mode, or environment markers.
+- **Restricted Readiness Diagnostics (`/api/ready`)**: Secure endpoint for staging diagnostics with token/secret authentication in production mode.
 
 ---
 
@@ -84,21 +86,21 @@ Exit code: 0 (No lint errors)
 ```
  RUN  v2.1.9 D:/OneDrive - INDIA HIV AIDS ALLIANCE/Desktop/Tasks/Task - Child Nutrition PWA - Phase 3
 
- ✓ src/lib/validations/submissionSchema.test.ts (11 tests)
  ✓ src/test/integration/immediate-autosync.test.ts (13 tests)
- ✓ src/test/sync-request-builders.test.ts (10 tests)
- ✓ src/test/api-contract-envelope.test.ts (6 tests)
+ ✓ src/test/sync-request-builders.test.ts (16 tests)
+ ✓ src/lib/validations/submissionSchema.test.ts (11 tests)
  ✓ src/test/integration/blocker-remediation.test.ts (10 tests)
- ✓ src/test/api-submissions.test.ts (5 tests)
  ✓ src/test/integration/supervisor-read-models.test.ts (6 tests)
- ✓ src/lib/clinical/nutritionCalculations.test.ts (10 tests)
+ ✓ src/test/api-submissions.test.ts (5 tests)
+ ✓ src/test/api-contract-envelope.test.ts (10 tests)
  ✓ src/test/concurrency-and-lifecycle.test.ts (7 tests)
- ✓ src/app/api/health/route.test.ts (1 test)
+ ✓ src/lib/clinical/nutritionCalculations.test.ts (10 tests)
  ✓ src/test/baseline.test.ts (2 tests)
+ ✓ src/app/api/health/route.test.ts (1 test)
 
  Test Files  11 passed (11)
-      Tests  81 passed (81)
-   Duration  3.72s
+      Tests  91 passed (91)
+   Duration  5.35s
 ```
 
 ### 4.4 Production Build (`npm run build`)
