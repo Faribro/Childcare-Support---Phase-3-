@@ -372,6 +372,7 @@ export interface AssessmentRecord {
 
 export interface SyncQueueItem {
   id?: number;
+  schemaVersion?: number;
   submissionUuid: string;
   idempotencyKey: string;
   operationType: OutboxOperationType;
@@ -385,6 +386,7 @@ export interface SyncQueueItem {
   statusCode?: number | null;
   requestId?: string | null;
   errorMessage: string | null;
+  validationIssues?: string[];
   conflictMetadata?: {
     serverVersion?: number;
     conflictFields?: string[];

@@ -226,9 +226,168 @@ export const finalReviewSchema = z.object({
   reviewConfirmed: z.boolean().optional(),
 });
 
-// Allowlisted Schema for PATCH Mutations with Optimistic Concurrency Control
-export const patchSubmissionSchema = z.object({
-  expectedVersion: z.number().int().positive('expectedVersion must be a positive integer'),
+export const permissiveExpectedVersion = z.preprocess((val) => {
+  if (val === undefined || val === null || val === '') return undefined;
+  const num = typeof val === 'number' ? val : parseInt(String(val), 10);
+  return isNaN(num) || num < 1 ? undefined : Math.floor(num);
+}, z.number().int().positive('expectedVersion must be a positive integer'));
+
+export const optionalNumber = z.preprocess((val) => {
+  if (val === undefined || val === null || val === '') return undefined;
+  const num = Number(val);
+  return isNaN(num) ? undefined : num;
+}, z.number().optional());
+
+export const optionalBoolean = z.preprocess((val) => {
+  if (val === undefined || val === null || val === '') return undefined;
+  if (typeof val === 'boolean') return val;
+  if (String(val).toLowerCase() === 'true') return true;
+  if (String(val).toLowerCase() === 'false') return false;
+  return Boolean(val);
+}, z.boolean().optional());
+
+export const optionalStringArray = z.preprocess((val) => {
+  if (val === undefined || val === null || val === '') return undefined;
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === 'string') {
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return undefined;
+}, z.array(z.string()).optional());
+
+export function flattenPatchBody(body: any): any {
+  if (!body || typeof body !== 'object') return body;
+  const flat = { ...body };
+
+  if (body.demographics && typeof body.demographics === 'object') {
+    const d = body.demographics;
+    if (flat.childName === undefined) flat.childName = d.childName;
+    if (flat.artNumber === undefined) flat.artNumber = d.artNumber;
+    if (flat.dob === undefined) flat.dob = d.dob;
+    if (flat.gender === undefined) flat.gender = d.gender;
+    if (flat.orphanStatus === undefined) flat.orphanStatus = d.orphanStatus;
+    if (flat.caregiverName === undefined) flat.caregiverName = d.caregiverName;
+    if (flat.caregiverRelationship === undefined) flat.caregiverRelationship = d.caregiverRelationship;
+    if (flat.caregiverPhone === undefined) flat.caregiverPhone = d.contactNumber || d.caregiverPhone;
+    if (flat.contactNumber === undefined) flat.contactNumber = d.contactNumber || d.caregiverPhone;
+    if (flat.fullAddress === undefined) flat.fullAddress = d.fullAddress;
+    if (flat.state === undefined) flat.state = d.state;
+    if (flat.district === undefined) flat.district = d.district;
+    if (flat.childAadhaarNumber === undefined) flat.childAadhaarNumber = d.childAadhaarNumber;
+    if (flat.calculatedAgeYears === undefined) flat.calculatedAgeYears = d.calculatedAgeYears;
+    if (flat.calculatedAgeMonths === undefined) flat.calculatedAgeMonths = d.calculatedAgeMonths;
+  }
+
+  if (body.consent && typeof body.consent === 'object') {
+    if (flat.agreeToParticipate === undefined) flat.agreeToParticipate = body.consent.agreeToParticipate;
+    if (flat.signatureDataUrl === undefined) flat.signatureDataUrl = body.consent.signatureDataUrl;
+  }
+
+  if (body.caregiverConsent && typeof body.caregiverConsent === 'object') {
+    if (flat.agreeToParticipate === undefined) flat.agreeToParticipate = body.caregiverConsent.agreeToParticipate;
+    if (flat.signatureDataUrl === undefined) flat.signatureDataUrl = body.caregiverConsent.signatureDataUrl;
+  }
+
+  if (body.bankingAndKyc && typeof body.bankingAndKyc === 'object') {
+    const b = body.bankingAndKyc;
+    if (flat.bankAccountHolderName === undefined) flat.bankAccountHolderName = b.bankAccountHolderName;
+    if (flat.bankAccountNumber === undefined) flat.bankAccountNumber = b.bankAccountNumber;
+    if (flat.bankIfscCode === undefined) flat.bankIfscCode = b.bankIfscCode;
+    if (flat.bankLinkedMobileNumber === undefined) flat.bankLinkedMobileNumber = b.bankLinkedMobileNumber;
+    if (flat.passbookPhotoUrl === undefined) flat.passbookPhotoUrl = b.passbookPhotoUrl;
+    if (flat.aadhaarCardPhotoUrl === undefined) flat.aadhaarCardPhotoUrl = b.aadhaarCardPhotoUrl;
+    if (flat.childPhotoUrl === undefined) flat.childPhotoUrl = b.childPhotoUrl;
+  }
+
+  if (body.householdFinancial && typeof body.householdFinancial === 'object') {
+    const h = body.householdFinancial;
+    if (flat.totalFamilyMembers === undefined) flat.totalFamilyMembers = h.totalFamilyMembers;
+    if (flat.numberOfChildrenUnder18 === undefined) flat.numberOfChildrenUnder18 = h.numberOfChildrenUnder18;
+    if (flat.monthlyIncomeRs === undefined) flat.monthlyIncomeRs = h.monthlyIncomeRs;
+    if (flat.mainSourceOfIncome === undefined) flat.mainSourceOfIncome = h.mainSourceOfIncome;
+  }
+
+  if (body.health && typeof body.health === 'object') {
+    const hl = body.health;
+    if (flat.weightKg === undefined) flat.weightKg = hl.weightKg;
+    if (flat.heightCm === undefined) flat.heightCm = hl.heightCm;
+    if (flat.bmi === undefined) flat.bmi = hl.bmi;
+    if (flat.bmiCategory === undefined) flat.bmiCategory = hl.bmiCategory;
+    if (flat.haemoglobinGdl === undefined) flat.haemoglobinGdl = hl.haemoglobinGdl;
+    if (flat.hbCategory === undefined) flat.hbCategory = hl.hbCategory;
+    if (flat.otherHealthConditions === undefined) flat.otherHealthConditions = hl.otherHealthConditions;
+    if (flat.otherHealthConditionSpecify === undefined) flat.otherHealthConditionSpecify = hl.otherHealthConditionSpecify;
+    if (flat.artStatus === undefined) flat.artStatus = hl.artStatus;
+    if (flat.artRegistrationDate === undefined) flat.artRegistrationDate = hl.artRegistrationDate;
+    if (flat.artIdNumber === undefined) flat.artIdNumber = hl.artIdNumber;
+    if (flat.vlStatus === undefined) flat.vlStatus = hl.vlStatus;
+    if (flat.vlDate === undefined) flat.vlDate = hl.vlDate;
+    if (flat.viralLoad === undefined) flat.viralLoad = hl.viralLoad;
+    if (flat.vlCategory === undefined) flat.vlCategory = hl.vlCategory;
+    if (flat.nutritionStatus === undefined) flat.nutritionStatus = hl.nutritionStatus;
+  }
+
+  if (body.nutrition && typeof body.nutrition === 'object') {
+    if (flat.appetite === undefined) flat.appetite = body.nutrition.appetite;
+    if (flat.mealsPerDay === undefined) flat.mealsPerDay = body.nutrition.mealsPerDay;
+  }
+
+  if (body.nutritionHabits && typeof body.nutritionHabits === 'object') {
+    if (flat.appetite === undefined) flat.appetite = body.nutritionHabits.appetite;
+    if (flat.mealsPerDay === undefined) flat.mealsPerDay = body.nutritionHabits.mealsPerDay;
+  }
+
+  if (body.educationStatus && typeof body.educationStatus === 'object') {
+    const ed = body.educationStatus;
+    if (flat.schoolName === undefined) flat.schoolName = ed.schoolName;
+    if (flat.schoolSessionStartDate === undefined) flat.schoolSessionStartDate = ed.schoolSessionStartDate;
+    if (flat.schoolType === undefined) flat.schoolType = ed.schoolType;
+    if (flat.currentClass === undefined) flat.currentClass = ed.currentClass;
+    if (flat.attendance === undefined) flat.attendance = ed.attendance;
+    flat.educationStatus = ed.educationStatus || 'Currently going to school';
+  }
+
+  if (body.educationExpenses && typeof body.educationExpenses === 'object') {
+    const ee = body.educationExpenses;
+    if (flat.schoolFees === undefined) flat.schoolFees = ee.schoolFees;
+    if (flat.tuitionFees === undefined) flat.tuitionFees = ee.tuitionFees;
+    if (flat.books === undefined) flat.books = ee.books;
+    if (flat.stationery === undefined) flat.stationery = ee.stationery;
+    if (flat.uniform === undefined) flat.uniform = ee.uniform;
+    if (flat.transport === undefined) flat.transport = ee.transport;
+    if (flat.otherExpenses === undefined) flat.otherExpenses = ee.otherExpenses;
+    if (flat.totalAnnualCost === undefined) flat.totalAnnualCost = ee.totalAnnualCost;
+    if (flat.feeReceiptPhotoUrl === undefined) flat.feeReceiptPhotoUrl = ee.feeReceiptPhotoUrl;
+    if (flat.marksheetPhotoUrl === undefined) flat.marksheetPhotoUrl = ee.marksheetPhotoUrl;
+    if (flat.remarks === undefined) flat.remarks = ee.remarks;
+  }
+
+  if (body.educationSupportRequired && typeof body.educationSupportRequired === 'object') {
+    const es = body.educationSupportRequired;
+    if (flat.requiredSchoolFees === undefined) flat.requiredSchoolFees = es.requiredSchoolFees;
+    if (flat.requiredTuitionFees === undefined) flat.requiredTuitionFees = es.requiredTuitionFees;
+    if (flat.requiredBooks === undefined) flat.requiredBooks = es.requiredBooks;
+    if (flat.requiredStationery === undefined) flat.requiredStationery = es.requiredStationery;
+    if (flat.requiredUniform === undefined) flat.requiredUniform = es.requiredUniform;
+    if (flat.requiredTransport === undefined) flat.requiredTransport = es.requiredTransport;
+    if (flat.requiredOtherSupport === undefined) flat.requiredOtherSupport = es.requiredOtherSupport;
+    if (flat.totalRequiredSupport === undefined) flat.totalRequiredSupport = es.totalRequiredSupport;
+  }
+
+  if (body.finalReview && typeof body.finalReview === 'object') {
+    const fr = body.finalReview;
+    if (flat.approvedAllianceIndia === undefined) flat.approvedAllianceIndia = fr.approvedAllianceIndia;
+    if (flat.allInfoCorrect === undefined) flat.allInfoCorrect = fr.allInfoCorrect;
+    if (flat.organizationName === undefined) flat.organizationName = fr.organizationName;
+    if (flat.formSubmittedBy === undefined) flat.formSubmittedBy = fr.formSubmittedBy;
+    if (flat.organizationEmail === undefined) flat.organizationEmail = fr.organizationEmail;
+  }
+
+  return flat;
+}
+
+// Allowlisted Editable Fields Schema for PATCH Changes
+export const allowlistedPatchChangesSchema = z.object({
   editReason: z.string().optional(),
   uniqueId: z.string().optional(),
   artNumber: z.string().optional(),
@@ -245,19 +404,19 @@ export const patchSubmissionSchema = z.object({
   state: z.string().optional(),
   district: z.string().optional(),
   childAadhaarNumber: z.string().optional(),
-  agreeToParticipate: z.boolean().optional(),
+  agreeToParticipate: optionalBoolean,
   bankAccountHolderName: z.string().optional(),
   bankAccountNumber: z.string().optional(),
   bankIfscCode: z.string().optional(),
   bankLinkedMobileNumber: z.string().optional(),
-  totalFamilyMembers: z.number().optional(),
-  numberOfChildrenUnder18: z.number().optional(),
-  monthlyIncomeRs: z.number().optional(),
+  totalFamilyMembers: optionalNumber,
+  numberOfChildrenUnder18: optionalNumber,
+  monthlyIncomeRs: optionalNumber,
   mainSourceOfIncome: z.string().optional(),
-  weightKg: z.number().optional(),
-  heightCm: z.number().optional(),
-  haemoglobinGdl: z.union([z.number(), z.string()]).optional(),
-  otherHealthConditions: z.array(z.string()).optional(),
+  weightKg: optionalNumber,
+  heightCm: optionalNumber,
+  haemoglobinGdl: z.union([optionalNumber, z.string()]).optional(),
+  otherHealthConditions: optionalStringArray,
   otherHealthConditionSpecify: z.string().optional(),
   artStatus: z.string().optional(),
   artRegistrationDate: z.string().optional(),
@@ -266,53 +425,65 @@ export const patchSubmissionSchema = z.object({
   vlDate: z.string().optional(),
   viralLoad: z.string().optional(),
   appetite: z.string().optional(),
-  mealsPerDay: z.number().optional(),
-  educationStatus: z.string().optional(),
+  mealsPerDay: optionalNumber,
+  educationStatus: z.union([z.string(), z.record(z.any()), z.any()]).optional(),
   educationStatusSpecify: z.string().optional(),
   schoolName: z.string().optional(),
   schoolSessionStartDate: z.string().optional(),
   schoolType: z.string().optional(),
   currentClass: z.string().optional(),
   attendance: z.string().optional(),
-  schoolFees: z.number().optional(),
-  tuitionFees: z.number().optional(),
-  books: z.number().optional(),
-  stationery: z.number().optional(),
-  uniform: z.number().optional(),
-  transport: z.number().optional(),
-  otherExpenses: z.number().optional(),
-  totalAnnualCost: z.number().optional(),
-  requiredSchoolFees: z.number().optional(),
-  requiredBooks: z.number().optional(),
-  requiredStationery: z.number().optional(),
-  requiredUniform: z.number().optional(),
-  requiredTransport: z.number().optional(),
-  requiredOtherSupport: z.number().optional(),
-  totalRequiredSupport: z.number().optional(),
+  schoolFees: optionalNumber,
+  tuitionFees: optionalNumber,
+  books: optionalNumber,
+  stationery: optionalNumber,
+  uniform: optionalNumber,
+  transport: optionalNumber,
+  otherExpenses: optionalNumber,
+  totalAnnualCost: optionalNumber,
+  requiredSchoolFees: optionalNumber,
+  requiredTuitionFees: optionalNumber,
+  requiredBooks: optionalNumber,
+  requiredStationery: optionalNumber,
+  requiredUniform: optionalNumber,
+  requiredTransport: optionalNumber,
+  requiredOtherSupport: optionalNumber,
+  totalRequiredSupport: optionalNumber,
   remarks: z.string().optional(),
   approvedAllianceIndia: z.string().optional(),
   formSubmittedBy: z.string().optional(),
   organizationName: z.string().optional(),
   organizationEmail: z.string().optional(),
-  allInfoCorrect: z.boolean().optional(),
+  allInfoCorrect: optionalBoolean,
+  // Section object allowlisting
+  demographics: z.record(z.any()).optional(),
+  consent: z.record(z.any()).optional(),
+  caregiverConsent: z.record(z.any()).optional(),
+  bankingAndKyc: z.record(z.any()).optional(),
+  householdFinancial: z.record(z.any()).optional(),
+  health: z.record(z.any()).optional(),
+  nutrition: z.record(z.any()).optional(),
+  educationExpenses: z.record(z.any()).optional(),
+  educationSupportRequired: z.record(z.any()).optional(),
+  finalReview: z.record(z.any()).optional(),
   // Legacy aliases
   primaryCaregiverOccupation: z.string().optional(),
-  monthlyHouseholdIncome: z.number().optional(),
+  monthlyHouseholdIncome: optionalNumber,
   rationCardType: z.string().optional(),
-  numberOfSiblings: z.number().optional(),
-  muacMm: z.number().optional(),
-  bilateralPittingOedema: z.boolean().optional(),
+  numberOfSiblings: optionalNumber,
+  muacMm: optionalNumber,
+  bilateralPittingOedema: optionalBoolean,
   clinicalNotes: z.string().optional(),
-  schoolEnrolled: z.boolean().optional(),
+  schoolEnrolled: optionalBoolean,
   schoolGrade: z.string().optional(),
-  attendancePercentage: z.number().optional(),
-  supportMaterialsNeeded: z.array(z.string()).optional(),
+  attendancePercentage: optionalNumber,
+  supportMaterialsNeeded: optionalStringArray,
   accountHolderName: z.string().optional(),
   accountNumber: z.string().optional(),
   ifscCode: z.string().optional(),
   bankName: z.string().optional(),
   branchName: z.string().optional(),
-  passbookPhotoCaptured: z.boolean().optional(),
+  passbookPhotoCaptured: optionalBoolean,
   passbookPhotoUrl: z.string().optional(),
   aadhaarCardPhotoUrl: z.string().optional(),
   childPhotoUrl: z.string().optional(),
@@ -320,7 +491,32 @@ export const patchSubmissionSchema = z.object({
   marksheetPhotoUrl: z.string().optional(),
   signatureDataUrl: z.string().optional(),
   signatureUrl: z.string().optional(),
-}).passthrough();
+  bmi: optionalNumber,
+  calculatedAgeYears: optionalNumber,
+  calculatedAgeMonths: optionalNumber,
+  nutritionStatus: z.string().optional(),
+  bmiCategory: z.string().optional(),
+  hbCategory: z.string().optional(),
+  vlCategory: z.string().optional(),
+  version: optionalNumber,
+  revision: optionalNumber,
+});
+
+export type AllowlistedPatchChanges = z.infer<typeof allowlistedPatchChangesSchema>;
+
+// Allowlisted Schema for PATCH Mutations with Optimistic Concurrency Control
+// Accepts either new { changes: {...} } envelope or direct allowlisted fields with expectedVersion
+export const patchSubmissionSchema = z.preprocess((val: any) => {
+  if (val && typeof val === 'object' && val.changes && typeof val.changes === 'object') {
+    return {
+      ...val.changes,
+      expectedVersion: val.expectedVersion ?? val.changes.expectedVersion,
+    };
+  }
+  return val;
+}, allowlistedPatchChangesSchema.extend({
+  expectedVersion: permissiveExpectedVersion,
+}).passthrough());
 
 // Complete Submission Schema for API Ingestion
 export const completeSubmissionSchema = z.object({

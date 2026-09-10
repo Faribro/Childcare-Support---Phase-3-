@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { patchSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 
 export const dynamic = 'force-dynamic';
@@ -74,24 +74,61 @@ export async function PATCH(
 
     // Support If-Match header fallback for expectedVersion
     const ifMatchHeader = req.headers.get('If-Match') || req.headers.get('if-match');
-    if (ifMatchHeader && rawBody.expectedVersion === undefined) {
+    if (ifMatchHeader && (rawBody.expectedVersion === undefined || rawBody.expectedVersion === null || rawBody.expectedVersion === '')) {
       const parsedHeaderVersion = parseInt(ifMatchHeader.replace(/"/g, ''), 10);
-      if (!isNaN(parsedHeaderVersion)) {
+      if (!isNaN(parsedHeaderVersion) && parsedHeaderVersion > 0) {
         rawBody.expectedVersion = parsedHeaderVersion;
       }
     }
 
-    const validation = patchSubmissionSchema.safeParse(rawBody);
+    if (
+      rawBody.expectedVersion === undefined ||
+      rawBody.expectedVersion === null ||
+      isNaN(Number(rawBody.expectedVersion)) ||
+      Number(rawBody.expectedVersion) < 1
+    ) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'VALIDATION_ERROR',
+          message: 'The record needs correction before it can be sent.',
+          details: {
+            fields: [
+              {
+                field: 'expectedVersion',
+                path: 'expectedVersion',
+                issue: 'expectedVersion is required and must be a positive integer',
+                code: 'invalid_type',
+              },
+            ],
+          },
+          requestId,
+        },
+        { status: 422 }
+      );
+    }
+
+    const flattenedBody = flattenPatchBody(rawBody);
+    const validation = patchSubmissionSchema.safeParse(flattenedBody);
     if (!validation.success) {
       return NextResponse.json(
         {
           status: 'error',
           code: 'VALIDATION_ERROR',
-          message: 'Patch failed allowlisted field validation or missing expectedVersion',
+          message: 'The record needs correction before it can be sent.',
+          details: {
+            fields: validation.error.issues.map((i) => ({
+              field: i.path.join('.'),
+              path: i.path.join('.'),
+              issue: i.message,
+              code: i.code,
+            })),
+          },
           issues: validation.error.issues.map((i) => ({
             path: i.path.join('.'),
             message: i.message,
           })),
+          requestId,
         },
         { status: 422 }
       );
@@ -120,6 +157,7 @@ export async function PATCH(
           currentVersion: result.currentVersion,
           expectedVersion: result.expectedVersion,
           resolutionPath: 'REFRESH_AND_MERGE',
+          requestId,
         },
         { status: 409 }
       );
@@ -140,12 +178,19 @@ export async function PATCH(
     return NextResponse.json(
       {
         status: 'success',
+        data: {
+          ...(result.data || {}),
+          remoteSubmissionId: result.remoteSubmissionId || submissionId,
+          clientSubmissionId: result.uniqueId || submissionId,
+          version: result.version || patchPayload.expectedVersion + 1,
+          updatedAt: result.updatedAt || new Date().toISOString(),
+          syncStatus: 'SYNCED',
+        },
         acknowledged: true,
-        remoteSubmissionId: result.remoteSubmissionId,
-        version: result.version,
-        updatedAt: result.updatedAt,
+        remoteSubmissionId: result.remoteSubmissionId || submissionId,
+        version: result.version || patchPayload.expectedVersion + 1,
+        updatedAt: result.updatedAt || new Date().toISOString(),
         requestId,
-        data: result.data,
       },
       { status: 200 }
     );

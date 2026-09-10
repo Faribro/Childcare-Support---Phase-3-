@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { completeSubmissionSchema, patchSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { completeSubmissionSchema, patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 
 export const dynamic = 'force-dynamic';
@@ -98,11 +98,13 @@ export async function POST(req: NextRequest) {
           });
         }
       } else if (item.operationType === 'UPDATE') {
+        const expectedVersion = item.expectedVersion || (item.payload && (item.payload.expectedVersion || item.payload.version)) || 1;
         const patchData = {
-          expectedVersion: item.expectedVersion || (item.payload && (item.payload.expectedVersion || item.payload.version)) || 1,
           ...(typeof item.payload === 'object' ? item.payload : {}),
+          expectedVersion,
         };
-        const parsed = patchSubmissionSchema.safeParse(patchData);
+        const flattenedPatch = flattenPatchBody(patchData);
+        const parsed = patchSubmissionSchema.safeParse(flattenedPatch);
         if (!parsed.success) {
           results.push({
             submissionUuid: item.submissionUuid,

@@ -5,6 +5,7 @@
 
 import { db } from './dexieDb';
 import type { AssessmentRecord, SyncQueueItem, OutboxOperationType } from '@/types/domain';
+import { flattenPatchBody, allowlistedPatchChangesSchema } from '@/lib/validations/submissionSchema';
 
 // Client-side mutex lock to prevent overlapping sync executions
 let isSyncInProgress = false;
@@ -50,8 +51,9 @@ export async function enqueueSubmission(
     });
   }
 
-  // Enqueue in outbox
+  // Enqueue in outbox with schemaVersion 2
   const queueId = await db.syncQueue.add({
+    schemaVersion: 2,
     submissionUuid: record.uuid,
     idempotencyKey,
     operationType,
@@ -68,19 +70,138 @@ export async function enqueueSubmission(
   return queueId;
 }
 
+/**
+ * Migrates legacy queue items to schemaVersion 2.
+ * Converts legacy UPDATE payloads into allowlisted changes envelope.
+ * Quarantines unmigratable records as 'needs_review' without automatic retry.
+ */
+export async function migrateLegacyQueueItems(): Promise<{ migratedCount: number; needsReviewCount: number }> {
+  const allItems = await db.syncQueue.toArray();
+  let migratedCount = 0;
+  let needsReviewCount = 0;
+
+  for (const item of allItems) {
+    if (!item.id) continue;
+    let modified = false;
+    const updates: Partial<SyncQueueItem> = {};
+
+    if (!item.schemaVersion || item.schemaVersion < 2) {
+      updates.schemaVersion = 2;
+      modified = true;
+    }
+
+    if (!item.operationType) {
+      if (item.expectedVersion && item.expectedVersion > 1) {
+        updates.operationType = 'UPDATE';
+      } else if (item.payload && (((item.payload as any).version > 1) || (item.payload as any).editReason)) {
+        updates.operationType = 'UPDATE';
+      } else {
+        updates.operationType = 'CREATE';
+      }
+      modified = true;
+    }
+
+    const currentOp = updates.operationType || item.operationType;
+    if (currentOp === 'UPDATE') {
+      const payloadAny = (item.payload as any) || {};
+      if (!payloadAny.changes || typeof payloadAny.changes !== 'object') {
+        const targetId =
+          payloadAny.remoteSubmissionId ||
+          payloadAny.uniqueId ||
+          payloadAny.artNumber ||
+          payloadAny.demographics?.artNumber ||
+          item.submissionUuid;
+
+        const expectedVersion = Number(
+          item.expectedVersion ||
+          payloadAny.expectedVersion ||
+          payloadAny.version ||
+          1
+        );
+
+        const flattened = flattenPatchBody(payloadAny);
+        const filteredChanges: Record<string, any> = {};
+        for (const [k, v] of Object.entries(flattened)) {
+          if (!['uuid', 'clientSubmissionId', 'remoteSubmissionId', 'createdAt', 'id', 'stepIndex', 'syncStatus', 'syncNeeded', 'syncedAt', 'idempotencyKey', 'expectedVersion'].includes(k)) {
+            filteredChanges[k] = (v === '' || v === null) ? undefined : v;
+          }
+        }
+
+        const valid = allowlistedPatchChangesSchema.safeParse(filteredChanges);
+        if (valid.success) {
+          updates.payload = {
+            ...payloadAny,
+            changes: valid.data,
+            remoteSubmissionId: targetId,
+            expectedVersion,
+          };
+          updates.expectedVersion = expectedVersion;
+          modified = true;
+        } else {
+          updates.status = 'needs_review';
+          updates.nextRetryTimestamp = null;
+          updates.errorMessage = 'Legacy update record needs review before it can be sent.';
+          needsReviewCount++;
+          modified = true;
+        }
+      }
+    }
+
+    // Terminal 422 records: ensure retry is halted permanently
+    if (item.status === 'failed' && (item.lastErrorCode === 422 || item.lastErrorCode === '422')) {
+      if (item.nextRetryTimestamp !== null) {
+        updates.nextRetryTimestamp = null;
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      await db.syncQueue.update(item.id, updates);
+      migratedCount++;
+    }
+  }
+
+  return { migratedCount, needsReviewCount };
+}
+
 export async function getPendingQueue(forceAllPending: boolean = false): Promise<SyncQueueItem[]> {
   const now = Date.now();
   return db.syncQueue
     .filter((item) => {
+      // Synced, conflict, and draft items are never candidates
+      if (
+        item.status === 'synced' ||
+        item.status === 'SYNCED' ||
+        item.status === 'conflict' ||
+        item.status === 'needs_review' ||
+        item.status === 'NEEDS_REVIEW' ||
+        item.status === 'failed_final' ||
+        item.status === 'FAILED_FINAL'
+      ) {
+        return false;
+      }
+
+      // Check for terminal failure (400, 401, 403, 422 or halted retries with null timestamp)
+      const isTerminal =
+        item.status === 'failed' &&
+        (item.nextRetryTimestamp === null || [400, 401, 403, 422].includes(Number(item.lastErrorCode)));
+
+      if (isTerminal) {
+        return false;
+      }
+
       const isCandidate =
         item.status === 'queued' ||
-        item.status === 'failed' ||
-        item.status === 'failed_retryable' ||
         item.status === 'QUEUED' ||
-        item.status === 'FAILED_RETRYABLE';
+        item.status === 'failed_retryable' ||
+        item.status === 'FAILED_RETRYABLE' ||
+        (item.status === 'failed' && item.nextRetryTimestamp !== null && item.nextRetryTimestamp <= now);
 
       if (!isCandidate) return false;
       if (forceAllPending) return true;
+      if (item.status === 'failed') {
+        return item.nextRetryTimestamp !== null && item.nextRetryTimestamp <= now;
+      }
       return item.nextRetryTimestamp === null || item.nextRetryTimestamp <= now;
     })
     .toArray();
@@ -152,7 +273,8 @@ export async function markConflict(
 export async function markFailedFinal(
   queueId: number,
   errorMessage: string,
-  statusCode?: number | string
+  statusCode?: number | string,
+  validationIssues?: string[]
 ): Promise<void> {
   const item = await db.syncQueue.get(queueId);
   if (!item) return;
@@ -166,6 +288,7 @@ export async function markFailedFinal(
     lastErrorCode: statusCode,
     nextRetryTimestamp: null, // Halt retries
     errorMessage: `Terminal Failure (${numCode || 'Error'}): ${errorMessage}`,
+    validationIssues: validationIssues || undefined,
   });
 
   const draft = await db.drafts.where('uuid').equals(item.submissionUuid).first();

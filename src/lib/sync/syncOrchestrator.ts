@@ -16,6 +16,7 @@ import {
   releaseSyncLock,
   isSyncLocked,
   getPendingQueue,
+  migrateLegacyQueueItems,
   markSyncing,
   markSynced,
   markFailedRetryable,
@@ -23,6 +24,11 @@ import {
   markConflict,
   getQueueStats,
 } from '@/lib/db/syncQueueRepository';
+import {
+  buildCreateRequest,
+  buildUpdateRequest,
+  RequestBuilderError,
+} from '@/lib/sync/requestBuilders';
 import type { SyncQueueItem } from '@/types/domain';
 
 export type SyncTrigger =
@@ -107,7 +113,10 @@ class SyncOrchestratorService {
     const resultItems: SyncResultItem[] = [];
 
     try {
-      // 3. Fetch pending items
+      // 3. Migrate legacy queue items safely before picking candidates
+      await migrateLegacyQueueItems();
+
+      // 4. Fetch pending items
       const isForced = trigger === 'manual' || trigger === 'form_submit' || trigger === 'form_update';
       const pendingItems = await getPendingQueue(isForced);
 
@@ -124,58 +133,55 @@ class SyncOrchestratorService {
         };
       }
 
-      // 4. Process each item independently in bounded batches
+      // 5. Process each item independently in bounded batches
       for (const item of pendingItems) {
         if (!item.id) continue;
 
         try {
           await markSyncing(item.id);
 
-          const payloadAny = (item.payload as any) || {};
-          const isUpdate = item.operationType === 'UPDATE';
-          const targetId =
-            item.submissionUuid ||
-            payloadAny.uuid ||
-            payloadAny.uniqueId ||
-            payloadAny.demographics?.artNumber ||
-            payloadAny.artNumber;
+          let reqDetails: {
+            url: string;
+            method: string;
+            headers: Record<string, string>;
+            body: any;
+          };
+
+          try {
+            if (item.operationType === 'UPDATE') {
+              reqDetails = buildUpdateRequest(item);
+            } else {
+              reqDetails = buildCreateRequest(item);
+            }
+          } catch (buildErr: any) {
+            const isReqError = buildErr instanceof RequestBuilderError;
+            const errMsg = buildErr.message || 'Validation or request build failure';
+            const issues = isReqError
+              ? buildErr.issues.map((i: any) => `${i.path}: ${i.code}`)
+              : [errMsg];
+            await markFailedFinal(item.id, errMsg, 422, issues);
+            resultItems.push({
+              id: item.id,
+              submissionUuid: item.submissionUuid,
+              operationType: item.operationType,
+              status: 'failed_final',
+              statusCode: 422,
+              message: errMsg,
+            });
+            continue;
+          }
 
           let res: Response;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 20000);
 
           try {
-            if (isUpdate) {
-              const expectedVersion =
-                item.expectedVersion ||
-                payloadAny.expectedVersion ||
-                payloadAny.version ||
-                1;
-
-              res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'If-Match': `"${expectedVersion}"`,
-                  'Idempotency-Key': item.idempotencyKey || `update-${targetId}-${expectedVersion}`,
-                },
-                body: JSON.stringify({
-                  expectedVersion,
-                  ...(typeof item.payload === 'object' ? item.payload : {}),
-                }),
-                signal: controller.signal,
-              });
-            } else {
-              res = await fetch('/api/submissions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Idempotency-Key': item.idempotencyKey || `idem-${item.submissionUuid}`,
-                },
-                body: JSON.stringify(item.payload),
-                signal: controller.signal,
-              });
-            }
+            res = await fetch(reqDetails.url, {
+              method: reqDetails.method,
+              headers: reqDetails.headers,
+              body: JSON.stringify(reqDetails.body),
+              signal: controller.signal,
+            });
           } finally {
             clearTimeout(timeoutId);
           }
@@ -185,16 +191,18 @@ class SyncOrchestratorService {
             const remoteId =
               data.remoteSubmissionId ||
               data.uniqueId ||
+              data.data?.remoteSubmissionId ||
               data.data?.remote_submission_id ||
               data.data?.uniqueId ||
-              (isUpdate ? targetId : undefined);
+              (item.operationType === 'UPDATE' ? item.submissionUuid : undefined);
             const version =
               data.version ||
               data.revisionNumber ||
               data.data?.version ||
-              1;
+              (item.operationType === 'UPDATE' ? (item.expectedVersion || 1) + 1 : 1);
             const updatedAt =
               data.updatedAt ||
+              data.data?.updatedAt ||
               data.data?.updated_at ||
               new Date().toISOString();
             const requestId =
@@ -265,7 +273,10 @@ class SyncOrchestratorService {
           } else if ([400, 401, 403, 422].includes(res.status)) {
             const errBody = await res.json().catch(() => ({}));
             const errMsg = errBody.message || `Client validation error (HTTP ${res.status})`;
-            await markFailedFinal(item.id, errMsg, res.status);
+            const issues = Array.isArray(errBody.details?.fields)
+              ? errBody.details.fields.map((f: any) => `${f.field}: ${f.issue}`)
+              : undefined;
+            await markFailedFinal(item.id, errMsg, res.status, issues);
             resultItems.push({
               id: item.id,
               submissionUuid: item.submissionUuid,

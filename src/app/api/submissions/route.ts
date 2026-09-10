@@ -122,11 +122,20 @@ export async function POST(req: NextRequest) {
         {
           status: 'error',
           code: 'VALIDATION_ERROR',
-          message: 'Submission failed schema validation.',
+          message: 'The record needs correction before it can be sent.',
+          details: {
+            fields: validation.error.issues.map((i) => ({
+              field: i.path.join('.'),
+              path: i.path.join('.'),
+              issue: i.message,
+              code: i.code,
+            })),
+          },
           issues: validation.error.issues.map((i) => ({
             path: i.path.join('.'),
             message: i.message,
           })),
+          requestId,
         },
         { status: 422 }
       );
@@ -153,6 +162,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         status: 'success',
+        data: {
+          remoteSubmissionId: result.remoteSubmissionId,
+          clientSubmissionId: validation.data.clientSubmissionId || validation.data.uuid,
+          version: result.version || 1,
+          updatedAt: result.updatedAt || new Date().toISOString(),
+          syncStatus: 'SYNCED',
+        },
         acknowledged: true,
         remoteSubmissionId: result.remoteSubmissionId,
         uniqueId: result.uniqueId,
@@ -160,8 +176,7 @@ export async function POST(req: NextRequest) {
         revisionNumber: result.revisionNumber,
         updatedAt: result.updatedAt,
         isDuplicate: result.isDuplicate,
-        requestId: result.requestId,
-        data: result.data,
+        requestId: result.requestId || requestId,
       },
       { status: result.statusCode || (result.isDuplicate ? 200 : 201) }
     );

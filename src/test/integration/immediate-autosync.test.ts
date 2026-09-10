@@ -25,6 +25,7 @@ vi.mock('@/lib/db/syncQueueRepository', () => ({
     mockLocked = false;
   }),
   isSyncLocked: vi.fn(() => mockLocked),
+  migrateLegacyQueueItems: vi.fn(async () => 0),
   getPendingQueue: vi.fn(async (_forceAll: boolean) => {
     return mockQueueStore.filter(
       (item) => item.status === 'queued' || item.status === 'failed' || item.status === 'failed_retryable'
