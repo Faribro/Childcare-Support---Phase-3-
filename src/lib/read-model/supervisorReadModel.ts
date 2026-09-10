@@ -417,6 +417,15 @@ class SupervisorReadModelService {
     }
   }
 
+  public clearCache() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      localStorage.removeItem(CACHE_STORAGE_KEY);
+    } catch {
+      // Storage quota or privacy mode
+    }
+  }
+
   private bindWindowEvents() {
     if (typeof window === 'undefined') return;
 
@@ -601,6 +610,8 @@ class SupervisorReadModelService {
 
         if (mapped.length > 0) {
           this.saveCache(mapped, this.state.total);
+        } else {
+          this.clearCache();
         }
 
         this.notify();

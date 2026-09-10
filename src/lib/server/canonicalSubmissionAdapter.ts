@@ -171,14 +171,20 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
   };
 }
 
-function extractUpstreamStatusCode(res: Response, gasData: any): number {
+export function extractUpstreamStatusCode(res: Response, gasData: any): number {
+  if (gasData?.code === 'CONFIGURATION_ERROR') return 503;
+  if (gasData?.code === 'UNAUTHORIZED') return 401;
+  if (gasData?.code === 'VALIDATION_ERROR') return 422;
+  if (gasData?.code === 'NOT_FOUND') return 404;
+  if (gasData?.code === 'CONFLICT' || gasData?.code === 'OCC_CONFLICT' || gasData?.status === 'conflict') return 409;
+  if (gasData?.code === 'RATE_LIMIT_EXCEEDED') return 429;
+  if (gasData?.code === 'TIMEOUT') return 504;
+  if (gasData?.code === 'UPSTREAM_UNAVAILABLE') return 502;
+
   const rawCode = gasData?.code;
   const numCode = typeof rawCode === 'number' ? rawCode : parseInt(String(rawCode), 10);
   if (!isNaN(numCode) && numCode >= 400 && numCode <= 599) {
     return numCode;
-  }
-  if (gasData?.status === 'conflict' || gasData?.code === 'OCC_CONFLICT') {
-    return 409;
   }
   if (gasData?.message && /not found/i.test(gasData.message)) {
     return 404;
@@ -207,9 +213,7 @@ class CanonicalSubmissionAdapterService {
       process.env.WEBHOOK_SECRET ||
       process.env.APPS_SCRIPT_WEBHOOK_SECRET ||
       process.env.WEBHOOK_SHARED_SECRET ||
-      (process.env.RENDER === 'true'
-        ? 'childcare_phase3_secret_token_2026'
-        : undefined)
+      undefined
     );
   }
 
