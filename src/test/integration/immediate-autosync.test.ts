@@ -338,13 +338,20 @@ describe('Immediate Submit & Autosync Integration Test Suite (13 Gates)', () => 
 
   // GATE 6: 409 Concurrency conflict handling
   it('Gate 6: Should mark conflict and preserve local state when 409 Conflict occurs', async () => {
+    // UPDATE requires a server-confirmed UUID v4 remoteSubmissionId
+    const conflictRemoteId = 'e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b';
+
     const queueItem: SyncQueueItem = {
       id: 6,
       submissionUuid: sampleRecord.uuid,
       idempotencyKey: `idem-${sampleRecord.uuid}`,
       operationType: 'UPDATE',
       expectedVersion: 1,
-      payload: sampleRecord,
+      payload: {
+        ...sampleRecord,
+        // INVARIANT: remoteSubmissionId must be a server-assigned UUID v4 for UPDATE
+        remoteSubmissionId: conflictRemoteId,
+      },
       status: 'queued',
       retryCount: 0,
       lastAttempt: null,
@@ -370,6 +377,7 @@ describe('Immediate Submit & Autosync Integration Test Suite (13 Gates)', () => 
     expect(queueItem.conflictMetadata).toBeDefined();
     expect(queueItem.nextRetryTimestamp).toBeNull(); // Do not retry conflict automatically
   });
+
 
   // GATE 7: Client-side mutex lock and deduplication
   it('Gate 7: Should reject concurrent flush requests with busy status when locked', async () => {

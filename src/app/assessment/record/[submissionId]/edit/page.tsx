@@ -73,6 +73,8 @@ export default function EditRecordPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [conflictError, setConflictError] = useState<any>(null);
   const [currentVersion, setCurrentVersion] = useState<number>(1);
+  const [confirmedRemoteSubmissionId, setConfirmedRemoteSubmissionId] = useState<string | undefined>(undefined);
+
   const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<string>('en');
@@ -326,6 +328,15 @@ export default function EditRecordPage() {
           1
         );
         setCurrentVersion(rev);
+
+        // Persist the confirmed remoteSubmissionId for use in enqueue decisions
+        const loadedRemoteId =
+          foundRecord.remoteSubmissionId ||
+          remoteRecord?.remoteSubmissionId ||
+          localRecord?.remoteSubmissionId ||
+          null;
+        setConfirmedRemoteSubmissionId(loadedRemoteId || undefined);
+
 
         const reason =
           foundRecord.editReason ||
@@ -681,9 +692,13 @@ export default function EditRecordPage() {
         const queuePayload: any = {
           uuid: submissionId,
           clientSubmissionId: submissionId,
+          // IDENTITY FIELD: remoteSubmissionId must be forwarded if known.
+          // The enqueue decision (CREATE vs UPDATE) is based on this field alone.
+          remoteSubmissionId: confirmedRemoteSubmissionId || undefined,
           uniqueId: formData.artNumber || submissionId,
           version: nextVersion,
           editReason: note,
+
           demographics: {
             artNumber: formData.artNumber,
             dateOfFilling: formData.dateOfFilling,
@@ -788,12 +803,29 @@ export default function EditRecordPage() {
           updatedAt: new Date().toISOString(),
         };
 
+        // INVARIANT: Only enqueue UPDATE if the record has a confirmed server remoteSubmissionId.
+        // If no remoteSubmissionId is present, this record was never acknowledged by the server
+        // and must use POST (CREATE), never PATCH (UPDATE).
         if (!serverSaved) {
-          await enqueueSubmission(queuePayload as any, {
-            operationType: 'UPDATE',
-            expectedVersion: currentVersion,
-          });
+          const confirmedRemoteId = (queuePayload as any).remoteSubmissionId;
+          const confirmedVersion = currentVersion;
+
+          if (confirmedRemoteId && confirmedVersion >= 1) {
+            // Safe UPDATE: record has a server-confirmed remote ID
+            await enqueueSubmission(queuePayload as any, {
+              operationType: 'UPDATE',
+              expectedVersion: confirmedVersion,
+            });
+          } else {
+            // No server confirmation — must CREATE, not UPDATE.
+            // Preserve the existing localDraft queue entry as CREATE if present.
+            await enqueueSubmission(queuePayload as any, {
+              operationType: 'CREATE',
+              expectedVersion: 1,
+            });
+          }
         }
+
       } catch (dexieErr) {
         console.error('Dexie queue update error:', dexieErr);
       }

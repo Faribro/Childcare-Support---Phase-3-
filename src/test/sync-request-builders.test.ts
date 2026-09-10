@@ -211,7 +211,12 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
     });
   });
 
-  describe('buildUpdateRequest (PATCH /api/submissions/{targetId})', () => {
+  describe('buildUpdateRequest (PATCH /api/submissions/{remoteSubmissionId})', () => {
+    // The canonical remoteSubmissionId MUST be a server-assigned UUID v4.
+    // ART reference IDs like "DL-SOU-101122-01" are business fields — they MUST
+    // NEVER appear in PATCH URL paths.
+    const serverRemoteId = 'a3d6e4f2-0b1c-4a2d-8e3f-1c2b3d4e5f60';
+
     it('should build canonical PATCH request with { changes } and OCC header', () => {
       const queueItem: SyncQueueItem = {
         submissionUuid: validUuid,
@@ -224,14 +229,16 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: serverRemoteId,
           childName: 'Aarav Updated',
           primaryCaregiverOccupation: 'Self-employed',
         } as any,
       };
 
       const req = buildUpdateRequest(queueItem);
-      expect(req.url).toBe('/api/submissions/DL-SOU-101122-01');
+      // INVARIANT: URL must contain the server-assigned UUID, not an ART/reference ID
+      expect(req.url).toBe(`/api/submissions/${serverRemoteId}`);
+      expect(req.url).not.toMatch(/DL-SOU|ART-TEST|WB-KOL/); // ART IDs forbidden in URL
       expect(req.method).toBe('PATCH');
       expect(req.headers['If-Match']).toBe('"2"');
       expect(req.headers['Idempotency-Key']).toBe(`update-${validUuid}-1`);
@@ -251,7 +258,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: serverRemoteId,
           uuid: validUuid,
           id: 42,
           expectedVersion: 1,
@@ -282,7 +289,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: serverRemoteId,
           educationStatus: {
             educationStatus: 'Enrolled',
             schoolName: 'Govt Boys Sr Sec School',
@@ -314,7 +321,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: serverRemoteId,
           expectedVersion: 3,
           childName: 'Aarav Single Precondition',
         } as any,
@@ -338,7 +345,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: serverRemoteId,
           childName: 'Aarav',
         } as any,
       };
@@ -364,7 +371,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: serverRemoteId,
           childName: 'Aarav',
         } as any,
       };
@@ -378,7 +385,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
       }
     });
 
-    it('should reject missing remote target ID as terminal error with MISSING_TARGET_ID', () => {
+    it('should reject missing remote target ID as terminal error with MISSING_REMOTE_ID', () => {
       const queueItem: SyncQueueItem = {
         submissionUuid: '',
         idempotencyKey: 'update-missing',
@@ -398,11 +405,66 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
       try {
         buildUpdateRequest(queueItem);
       } catch (err: any) {
-        expect(err.code).toBe('MISSING_TARGET_ID');
+        expect(err.code).toBe('MISSING_REMOTE_ID');
+        expect(err.isTerminal).toBe(true);
+      }
+    });
+
+    it('REGRESSION: should reject an ART reference ID in PATCH URL with BUSINESS_ID_IN_URL', () => {
+      // This test documents and guards the exact regression that caused PATCH 404:
+      // An ART reference ID like "DL-SOU-101550-01" must NEVER appear in a PATCH URL.
+      const queueItem: SyncQueueItem = {
+        submissionUuid: validUuid,
+        idempotencyKey: 'update-art-id-regression',
+        operationType: 'UPDATE',
+        expectedVersion: 1,
+        status: 'queued',
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: null,
+        errorMessage: null,
+        payload: {
+          remoteSubmissionId: 'DL-SOU-101550-01', // ART reference ID — forbidden in PATCH URL
+          childName: 'Aarav',
+        } as any,
+      };
+
+      expect(() => buildUpdateRequest(queueItem)).toThrowError(RequestBuilderError);
+      try {
+        buildUpdateRequest(queueItem);
+      } catch (err: any) {
+        expect(err.code).toBe('BUSINESS_ID_IN_URL');
+        expect(err.isTerminal).toBe(true);
+      }
+    });
+
+    it('REGRESSION: should reject ART-TEST-0001 pattern in PATCH URL with BUSINESS_ID_IN_URL', () => {
+      const queueItem: SyncQueueItem = {
+        submissionUuid: validUuid,
+        idempotencyKey: 'update-art-test-regression',
+        operationType: 'UPDATE',
+        expectedVersion: 1,
+        status: 'queued',
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: null,
+        errorMessage: null,
+        payload: {
+          remoteSubmissionId: 'ART-TEST-0001', // Test ART ID — also forbidden
+          childName: 'Test Child',
+        } as any,
+      };
+
+      expect(() => buildUpdateRequest(queueItem)).toThrowError(RequestBuilderError);
+      try {
+        buildUpdateRequest(queueItem);
+      } catch (err: any) {
+        expect(err.code).toBe('BUSINESS_ID_IN_URL');
         expect(err.isTerminal).toBe(true);
       }
     });
   });
+
 
   describe('Database Outbox & 422 Retry Loop Prevention', () => {
     beforeEach(async () => {
@@ -411,6 +473,8 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
     });
 
     it('should migrate legacy flat UPDATE item to canonical { changes } format and schemaVersion 2', async () => {
+      // Legacy migration test: uses a proper UUID v4 remote ID as migration input.
+      const legacyRemoteId = 'b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e';
       const id = await db.syncQueue.add({
         submissionUuid: validUuid,
         idempotencyKey: 'legacy-key-1',
@@ -422,7 +486,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: null,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: legacyRemoteId,
           childName: 'Legacy Child',
           monthlyHouseholdIncome: 9500,
         } as any,
@@ -514,7 +578,11 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
       expect(onlineCandidates.some((i) => i.submissionUuid === 'stuck-422-item')).toBe(false);
     });
 
-    it('PATCH 422 never triggers a POST request and halts automatic retries', async () => {
+    it('PATCH 422 with valid UUID remote ID: never triggers a POST request and halts automatic retries', async () => {
+      // This test uses a proper UUID v4 remoteSubmissionId (the corrected production behavior).
+      // ART IDs as remoteSubmissionId are now rejected at buildUpdateRequest — they never reach fetch.
+      const validRemoteId = 'c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f';
+
       const updateId = await db.syncQueue.add({
         schemaVersion: 2,
         submissionUuid: validUuid,
@@ -527,7 +595,7 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         nextRetryTimestamp: Date.now() - 1000,
         errorMessage: null,
         payload: {
-          remoteSubmissionId: 'DL-SOU-101122-01',
+          remoteSubmissionId: validRemoteId,
           expectedVersion: 1,
           changes: {
             childName: 'Invalid Update',
@@ -561,7 +629,9 @@ describe('Safe Request Builders & Queue Migration (Phase 1, 2, 3, 4)', () => {
         // Verify only PATCH was called, NEVER POST
         expect(calledMethods).toContain('PATCH');
         expect(calledMethods).not.toContain('POST');
-        expect(calledUrls[0]).toContain('/api/submissions/DL-SOU-101122-01');
+        // URL must contain the UUID remote ID, not an ART/business ID
+        expect(calledUrls[0]).toContain(`/api/submissions/${validRemoteId}`);
+        expect(calledUrls[0]).not.toMatch(/DL-SOU|ART-TEST|WB-KOL/);
 
         // Verify item was marked failed_final
         expect(result.items[0].status).toBe('failed_final');

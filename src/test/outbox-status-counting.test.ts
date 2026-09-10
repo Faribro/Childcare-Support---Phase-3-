@@ -403,7 +403,7 @@ describe('Phase 5 — Complete 15 Verification Requirements', () => {
       status: 'failed',
       nextRetryTimestamp: Date.now() - 1000,
       operationType: 'UPDATE',
-      remoteSubmissionId: 'REM-EXISTING',
+      remoteSubmissionId: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', // UUID v4 — server-assigned
       expectedVersion: 1,
     });
 
@@ -425,6 +425,7 @@ describe('Phase 5 — Complete 15 Verification Requirements', () => {
     expect(updated?.status).toBe('conflict');
     expect(updated?.nextRetryTimestamp).toBeNull(); // Conflict retries halted
   });
+
 
   // Req 12: Successful acknowledgement updates IndexedDB to SYNCED.
   it('12. Successful acknowledgement updates IndexedDB to SYNCED with remote ID', async () => {
@@ -480,10 +481,12 @@ describe('Phase 5 — Complete 15 Verification Requirements', () => {
 
   // Req 14: UPDATE retains remoteSubmissionId and expectedVersion.
   it('14. UPDATE retains remoteSubmissionId and expectedVersion', async () => {
+    const remoteUuid = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e'; // UUID v4 — server-assigned
+
     const item = makeFullItem({
       status: 'failed',
       operationType: 'UPDATE',
-      remoteSubmissionId: 'REM-REMOTE-456',
+      remoteSubmissionId: remoteUuid,
       expectedVersion: 3,
       nextRetryTimestamp: Date.now() - 1000,
     });
@@ -493,7 +496,7 @@ describe('Phase 5 — Complete 15 Verification Requirements', () => {
     global.fetch = vi.fn(async (url: any, options: any) => {
       requestedUrl = String(url);
       sentIfMatch = options.headers['If-Match'] || '';
-      return new Response(JSON.stringify({ acknowledged: true, remoteSubmissionId: 'REM-REMOTE-456', version: 4 }), {
+      return new Response(JSON.stringify({ acknowledged: true, remoteSubmissionId: remoteUuid, version: 4 }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -501,9 +504,10 @@ describe('Phase 5 — Complete 15 Verification Requirements', () => {
 
     const result = await syncOrchestrator.retryQueueItem(item.id!);
     expect(result.status).toBe('synced');
-    expect(requestedUrl).toContain('REM-REMOTE-456');
+    expect(requestedUrl).toContain(remoteUuid);
     expect(sentIfMatch).toBe('"3"');
   });
+
 
   // Req 15: No raw payload or secret appears in logs.
   it('15. Observability logs redact sensitive data and contain no raw payloads or secrets', () => {
