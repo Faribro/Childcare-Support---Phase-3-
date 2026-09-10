@@ -392,6 +392,22 @@ export async function getAllQueueItems(): Promise<SyncQueueItem[]> {
   return db.syncQueue.reverse().sortBy('id');
 }
 
+export async function getQueueItem(queueId: number): Promise<SyncQueueItem | undefined> {
+  return db.syncQueue.get(queueId);
+}
+
+/**
+ * Resets a retryable-failed item back to queued so it can be dispatched immediately.
+ * MUST only be called for items that are NOT terminal (failed_final / conflict / needs_review).
+ */
+export async function resetToQueued(queueId: number): Promise<void> {
+  await db.syncQueue.update(queueId, {
+    status: 'queued',
+    nextRetryTimestamp: Date.now(),
+    errorMessage: null,
+  });
+}
+
 export async function getQueueStats() {
   const all = await db.syncQueue.toArray();
   return {

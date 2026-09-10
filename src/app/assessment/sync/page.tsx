@@ -28,6 +28,8 @@ export interface UnifiedAssessmentItem {
   id: string;
   submissionId: string;
   localId: string;
+  /** IndexedDB numeric key for the SyncQueueItem — undefined for server-only records */
+  queueId?: number;
   childName: string;
   caregiverName: string;
   caregiverPhone?: string;
@@ -35,7 +37,7 @@ export interface UnifiedAssessmentItem {
   state?: string;
   revisionNumber: number;
   status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict';
-  chipStatus: 'Local' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict';
+  chipStatus: 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict';
   serverStatus: 'accepted' | 'syncing' | 'waiting' | 'error';
   sheetsStatus: 'exported' | 'exporting' | 'waiting' | 'failed';
   createdAt: string;
@@ -48,7 +50,7 @@ export interface UnifiedAssessmentItem {
   isOutbox: boolean;
 }
 
-function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict' }) {
+function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict' }) {
   switch (chipStatus) {
     case 'Submitted':
       return (
@@ -62,6 +64,13 @@ function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Sending' | 'Submitt
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 animate-pulse">
           <RefreshCw className="w-2.5 h-2.5 animate-spin" />
           Sending…
+        </span>
+      );
+    case 'Retrying':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
+          <RefreshCw className="w-2.5 h-2.5" />
+          Retrying
         </span>
       );
     case 'Conflict':
@@ -398,17 +407,59 @@ function SyncCentreContent() {
     };
   }, [loadLocalData]);
 
+  const [retryingItemId, setRetryingItemId] = useState<number | null>(null);
+
   const handleSyncAll = async () => {
     if (isSyncing) return;
+    // Guard: if nothing actionable, do not dispatch — this was the original silent no-op bug
+    if (actionableCount === 0) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[SyncCentre] handleSyncAll: no actionable items — outbox contains only terminal/attention items, skipping dispatch');
+      }
+      return;
+    }
     setIsSyncing(true);
+    if (process.env.NODE_ENV !== 'production') {
+      console.info(`[SyncCentre] handleSyncAll: dispatching flushQueue for ${actionableCount} actionable item(s)`);
+    }
     try {
-      await syncOrchestrator.flushQueue('manual');
+      const result = await syncOrchestrator.flushQueue('manual');
+      if (process.env.NODE_ENV !== 'production') {
+        console.info(`[SyncCentre] flushQueue result: status=${result.status} synced=${result.syncedCount} failed=${result.failedCount} conflicts=${result.conflictCount}`);
+      }
       await loadLocalData();
       await refreshServer();
     } catch (err) {
       console.error('[SyncCentre] Error during manual sync:', err);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  /**
+   * Per-item manual retry for a single failed_retryable outbox record.
+   * MUST NOT be called for terminal items (failed_final, conflict, needs_review).
+   */
+  const handleRetryItem = async (item: UnifiedAssessmentItem) => {
+    if (!item.queueId) return;
+    if (item.status !== 'failed_retryable') return;
+    if (retryingItemId === item.queueId) return; // already in flight
+
+    setRetryingItemId(item.queueId);
+    if (process.env.NODE_ENV !== 'production') {
+      console.info(`[SyncCentre] handleRetryItem: retrying queueId=${item.queueId} status=${item.status}`);
+    }
+    try {
+      const result = await syncOrchestrator.retryQueueItem(item.queueId);
+      if (process.env.NODE_ENV !== 'production') {
+        console.info(`[SyncCentre] retryQueueItem result: queueId=${item.queueId} outcome=${result.status} httpCode=${result.statusCode ?? 'n/a'} requestAttempted=true`);
+      }
+      await loadLocalData();
+      await refreshServer();
+    } catch (err) {
+      console.error('[SyncCentre] retryQueueItem threw unexpectedly:', err);
+    } finally {
+      setRetryingItemId(null);
     }
   };
 
@@ -544,8 +595,9 @@ function SyncCentreContent() {
           serverStatus = 'error';
           sheetsStatus = 'failed';
         } else {
+          // Retryable — distinct from 'Local' (first attempt) so user can tell the difference
           status = 'failed_retryable';
-          chipStatus = 'Local';
+          chipStatus = 'Retrying';
           serverStatus = 'waiting';
           sheetsStatus = 'waiting';
         }
@@ -556,6 +608,7 @@ function SyncCentreContent() {
         if (qItem.status !== 'synced' || revisionNumber >= existing.revisionNumber) {
           map.set(id, {
             ...existing,
+            queueId: qItem.id,
             revisionNumber: Math.max(revisionNumber, existing.revisionNumber),
             status,
             chipStatus,
@@ -574,6 +627,7 @@ function SyncCentreContent() {
           id,
           submissionId,
           localId: String(qItem.id || submissionId),
+          queueId: qItem.id,
           childName,
           caregiverName,
           caregiverPhone,
@@ -610,7 +664,28 @@ function SyncCentreContent() {
     return unifiedItems.filter((i) => !i.isOutbox);
   }, [unifiedItems]);
 
-  const pendingCount = outboxItems.length;
+  /**
+   * Items that CAN be dispatched: queued (first attempt) + retryable failures.
+   * These are the only items the "Send" button should count and act on.
+   */
+  const actionableItems = useMemo(() => {
+    return outboxItems.filter((i) => i.status === 'ready_to_sync' || i.status === 'failed_retryable');
+  }, [outboxItems]);
+
+  /**
+   * Items that need human review — terminal failures and conflicts.
+   * These are NOT "waiting to synchronize"; the button must NOT dispatch for them.
+   */
+  const attentionItems = useMemo(() => {
+    return outboxItems.filter((i) => i.status === 'failed_final' || i.status === 'conflict');
+  }, [outboxItems]);
+
+  /** Actionable count — used for banner text and button. Never includes terminal items. */
+  const actionableCount = actionableItems.length;
+  /** Attention count — shown as an informational warning, never as "waiting to sync". */
+  const attentionCount = attentionItems.length;
+  /** Legacy alias: pendingCount now tracks ONLY actionable items (the bug fix). */
+  const pendingCount = actionableCount;
   const submittedCount = syncedItems.length;
 
   // Filter with Tab + Search Query + From/To Date
@@ -730,8 +805,8 @@ function SyncCentreContent() {
               </div>
             </div>
 
-            {/* Action Buttons: View, Edit, History */}
-            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t border-slate-100 sm:border-t-0 justify-end">
+            {/* Action Buttons: View, Edit, per-status action, History */}
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t border-slate-100 sm:border-t-0 justify-end flex-wrap">
               <button
                 type="button"
                 onClick={() => setViewingItem(item)}
@@ -748,6 +823,58 @@ function SyncCentreContent() {
                 Edit
               </button>
 
+              {/* Per-status semantic action button */}
+              {item.status === 'failed_retryable' && item.queueId && (
+                <button
+                  type="button"
+                  onClick={() => handleRetryItem(item)}
+                  disabled={retryingItemId === item.queueId || isSyncing || !isOnline}
+                  aria-label="Retry sending this record"
+                  aria-live="polite"
+                  className={`touch-target-44 min-h-[44px] text-xs px-3.5 font-bold border rounded-xl transition-colors flex items-center justify-center gap-1.5 flex-1 sm:flex-initial ${
+                    retryingItemId === item.queueId
+                      ? 'bg-orange-100 border-orange-200 text-orange-800 cursor-wait'
+                      : 'bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-800 cursor-pointer'
+                  }`}
+                >
+                  {retryingItemId === item.queueId ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Retrying…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-3 h-3" />
+                      Retry now
+                    </>
+                  )}
+                </button>
+              )}
+
+              {item.status === 'failed_final' && (
+                <button
+                  type="button"
+                  onClick={() => handleEditSubmission(item)}
+                  aria-label="Review and correct this record"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                >
+                  <AlertCircle className="w-3 h-3" />
+                  Review record
+                </button>
+              )}
+
+              {item.status === 'conflict' && (
+                <button
+                  type="button"
+                  onClick={() => handleEditSubmission(item)}
+                  aria-label="Review and resolve the data conflict"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  Review conflict
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setExpandedId(isExpanded ? null : item.localId)}
@@ -756,6 +883,7 @@ function SyncCentreContent() {
                 {isExpanded ? 'Hide' : 'History'}
               </button>
             </div>
+
           </div>
 
           {/* Expandable Technical Details & History Drawer */}
@@ -855,14 +983,19 @@ function SyncCentreContent() {
 
         {/* Top Control Bar: Search, Date Filter & Sync Actions Bar */}
         <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
-          {/* Outbox Banner (Shown when records are waiting on device) */}
-          {pendingCount > 0 && (
+          {/* Outbox Banner: Actionable items waiting to send */}
+          {actionableCount > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
               <div className="flex items-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
                 <div>
                   <p className="text-xs font-bold text-amber-950">
-                    {pendingCount} assessment{pendingCount === 1 ? '' : 's'} on this device waiting to synchronize
+                    {actionableCount} assessment{actionableCount === 1 ? '' : 's'} on this device waiting to synchronize
+                    {attentionCount > 0 && (
+                      <span className="ml-1 font-normal text-amber-800">
+                        · {attentionCount} need{attentionCount === 1 ? 's' : ''} attention
+                      </span>
+                    )}
                   </p>
                   <p className="text-[11px] text-amber-800">
                     {isOnline
@@ -876,6 +1009,7 @@ function SyncCentreContent() {
                 variant="primary"
                 onClick={handleSyncAll}
                 disabled={isSyncing || !isOnline}
+                aria-live="polite"
                 className="font-bold px-5 py-2 text-xs shadow-xs flex-shrink-0 bg-purple-700 hover:bg-purple-800 text-white cursor-pointer touch-target min-h-[44px]"
               >
                 {isSyncing ? (
@@ -884,13 +1018,28 @@ function SyncCentreContent() {
                     Sending…
                   </span>
                 ) : (
-                  `Send ${pendingCount} Waiting Record${pendingCount === 1 ? '' : 's'}`
+                  `Send ${actionableCount} Waiting Record${actionableCount === 1 ? '' : 's'}`
                 )}
               </Button>
             </div>
           )}
 
-          {/* Tab Navigation: All | Waiting to Send | Submitted Records */}
+          {/* Attention Banner: Only shown when there are terminal items and NO actionable ones */}
+          {actionableCount === 0 && attentionCount > 0 && (
+            <div className="flex items-center gap-2.5 p-3.5 bg-rose-50/80 border border-rose-200 rounded-xl">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-rose-900">
+                  {attentionCount} record{attentionCount === 1 ? '' : 's'} need{attentionCount === 1 ? 's' : ''} attention — manual review required
+                </p>
+                <p className="text-[11px] text-rose-700">
+                  These records could not be sent automatically. Please review each record below using the Edit button.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Tab Navigation: All Records | On Device | Submitted Records */}
           <div className="flex items-center gap-2 border-b border-slate-200 pb-3 overflow-x-auto">
             <button
               type="button"
@@ -916,11 +1065,11 @@ function SyncCentreContent() {
                   : 'text-slate-600 hover:bg-slate-100 border border-transparent'
               }`}
             >
-              <span>Waiting to Send</span>
+              <span>On Device</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold border ${
-                pendingCount > 0 ? 'bg-amber-200 text-amber-900 border-amber-300' : 'bg-white/80 border-slate-200'
+                outboxItems.length > 0 ? 'bg-amber-200 text-amber-900 border-amber-300' : 'bg-white/80 border-slate-200'
               }`}>
-                {pendingCount}
+                {outboxItems.length}
               </span>
             </button>
 
@@ -939,6 +1088,7 @@ function SyncCentreContent() {
               </span>
             </button>
           </div>
+
 
           {/* Search Bar & Date Range Filters */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
