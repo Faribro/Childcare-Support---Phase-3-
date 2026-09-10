@@ -19,6 +19,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "verify:sheet": "tsx scripts/verify-target-sheet.ts",
     "e2e:staging:preflight": "tsx scripts/e2e/verify-staging-preflight.ts",
+    "e2e:staging:cloud:preflight": "tsx scripts/e2e/verify-staging-cloud-preflight.ts",
     "e2e:staging:reconcile": "tsx scripts/e2e/reconcile-field-mapping.ts",
     "e2e:staging:run": "playwright test e2e/full-data-lifecycle.spec.ts e2e/offline-recovery-and-revision.spec.ts",
     "e2e:staging:verify": "tsx scripts/e2e/verify-staging-record.ts"
