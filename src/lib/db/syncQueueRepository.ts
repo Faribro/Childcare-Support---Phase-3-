@@ -147,11 +147,33 @@ export async function migrateLegacyQueueItems(): Promise<{ migratedCount: number
       }
     }
 
+    if (currentOp === 'CREATE') {
+      const pAny = (item.payload as any) || {};
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (pAny.uuid && !uuidRegex.test(pAny.uuid)) {
+        const generatedUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined;
+        if (generatedUuid) {
+          updates.submissionUuid = generatedUuid;
+          updates.payload = {
+            ...pAny,
+            uuid: generatedUuid,
+            clientSubmissionId: generatedUuid,
+            uniqueId: pAny.uniqueId || pAny.artNumber || pAny.demographics?.artNumber || item.submissionUuid,
+            demographics: {
+              ...(pAny.demographics || {}),
+              artNumber: pAny.demographics?.artNumber || pAny.artNumber || item.submissionUuid,
+            },
+          };
+          modified = true;
+        }
+      }
+    }
+
     // Recover stale syncing locks: if an item was left in 'syncing' state
     // (e.g. from page navigation, network interruption, or browser reload),
     // reset it back to 'queued' so it can be retried safely.
     if (item.status === 'syncing' || (item.status as any) === 'SYNCING') {
-      const isStale = !item.lastAttempt || (Date.now() - new Date(item.lastAttempt).getTime() > 10000);
+      const isStale = !item.lastAttempt || (Date.now() - new Date(item.lastAttempt).getTime() > 5000);
       if (isStale) {
         updates.status = 'queued';
         updates.nextRetryTimestamp = Date.now();
@@ -206,7 +228,7 @@ export async function getPendingQueue(forceAllPending: boolean = false): Promise
       // or if lastAttempt was > 10 seconds ago (interrupted sync)
       const isStaleSyncing =
         (item.status === 'syncing' || (item.status as any) === 'SYNCING') &&
-        (forceAllPending || !item.lastAttempt || (now - new Date(item.lastAttempt).getTime() > 10000));
+        (forceAllPending || !item.lastAttempt || (now - new Date(item.lastAttempt).getTime() > 5000));
 
       const isCandidate =
         item.status === 'queued' ||

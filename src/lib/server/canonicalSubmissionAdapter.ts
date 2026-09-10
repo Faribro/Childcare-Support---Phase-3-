@@ -171,6 +171,24 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
   };
 }
 
+function extractUpstreamStatusCode(res: Response, gasData: any): number {
+  const rawCode = gasData?.code;
+  const numCode = typeof rawCode === 'number' ? rawCode : parseInt(String(rawCode), 10);
+  if (!isNaN(numCode) && numCode >= 400 && numCode <= 599) {
+    return numCode;
+  }
+  if (gasData?.status === 'conflict' || gasData?.code === 'OCC_CONFLICT') {
+    return 409;
+  }
+  if (gasData?.message && /not found/i.test(gasData.message)) {
+    return 404;
+  }
+  if (res.status >= 400 && res.status <= 599) {
+    return res.status;
+  }
+  return 502;
+}
+
 class CanonicalSubmissionAdapterService {
   public getAppsScriptUrl(): string | undefined {
     return (
@@ -277,11 +295,12 @@ class CanonicalSubmissionAdapterService {
 
         const gasData = await res.json().catch(() => ({}));
         if (!res.ok || gasData.status === 'error') {
+          const upstreamCode = extractUpstreamStatusCode(res, gasData);
           return {
             status: 'error',
-            statusCode: res.status >= 500 ? 502 : res.status || 500,
+            statusCode: upstreamCode,
             code: gasData.code || 'UPSTREAM_FAILURE',
-            message: gasData.message || `Google Sheets backend returned error (${res.status})`,
+            message: gasData.message || `Google Sheets backend returned error (${upstreamCode})`,
             requestId: input.requestId,
           };
         }
@@ -379,11 +398,12 @@ class CanonicalSubmissionAdapterService {
         }
 
         if (!res.ok || gasData.status === 'error') {
+          const upstreamCode = extractUpstreamStatusCode(res, gasData);
           return {
             status: 'error',
-            statusCode: res.status >= 500 ? 502 : res.status || 500,
-            code: gasData.code || 'UPSTREAM_FAILURE',
-            message: gasData.message || `Google Sheets backend returned update error (${res.status})`,
+            statusCode: upstreamCode,
+            code: gasData.code || (upstreamCode === 404 ? 'NOT_FOUND' : 'UPSTREAM_FAILURE'),
+            message: gasData.message || `Google Sheets backend returned update error (${upstreamCode})`,
             requestId: input.requestId,
           };
         }
@@ -465,7 +485,6 @@ class CanonicalSubmissionAdapterService {
 
     if (this.isConfigured() && appsScriptUrl) {
       try {
-        // Send read request via POST to keep secret in body (Zero query param leaks)
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
           headers: {
@@ -482,22 +501,23 @@ class CanonicalSubmissionAdapterService {
 
         const gasData = await res.json().catch(() => ({}));
         if (!res.ok || gasData.status === 'error') {
+          const upstreamCode = extractUpstreamStatusCode(res, gasData);
           return {
             status: 'error',
-            statusCode: res.status === 404 ? 404 : 502,
-            code: gasData.code || 'UPSTREAM_FAILURE',
+            statusCode: upstreamCode,
+            code: gasData.code || (upstreamCode === 404 ? 'NOT_FOUND' : 'UPSTREAM_FAILURE'),
             message: gasData.message || 'Record not found on central bridge',
           };
         }
 
-        const normalized = normalizeSubmissionData(gasData.data, submissionId, gasData.revisionNumber || 1);
+        const normalized = normalizeSubmissionData(gasData.data, submissionId, gasData.revisionNumber || gasData.version || 1);
 
         return {
           status: 'success',
           statusCode: 200,
           data: normalized,
           remoteSubmissionId: gasData.uniqueId || submissionId,
-          version: gasData.revisionNumber || 1,
+          version: gasData.revisionNumber || gasData.version || 1,
         };
       } catch (err: any) {
         console.error('Canonical GET fetch exception:', err?.message || err);
@@ -546,7 +566,6 @@ class CanonicalSubmissionAdapterService {
 
     if (this.isConfigured() && appsScriptUrl) {
       try {
-        // Send list request via POST with secret in body
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
           headers: {
@@ -565,9 +584,10 @@ class CanonicalSubmissionAdapterService {
 
         const gasData = await res.json().catch(() => ({}));
         if (!res.ok || gasData.status === 'error') {
+          const upstreamCode = extractUpstreamStatusCode(res, gasData);
           return {
             status: 'error',
-            statusCode: 502,
+            statusCode: upstreamCode,
             code: gasData.code || 'UPSTREAM_FAILURE',
             message: gasData.message || 'Failed to list records from central bridge',
           };
@@ -578,7 +598,7 @@ class CanonicalSubmissionAdapterService {
           normalizeSubmissionData(
             item,
             item['1\nUnique ID'] || item.uniqueId || item['42\nART ID Number'] || item.art_number || `BEN-SYN-${idx + 1}`,
-            item['2\nRevision Number'] || item.revisionNumber || item.version || 1
+            parseInt(item['2\nRevision Number'] || item.revisionNumber || item.version || '1', 10)
           )
         );
 

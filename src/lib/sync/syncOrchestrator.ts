@@ -189,6 +189,134 @@ class SyncOrchestratorService {
 
           if (res.ok) {
             const data = await res.json().catch(() => ({}));
+
+            // Defend against upstreams returning HTTP 200 with an error body
+            if (data.status === 'error' || data.error) {
+              const codeNum = Number(data.code);
+              const statusCode = (!isNaN(codeNum) && codeNum >= 400 && codeNum <= 599) ? codeNum : 500;
+
+              if ((statusCode === 404 || /not found/i.test(data.message || '')) && item.operationType === 'UPDATE') {
+                const pAny = (item.payload as any) || {};
+                const hasData = Boolean(pAny.demographics?.childName || pAny.childName);
+                if (hasData) {
+                  const rawPayload: any = { ...pAny };
+                  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+                  if (!rawPayload.uuid || !uuidRegex.test(rawPayload.uuid)) {
+                    rawPayload.uuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined;
+                  }
+                  if (rawPayload.uuid && !rawPayload.clientSubmissionId) {
+                    rawPayload.clientSubmissionId = rawPayload.uuid;
+                  }
+                  if (!rawPayload.artNumber && item.submissionUuid) {
+                    rawPayload.artNumber = item.submissionUuid;
+                  }
+                  if (rawPayload.demographics && !rawPayload.demographics.artNumber && item.submissionUuid) {
+                    rawPayload.demographics.artNumber = item.submissionUuid;
+                  }
+
+                  const convertedItem: SyncQueueItem = {
+                    ...item,
+                    operationType: 'CREATE',
+                    submissionUuid: rawPayload.uuid || item.submissionUuid,
+                    payload: rawPayload,
+                    status: 'queued',
+                    nextRetryTimestamp: Date.now(),
+                  };
+
+                  await db.syncQueue.update(item.id, {
+                    operationType: 'CREATE',
+                    submissionUuid: rawPayload.uuid || item.submissionUuid,
+                    payload: rawPayload,
+                    status: 'queued',
+                    nextRetryTimestamp: Date.now(),
+                    errorMessage: 'Record not found on central server; converting to initial creation.',
+                  });
+
+                  try {
+                    const createReq = buildCreateRequest(convertedItem);
+                    const createRes = await fetch(createReq.url, {
+                      method: createReq.method,
+                      headers: createReq.headers,
+                      body: JSON.stringify(createReq.body),
+                    });
+                    if (createRes.ok) {
+                      const createData = await createRes.json().catch(() => ({}));
+                      if (createData.status !== 'error') {
+                        const cRemoteId = createData.remoteSubmissionId || createData.uniqueId || item.submissionUuid;
+                        const cVersion = createData.version || createData.revisionNumber || 1;
+                        const cUpdatedAt = createData.updatedAt || new Date().toISOString();
+                        const cRequestId = createData.requestId || (createRes.headers ? createRes.headers.get('x-request-id') || undefined : undefined);
+                        await markSynced(item.id, convertedItem.submissionUuid, cRemoteId, cVersion, cUpdatedAt, cRequestId);
+                        resultItems.push({
+                          id: item.id,
+                          submissionUuid: item.submissionUuid,
+                          operationType: 'CREATE',
+                          status: 'synced',
+                          statusCode: createRes.status,
+                          remoteSubmissionId: cRemoteId,
+                        });
+                        continue;
+                      }
+                    }
+                  } catch (retryErr) {
+                    console.warn('Immediate CREATE dispatch after 404 self-heal deferred to next retry:', retryErr);
+                  }
+
+                  resultItems.push({
+                    id: item.id,
+                    submissionUuid: item.submissionUuid,
+                    operationType: 'CREATE',
+                    status: 'failed_retryable',
+                    statusCode: 404,
+                    message: 'Record not found on central server; converted to initial creation.',
+                  });
+                  continue;
+                }
+              }
+
+              if (statusCode === 409 || data.code === 'OCC_CONFLICT') {
+                await markConflict(item.id, data);
+                resultItems.push({
+                  id: item.id,
+                  submissionUuid: item.submissionUuid,
+                  operationType: item.operationType,
+                  status: 'conflict',
+                  statusCode: 409,
+                  message: data.message || 'Record modified remotely by another user',
+                });
+                continue;
+              }
+
+              if ([400, 401, 403, 422].includes(statusCode)) {
+                const errMsg = data.message || `Client validation error (HTTP ${statusCode})`;
+                const issues = Array.isArray(data.details?.fields)
+                  ? data.details.fields.map((f: any) => `${f.field}: ${f.issue}`)
+                  : undefined;
+                await markFailedFinal(item.id, errMsg, statusCode, issues);
+                resultItems.push({
+                  id: item.id,
+                  submissionUuid: item.submissionUuid,
+                  operationType: item.operationType,
+                  status: 'failed_final',
+                  statusCode,
+                  message: errMsg,
+                });
+                continue;
+              }
+
+              const errMsg = data.message || 'Server returned error status';
+              await markFailedRetryable(item.id, errMsg, statusCode);
+              resultItems.push({
+                id: item.id,
+                submissionUuid: item.submissionUuid,
+                operationType: item.operationType,
+                status: 'failed_retryable',
+                statusCode,
+                message: errMsg,
+              });
+              continue;
+            }
+
             const remoteId =
               data.remoteSubmissionId ||
               data.uniqueId ||
@@ -304,13 +432,55 @@ class SyncOrchestratorService {
               if (rawPayload.demographics && !rawPayload.demographics.artNumber && item.submissionUuid) {
                 rawPayload.demographics.artNumber = item.submissionUuid;
               }
+
+              const convertedItem: SyncQueueItem = {
+                ...item,
+                operationType: 'CREATE',
+                submissionUuid: rawPayload.uuid || item.submissionUuid,
+                payload: rawPayload,
+                status: 'queued',
+                nextRetryTimestamp: Date.now(),
+              };
+
               await db.syncQueue.update(item.id, {
                 operationType: 'CREATE',
+                submissionUuid: rawPayload.uuid || item.submissionUuid,
                 payload: rawPayload,
                 status: 'queued',
                 nextRetryTimestamp: Date.now(),
                 errorMessage: 'Record not found on central server; converting to initial creation.',
               });
+
+              try {
+                const createReq = buildCreateRequest(convertedItem);
+                const createRes = await fetch(createReq.url, {
+                  method: createReq.method,
+                  headers: createReq.headers,
+                  body: JSON.stringify(createReq.body),
+                });
+                if (createRes.ok) {
+                  const createData = await createRes.json().catch(() => ({}));
+                  if (createData.status !== 'error') {
+                    const cRemoteId = createData.remoteSubmissionId || createData.uniqueId || item.submissionUuid;
+                    const cVersion = createData.version || createData.revisionNumber || 1;
+                    const cUpdatedAt = createData.updatedAt || new Date().toISOString();
+                    const cRequestId = createData.requestId || (createRes.headers ? createRes.headers.get('x-request-id') || undefined : undefined);
+                    await markSynced(item.id, convertedItem.submissionUuid, cRemoteId, cVersion, cUpdatedAt, cRequestId);
+                    resultItems.push({
+                      id: item.id,
+                      submissionUuid: item.submissionUuid,
+                      operationType: 'CREATE',
+                      status: 'synced',
+                      statusCode: createRes.status,
+                      remoteSubmissionId: cRemoteId,
+                    });
+                    continue;
+                  }
+                }
+              } catch (retryErr) {
+                console.warn('Immediate CREATE dispatch after 404 self-heal deferred to next retry:', retryErr);
+              }
+
               resultItems.push({
                 id: item.id,
                 submissionUuid: item.submissionUuid,
