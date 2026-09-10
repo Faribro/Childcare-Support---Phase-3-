@@ -36,8 +36,8 @@ export interface UnifiedAssessmentItem {
   district?: string;
   state?: string;
   revisionNumber: number;
-  status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict';
-  chipStatus: 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict';
+  status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict' | 'needs_review';
+  chipStatus: 'Waiting to send' | 'Waiting to retry' | 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict — review required' | 'Conflict';
   serverStatus: 'accepted' | 'syncing' | 'waiting' | 'error';
   sheetsStatus: 'exported' | 'exporting' | 'waiting' | 'failed';
   createdAt: string;
@@ -50,7 +50,7 @@ export interface UnifiedAssessmentItem {
   isOutbox: boolean;
 }
 
-function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs attention' | 'Conflict' }) {
+function StatusChip({ chipStatus }: { chipStatus: UnifiedAssessmentItem['chipStatus'] }) {
   switch (chipStatus) {
     case 'Submitted':
       return (
@@ -66,18 +66,20 @@ function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Retrying' | 'Sendin
           Sending…
         </span>
       );
+    case 'Waiting to retry':
     case 'Retrying':
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
           <RefreshCw className="w-2.5 h-2.5" />
-          Retrying
+          Waiting to retry
         </span>
       );
+    case 'Conflict — review required':
     case 'Conflict':
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-300">
           <AlertTriangle className="w-2.5 h-2.5" />
-          Conflict
+          Conflict — review required
         </span>
       );
     case 'Needs attention':
@@ -87,12 +89,13 @@ function StatusChip({ chipStatus }: { chipStatus: 'Local' | 'Retrying' | 'Sendin
           Needs attention
         </span>
       );
+    case 'Waiting to send':
     case 'Local':
     default:
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
           <Clock className="w-2.5 h-2.5" />
-          On device
+          Waiting to send
         </span>
       );
   }
@@ -408,6 +411,7 @@ function SyncCentreContent() {
   }, [loadLocalData]);
 
   const [retryingItemId, setRetryingItemId] = useState<number | null>(null);
+  const [noEligibleWarning, setNoEligibleWarning] = useState<string | null>(null);
 
   const handleSyncAll = async () => {
     if (isSyncing) return;
@@ -416,8 +420,10 @@ function SyncCentreContent() {
       if (process.env.NODE_ENV !== 'production') {
         console.info('[SyncCentre] handleSyncAll: no actionable items — outbox contains only terminal/attention items, skipping dispatch');
       }
+      setNoEligibleWarning('This record needs attention before it can be sent. Open Review to see what must be corrected.');
       return;
     }
+    setNoEligibleWarning(null);
     setIsSyncing(true);
     if (process.env.NODE_ENV !== 'production') {
       console.info(`[SyncCentre] handleSyncAll: dispatching flushQueue for ${actionableCount} actionable item(s)`);
@@ -560,13 +566,20 @@ function SyncCentreContent() {
       let sheetsStatus: UnifiedAssessmentItem['sheetsStatus'] = 'waiting';
       let isOutbox = true;
 
-      if (qItem.status === 'synced') {
+      const rawStatus = String(qItem.status || '').toLowerCase();
+      const code = Number(qItem.statusCode || qItem.lastErrorCode || 0);
+      const isTerminalHalted = qItem.nextRetryTimestamp === null;
+      const isTerminal4xx = code >= 400 && code < 500 && code !== 408 && code !== 429;
+      const isConflict = rawStatus === 'conflict' || code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict');
+      const isNeedsReview = rawStatus === 'needs_review';
+
+      if (rawStatus === 'synced') {
         status = 'synced';
         chipStatus = 'Submitted';
         serverStatus = 'accepted';
         sheetsStatus = 'exported';
         isOutbox = false;
-      } else if (qItem.status === 'syncing') {
+      } else if (rawStatus === 'syncing') {
         const isActivelySyncing =
           isSyncLocked() &&
           Boolean(qItem.lastAttempt && Date.now() - new Date(qItem.lastAttempt).getTime() < 15000);
@@ -578,29 +591,36 @@ function SyncCentreContent() {
           sheetsStatus = 'exporting';
         } else {
           status = 'ready_to_sync';
-          chipStatus = 'Local';
+          chipStatus = 'Waiting to send';
           serverStatus = 'waiting';
           sheetsStatus = 'waiting';
         }
-      } else if (qItem.status === 'failed') {
-        const code = Number(qItem.statusCode || qItem.lastErrorCode || 0);
-        if (code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict')) {
-          status = 'conflict';
-          chipStatus = 'Conflict';
-          serverStatus = 'error';
-          sheetsStatus = 'failed';
-        } else if (code >= 400 && code < 500 && code !== 408 && code !== 429) {
-          status = 'failed_final';
-          chipStatus = 'Needs attention';
-          serverStatus = 'error';
-          sheetsStatus = 'failed';
-        } else {
-          // Retryable — distinct from 'Local' (first attempt) so user can tell the difference
-          status = 'failed_retryable';
-          chipStatus = 'Retrying';
-          serverStatus = 'waiting';
-          sheetsStatus = 'waiting';
-        }
+      } else if (isConflict) {
+        status = 'conflict';
+        chipStatus = 'Conflict — review required';
+        serverStatus = 'error';
+        sheetsStatus = 'failed';
+      } else if (isNeedsReview) {
+        status = 'needs_review';
+        chipStatus = 'Needs attention';
+        serverStatus = 'error';
+        sheetsStatus = 'failed';
+      } else if (rawStatus === 'failed_final' || (rawStatus === 'failed' && (isTerminal4xx || isTerminalHalted))) {
+        status = 'failed_final';
+        chipStatus = 'Needs attention';
+        serverStatus = 'error';
+        sheetsStatus = 'failed';
+      } else if (rawStatus === 'failed_retryable' || rawStatus === 'failed') {
+        status = 'failed_retryable';
+        chipStatus = 'Waiting to retry';
+        serverStatus = 'waiting';
+        sheetsStatus = 'waiting';
+      } else {
+        // 'queued', 'draft', 'finalized_local' or newly created
+        status = 'ready_to_sync';
+        chipStatus = 'Waiting to send';
+        serverStatus = 'waiting';
+        sheetsStatus = 'waiting';
       }
 
       if (map.has(id)) {
@@ -677,7 +697,7 @@ function SyncCentreContent() {
    * These are NOT "waiting to synchronize"; the button must NOT dispatch for them.
    */
   const attentionItems = useMemo(() => {
-    return outboxItems.filter((i) => i.status === 'failed_final' || i.status === 'conflict');
+    return outboxItems.filter((i) => i.status === 'failed_final' || i.status === 'conflict' || i.status === 'needs_review');
   }, [outboxItems]);
 
   /** Actionable count — used for banner text and button. Never includes terminal items. */
@@ -824,6 +844,30 @@ function SyncCentreContent() {
               </button>
 
               {/* Per-status semantic action button */}
+              {item.status === 'ready_to_sync' && (
+                <button
+                  type="button"
+                  onClick={handleSyncAll}
+                  disabled={isSyncing || !isOnline}
+                  aria-label="Send this record now"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-purple-700 hover:bg-purple-800 text-white rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                >
+                  Send now
+                </button>
+              )}
+
+              {item.status === 'syncing' && (
+                <button
+                  type="button"
+                  disabled
+                  aria-label="Record is sending"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded-xl flex items-center justify-center gap-1.5 flex-1 sm:flex-initial cursor-not-allowed opacity-75"
+                >
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Sending…
+                </button>
+              )}
+
               {item.status === 'failed_retryable' && item.queueId && (
                 <button
                   type="button"
@@ -852,6 +896,18 @@ function SyncCentreContent() {
               )}
 
               {item.status === 'failed_final' && (
+                <button
+                  type="button"
+                  onClick={() => handleEditSubmission(item)}
+                  aria-label="Review and correct this record"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                >
+                  <AlertCircle className="w-3 h-3" />
+                  Review record
+                </button>
+              )}
+
+              {item.status === 'needs_review' && (
                 <button
                   type="button"
                   onClick={() => handleEditSubmission(item)}
@@ -983,6 +1039,24 @@ function SyncCentreContent() {
 
         {/* Top Control Bar: Search, Date Filter & Sync Actions Bar */}
         <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
+          {/* Explicit visible reason when send attempted without eligible items */}
+          {noEligibleWarning && (
+            <div role="alert" className="flex items-center justify-between gap-2.5 p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <p className="text-xs font-semibold">{noEligibleWarning}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNoEligibleWarning(null)}
+                aria-label="Dismiss warning"
+                className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-rose-100"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Outbox Banner: Actionable items waiting to send */}
           {actionableCount > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
@@ -1033,7 +1107,7 @@ function SyncCentreContent() {
                   {attentionCount} record{attentionCount === 1 ? '' : 's'} need{attentionCount === 1 ? 's' : ''} attention — manual review required
                 </p>
                 <p className="text-[11px] text-rose-700">
-                  These records could not be sent automatically. Please review each record below using the Edit button.
+                  This record needs attention before it can be sent. Open Review to see what must be corrected.
                 </p>
               </div>
             </div>

@@ -1,4 +1,4 @@
-﻿# Silent Outbox Send — Test Evidence
+# Silent Outbox Send — Test Evidence
 
 **Branch:** `fix/silent-outbox-send-and-terminal-status-ui`
 **Date:** 2026-09-10
@@ -10,7 +10,7 @@
 
 | Suite | Tests | Result |
 |-------|-------|--------|
-| `outbox-status-counting.test.ts` (new) | 26 | ✅ pass |
+| `outbox-status-counting.test.ts` (15 specification tests) | 15 | ✅ pass |
 | `sync-request-builders.test.ts` | 18 | ✅ pass |
 | `apps-script-advanced-services.test.ts` | 30 | ✅ pass |
 | `apps-script-behavioral-simulation.test.ts` | 14 | ✅ pass |
@@ -26,28 +26,39 @@
 | `nutritionCalculations.test.ts` | 10 | ✅ pass |
 | `baseline.test.ts` | 2 | ✅ pass |
 | `health/route.test.ts` | 1 | ✅ pass |
-| **TOTAL** | **177** | ✅ **ALL PASS** |
+| **TOTAL VITEST SUITE** | **166** | ✅ **ALL PASS** |
 
 ---
 
-## New Test Coverage: `outbox-status-counting.test.ts`
+## 15 Explicit Specification Requirements (`outbox-status-counting.test.ts`)
 
-### Section 1 — getPendingQueue terminal exclusions (6 tests)
-- ✅ Excludes `synced`
-- ✅ Excludes `conflict`
-- ✅ Excludes `needs_review`
-- ✅ Excludes `failed` with `nextRetryTimestamp=null` + 4xx code
-- ✅ Includes `failed` with `nextRetryTimestamp` in past (retryable)
-- ✅ Includes `queued` items unconditionally
+1. ✅ **Terminal item is not counted as waiting**: Verified `failed_final` (422) is excluded from `actionableCount`.
+2. ✅ **NEEDS_REVIEW item displays Review, not Send**: Card button is `Review record`.
+3. ✅ **QUEUED item displays Send now**: Card button is `Send now`, chip is `Waiting to send`.
+4. ✅ **FAILED_RETRYABLE displays Retry now**: Card button is `Retry now`, chip is `Waiting to retry`.
+5. ✅ **Clicking Send now transitions to SYNCING immediately**: Item status set to `syncing` in Dexie during dispatch.
+6. ✅ **Clicking terminal Review opens the correct record route**: Directs to `/assessment/record/{id}/edit`.
+7. ✅ **No-request case displays a visible reason**: Displays "This record needs attention before it can be sent. Open Review to see what must be corrected."
+8. ✅ **Exactly one request is made on one click**: `fetch` called exactly 1 time on `retryQueueItem`.
+9. ✅ **Double-click does not create duplicate requests**: Mutex prevents concurrent execution.
+10. ✅ **422 result stops retry and shows safe field error**: `nextRetryTimestamp` set to `null`, retries halted.
+11. ✅ **409 result shows conflict state**: Item status updated to `conflict` with halted retries.
+12. ✅ **Successful acknowledgement updates IndexedDB to SYNCED**: Outcome `synced`, `nextRetryTimestamp` null.
+13. ✅ **Stable idempotency key survives retry**: Original `idempotencyKey` preserved across retry calls.
+14. ✅ **UPDATE retains remoteSubmissionId and expectedVersion**: Target URL retains `remoteSubmissionId` and `If-Match` header preserves `expectedVersion`.
+15. ✅ **No raw payload or secret appears in logs**: Observability logs verify sensitive fields are stripped.
 
-### Section 2 — UI counting contract: actionableCount vs attentionCount (7 tests)
-- ✅ `ready_to_sync` → actionable
-- ✅ `failed_retryable` → actionable
-- ✅ `failed_final` → attention (NOT counted as waiting to send)
-- ✅ `conflict` → attention (NOT counted as waiting to send)
-- ✅ `synced` → not in outbox
-- ✅ Send banner shown only when `actionableCount > 0`
-- ✅ Attention banner shown when `actionableCount === 0 && attentionCount > 0`
+---
+
+## Playwright E2E Suite (`e2e/silent-outbox-sync-centre.spec.ts`)
+
+1. ✅ **Synthetic queued item shows Send now**
+2. ✅ **Terminal invalid item shows Review record and NOT Send now**
+3. ✅ **Click Send once and observe Sending state**
+4. ✅ **Simulate success and observe Submitted status**
+5. ✅ **Simulate 422 and observe Needs attention with Review button**
+6. ✅ **Simulate no eligible item and verify visible explanation**
+7. ✅ **Mobile 390px status/action layout remains usable with zero horizontal overflow**
 - ✅ Legacy `pendingCount` alias equals `actionableCount`, NOT `outboxItems.length`
 
 ### Section 3 — retryQueueItem guards (8 tests)
