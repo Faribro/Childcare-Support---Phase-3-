@@ -23,6 +23,8 @@ import {
   markFailedFinal,
   markConflict,
   getQueueStats,
+  getQueueItem,
+  resetToQueued,
 } from '@/lib/db/syncQueueRepository';
 import {
   buildCreateRequest,
@@ -572,6 +574,185 @@ class SyncOrchestratorService {
         items: resultItems,
         timestamp,
       };
+    } finally {
+      releaseSyncLock();
+    }
+  }
+
+  /**
+   * Manually retries a single failed-retryable outbox item.
+   *
+   * Contract:
+   * - ONLY dispatches for items with status in ['queued','failed','failed_retryable'].
+   * - MUST NOT be called for terminal items (failed_final, conflict, needs_review, synced).
+   * - Preserves clientSubmissionId and remoteSubmissionId — never regenerated.
+   * - Dispatches exactly one request under the global sync mutex.
+   * - Does NOT call flushQueue() internally.
+   */
+  public async retryQueueItem(queueItemId: number): Promise<SyncResultItem> {
+    const timestamp = new Date().toISOString();
+    const TERMINAL_STATUSES = new Set(['synced', 'SYNCED', 'failed_final', 'FAILED_FINAL', 'conflict', 'needs_review', 'NEEDS_REVIEW']);
+
+    // 1. Fetch item
+    const item = await getQueueItem(queueItemId);
+
+    if (!item || !item.id) {
+      return {
+        id: queueItemId,
+        submissionUuid: '',
+        operationType: 'CREATE',
+        status: 'failed_final',
+        statusCode: 404,
+        message: 'Queue item not found in local database',
+      };
+    }
+
+    // 2. Guard: reject terminal items
+    if (TERMINAL_STATUSES.has(item.status as string)) {
+      return {
+        id: item.id,
+        submissionUuid: item.submissionUuid,
+        operationType: item.operationType,
+        status: 'failed_final',
+        message: `Item is terminal (${item.status}) and cannot be retried manually`,
+      };
+    }
+
+    // 3. Guard: reject items with halted retry timestamp (failed_final that didn't get the new status yet)
+    if (item.status === 'failed' && item.nextRetryTimestamp === null &&
+        [400, 401, 403, 422].includes(Number(item.lastErrorCode))) {
+      return {
+        id: item.id,
+        submissionUuid: item.submissionUuid,
+        operationType: item.operationType,
+        status: 'failed_final',
+        message: 'Item has a terminal error code and cannot be retried',
+      };
+    }
+
+    // 4. Network check
+    if (!this.isOnline()) {
+      return {
+        id: item.id,
+        submissionUuid: item.submissionUuid,
+        operationType: item.operationType,
+        status: 'failed_retryable',
+        message: 'Device is offline — retry when connection is restored',
+      };
+    }
+
+    // 5. Acquire lock
+    if (!acquireSyncLock()) {
+      return {
+        id: item.id,
+        submissionUuid: item.submissionUuid,
+        operationType: item.operationType,
+        status: 'failed_retryable',
+        message: 'Sync already in progress — please wait and retry',
+      };
+    }
+
+    try {
+      // 6. Ensure item is in queued state so request builders receive clean item
+      await resetToQueued(item.id);
+
+      await markSyncing(item.id);
+
+      // 7. Build request (preserves existing clientSubmissionId and remoteSubmissionId)
+      let reqDetails: { url: string; method: string; headers: Record<string, string>; body: any };
+      try {
+        if (item.operationType === 'UPDATE') {
+          reqDetails = buildUpdateRequest(item);
+        } else {
+          reqDetails = buildCreateRequest(item);
+        }
+      } catch (buildErr: any) {
+        const isReqError = buildErr instanceof RequestBuilderError;
+        const errMsg = buildErr.message || 'Validation or request build failure';
+        const issues = isReqError
+          ? buildErr.issues.map((i: any) => `${i.path}: ${i.code}`)
+          : [errMsg];
+        await markFailedFinal(item.id, errMsg, 422, issues);
+        return {
+          id: item.id,
+          submissionUuid: item.submissionUuid,
+          operationType: item.operationType,
+          status: 'failed_final',
+          statusCode: 422,
+          message: errMsg,
+        };
+      }
+
+      // 8. Dispatch exactly one request
+      let res: Response;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      try {
+        res = await fetch(reqDetails.url, {
+          method: reqDetails.method,
+          headers: reqDetails.headers,
+          body: JSON.stringify(reqDetails.body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      // 9. Handle response (same classification as flushQueue)
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.status === 'error' || data.error) {
+          const codeNum = Number(data.code);
+          const statusCode = (!isNaN(codeNum) && codeNum >= 400 && codeNum <= 599) ? codeNum : 500;
+          if ([400, 401, 403, 422].includes(statusCode)) {
+            const errMsg = data.message || `Client validation error (HTTP ${statusCode})`;
+            await markFailedFinal(item.id, errMsg, statusCode);
+            return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'failed_final', statusCode, message: errMsg };
+          }
+          const errMsg = data.message || 'Server returned error status';
+          await markFailedRetryable(item.id, errMsg, statusCode);
+          return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'failed_retryable', statusCode, message: errMsg };
+        }
+
+        const remoteId = data.remoteSubmissionId || data.uniqueId || data.data?.remoteSubmissionId
+          || (item.operationType === 'UPDATE' ? item.submissionUuid : undefined);
+        const version = data.version || data.revisionNumber || (item.operationType === 'UPDATE' ? (item.expectedVersion || 1) + 1 : 1);
+        const updatedAt = data.updatedAt || data.data?.updatedAt || new Date().toISOString();
+        const requestId = data.requestId || (res.headers?.get?.('x-request-id') ?? undefined);
+        const isAcknowledged = data.acknowledged !== false && Boolean(remoteId);
+
+        if (isAcknowledged) {
+          await markSynced(item.id, item.submissionUuid, remoteId, version, updatedAt, requestId);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('child_nutrition:record_synced', {
+              detail: { uuid: item.submissionUuid, remoteSubmissionId: remoteId, version, updatedAt },
+            }));
+          }
+          return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'synced', remoteSubmissionId: remoteId, version, statusCode: res.status };
+        }
+        const errMsg = 'Unacknowledged server response without remote identifier';
+        await markFailedRetryable(item.id, errMsg, 500);
+        return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'failed_retryable', statusCode: 500, message: errMsg };
+
+      } else if (res.status === 409) {
+        const conflictBody = await res.json().catch(() => ({}));
+        await markConflict(item.id, conflictBody);
+        return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'conflict', statusCode: 409, message: conflictBody.message || 'Record modified remotely' };
+      } else if ([400, 401, 403, 422].includes(res.status)) {
+        const errBody = await res.json().catch(() => ({}));
+        const errMsg = errBody.message || `Client validation error (HTTP ${res.status})`;
+        await markFailedFinal(item.id, errMsg, res.status);
+        return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'failed_final', statusCode: res.status, message: errMsg };
+      } else {
+        const errBody = await res.json().catch(() => ({}));
+        const errMsg = errBody.message || `Server error (HTTP ${res.status})`;
+        await markFailedRetryable(item.id, errMsg, res.status);
+        return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'failed_retryable', statusCode: res.status, message: errMsg };
+      }
+    } catch (fetchErr: any) {
+      const errMsg = fetchErr.name === 'AbortError' ? 'Network request timed out' : fetchErr.message || 'Network connection unreachable';
+      await markFailedRetryable(item.id, errMsg, 503);
+      return { id: item.id, submissionUuid: item.submissionUuid, operationType: item.operationType, status: 'failed_retryable', statusCode: 503, message: errMsg };
     } finally {
       releaseSyncLock();
     }
