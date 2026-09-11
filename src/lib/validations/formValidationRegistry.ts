@@ -540,12 +540,26 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     defaultMessage: 'Please select the current education status.',
     order: 90,
   },
+  'educationStatus.educationStatusSpecify': {
+    sectionKey: 'education',
+    elementId: 'education-educationStatusSpecify',
+    label: 'Education status specification',
+    defaultMessage: 'Please specify the education status.',
+    order: 90.5,
+  },
   'educationStatus.schoolName': {
     sectionKey: 'education',
     elementId: 'education-schoolName',
     label: 'School name',
     defaultMessage: 'School name is required.',
     order: 91,
+  },
+  'educationStatus.schoolSessionStartDate': {
+    sectionKey: 'education',
+    elementId: 'education-schoolSessionStartDate',
+    label: 'School session start date',
+    defaultMessage: 'Please select school session start date.',
+    order: 91.5,
   },
   'educationStatus.schoolType': {
     sectionKey: 'education',
@@ -562,6 +576,33 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     order: 93,
   },
   'educationStatus.attendance': {
+    sectionKey: 'education',
+    elementId: 'education-attendance',
+    label: 'School attendance',
+    order: 94,
+  },
+  schoolName: {
+    sectionKey: 'education',
+    elementId: 'education-schoolName',
+    label: 'School name',
+    defaultMessage: 'School name is required.',
+    order: 91,
+  },
+  schoolType: {
+    sectionKey: 'education',
+    elementId: 'education-schoolType',
+    label: 'School type',
+    defaultMessage: 'Please select the school type.',
+    order: 92,
+  },
+  currentClass: {
+    sectionKey: 'education',
+    elementId: 'education-currentClass',
+    label: 'Current class / grade',
+    defaultMessage: 'Current class / grade is required.',
+    order: 93,
+  },
+  attendance: {
     sectionKey: 'education',
     elementId: 'education-attendance',
     label: 'School attendance',
@@ -708,7 +749,21 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     defaultMessage: 'You must confirm that all information is correct before submitting.',
     order: 120,
   },
+  'review.allInfoCorrect': {
+    sectionKey: 'review',
+    elementId: 'review-allInfoCorrect',
+    label: 'Confirmation of information correctness',
+    defaultMessage: 'You must confirm that all information is correct before submitting.',
+    order: 120,
+  },
   'finalReview.formSubmittedBy': {
+    sectionKey: 'review',
+    elementId: 'review-formSubmittedBy',
+    label: 'Interviewer / Caseworker name',
+    defaultMessage: 'Please enter the interviewer name (at least 2 characters) before submitting.',
+    order: 121,
+  },
+  'review.formSubmittedBy': {
     sectionKey: 'review',
     elementId: 'review-formSubmittedBy',
     label: 'Interviewer / Caseworker name',
@@ -721,7 +776,19 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     label: 'Organization name',
     order: 122,
   },
+  'review.organizationName': {
+    sectionKey: 'review',
+    elementId: 'review-organizationName',
+    label: 'Organization name',
+    order: 122,
+  },
   'finalReview.organizationEmail': {
+    sectionKey: 'review',
+    elementId: 'review-organizationEmail',
+    label: 'Organization email',
+    order: 123,
+  },
+  'review.organizationEmail': {
     sectionKey: 'review',
     elementId: 'review-organizationEmail',
     label: 'Organization email',
@@ -749,6 +816,13 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     order: 126,
   },
   finalReview: {
+    sectionKey: 'review',
+    elementId: 'sec-review',
+    label: 'Final review and attestation',
+    defaultMessage: 'Please complete the final review section before submitting.',
+    order: 127,
+  },
+  review: {
     sectionKey: 'review',
     elementId: 'sec-review',
     label: 'Final review and attestation',
@@ -935,6 +1009,82 @@ export function normalizeNativeValidationError(
     label: meta.label,
     elementId: meta.elementId,
   };
+}
+
+/**
+ * Hard Invariant Validator for Section Badges:
+ * Section error badge count MUST equal the number of errors that successfully
+ * resolve to a rendered DOM element with an active visible message/alert in that section.
+ * If an error cannot be rendered with a visible message next to a control, it must
+ * NEVER increment the badge count silently.
+ *
+ * @param validationErrors List of normalized validation errors
+ * @param domRoot Optional document or element root (defaults to global document)
+ * @returns Record mapping sectionKey to FormValidationError[] that satisfy the invariant
+ */
+export function getResolvableSectionErrors(
+  validationErrors: FormValidationError[],
+  domRoot?: Document | HTMLElement
+): Record<string, FormValidationError[]> {
+  const map: Record<string, FormValidationError[]> = {};
+  const doc = domRoot || (typeof document !== 'undefined' ? document : undefined);
+
+  for (const err of validationErrors) {
+    if (!err.sectionKey || !err.elementId) continue;
+
+    // Invariant 1: Must NOT be an unmapped generic or section-level fallback
+    if (err.elementId.startsWith('field-') || err.elementId.startsWith('sec-')) {
+      continue;
+    }
+
+    // Invariant 2 & 3: In a DOM environment, must resolve to a rendered DOM element with visible message/alert
+    if (doc) {
+      const el = 'getElementById' in doc
+        ? doc.getElementById(err.elementId)
+        : (doc as HTMLElement).querySelector(`[id="${err.elementId}"]`);
+
+      if (!el) {
+        // Target element is not rendered in current DOM (e.g. conditionally hidden or missing element)
+        continue;
+      }
+
+      // Check for associated error message element or alert indicator:
+      // 1. Direct error alert element by dedicated ID convention: ${err.elementId}-error
+      const errorElId = `${err.elementId}-error`;
+      const directErrorEl =
+        'getElementById' in doc
+          ? doc.getElementById(errorElId)
+          : (doc as HTMLElement).querySelector(`[id="${errorElId}"]`);
+
+      // 2. aria-describedby linkage to an error element
+      const describedBy = el.getAttribute('aria-describedby');
+      const describedByEl = describedBy
+        ? ('getElementById' in doc
+            ? doc.getElementById(describedBy)
+            : (doc as HTMLElement).querySelector(`[id="${describedBy}"]`))
+        : null;
+
+      // 3. Child alert inside the container itself (e.g. for composite containers like review-allInfoCorrect or caregiver-signature)
+      const innerAlert = el.querySelector('[role="alert"]');
+
+      // 4. Immediate sibling alert in the same field wrapper
+      const siblingAlert =
+        el.parentElement?.querySelector(`:scope > [id="${errorElId}"]`) ||
+        (el.nextElementSibling?.getAttribute('role') === 'alert' ? el.nextElementSibling : null);
+
+      const isAriaInvalid = el.getAttribute('aria-invalid') === 'true';
+      const hasVisibleErrorAlert = !!(directErrorEl || describedByEl || innerAlert || siblingAlert);
+
+      // Must have either an explicit rendered error alert message or aria-invalid="true"
+      if (!hasVisibleErrorAlert && !isAriaInvalid) {
+        continue;
+      }
+    }
+
+    (map[err.sectionKey] = map[err.sectionKey] || []).push(err);
+  }
+
+  return map;
 }
 
 // ── 6. Navigation and Focus Engine ──────────────────────────────────────────
