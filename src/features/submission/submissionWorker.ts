@@ -309,7 +309,43 @@ async function handleUpdate(
     return;
   }
 
-  const changes = payload.changes ?? {};
+  // Defensive guard: reject legacy or malformed UPDATE items with missing/empty changes
+  const changes = payload?.changes;
+  if (!changes || typeof changes !== 'object' || Object.keys(changes).length === 0) {
+    const elapsed = Date.now() - startMs;
+    logDiagnostic({
+      timestamp: new Date().toISOString(),
+      operation: 'UPDATE',
+      clientSubmissionId,
+      correlationId,
+      stateBefore: String(item.status),
+      stateAfter: 'failed_final',
+      statusCode: 422,
+      errorCategory: 'empty_update_changes',
+      retryCount: item.retryCount,
+      elapsedMs: elapsed,
+    });
+
+    await markActionRequired(
+      item.id!,
+      submissionUuid,
+      'This saved record needs help before it can be updated.',
+      422,
+      'empty_update_changes'
+    );
+
+    submissionEvents.emit('submission:failed', {
+      clientSubmissionId,
+      correlationId,
+      errorCategory: 'empty_update_changes',
+      message: 'This saved record needs help before it can be updated.',
+      timestamp: new Date().toISOString(),
+      retryCount: item.retryCount,
+    });
+
+    return;
+  }
+
   const result = await gatewayUpdate({
     remoteSubmissionId,
     expectedVersion: Number(expectedVersion),

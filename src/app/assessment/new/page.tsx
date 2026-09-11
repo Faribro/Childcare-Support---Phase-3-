@@ -19,7 +19,7 @@ import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
-import { submissionEvents } from '@/features/submission/submissionEvents';
+import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import { generateAssessmentId } from '@/lib/utils/idGenerator';
 import {
@@ -648,59 +648,31 @@ export default function NewSinglePageAssessment() {
       const refId = finalRecord.demographics.artNumber || finalRecord.uuid;
       const targetClientId = finalRecord.clientSubmissionId || finalRecord.uuid;
 
-      // ── BLOCKER 2 FIX: Event-driven lifecycle, not 1.5s race ──
-      // Subscribe to submissionEvents BEFORE firing the worker so no event is missed.
+      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
       setSubmitStatus('saving');
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         setSubmitStatus('sending');
-        // Fire worker — outcome arrives via submissionEvents
+
+        const outcomePromise = waitForSubmissionOutcome(targetClientId, {
+          onSending: () => setSubmitStatus('sending'),
+          onRetrying: () => setSubmitStatus('retrying'),
+        });
+
+        // Start worker AFTER listeners are registered synchronously
         processQueue('form_submit').catch(() => {/* worker handles its own errors */});
 
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            // >30 s with no event: go to /sync for progress tracking
-            resolve();
-          }, 30_000);
-
-          const cleanup = () => {
-            clearTimeout(timeout);
-            unsubSaving();
-            unsubSuccess();
-            unsubRetrying();
-            unsubFailed();
-          };
-
-          const unsubSaving = submissionEvents.on('submission:sending', (payload) => {
-            if (payload.clientSubmissionId === targetClientId) {
-              setSubmitStatus('sending');
-            }
-          });
-
-          const unsubSuccess = submissionEvents.on('submission:success', (payload) => {
-            if (payload.clientSubmissionId === targetClientId) {
-              setSubmitStatus('success');
-              cleanup();
-              router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-              resolve();
-            }
-          });
-
-          const unsubRetrying = submissionEvents.on('submission:retrying', (payload) => {
-            if (payload.clientSubmissionId === targetClientId) {
-              setSubmitStatus('retrying');
-            }
-          });
-
-          const unsubFailed = submissionEvents.on('submission:failed', (payload) => {
-            if (payload.clientSubmissionId === targetClientId) {
-              setSubmitStatus('failed');
-              cleanup();
-              router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
-              resolve();
-            }
-          });
-        });
+        const outcome = await outcomePromise;
+        if (outcome.status === 'success') {
+          setSubmitStatus('success');
+          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+        } else if (outcome.status === 'failed') {
+          setSubmitStatus('failed');
+          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
+        } else {
+          // Timeout -> non-success tracking state
+          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+        }
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }

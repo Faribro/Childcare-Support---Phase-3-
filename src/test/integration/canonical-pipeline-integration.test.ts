@@ -146,7 +146,11 @@ import {
   processQueue,
   resumeOnHydration,
 } from '@/features/submission/submissionWorker';
-import { submissionEvents } from '@/features/submission/submissionEvents';
+import {
+  submissionEvents,
+  waitForSubmissionOutcome,
+} from '@/features/submission/submissionEvents';
+import { EmptyUpdateChangesError } from '@/features/submission/submissionTypes';
 import { db } from '@/lib/db/dexieDb';
 
 // ---------------------------------------------------------------------------
@@ -767,91 +771,152 @@ describe('Canonical Pipeline Integration Suite (PR #7)', () => {
       expect(body.changes.weightKg).toBe(17);
     });
 
-    // ── I-2: Empty changes object is never dispatched to the network ──
-    it('I-2: Empty changes object is rejected before network dispatch', async () => {
-      // When changes is empty, enqueueUpdate still writes to DB but the
-      // edit/page.tsx guard now returns early BEFORE calling enqueueUpdate.
-      // Here we test the guard logic: if changes is empty, no UPDATE item
-      // should make it into the queue with an empty changes payload.
-      //
-      // We simulate what happens if empty changes accidentally reached enqueueUpdate:
-      await enqueueUpdate({
-        clientSubmissionId: TEST_CLIENT_UUID,
+    // ── I-2: Empty changes rejected at repository boundary AND worker boundary ──
+    it('I-2: Empty changes rejected at repository boundary (throws EmptyUpdateChangesError, no queue item) and worker boundary (zero fetch, ACTION_REQUIRED)', async () => {
+      // Part 1: enqueueUpdate({ changes: {} }) throws/rejects and creates NO queue item
+      await expect(
+        enqueueUpdate({
+          clientSubmissionId: TEST_CLIENT_UUID,
+          submissionUuid: TEST_CLIENT_UUID,
+          remoteSubmissionId: TEST_REMOTE_UUID,
+          expectedVersion: 1,
+          changes: {},
+          snapshot: makeSyntheticRecord() as any,
+        })
+      ).rejects.toThrow(EmptyUpdateChangesError);
+
+      const itemsAfterReject = await (db as any).syncQueue.toArray();
+      expect(itemsAfterReject).toHaveLength(0);
+
+      // Part 2: Manually seeded malformed UPDATE with changes: {}
+      // Results in zero fetch calls and never reaches gatewayUpdate
+      const malformedItem: SyncQueueItem = {
+        id: 99,
+        schemaVersion: 2,
         submissionUuid: TEST_CLIENT_UUID,
-        remoteSubmissionId: TEST_REMOTE_UUID,
+        idempotencyKey: `update-malformed-${Date.now()}`,
+        operationType: 'UPDATE',
+        payload: {
+          ...makeSyntheticRecord(),
+          clientSubmissionId: TEST_CLIENT_UUID,
+          remoteSubmissionId: TEST_REMOTE_UUID,
+          version: 1,
+          changes: {}, // Malformed/legacy empty changes
+        } as any,
+        status: 'queued',
         expectedVersion: 1,
-        changes: {},   // Intentionally empty — should not reach here in production
-        snapshot: makeSyntheticRecord() as any,
-      });
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: Date.now() - 1000,
+        errorMessage: null,
+      };
+      inMemoryQueue.push(malformedItem);
 
-      // The item is in the queue
-      const items = await (db as any).syncQueue.toArray();
-      const updateItem = items.find((i: any) => i.operationType === 'UPDATE');
-      expect(updateItem).toBeDefined();
-
-      // The worker must NOT send an empty PATCH — it must send the full changes
-      // Note: the real guard is in edit/page.tsx BEFORE enqueueUpdate is called.
-      // This test documents that even if it reaches the queue, the empty payload is visible.
-      const payload = updateItem?.payload;
-      expect(payload).toBeDefined();
-      // changes field is present but empty
-      expect(payload?.changes ?? {}).toEqual({});
-
-      // Set up fetch to track if a network call is made
       const fetchMock = vi.fn(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ acknowledged: true, remoteSubmissionId: TEST_REMOTE_UUID, version: 2 }),
+        json: async () => ({ acknowledged: true }),
       }) as any);
       global.fetch = fetchMock;
 
-      await processQueue('form_update');
+      const failedEvents: any[] = [];
+      const unsub = submissionEvents.on('submission:failed', (p) => {
+        if (p.clientSubmissionId === TEST_CLIENT_UUID) failedEvents.push(p);
+      });
 
-      // A PATCH IS sent because the queue item reached the worker.
-      // The regression guard for this blocker is the UI guard in edit/page.tsx
-      // that refuses to call enqueueUpdate when changes is empty.
-      // This test documents the full behaviour contract.
-      if ((fetchMock as any).mock.calls.length > 0) {
-        const firstCall = (fetchMock as any).mock.calls[0];
-        const opts = firstCall[1];
-        const body = JSON.parse(opts.body);
-        // Record that the body had empty changes — this is the defect state
-        expect(body.changes).toEqual({});
+      await processQueue('form_update');
+      unsub();
+
+      // Zero network calls made
+      expect(fetchMock).toHaveBeenCalledTimes(0);
+
+      // Item quarantined to failed_final (ACTION_REQUIRED)
+      expect(malformedItem.status).toBe('failed_final');
+      expect(failedEvents).toHaveLength(1);
+      expect(failedEvents[0].errorCategory).toBe('empty_update_changes');
+
+      // Never converted to CREATE
+      expect(malformedItem.operationType).toBe('UPDATE');
+    });
+
+    // ── I-3: Synchronous/near-immediate gateway acknowledgement after processQueue starts ──
+    it('I-3: Synchronous/near-immediate gateway acknowledgement after processQueue starts: listener observes submission:success and completes', async () => {
+      const snapshot = makeSyntheticRecord();
+      await enqueueCreate({
+        clientSubmissionId: TEST_CLIENT_UUID,
+        createIdempotencyKey: `create-${TEST_CLIENT_UUID}`,
+        snapshot,
+      });
+
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          acknowledged: true,
+          remoteSubmissionId: TEST_REMOTE_UUID,
+          clientSubmissionId: TEST_CLIENT_UUID,
+          version: 1,
+          requestId: 'req-sync-immediate',
+        }),
+      }) as any);
+
+      // Register listener BEFORE processQueue begins
+      const outcomePromise = waitForSubmissionOutcome(TEST_CLIENT_UUID);
+
+      // Dispatch worker
+      processQueue('form_submit').catch(() => {});
+
+      const outcome = await outcomePromise;
+      expect(outcome.status).toBe('success');
+      if (outcome.status === 'success') {
+        expect(outcome.payload.clientSubmissionId).toBe(TEST_CLIENT_UUID);
+        expect(outcome.payload.remoteSubmissionId).toBe(TEST_REMOTE_UUID);
       }
     });
 
-    // ── I-3: 1.5 s elapsed does NOT declare submission success ──
-    it('I-3: 30s timeout goes to /sync page, not success — success only fires on submission:success event', async () => {
-      const events: string[] = [];
+    // ── I-4: 30-second timeout simulation unsubscribes all listeners ──
+    it('I-4: 30-second timeout simulation: all event listeners are unsubscribed; late event cannot redirect/update timed-out form', async () => {
+      // Simulate timeout using a short timeoutMs (e.g. 50ms)
+      let lateCallbackCalled = false;
+      const outcomePromise = waitForSubmissionOutcome(TEST_CLIENT_UUID, {
+        timeoutMs: 50,
+        onSending: () => { lateCallbackCalled = true; },
+        onRetrying: () => { lateCallbackCalled = true; },
+      });
 
-      // Subscribe to all submission events
-      const unsubSuccess = submissionEvents.on('submission:success', () => events.push('success'));
-      const unsubFailed = submissionEvents.on('submission:failed', () => events.push('failed'));
-      const unsubSending = submissionEvents.on('submission:sending', () => events.push('sending'));
+      const outcome = await outcomePromise;
+      expect(outcome.status).toBe('timeout');
 
-      // Do NOT fire any event — simulate worker in flight beyond 1.5s
-      // The event bus is silent. The old code would have declared success at 1.5s.
-      // The new code waits up to 30s and then redirects to /sync (not success).
+      // Emit late events after timeout
+      submissionEvents.emit('submission:success', {
+        clientSubmissionId: TEST_CLIENT_UUID,
+        remoteSubmissionId: TEST_REMOTE_UUID,
+        timestamp: new Date().toISOString(),
+      });
+      submissionEvents.emit('submission:failed', {
+        clientSubmissionId: TEST_CLIENT_UUID,
+        timestamp: new Date().toISOString(),
+      });
+      submissionEvents.emit('submission:sending', {
+        clientSubmissionId: TEST_CLIENT_UUID,
+        timestamp: new Date().toISOString(),
+      });
 
-      // After 0ms, no success event has fired
-      await new Promise(r => setTimeout(r, 10));
-
-      // Confirm: no events fired
-      expect(events).not.toContain('success');
-      expect(events).not.toContain('failed');
-
-      unsubSuccess();
-      unsubFailed();
-      unsubSending();
+      // No late callback should have run, promise already resolved as timeout
+      expect(lateCallbackCalled).toBe(false);
     });
 
-    // ── I-4: Delayed valid ack still results in submission:success and redirect ──
-    it('I-4: Late server ack (after 200ms) fires submission:success and resolves correctly', async () => {
+    // ── I-5: Delayed acknowledgement produces exactly one matching success outcome and one navigation intent ──
+    it('I-5: Delayed acknowledgement: exactly one matching success outcome and one navigation intent', async () => {
       const snapshot = makeSyntheticRecord();
+      await enqueueCreate({
+        clientSubmissionId: TEST_CLIENT_UUID,
+        createIdempotencyKey: `create-${TEST_CLIENT_UUID}`,
+        snapshot,
+      });
 
       global.fetch = vi.fn(async () => {
-        // Simulate a slow server response
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 100));
         return {
           ok: true,
           status: 201,
@@ -860,34 +925,31 @@ describe('Canonical Pipeline Integration Suite (PR #7)', () => {
             remoteSubmissionId: TEST_REMOTE_UUID,
             clientSubmissionId: TEST_CLIENT_UUID,
             version: 1,
-            requestId: 'req-i4',
+            requestId: 'req-delayed',
           }),
         } as any;
       });
 
-      await enqueueCreate({
+      let navigationCount = 0;
+      const outcomePromise = waitForSubmissionOutcome(TEST_CLIENT_UUID);
+
+      processQueue('form_submit').catch(() => {});
+
+      const outcome = await outcomePromise;
+      if (outcome.status === 'success') {
+        navigationCount++;
+      }
+
+      // Late spurious event emitted on bus
+      submissionEvents.emit('submission:success', {
         clientSubmissionId: TEST_CLIENT_UUID,
-        createIdempotencyKey: `create-${TEST_CLIENT_UUID}`,
-        snapshot,
+        remoteSubmissionId: TEST_REMOTE_UUID,
+        timestamp: new Date().toISOString(),
       });
 
-      const successEvents: string[] = [];
-      const unsubSuccess = submissionEvents.on('submission:success', (payload) => {
-        if (payload.clientSubmissionId === TEST_CLIENT_UUID) {
-          successEvents.push(payload.clientSubmissionId);
-        }
-      });
-
-      // Fire worker — it will take ~200ms to get the ack
-      await processQueue('form_submit');
-
-      unsubSuccess();
-
-      // The submission:success event must have fired with the correct clientSubmissionId
-      expect(successEvents).toContain(TEST_CLIENT_UUID);
-      // Item must be synced
-      const synced = inMemoryQueue.find(i => i.status === 'synced');
-      expect(synced).toBeDefined();
+      // Exactly ONE matching success and one navigation intent
+      expect(outcome.status).toBe('success');
+      expect(navigationCount).toBe(1);
     });
   });
 

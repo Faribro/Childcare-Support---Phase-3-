@@ -16,6 +16,7 @@ import { db } from '@/lib/db/dexieDb';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import {
   assertValidRemoteSubmissionId,
+  EmptyUpdateChangesError,
   type ServerAcknowledgement,
   type SubmissionErrorCategory,
 } from './submissionTypes';
@@ -102,7 +103,7 @@ export interface EnqueueUpdateOptions {
   submissionUuid: string;
   remoteSubmissionId: string;
   expectedVersion: number;
-  changes?: Record<string, any>;
+  changes: Record<string, any>;
   snapshot: AssessmentRecord;
 }
 
@@ -110,11 +111,18 @@ export interface EnqueueUpdateOptions {
  * Atomically persists an assessment update and enqueues an UPDATE operation
  * in one Dexie transaction.
  *
- * Invariant: remoteSubmissionId MUST be a confirmed server-assigned UUID v4.
- * Never allows ART IDs, local IDs, or unconfirmed client IDs in UPDATE items.
+ * Invariants:
+ * - changes MUST be non-empty; throws EmptyUpdateChangesError otherwise.
+ * - remoteSubmissionId MUST be a confirmed server-assigned UUID v4.
+ * Never allows empty patches, ART IDs, local IDs, or unconfirmed client IDs in UPDATE items.
  */
 export async function enqueueUpdate(options: EnqueueUpdateOptions): Promise<number> {
   const { clientSubmissionId, submissionUuid, remoteSubmissionId, expectedVersion, changes, snapshot } = options;
+
+  if (!changes || typeof changes !== 'object' || Object.keys(changes).length === 0) {
+    throw new EmptyUpdateChangesError();
+  }
+
   assertValidRemoteSubmissionId(remoteSubmissionId, 'enqueueUpdate');
   const now = new Date().toISOString();
   const idempotencyKey = `update-${remoteSubmissionId}-v${expectedVersion}-${Date.now()}`;

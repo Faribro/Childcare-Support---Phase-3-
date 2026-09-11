@@ -15,7 +15,7 @@ import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import { enqueueCreate, enqueueUpdate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
-import { submissionEvents } from '@/features/submission/submissionEvents';
+import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
@@ -883,39 +883,23 @@ export default function EditRecordPage() {
       const refId = formData.artNumber || submissionId;
       const targetClientId = submissionId;
 
-      // ── BLOCKER 2 FIX (edit page): Event-driven dispatch, not 1.5s race ──
-      // Immediately fire the worker and let submissionEvents determine outcome.
+      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
       // Button is already disabled via isSaving. Redirect only on confirmed event.
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        // Fire worker without awaiting — outcome comes via event bus
+        const outcomePromise = waitForSubmissionOutcome(targetClientId);
+
+        // Start worker AFTER listeners are registered synchronously
         processQueue('form_update').catch(() => {/* background errors handled by worker */});
 
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            // If no event fires within 30 s, go to /sync so user can track progress
-            resolve();
-          }, 30_000);
-
-          const unsubSuccess = submissionEvents.on('submission:success', (payload) => {
-            if (payload.clientSubmissionId === targetClientId) {
-              clearTimeout(timeout);
-              unsubSuccess();
-              unsubFailed();
-              router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-              resolve();
-            }
-          });
-
-          const unsubFailed = submissionEvents.on('submission:failed', (payload) => {
-            if (payload.clientSubmissionId === targetClientId) {
-              clearTimeout(timeout);
-              unsubSuccess();
-              unsubFailed();
-              router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
-              resolve();
-            }
-          });
-        });
+        const outcome = await outcomePromise;
+        if (outcome.status === 'success') {
+          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+        } else if (outcome.status === 'failed') {
+          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
+        } else {
+          // Timeout -> non-success tracking state
+          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+        }
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }

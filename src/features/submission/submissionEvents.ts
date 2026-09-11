@@ -97,3 +97,116 @@ class SubmissionEventBus {
  * Import this in UI components, read-model hooks, and the worker.
  */
 export const submissionEvents = new SubmissionEventBus();
+
+// ---------------------------------------------------------------------------
+// Pre-Dispatch Subscription Helper — Canonical Form Submit Lifecycle
+// ---------------------------------------------------------------------------
+
+export interface WaitForSubmissionOutcomeOptions {
+  timeoutMs?: number;
+  onSending?: (payload: SubmissionEventPayload) => void;
+  onRetrying?: (payload: SubmissionEventPayload) => void;
+}
+
+export type SubmissionOutcome =
+  | { status: 'success'; payload: SubmissionEventPayload }
+  | { status: 'failed'; payload: SubmissionEventPayload }
+  | { status: 'timeout' };
+
+export interface SubmissionOutcomePromise extends Promise<SubmissionOutcome> {
+  cleanup: () => void;
+}
+
+/**
+ * Subscribes to submission lifecycle events for a specific clientSubmissionId
+ * BEFORE any worker dispatch occurs.
+ *
+ * Guarantees:
+ * - Listeners are registered synchronously upon invocation before processQueue.
+ * - Filters every event strictly by exact clientSubmissionId.
+ * - Success resolves only on matching submission:success.
+ * - Failed resolves only on matching submission:failed.
+ * - Retrying updates local status callback but does not falsely complete.
+ * - Timeout resolves with status: 'timeout'.
+ * - Any terminal resolution (success, failed, timeout) or manual cleanup()
+ *   unsubscribes every listener immediately.
+ * - Late events after resolution cannot trigger callbacks or duplicate resolution.
+ */
+export function waitForSubmissionOutcome(
+  targetClientId: string,
+  options?: WaitForSubmissionOutcomeOptions
+): SubmissionOutcomePromise {
+  const timeoutMs = options?.timeoutMs ?? 30_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let resolved = false;
+
+  let unsubSending: (() => void) | undefined;
+  let unsubRetrying: (() => void) | undefined;
+  let unsubSuccess: (() => void) | undefined;
+  let unsubFailed: (() => void) | undefined;
+
+  const cleanup = () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (unsubSending) {
+      unsubSending();
+      unsubSending = undefined;
+    }
+    if (unsubRetrying) {
+      unsubRetrying();
+      unsubRetrying = undefined;
+    }
+    if (unsubSuccess) {
+      unsubSuccess();
+      unsubSuccess = undefined;
+    }
+    if (unsubFailed) {
+      unsubFailed();
+      unsubFailed = undefined;
+    }
+  };
+
+  const promise = new Promise<SubmissionOutcome>((resolve) => {
+    // Synchronous registration before executor finishes
+    unsubSending = submissionEvents.on('submission:sending', (payload) => {
+      if (payload.clientSubmissionId === targetClientId && !resolved) {
+        options?.onSending?.(payload);
+      }
+    });
+
+    unsubRetrying = submissionEvents.on('submission:retrying', (payload) => {
+      if (payload.clientSubmissionId === targetClientId && !resolved) {
+        options?.onRetrying?.(payload);
+      }
+    });
+
+    unsubSuccess = submissionEvents.on('submission:success', (payload) => {
+      if (payload.clientSubmissionId === targetClientId && !resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ status: 'success', payload });
+      }
+    });
+
+    unsubFailed = submissionEvents.on('submission:failed', (payload) => {
+      if (payload.clientSubmissionId === targetClientId && !resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ status: 'failed', payload });
+      }
+    });
+
+    timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ status: 'timeout' });
+      }
+    }, timeoutMs);
+  }) as SubmissionOutcomePromise;
+
+  promise.cleanup = cleanup;
+  return promise;
+}

@@ -222,7 +222,19 @@ export type SubmissionErrorCategory =
   | 'not_found'
   | 'malformed_acknowledgement'
   | 'invalid_update_identity'
+  | 'empty_update_changes'
   | 'unknown';
+
+/**
+ * Thrown when enqueueUpdate is called with an empty, null, or undefined changes object.
+ * Prevents creation of UPDATE queue items that would result in an empty PATCH body.
+ */
+export class EmptyUpdateChangesError extends Error {
+  constructor(message = 'Cannot enqueue UPDATE with empty changes. At least one changed field is required.') {
+    super(message);
+    this.name = 'EmptyUpdateChangesError';
+  }
+}
 
 export interface SubmissionError {
   category: SubmissionErrorCategory;

@@ -153,6 +153,7 @@ export function getActionRequiredContext(
       };
 
     case 'invalid_update_identity':
+    case 'empty_update_changes':
     case 'not_found':
       return {
         message: 'This saved record needs help before it can be updated.',
