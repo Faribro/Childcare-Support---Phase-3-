@@ -184,6 +184,8 @@ import {
   hasVerifiableConsent,
   normalizeCaregiverConsent,
   getSubmissionOperation,
+  isRecoverableLegacyIdentityConsentFailure,
+  ALLOWED_LEGACY_IDENTITY_CONSENT_PATHS,
 } from '@/features/submission/submissionTypes';
 import {
   gatewayCreate,
@@ -1181,6 +1183,255 @@ describe('Legacy Identity & Consent Normalization Integration Suite', () => {
         version: 1,
       } as any);
       expect(op2).toBe('UPDATE');
+    });
+  });
+
+  // =========================================================================
+  // 10. Pre-Merge Safety: Fine-Grained 422 Recovery & Validation Evidence Guard
+  // =========================================================================
+  describe('10. Pre-Merge Safety: Fine-Grained 422 Recovery & Validation Evidence Guard', () => {
+    beforeEach(() => {
+      inMemoryQueue.length = 0;
+      inMemoryDrafts.length = 0;
+      inMemorySignatures.length = 0;
+      vi.clearAllMocks();
+    });
+
+    it('Test A: 422 with only allowed legacy paths (uuid, clientSubmissionId, caregiverConsent.consentProvided) normalizes, requeues as CREATE, and sends exactly 1 POST', async () => {
+      const artId = 'DL-SOU-TESTA-01';
+      const syntheticValidPayload = createValidSyntheticPayload(artId, undefined);
+      // Legacy shape: non-UUIDv4, legacy consent shape
+      syntheticValidPayload.uuid = artId as any;
+      syntheticValidPayload.clientSubmissionId = artId as any;
+      syntheticValidPayload.caregiverConsent = {
+        consentProvided: false, // Legacy un-normalized
+        agreeToParticipate: true,
+        caregiverName: 'Mother',
+        caregiverRelationship: 'Mother',
+      } as any;
+
+      const failedQueueItem: SyncQueueItem = {
+        id: 401,
+        schemaVersion: 1,
+        submissionUuid: artId,
+        idempotencyKey: `legacy-${artId}`,
+        operationType: 'CREATE',
+        payload: syntheticValidPayload,
+        status: 'failed_final',
+        lastErrorCode: 422,
+        errorCategory: 'validation',
+        errorMessage: 'The record needs correction before it can be sent.',
+        validationIssuePaths: ['uuid', 'clientSubmissionId', 'caregiverConsent.consentProvided'],
+        validationIssueCodes: ['invalid_string', 'invalid_string', 'invalid_literal'],
+        retryCount: 1,
+        lastAttempt: new Date().toISOString(),
+        nextRetryTimestamp: null,
+      };
+
+      inMemoryQueue.push(failedQueueItem);
+
+      // Verify isRecoverableLegacyIdentityConsentFailure evaluates to true
+      expect(isRecoverableLegacyIdentityConsentFailure(failedQueueItem)).toBe(true);
+
+      const fetchSpy = vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'success',
+            remoteSubmissionId: 'aaaaaaaa-1111-4aaa-aaaa-111111111111',
+            version: 1,
+            clientSubmissionId: 'will-be-checked-below',
+            requestId: 'ack-test-a',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+      global.fetch = fetchSpy;
+
+      // Migrate legacy queue items
+      const migratedCount = await migrateLegacyItems();
+      expect(migratedCount).toBe(1);
+
+      const itemAfterMigration = inMemoryQueue.find((i) => i.id === 401)!;
+      expect(itemAfterMigration.status).toBe('queued');
+      expect(itemAfterMigration.schemaVersion).toBe(3);
+      expect(itemAfterMigration.identityMigrationVersion).toBe(1);
+      expect(isValidUuidV4(itemAfterMigration.submissionUuid)).toBe(true);
+      expect(isValidUuidV4(itemAfterMigration.payload.uuid)).toBe(true);
+      expect(itemAfterMigration.payload.caregiverConsent.consentProvided).toBe(true);
+      expect(itemAfterMigration.errorMessage).toBeNull();
+      expect(itemAfterMigration.nextRetryTimestamp).toBeTypeOf('number');
+
+      // Dispatch via worker
+      await processQueue('test_a_worker_run');
+
+      // Exactly 1 POST, 0 PATCH
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe('/api/submissions');
+      expect(init.method).toBe('POST');
+
+      const requestBody = JSON.parse(init.body);
+      expect(isValidUuidV4(requestBody.uuid)).toBe(true);
+      expect(requestBody.caregiverConsent.consentProvided).toBe(true);
+      expect(requestBody.demographics.artNumber).toBe(artId);
+
+      // Item marked synced
+      expect(itemAfterMigration.status).toBe('synced');
+    });
+
+    it('Test B: 422 with mixed paths (uuid + unrelated path like demographics.childName) normalizes identity locally if safe, but remains failed_final, sends 0 POST, and preserves validation evidence', async () => {
+      const artId = 'DL-SOU-TESTB-01';
+      const syntheticPayload = createValidSyntheticPayload(artId, { agreeToParticipate: true, signatureDataUrl: 'data:image/png;base64,syntheticSig' });
+      syntheticPayload.uuid = artId as any;
+
+      const failedQueueItem: SyncQueueItem = {
+        id: 402,
+        schemaVersion: 1,
+        submissionUuid: artId,
+        idempotencyKey: `legacy-${artId}`,
+        operationType: 'CREATE',
+        payload: syntheticPayload,
+        status: 'failed_final',
+        lastErrorCode: 422,
+        errorCategory: 'validation',
+        errorMessage: 'Child name is invalid.',
+        validationIssuePaths: ['uuid', 'demographics.childName'],
+        validationIssueCodes: ['invalid_string', 'too_small'],
+        retryCount: 1,
+        lastAttempt: new Date().toISOString(),
+        nextRetryTimestamp: null,
+      };
+
+      inMemoryQueue.push(failedQueueItem);
+
+      // Verify isRecoverableLegacyIdentityConsentFailure evaluates to false because of demographics.childName
+      expect(isRecoverableLegacyIdentityConsentFailure(failedQueueItem)).toBe(false);
+
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      // Migrate
+      await migrateLegacyItems();
+
+      const itemAfterMigration = inMemoryQueue.find((i) => i.id === 402)!;
+      // Invariant: MUST REMAIN failed_final
+      expect(itemAfterMigration.status).toBe('failed_final');
+      expect(itemAfterMigration.nextRetryTimestamp).toBeNull();
+      expect(itemAfterMigration.errorCategory).toBe('validation');
+      expect(itemAfterMigration.lastErrorCode).toBe(422);
+      expect(itemAfterMigration.errorMessage).toBe('Child name is invalid.');
+
+      // Invariant: Safe validation evidence is strictly preserved
+      expect(itemAfterMigration.validationIssuePaths).toEqual(['uuid', 'demographics.childName']);
+      expect(itemAfterMigration.validationIssueCodes).toEqual(['invalid_string', 'too_small']);
+
+      // Attempt worker dispatch
+      await processQueue('test_b_worker_run');
+
+      // Invariant: 0 POST sent
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(itemAfterMigration.status).toBe('failed_final');
+    });
+
+    it('Test C: 422 with only an unrelated field (demographics.childName) remains failed_final with 0 POST', async () => {
+      const artId = 'DL-SOU-TESTC-01';
+      const syntheticPayload = createValidSyntheticPayload(artId, { agreeToParticipate: true, signatureDataUrl: 'data:image/png;base64,syntheticSig' });
+
+      const failedQueueItem: SyncQueueItem = {
+        id: 403,
+        schemaVersion: 1,
+        submissionUuid: artId,
+        idempotencyKey: `legacy-${artId}`,
+        operationType: 'CREATE',
+        payload: syntheticPayload,
+        status: 'failed_final',
+        lastErrorCode: 422,
+        errorCategory: 'validation',
+        errorMessage: 'Child name is required.',
+        validationIssuePaths: ['demographics.childName'],
+        validationIssueCodes: ['too_small'],
+        retryCount: 1,
+        lastAttempt: new Date().toISOString(),
+        nextRetryTimestamp: null,
+      };
+
+      inMemoryQueue.push(failedQueueItem);
+
+      expect(isRecoverableLegacyIdentityConsentFailure(failedQueueItem)).toBe(false);
+
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      await migrateLegacyItems();
+
+      const itemAfterMigration = inMemoryQueue.find((i) => i.id === 403)!;
+      expect(itemAfterMigration.status).toBe('failed_final');
+      expect(itemAfterMigration.nextRetryTimestamp).toBeNull();
+      expect(itemAfterMigration.validationIssuePaths).toEqual(['demographics.childName']);
+      expect(itemAfterMigration.validationIssueCodes).toEqual(['too_small']);
+
+      await processQueue('test_c_worker_run');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('Test D: Existing local record with no server validation evidence and pre-canonical schemaVersion (1) requeues once as CREATE and sends 1 POST', async () => {
+      const artId = 'DL-SOU-TESTD-01';
+      const syntheticPayload = createValidSyntheticPayload(artId, { agreeToParticipate: true, signatureDataUrl: 'data:image/png;base64,syntheticSig' });
+      syntheticPayload.uuid = artId as any;
+
+      const preCanonicalItem: SyncQueueItem = {
+        id: 404,
+        schemaVersion: 1,
+        submissionUuid: artId,
+        idempotencyKey: `legacy-${artId}`,
+        operationType: 'CREATE',
+        payload: syntheticPayload,
+        status: 'failed_final',
+        lastErrorCode: 422,
+        errorCategory: 'validation',
+        errorMessage: 'Legacy failure without server validation evidence',
+        validationIssuePaths: undefined,
+        validationIssueCodes: undefined,
+        retryCount: 1,
+        lastAttempt: new Date().toISOString(),
+        nextRetryTimestamp: null,
+      };
+
+      inMemoryQueue.push(preCanonicalItem);
+
+      // Verify evaluates to true under the no-server-evidence + pre-canonical version clause
+      expect(isRecoverableLegacyIdentityConsentFailure(preCanonicalItem)).toBe(true);
+
+      const fetchSpy = vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'success',
+            remoteSubmissionId: 'bbbbbbbb-2222-4bbb-bbbb-222222222222',
+            version: 1,
+            clientSubmissionId: 'ack-client-d',
+            requestId: 'ack-test-d',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+      global.fetch = fetchSpy;
+
+      await migrateLegacyItems();
+
+      const itemAfterMigration = inMemoryQueue.find((i) => i.id === 404)!;
+      expect(itemAfterMigration.status).toBe('queued');
+      expect(itemAfterMigration.schemaVersion).toBe(3);
+      expect(itemAfterMigration.errorMessage).toBeNull();
+      expect(isValidUuidV4(itemAfterMigration.submissionUuid)).toBe(true);
+
+      await processQueue('test_d_worker_run');
+
+      // Exactly 1 POST sent
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe('/api/submissions');
+      expect(init.method).toBe('POST');
+      expect(itemAfterMigration.status).toBe('synced');
     });
   });
 });

@@ -16,6 +16,9 @@
  *   PATCH /api/submissions/${clientSubmissionId}     <- forbidden
  */
 
+import type { SyncQueueItem } from '@/types/domain';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+
 // ---------------------------------------------------------------------------
 // Identity Field Definitions
 // ---------------------------------------------------------------------------
@@ -243,7 +246,9 @@ export interface SubmissionError {
   statusCode?: number;
   isRetryable: boolean;
   isTerminal: boolean;
-  validationFields?: Array<{ field: string; issue: string }>;
+  validationFields?: Array<{ field: string; issue: string; code?: string }>;
+  validationIssuePaths?: string[];
+  validationIssueCodes?: string[];
 }
 
 /**
@@ -406,3 +411,152 @@ export function normalizeCaregiverConsent(record: any): CanonicalCaregiverConsen
     signatureUrl: cc.signatureUrl,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Recoverable Legacy Identity & Consent Validation Evidence
+// ---------------------------------------------------------------------------
+
+export const ALLOWED_LEGACY_IDENTITY_CONSENT_PATHS: ReadonlySet<string> = new Set([
+  'uuid',
+  'clientSubmissionId',
+  'caregiverConsent.consentProvided',
+  'caregiverConsent',
+]);
+
+/**
+ * Determines whether a failed queue item is exclusively caused by the known
+ * legacy technical identity or consent mismatch and can be safely recovered
+ * and requeued as a CREATE operation.
+ *
+ * It returns true ONLY when:
+ * 1. The item has no confirmed remoteSubmissionId and no remote acknowledgement.
+ * 2. The operation is CREATE (never UPDATE).
+ * 3. The recorded prior failure is NOT an excluded terminal state (conflict,
+ *    invalid update identity, signature migration failure, unauthorized).
+ * 4. The recorded prior error is a 422 / validation failure:
+ *    - If server validation evidence (validationIssuePaths) exists:
+ *      Every path must strictly be one of:
+ *        - 'uuid'
+ *        - 'clientSubmissionId'
+ *        - 'caregiverConsent.consentProvided'
+ *        - 'caregiverConsent'
+ *      If ANY other path is present (e.g. 'demographics.childName'), return false.
+ *    - If no server validation evidence exists:
+ *      Item must have been created by a known pre-canonical local version
+ *      (schemaVersion < 3 or undefined/null).
+ * 5. After canonical normalization, completeSubmissionSchema passes.
+ */
+export function isRecoverableLegacyIdentityConsentFailure(item: SyncQueueItem): boolean {
+  // 1. Must have no remoteSubmissionId and no remote acknowledgement
+  const payloadAny = item.payload as any;
+  if (item.remoteSubmissionId || payloadAny?.remoteSubmissionId) {
+    return false;
+  }
+  if (item.acknowledged || payloadAny?.acknowledged) {
+    return false;
+  }
+
+  // 2. Operation must be CREATE (never UPDATE)
+  if (item.operationType && item.operationType !== 'CREATE') {
+    return false;
+  }
+
+  // 3. Never clear conflict status, invalid update identity, signature migration failure, or authorization state
+  if (
+    item.errorCategory === 'conflict' ||
+    item.errorCategory === 'invalid_update_identity' ||
+    item.errorCategory === 'signature_migration_failed' ||
+    item.errorCategory === 'unauthorized' ||
+    item.lastErrorCode === 401 ||
+    item.lastErrorCode === 403 ||
+    item.conflictMetadata
+  ) {
+    return false;
+  }
+
+  // 4. Must be a prior 422 / validation failure or a pre-canonical local item
+  const isPriorValidationError =
+    item.lastErrorCode === 422 ||
+    item.lastErrorCode === '422' ||
+    item.errorCategory === 'validation' ||
+    item.status === 'failed_final' ||
+    item.status === 'FAILED_FINAL' ||
+    item.status === 'needs_review' ||
+    item.status === 'NEEDS_REVIEW';
+
+  const paths = item.validationIssuePaths ?? [];
+
+  if (paths.length > 0) {
+    // If validation paths are recorded, prior error must be validation/422
+    if (!isPriorValidationError) {
+      return false;
+    }
+    // Every recorded validation path must be strictly one of the allowed legacy paths
+    const allPathsAllowed = paths.every((p: string) => ALLOWED_LEGACY_IDENTITY_CONSENT_PATHS.has(p));
+    if (!allPathsAllowed) {
+      return false;
+    }
+  } else {
+    // No server validation paths recorded:
+    // Permitted ONLY if created by a known pre-canonical local version (schemaVersion < 3)
+    const isPreCanonicalVersion =
+      item.schemaVersion === undefined ||
+      item.schemaVersion === null ||
+      item.schemaVersion < 3;
+
+    if (!isPreCanonicalVersion) {
+      return false;
+    }
+  }
+
+  // 5. After canonical normalization, completeSubmissionSchema must pass
+  const payload = item.payload ? JSON.parse(JSON.stringify(item.payload)) : {};
+
+  // Extract or preserve business reference ID
+  const oldRefId =
+    payload.demographics?.artNumber ||
+    payload.legacyBusinessReference ||
+    payload.uniqueId ||
+    (!isValidUuidV4(payload.uuid) ? payload.uuid : undefined) ||
+    (!isValidUuidV4(item.submissionUuid) ? item.submissionUuid : undefined);
+
+  if (!payload.demographics || typeof payload.demographics !== 'object') {
+    payload.demographics = {};
+  }
+  if (oldRefId && !payload.demographics.artNumber) {
+    payload.demographics.artNumber = oldRefId;
+  }
+  if (oldRefId && !payload.legacyBusinessReference) {
+    payload.legacyBusinessReference = oldRefId;
+  }
+
+  // Canonical UUIDv4
+  const canonicalUuid =
+    (isValidUuidV4(payload.uuid) ? payload.uuid : null) ||
+    (isValidUuidV4(payload.clientSubmissionId) ? payload.clientSubmissionId : null) ||
+    (isValidUuidV4(item.submissionUuid) ? item.submissionUuid : null) ||
+    '00000000-0000-4000-a000-000000000000'; // Synthetic valid UUID for schema check
+
+  payload.uuid = canonicalUuid;
+  payload.clientSubmissionId = canonicalUuid;
+
+  // Caregiver consent normalization
+  if (hasVerifiableConsent(payload)) {
+    const normalizedConsent = normalizeCaregiverConsent(payload);
+    if (normalizedConsent) {
+      payload.caregiverConsent = normalizedConsent;
+      payload.consent = {
+        agreeToParticipate: true,
+        signatureDataUrl: normalizedConsent.signatureDataUrl,
+        signatureTimestamp: normalizedConsent.consentCapturedAt,
+      };
+    }
+  } else {
+    // Consent cannot be verified -> not recoverable without user action
+    return false;
+  }
+
+  const parsed = completeSubmissionSchema.safeParse(payload);
+  return parsed.success;
+}
+

@@ -22,10 +22,14 @@ import {
   generateUuidV4,
   hasVerifiableConsent,
   normalizeCaregiverConsent,
+  isRecoverableLegacyIdentityConsentFailure,
+  ALLOWED_LEGACY_IDENTITY_CONSENT_PATHS,
   type ServerAcknowledgement,
   type SubmissionErrorCategory,
 } from './submissionTypes';
 import { submissionEvents } from './submissionEvents';
+
+export { isRecoverableLegacyIdentityConsentFailure, ALLOWED_LEGACY_IDENTITY_CONSENT_PATHS };
 
 // ---------------------------------------------------------------------------
 // Enqueue a new CREATE operation (snapshot + identity)
@@ -253,19 +257,29 @@ export async function markActionRequired(
   submissionUuid: string,
   errorMessage: string,
   statusCode?: number,
-  errorCategory?: SubmissionErrorCategory
+  errorCategory?: SubmissionErrorCategory,
+  validationIssuePaths?: string[],
+  validationIssueCodes?: string[]
 ): Promise<void> {
   const now = new Date().toISOString();
 
   await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
-    await db.syncQueue.update(queueId, {
+    const updateObj: Partial<SyncQueueItem> = {
       status: 'failed_final',
       errorMessage,
       errorCategory: errorCategory || 'validation',
       lastErrorCode: statusCode ?? null,
       nextRetryTimestamp: null,
       lastAttempt: now,
-    });
+    };
+    if (validationIssuePaths && validationIssuePaths.length > 0) {
+      updateObj.validationIssuePaths = validationIssuePaths;
+    }
+    if (validationIssueCodes && validationIssueCodes.length > 0) {
+      updateObj.validationIssueCodes = validationIssueCodes;
+    }
+
+    await db.syncQueue.update(queueId, updateObj);
 
     const draft = await db.drafts.where('uuid').equals(submissionUuid).first();
     if (draft?.id) {
@@ -787,6 +801,15 @@ export async function migrateLegacyItems(): Promise<number> {
     let newErrorCategory: SubmissionErrorCategory | undefined = item.errorCategory as SubmissionErrorCategory | undefined;
     let newErrorCode = item.lastErrorCode;
     let newNextRetry: number | null = item.nextRetryTimestamp;
+    let newValidationIssuePaths: string[] | undefined = item.validationIssuePaths;
+    let newValidationIssueCodes: string[] | undefined = item.validationIssueCodes;
+
+    const isPriorFailedState =
+      item.status === 'failed_final' ||
+      item.status === 'FAILED_FINAL' ||
+      item.status === 'needs_review' ||
+      item.status === 'NEEDS_REVIEW' ||
+      item.status === 'failed';
 
     if (!verifiableConsent) {
       // Consent cannot be verified: require user action
@@ -795,22 +818,44 @@ export async function migrateLegacyItems(): Promise<number> {
       newErrorMessage = 'Caregiver consent must be provided to record this assessment. Please open and record caregiver consent.';
       newErrorCode = 422;
       newNextRetry = null;
-    } else if (item.status === 'failed_final' && !isLegacyEligibleForRepair) {
-      // Record already had canonical identity and valid consent, but was marked failed_final (genuine server/field validation error)
-      newStatus = 'failed_final';
-      newNextRetry = null;
-    } else if (parseResult.success) {
-      // Record had a legacy defect and has now been repaired with canonical UUID and normalized consent!
-      // Clear obsolete identity/consent 422 error and re-queue for automatic dispatch
-      const isLegacyFailedState =
-        item.status === 'failed_final' ||
-        item.status === 'FAILED_FINAL' ||
-        item.status === 'needs_review' ||
-        item.status === 'NEEDS_REVIEW' ||
-        item.status === 'failed' ||
-        item.errorCategory === 'signature_migration_failed';
+      newValidationIssuePaths = ['caregiverConsent.consentProvided'];
+    } else if (isPriorFailedState) {
+      // Prior failed record: only requeue if failure was EXCLUSIVELY an allowed legacy identity/consent mismatch
+      const canRecover = isRecoverableLegacyIdentityConsentFailure(item);
 
-      if (isLegacyFailedState || item.status === 'syncing' || !item.status) {
+      if (canRecover && parseResult.success) {
+        // Recoverable legacy technical mismatch: clear obsolete error and requeue
+        newStatus = 'queued';
+        newErrorMessage = null;
+        newErrorCategory = undefined;
+        newErrorCode = null;
+        newNextRetry = Date.now();
+        newValidationIssuePaths = undefined;
+        newValidationIssueCodes = undefined;
+      } else {
+        // Unrelated failure, mixed failure, or unrecoverable state: MUST REMAIN failed_final
+        newStatus = 'failed_final';
+        newNextRetry = null;
+        newErrorMessage = item.errorMessage || parseResult.error?.issues[0]?.message || 'The record needs correction before it can be sent.';
+        newErrorCategory = (item.errorCategory as SubmissionErrorCategory) || 'validation';
+        newErrorCode = item.lastErrorCode ?? 422;
+        newValidationIssuePaths = item.validationIssuePaths ?? (parseResult.error ? parseResult.error.issues.map((i) => i.path.join('.')) : undefined);
+        newValidationIssueCodes = item.validationIssueCodes ?? (parseResult.error ? parseResult.error.issues.map((i) => i.code) : undefined);
+      }
+    } else if (
+      item.errorCategory === 'signature_migration_failed' &&
+      hasCanonicalSignature &&
+      parseResult.success
+    ) {
+      // Signature copy previously failed, but has now succeeded on retry
+      newStatus = 'queued';
+      newErrorMessage = null;
+      newErrorCategory = undefined;
+      newErrorCode = null;
+      newNextRetry = Date.now();
+    } else if (parseResult.success) {
+      // Non-failed record (queued, syncing, undefined) whose schema passes
+      if (item.status === 'syncing' || !item.status) {
         newStatus = 'queued';
         newErrorMessage = null;
         newErrorCategory = undefined;
@@ -820,12 +865,14 @@ export async function migrateLegacyItems(): Promise<number> {
         newNextRetry = item.nextRetryTimestamp ?? Date.now();
       }
     } else {
-      // Genuine field validation failure unrelated to UUID/consent
+      // Non-failed record whose local schema fails
       newStatus = 'failed_final';
       newErrorCategory = 'validation';
       newErrorMessage = parseResult.error.issues[0]?.message || 'The record needs correction before it can be sent.';
       newErrorCode = 422;
       newNextRetry = null;
+      newValidationIssuePaths = parseResult.error.issues.map((i) => i.path.join('.'));
+      newValidationIssueCodes = parseResult.error.issues.map((i) => i.code);
     }
 
     await db.syncQueue.update(item.id, {
@@ -841,6 +888,8 @@ export async function migrateLegacyItems(): Promise<number> {
       errorMessage: newErrorMessage,
       errorCategory: newErrorCategory,
       lastErrorCode: newErrorCode,
+      validationIssuePaths: newValidationIssuePaths,
+      validationIssueCodes: newValidationIssueCodes,
     });
 
     // Keep draft syncStatus in sync

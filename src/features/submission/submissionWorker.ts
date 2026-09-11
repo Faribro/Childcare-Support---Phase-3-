@@ -216,7 +216,15 @@ async function handleCreate(
   });
 
   if (error.isTerminal) {
-    await markActionRequired(item.id!, submissionUuid, error.message, error.statusCode, error.category);
+    await markActionRequired(
+      item.id!,
+      submissionUuid,
+      error.message,
+      error.statusCode,
+      error.category,
+      error.validationIssuePaths,
+      error.validationIssueCodes
+    );
     submissionEvents.emit('submission:failed', {
       clientSubmissionId,
       correlationId,
@@ -456,7 +464,15 @@ async function handleUpdate(
   });
 
   if (error.isTerminal) {
-    await markActionRequired(item.id!, submissionUuid, error.message, error.statusCode, error.category);
+    await markActionRequired(
+      item.id!,
+      submissionUuid,
+      error.message,
+      error.statusCode,
+      error.category,
+      error.validationIssuePaths,
+      error.validationIssueCodes
+    );
     submissionEvents.emit('submission:failed', {
       clientSubmissionId,
       correlationId,

@@ -400,6 +400,8 @@ export interface SyncQueueItem {
   requestId?: string | null;
   errorMessage: string | null;
   validationIssues?: string[];
+  validationIssuePaths?: string[];
+  validationIssueCodes?: string[];
   conflictMetadata?: {
     serverVersion?: number;
     conflictFields?: string[];
