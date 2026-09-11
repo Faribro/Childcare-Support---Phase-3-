@@ -1257,7 +1257,7 @@ describe('Legacy Identity & Consent Normalization Integration Suite', () => {
       expect(itemAfterMigration.identityMigrationVersion).toBe(1);
       expect(isValidUuidV4(itemAfterMigration.submissionUuid)).toBe(true);
       expect(isValidUuidV4(itemAfterMigration.payload.uuid)).toBe(true);
-      expect(itemAfterMigration.payload.caregiverConsent.consentProvided).toBe(true);
+      expect(itemAfterMigration.payload.caregiverConsent?.consentProvided).toBe(true);
       expect(itemAfterMigration.errorMessage).toBeNull();
       expect(itemAfterMigration.nextRetryTimestamp).toBeTypeOf('number');
 
