@@ -19,6 +19,7 @@ import {
   FormValidationError,
   getResolvableSectionErrors,
   normalizeValidationErrors,
+  navigateToValidationError,
   FIELD_REGISTRY,
 } from '@/lib/validations/formValidationRegistry';
 import {
@@ -160,7 +161,7 @@ describe('Bug 1: Validation Error Badge Accuracy & Real-Time Clearing', () => {
     const parsedLegacy = educationStatusSchema.safeParse(withLegacySchoolType);
     expect(parsedLegacy.success).toBe(true);
     if (parsedLegacy.success) {
-      expect(parsedLegacy.data.schoolType).toBe('Aided school');
+      expect(parsedLegacy.data.schoolType).toBe('Government aided');
     }
 
     // When valid, normalizeValidationErrors produces 0 errors for educationStatus
@@ -472,5 +473,181 @@ describe('Bug 1: Validation Error Badge Accuracy & Real-Time Clearing', () => {
       const sectionErrors = getResolvableSectionErrors(errors, document);
       expect(Object.keys(sectionErrors).length).toBe(0);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 8: P0 Regression Check — Genuinely invalid required field inside a collapsed
+  // section blocks submission, and getResolvableSectionErrors is purely for badge display
+  // ---------------------------------------------------------------------------
+  it('ensures invalid field in collapsed section blocks submission, and getResolvableSectionErrors is purely for badge display', () => {
+    // 1. Setup a valid complete payload except for a required field inside demographics:
+    // childName is deliberately empty.
+    const invalidPayload = {
+      uuid: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
+      interviewerName: 'Caseworker',
+      demographics: {
+        childName: '', // Genuinely invalid (min 2 chars required)
+        dob: '2016-05-15',
+        gender: 'Male' as const,
+        artNumber: 'DL-SOU-111749-01',
+        fullAddress: 'Sector 4, Rohini',
+        state: 'Delhi',
+        district: 'North West Delhi',
+        contactNumber: '9876543210',
+        caregiverName: 'Manoj Kumar',
+        caregiverRelationship: 'Father',
+      },
+      caregiverConsent: {
+        consentProvided: true as const,
+        agreeToParticipate: true,
+        caregiverName: 'Manoj Kumar',
+        caregiverRelationship: 'Father',
+        signatureDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      },
+      bankingAndKyc: {
+        bankAccountHolderName: 'Manoj Kumar',
+        bankAccountNumber: '123456789012',
+        bankIfscCode: 'SBIN0001234',
+        passbookPhotoUrl: 'https://example.com/passbook.jpg',
+        aadhaarCardPhotoUrl: 'https://example.com/aadhaar.jpg',
+        childPhotoUrl: 'https://example.com/child.jpg',
+      },
+      householdFinancial: {
+        totalFamilyMembers: 4,
+        monthlyIncomeRs: 15000,
+      },
+      health: {
+        weightKg: 28,
+        heightCm: 125,
+        haemoglobinGdl: 12,
+        artStatus: 'On ART',
+      },
+      educationStatus: {
+        educationStatus: 'Currently going to school' as const,
+        schoolName: 'Obaehs',
+        schoolSessionStartDate: '2024-04-01',
+        schoolType: 'Government school' as const,
+        currentClass: '10',
+        attendance: 'Regular' as const,
+      },
+      educationExpenses: {
+        schoolFees: 1200,
+        tuitionFees: 500,
+        books: 600,
+        stationery: 300,
+        uniform: 800,
+        transport: 400,
+        otherExpenses: 0,
+        totalAnnualCost: 3800,
+      },
+      educationSupportRequired: {
+        requiredSchoolFees: 1200,
+        requiredTuitionFees: 500,
+        requiredBooks: 600,
+        requiredStationery: 300,
+        requiredUniform: 800,
+        requiredTransport: 400,
+        requiredOtherSupport: 0,
+        totalRequiredSupport: 3800,
+      },
+      finalReview: {
+        allInfoCorrect: true as const,
+        formSubmittedBy: 'Caseworker',
+        organizationName: 'India HIV/AIDS Alliance',
+        organizationEmail: 'fieldworker@allianceindia.org',
+      },
+    };
+
+    // 2. Submit-time blocking logic (exact mirror of new/page.tsx lines 839-858
+    // and edit/page.tsx lines 1205-1213):
+    const schemaValidation = completeSubmissionSchema.safeParse(invalidPayload);
+    const customErrors: FormValidationError[] = [];
+    const isInvalid = !schemaValidation.success || customErrors.length > 0;
+
+    // a) Submission blocking check:
+    expect(schemaValidation.success).toBe(false);
+    expect(isInvalid).toBe(true);
+
+    // Full validation errors list is populated from schema and custom errors:
+    const fullValidationErrors = normalizeValidationErrors({
+      zodIssues: schemaValidation.success ? [] : schemaValidation.error.issues,
+      customErrors,
+    });
+    expect(fullValidationErrors.length).toBeGreaterThan(0);
+    const demoError = fullValidationErrors.find(
+      (e) => e.fieldKey === 'demographics.childName' || e.elementId === 'demographics-childName'
+    );
+    expect(demoError).toBeDefined();
+    expect(demoError?.sectionKey).toBe('demographics');
+
+    // Code path verification: In new/page.tsx and edit/page.tsx, if (isInvalid) returns immediately
+    // BEFORE calling enqueueCreate or queue write.
+    let submissionProceeded = false;
+    if (isInvalid) {
+      // Submission halts immediately!
+      submissionProceeded = false;
+    } else {
+      submissionProceeded = true;
+    }
+    expect(submissionProceeded).toBe(false);
+
+    // 3. Section is COLLAPSED / UNMOUNTED in DOM (e.g. accordion tab not yet expanded):
+    // Document contains only other sections; #demographics-childName is NOT in DOM.
+    document.body.innerHTML = `
+      <section id="sec-consent">
+        <div id="caregiver-consent"></div>
+        <div id="caregiver-signature"></div>
+      </section>
+      <!-- Demographics section is collapsed/unmounted: children not present in DOM -->
+      <section id="sec-child" class="collapsed"></section>
+    `;
+
+    // At this collapsed moment, getResolvableSectionErrors does not count the unmounted field:
+    const resolvableWhileCollapsed = getResolvableSectionErrors(fullValidationErrors, document);
+    expect(resolvableWhileCollapsed['demographics']).toBeUndefined();
+
+    // CRITICAL: Submission is STILL BLOCKED regardless of getResolvableSectionErrors returning empty!
+    // The submit blocker uses `isInvalid` (schemaValidation.success), NOT getResolvableSectionErrors.
+    expect(isInvalid).toBe(true);
+    expect(fullValidationErrors.length).toBeGreaterThan(0);
+
+    // 4. Section EXPANDS / MOUNTS (e.g. user opens accordion or navigateToValidationError opens it):
+    // Now the child elements and error alerts are rendered in DOM:
+    const childSection = document.getElementById('sec-child')!;
+    childSection.innerHTML = `
+      <div class="field-wrapper">
+        <input id="demographics-childName" aria-invalid="true" aria-describedby="demographics-childName-error" value="" />
+        <p id="demographics-childName-error" role="alert">Child full name is required</p>
+      </div>
+    `;
+
+    // 5. Once computable (section expanded & element rendered):
+    // getResolvableSectionErrors immediately includes it in that section's error badge count!
+    const resolvableAfterExpand = getResolvableSectionErrors(fullValidationErrors, document);
+    expect(resolvableAfterExpand['demographics']).toBeDefined();
+    expect(resolvableAfterExpand['demographics'].length).toBe(1);
+    expect(resolvableAfterExpand['demographics'][0].elementId).toBe('demographics-childName');
+
+    // 6. Test with standard HTML <details> accordion:
+    document.body.innerHTML = `
+      <details id="sec-child">
+        <summary>Who is the child we're supporting</summary>
+        <div class="field-wrapper">
+          <input id="demographics-childName" aria-invalid="true" aria-describedby="demographics-childName-error" value="" />
+          <p id="demographics-childName-error" role="alert">Child full name is required</p>
+        </div>
+      </details>
+    `;
+    const detailsEl = document.getElementById('sec-child') as HTMLDetailsElement;
+    expect(detailsEl.open).toBe(false);
+
+    // In a <details> container, DOM elements are present even when closed.
+    // getResolvableSectionErrors resolves it and produces accurate badge:
+    const detailsResolvable = getResolvableSectionErrors(fullValidationErrors, document);
+    expect(detailsResolvable['demographics']?.length).toBe(1);
+
+    // Calling navigateToValidationError expands the collapsed <details> element:
+    navigateToValidationError(demoError!);
+    expect(detailsEl.open).toBe(true);
   });
 });

@@ -50,12 +50,13 @@ export const schoolTypeEnum = z.enum([
   'Government school',
   'Private school',
   'Aided school',
+  // Legacy aliases
+  'Government aided',
+  'Special school',
 ]);
 
 export const permissiveSchoolType = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return undefined;
-  if (val === 'Government aided') return 'Aided school';
-  if (val === 'Special school') return 'Private school';
   return val;
 }, schoolTypeEnum.optional());
 
