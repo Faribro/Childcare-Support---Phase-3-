@@ -326,7 +326,13 @@ export interface AssessmentRecord {
   remoteSubmissionId?: string; // Canonical server-confirmed UUID
   version: number; // Optimistic Concurrency Control version (starts at 1)
   interviewerName: string;
-  uniqueId?: string; // Generated Reference / Beneficiary ID (e.g. WB-KOL-081255-01)
+  /**
+   * @deprecated Deprecated legacy display-only identifier.
+   * NEVER use as technical identity or in API URLs.
+   * Use demographics.artNumber or legacyBusinessReference for business reference numbers.
+   */
+  uniqueId?: string;
+  legacyBusinessReference?: string;
   stepIndex: number;
   
   // Official CHILD_HIV_SUPPORT_FORM Sections
@@ -373,6 +379,8 @@ export interface AssessmentRecord {
 export interface SyncQueueItem {
   id?: number;
   schemaVersion?: number;
+  identityMigrationVersion?: number;
+  canonicalIdentityMigratedAt?: string;
   submissionUuid: string;
   idempotencyKey: string;
   operationType: OutboxOperationType;

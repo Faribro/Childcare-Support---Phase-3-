@@ -119,7 +119,9 @@ export async function enqueueCreate(options: EnqueueCreateOptions): Promise<numb
 
     // 3. Enqueue CREATE
     return await db.syncQueue.add({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      identityMigrationVersion: 1,
+      canonicalIdentityMigratedAt: now,
       submissionUuid: validUuid,
       idempotencyKey: stableIdempotencyKey,
       operationType: 'CREATE',
@@ -188,7 +190,9 @@ export async function enqueueUpdate(options: EnqueueUpdateOptions): Promise<numb
     };
 
     return await db.syncQueue.add({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      identityMigrationVersion: 1,
+      canonicalIdentityMigratedAt: now,
       submissionUuid,
       idempotencyKey,
       operationType: 'UPDATE',
@@ -438,6 +442,10 @@ export async function getDispatchQueue(): Promise<SyncQueueItem[]> {
       if (item.status === 'failed_final' && item.errorCategory === 'validation') {
         return false;
       }
+      // Items with failed signature migration must not be dispatched until signature copy succeeds
+      if (item.errorCategory === 'signature_migration_failed') {
+        return false;
+      }
       if (item.status === 'failed_retryable' || item.status === 'FAILED_RETRYABLE') {
         return (item.nextRetryTimestamp ?? 0) <= now;
       }
@@ -481,6 +489,40 @@ export async function migrateLegacyItems(): Promise<number> {
 
     const payload: any = item.payload ?? {};
 
+    // 0. Durable migration check (BLOCKER 1)
+    // Migrate only when required:
+    //   - schemaVersion < 3; OR
+    //   - invalid uuid; OR
+    //   - invalid clientSubmissionId; OR
+    //   - legacy caregiver-consent shape needs normalization.
+    const needsUuidMigration =
+      !isValidUuidV4(payload.uuid) ||
+      !isValidUuidV4(payload.clientSubmissionId) ||
+      !isValidUuidV4(item.submissionUuid);
+
+    const needsConsentNormalization =
+      (!payload.caregiverConsent || payload.caregiverConsent.consentProvided !== true) &&
+      hasVerifiableConsent(payload);
+
+    const isAlreadyMigrated =
+      item.schemaVersion === 3 &&
+      item.identityMigrationVersion === 1 &&
+      Boolean(item.canonicalIdentityMigratedAt) &&
+      !needsUuidMigration &&
+      !needsConsentNormalization;
+
+    if (isAlreadyMigrated) {
+      // Once canonical identity and consent are valid:
+      // - do not generate another UUID;
+      // - do not replace the stable idempotency key;
+      // - do not copy signature attachment again;
+      // - do not reset a legitimate terminal validation/conflict status;
+      // - do not overwrite retry metadata.
+      continue;
+    }
+
+    const migrationTimestamp = new Date().toISOString();
+
     // 1. Check remote identity
     const rawRemoteId = payload.remoteSubmissionId;
     let hasValidRemoteId = false;
@@ -492,7 +534,9 @@ export async function migrateLegacyItems(): Promise<number> {
         // Has a remote ID but it's an ART ID or non-UUID — corrupt/legacy identity!
         // Do NOT convert to CREATE — quarantine to ACTION_REQUIRED.
         await db.syncQueue.update(item.id, {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          identityMigrationVersion: 1,
+          canonicalIdentityMigratedAt: migrationTimestamp,
           operationType: 'UPDATE',
           status: 'failed_final',
           errorMessage: 'This saved record needs help before it can be updated.',
@@ -505,7 +549,7 @@ export async function migrateLegacyItems(): Promise<number> {
           clientSubmissionId: payload.clientSubmissionId || payload.uuid || item.submissionUuid,
           errorCategory: 'invalid_update_identity',
           message: 'This saved record needs help before it can be updated.',
-          timestamp: new Date().toISOString(),
+          timestamp: migrationTimestamp,
           retryCount: item.retryCount,
         });
         migrated++;
@@ -518,7 +562,9 @@ export async function migrateLegacyItems(): Promise<number> {
     if (!hasValidRemoteId && hasRemoteAck) {
       // Evidence of remote acknowledgement attempt without valid canonical ID — quarantine
       await db.syncQueue.update(item.id, {
-        schemaVersion: 2,
+        schemaVersion: 3,
+        identityMigrationVersion: 1,
+        canonicalIdentityMigratedAt: migrationTimestamp,
         operationType: 'UPDATE',
         status: 'failed_final',
         errorMessage: 'This saved record needs help before it can be updated.',
@@ -531,7 +577,7 @@ export async function migrateLegacyItems(): Promise<number> {
         clientSubmissionId: payload.clientSubmissionId || payload.uuid || item.submissionUuid,
         errorCategory: 'invalid_update_identity',
         message: 'This saved record needs help before it can be updated.',
-        timestamp: new Date().toISOString(),
+        timestamp: migrationTimestamp,
         retryCount: item.retryCount,
       });
       migrated++;
@@ -541,7 +587,9 @@ export async function migrateLegacyItems(): Promise<number> {
     // 3. Explicit UPDATE operation without valid remote ID must NOT be auto-converted to CREATE
     if (item.operationType === 'UPDATE' && !hasValidRemoteId) {
       await db.syncQueue.update(item.id, {
-        schemaVersion: 2,
+        schemaVersion: 3,
+        identityMigrationVersion: 1,
+        canonicalIdentityMigratedAt: migrationTimestamp,
         operationType: 'UPDATE',
         status: 'failed_final',
         errorMessage: 'This saved record needs help before it can be updated.',
@@ -554,7 +602,7 @@ export async function migrateLegacyItems(): Promise<number> {
         clientSubmissionId: payload.clientSubmissionId || payload.uuid || item.submissionUuid,
         errorCategory: 'invalid_update_identity',
         message: 'This saved record needs help before it can be updated.',
-        timestamp: new Date().toISOString(),
+        timestamp: migrationTimestamp,
         retryCount: item.retryCount,
       });
       migrated++;
@@ -564,7 +612,9 @@ export async function migrateLegacyItems(): Promise<number> {
     // 4. Valid item with confirmed remoteSubmissionId (UPDATE)
     if (hasValidRemoteId) {
       await db.syncQueue.update(item.id, {
-        schemaVersion: 2,
+        schemaVersion: 3,
+        identityMigrationVersion: 1,
+        canonicalIdentityMigratedAt: migrationTimestamp,
         operationType: 'UPDATE',
         payload,
         idempotencyKey: item.idempotencyKey,
@@ -590,9 +640,10 @@ export async function migrateLegacyItems(): Promise<number> {
 
     const isLegacyEligibleForRepair = hasLegacyIdentityDefect || hasLegacyConsentDefect;
 
-    // Extract any existing business reference ID
+    // Extract any existing business reference ID (BLOCKER 3: treat uniqueId as deprecated, preserve in demographics.artNumber / legacyBusinessReference)
     const oldRefId =
       payload.demographics?.artNumber ||
+      payload.legacyBusinessReference ||
       payload.uniqueId ||
       (!isValidUuidV4(payload.uuid) ? payload.uuid : undefined) ||
       (!isValidUuidV4(item.submissionUuid) ? item.submissionUuid : undefined);
@@ -602,6 +653,9 @@ export async function migrateLegacyItems(): Promise<number> {
     }
     if (oldRefId && !payload.demographics.artNumber) {
       payload.demographics.artNumber = oldRefId;
+    }
+    if (oldRefId && !payload.legacyBusinessReference) {
+      payload.legacyBusinessReference = oldRefId;
     }
 
     // Canonical UUIDv4: preserve existing valid UUIDv4 or generate once
@@ -619,20 +673,80 @@ export async function migrateLegacyItems(): Promise<number> {
         ? item.idempotencyKey
         : `create-${canonicalUuid}`;
 
-    // Preserve binary caregiver signature in IndexedDB under canonical UUID
-    if (oldRefId && oldRefId !== canonicalUuid) {
+    // ── BLOCKER 2: Required binary caregiver signature attachment migration ──
+    // Determine from canonical schema whether signature is required for this record.
+    // In canonical caregiverConsentSchema: signatureRequired defaults to true.
+    const isSignatureRequired =
+      payload.caregiverConsent?.signatureRequired !== false &&
+      payload.consent?.signatureRequired !== false;
+
+    // Check if signature is payload-backed (Base64 data URL directly in JSON payload).
+    // If payload-backed or optional, submission remains safe even if offline binary
+    // attachment table has no entry, because the API payload body directly carries the signature.
+    const isPayloadBackedSignature = Boolean(
+      payload.caregiverConsent?.signatureDataUrl ||
+      payload.consent?.signatureDataUrl ||
+      payload.signatureDataUrl
+    );
+
+    // Check if signature attachment already exists under canonicalUuid
+    let hasCanonicalSignature = false;
+    if (db.signatureAttachments && typeof db.signatureAttachments.get === 'function') {
       try {
-        if (db.signatureAttachments && typeof db.signatureAttachments.get === 'function') {
-          const oldSig = await db.signatureAttachments.get(oldRefId);
-          if (oldSig) {
-            await db.signatureAttachments.put({
-              ...oldSig,
-              submissionUuid: canonicalUuid,
-            });
-          }
+        const existingCanonical = await db.signatureAttachments.get(canonicalUuid);
+        hasCanonicalSignature = Boolean(existingCanonical);
+      } catch {}
+    }
+
+    // If not already under canonicalUuid, check for legacy attachment under oldRefId
+    let legacySignatureAttachment: any = null;
+    if (oldRefId && oldRefId !== canonicalUuid && !hasCanonicalSignature) {
+      if (db.signatureAttachments && typeof db.signatureAttachments.get === 'function') {
+        try {
+          legacySignatureAttachment = await db.signatureAttachments.get(oldRefId);
+        } catch (sigReadErr) {
+          console.warn('[migrateLegacyItems] Could not read legacy signature attachment:', sigReadErr);
         }
-      } catch (sigErr) {
-        console.warn('[migrateLegacyItems] Could not migrate signature attachment:', sigErr);
+      }
+    }
+
+    // If legacy attachment exists and canonical copy does not exist: copy it!
+    if (legacySignatureAttachment && !hasCanonicalSignature) {
+      try {
+        await db.signatureAttachments.put({
+          ...legacySignatureAttachment,
+          submissionUuid: canonicalUuid,
+        });
+        hasCanonicalSignature = true;
+      } catch (sigCopyErr) {
+        console.error('[migrateLegacyItems] Failed to copy signature attachment to canonical UUID:', sigCopyErr);
+
+        // FAIL-CLOSED SAFETY (BLOCKER 2):
+        // 1. Preserve original legacy attachment (oldRefId remains untouched in db.signatureAttachments)
+        // 2. Do not delete anything
+        // 3. Do not POST
+        // 4. Leave record safe locally
+        // 5. Use typed recoverable 'signature_migration_failed' errorCategory
+        // 6. Show safe operational/support guidance, not generic form correction
+        await db.syncQueue.update(item.id, {
+          schemaVersion: 2, // Keep < 3 so retry can attempt copy again
+          submissionUuid: canonicalUuid,
+          status: 'failed_retryable',
+          errorCategory: 'signature_migration_failed',
+          errorMessage: 'Device storage issue: Caregiver signature attachment could not be saved to local database. Your assessment data is safe. Please ensure device storage is available and tap Retry now.',
+          nextRetryTimestamp: Date.now() + 60_000,
+        });
+
+        submissionEvents.emit('submission:retrying', {
+          clientSubmissionId: canonicalUuid,
+          errorCategory: 'signature_migration_failed',
+          message: 'Device storage issue: Caregiver signature attachment could not be saved to local database. Your assessment data is safe. Please ensure device storage is available and tap Retry now.',
+          timestamp: migrationTimestamp,
+          retryCount: item.retryCount,
+        });
+
+        migrated++;
+        continue; // HALT for this record. ZERO network calls!
       }
     }
 
@@ -693,7 +807,8 @@ export async function migrateLegacyItems(): Promise<number> {
         item.status === 'FAILED_FINAL' ||
         item.status === 'needs_review' ||
         item.status === 'NEEDS_REVIEW' ||
-        item.status === 'failed';
+        item.status === 'failed' ||
+        item.errorCategory === 'signature_migration_failed';
 
       if (isLegacyFailedState || item.status === 'syncing' || !item.status) {
         newStatus = 'queued';
@@ -714,7 +829,9 @@ export async function migrateLegacyItems(): Promise<number> {
     }
 
     await db.syncQueue.update(item.id, {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      identityMigrationVersion: 1,
+      canonicalIdentityMigratedAt: migrationTimestamp,
       submissionUuid: newSubmissionUuid,
       operationType: 'CREATE',
       payload,

@@ -223,6 +223,7 @@ export type SubmissionErrorCategory =
   | 'malformed_acknowledgement'
   | 'invalid_update_identity'
   | 'empty_update_changes'
+  | 'signature_migration_failed'
   | 'unknown';
 
 /**

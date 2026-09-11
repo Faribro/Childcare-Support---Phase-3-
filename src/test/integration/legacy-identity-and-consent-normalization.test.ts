@@ -164,6 +164,7 @@ vi.mock('@/lib/db/dexieDb', () => ({
 }));
 
 // Import modules under test
+import { db } from '@/lib/db/dexieDb';
 import {
   enqueueCreate,
   enqueueUpdate,
@@ -182,7 +183,17 @@ import {
   generateUuidV4,
   hasVerifiableConsent,
   normalizeCaregiverConsent,
+  getSubmissionOperation,
 } from '@/features/submission/submissionTypes';
+import {
+  gatewayCreate,
+  gatewayUpdate,
+  lookupByClientSubmissionId,
+} from '@/features/submission/submissionGateway';
+import {
+  parseServerAcknowledgement,
+  mapAcknowledgementToLocal,
+} from '@/features/submission/submissionMapper';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 
 // ---------------------------------------------------------------------------
@@ -740,4 +751,437 @@ describe('Legacy Identity & Consent Normalization Integration Suite', () => {
       expect(ui.needsCorrection).toBe(false);
     });
   });
+
+  function createValidSyntheticPayload(artId: string, consent: any): any {
+    const base = makeValidSyntheticRecord();
+    return {
+      ...base,
+      uuid: artId,
+      clientSubmissionId: artId,
+      demographics: {
+        ...base.demographics,
+        artNumber: artId,
+      },
+      caregiverConsent: consent?.consentProvided ? consent : undefined,
+      consent: consent,
+    };
+  }
+
+  // =========================================================================
+  // 7. Blocker 1: Durable One-Time Idempotent Migration
+  // =========================================================================
+  describe('7. Blocker 1: Durable one-time idempotent migration', () => {
+    it('calling migrateLegacyItems() twice preserves identical identity, does not copy signature twice, and preserves status', async () => {
+      const legacyArtId = 'DL-SOU-BLK1-01';
+      const rawLegacyConsent = {
+        agreeToParticipate: true,
+        caregiverName: 'Savita Devi',
+        caregiverRelationship: 'Mother',
+      };
+      const validPayload = createValidSyntheticPayload(legacyArtId, rawLegacyConsent);
+
+      inMemorySignatures.push({
+        submissionUuid: legacyArtId,
+        blob: new Uint8Array([1, 2, 3, 4]),
+        mimeType: 'image/png',
+      });
+
+      inMemoryQueue.push({
+        id: 101,
+        schemaVersion: 1,
+        submissionUuid: legacyArtId,
+        idempotencyKey: `legacy-${legacyArtId}`,
+        operationType: 'CREATE',
+        payload: validPayload,
+        status: 'failed_retryable',
+        errorMessage: null,
+        retryCount: 3,
+        lastAttempt: '2026-09-10T12:00:00.000Z',
+        nextRetryTimestamp: 1234567890,
+      });
+
+      const putSpy = vi.spyOn(db.signatureAttachments, 'put');
+      putSpy.mockClear();
+
+      // First migration call
+      const migratedCount1 = await migrateLegacyItems();
+      expect(migratedCount1).toBe(1);
+
+      const itemAfterFirst = inMemoryQueue.find((i) => i.id === 101)!;
+      expect(itemAfterFirst.schemaVersion).toBe(3);
+      expect(itemAfterFirst.identityMigrationVersion).toBe(1);
+      expect(itemAfterFirst.canonicalIdentityMigratedAt).toBeDefined();
+      expect(isValidUuidV4(itemAfterFirst.submissionUuid)).toBe(true);
+      expect(isValidUuidV4(itemAfterFirst.payload.uuid)).toBe(true);
+      expect(isValidUuidV4(itemAfterFirst.payload.clientSubmissionId)).toBe(true);
+      expect(itemAfterFirst.payload.demographics.artNumber).toBe(legacyArtId);
+      expect(itemAfterFirst.payload.legacyBusinessReference).toBe(legacyArtId);
+      expect(itemAfterFirst.idempotencyKey).toBe(`create-${itemAfterFirst.submissionUuid}`);
+      expect(putSpy).toHaveBeenCalledTimes(1);
+
+      const capturedUuid = itemAfterFirst.submissionUuid;
+      const capturedIdempotencyKey = itemAfterFirst.idempotencyKey;
+      const capturedMigratedAt = itemAfterFirst.canonicalIdentityMigratedAt;
+      const capturedStatus = itemAfterFirst.status;
+      const capturedNextRetry = itemAfterFirst.nextRetryTimestamp;
+
+      // Second migration call
+      const migratedCount2 = await migrateLegacyItems();
+      // Must be skipped!
+      expect(migratedCount2).toBe(0);
+
+      const itemAfterSecond = inMemoryQueue.find((i) => i.id === 101)!;
+      // Invariant: Exact same UUID, clientSubmissionId, and idempotency key
+      expect(itemAfterSecond.submissionUuid).toBe(capturedUuid);
+      expect(itemAfterSecond.payload.uuid).toBe(capturedUuid);
+      expect(itemAfterSecond.payload.clientSubmissionId).toBe(capturedUuid);
+      expect(itemAfterSecond.idempotencyKey).toBe(capturedIdempotencyKey);
+      expect(itemAfterSecond.canonicalIdentityMigratedAt).toBe(capturedMigratedAt);
+
+      // Invariant: Exactly one signature-copy attempt (0 on second call)
+      expect(putSpy).toHaveBeenCalledTimes(1);
+
+      // Invariant: Exactly one CREATE queue item (no duplicates)
+      expect(inMemoryQueue.length).toBe(1);
+
+      // Invariant: Status and retry metadata untouched
+      expect(itemAfterSecond.status).toBe(capturedStatus);
+      expect(itemAfterSecond.nextRetryTimestamp).toBe(capturedNextRetry);
+    });
+
+    it('does not reset terminal validation failure status on repeated migrateLegacyItems()', async () => {
+      const legacyArtId = 'DL-SOU-NOCONSENT-01';
+      const payloadWithoutConsent = createValidSyntheticPayload(legacyArtId, undefined);
+      delete (payloadWithoutConsent as any).caregiverConsent;
+      delete (payloadWithoutConsent as any).consent;
+      delete (payloadWithoutConsent as any).agreeToParticipate;
+
+      inMemoryQueue.push({
+        id: 102,
+        schemaVersion: 1,
+        submissionUuid: legacyArtId,
+        idempotencyKey: `legacy-${legacyArtId}`,
+        operationType: 'CREATE',
+        payload: payloadWithoutConsent,
+        status: 'queued',
+        errorMessage: null,
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: Date.now(),
+      });
+
+      // First run: repairs identity, flags missing consent as failed_final
+      await migrateLegacyItems();
+
+      const itemAfterFirst = inMemoryQueue.find((i) => i.id === 102)!;
+      expect(itemAfterFirst.schemaVersion).toBe(3);
+      expect(itemAfterFirst.status).toBe('failed_final');
+      expect(itemAfterFirst.errorCategory).toBe('validation');
+      expect(itemAfterFirst.nextRetryTimestamp).toBeNull();
+
+      // Second run: must NOT reset status or retry metadata
+      await migrateLegacyItems();
+
+      const itemAfterSecond = inMemoryQueue.find((i) => i.id === 102)!;
+      expect(itemAfterSecond.status).toBe('failed_final');
+      expect(itemAfterSecond.errorCategory).toBe('validation');
+      expect(itemAfterSecond.nextRetryTimestamp).toBeNull();
+    });
+  });
+
+  // =========================================================================
+  // 8. Blocker 2: Fail-Closed Signature Attachment Migration
+  // =========================================================================
+  describe('8. Blocker 2: Fail-closed signature attachment migration', () => {
+    it('halts migration fail-closed on storage error: zero POST, original blob preserved, retry succeeds when storage freed', async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      const legacyArtId = 'DL-SOU-SIGFAIL-01';
+      const validPayload = createValidSyntheticPayload(legacyArtId, {
+        agreeToParticipate: true,
+        caregiverName: 'Kavita Patil',
+        caregiverRelationship: 'Mother',
+      });
+
+      const originalBlobData = new Uint8Array([99, 88, 77, 66]);
+      inMemorySignatures.push({
+        submissionUuid: legacyArtId,
+        blob: originalBlobData,
+        mimeType: 'image/png',
+      });
+
+      inMemoryQueue.push({
+        id: 201,
+        schemaVersion: 1,
+        submissionUuid: legacyArtId,
+        idempotencyKey: `legacy-${legacyArtId}`,
+        operationType: 'CREATE',
+        payload: validPayload,
+        status: 'queued',
+        errorMessage: null,
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: Date.now(),
+      });
+
+      // 1. Force attachment copy failure (e.g. QuotaExceededError in IndexedDB)
+      const putSpy = vi.spyOn(db.signatureAttachments, 'put');
+      putSpy.mockRejectedValue(new Error('QuotaExceededError: Device storage full'));
+
+      // Run migration
+      const migratedCount = await migrateLegacyItems();
+      expect(migratedCount).toBe(1);
+
+      const failedItem = inMemoryQueue.find((i) => i.id === 201)!;
+      // Invariant: typed recoverable signature_migration_failed state
+      expect(failedItem.errorCategory).toBe('signature_migration_failed');
+      expect(failedItem.status).toBe('failed_retryable');
+      expect(failedItem.schemaVersion).toBe(2); // Kept < 3 for retry
+      expect(failedItem.errorMessage).toContain('Device storage issue');
+
+      // Invariant: original legacy attachment is preserved untouched under legacyArtId
+      const legacySig = inMemorySignatures.find((s) => s.submissionUuid === legacyArtId);
+      expect(legacySig).toBeDefined();
+      expect(legacySig!.blob).toEqual(originalBlobData);
+
+      // Invariant: ZERO POST calls made
+      await processQueue('manual_trigger');
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // 2. Resolve storage issue: restore put
+      putSpy.mockImplementation((async (attachment: any) => {
+        const idx = inMemorySignatures.findIndex((s) => s.submissionUuid === attachment.submissionUuid);
+        if (idx >= 0) inMemorySignatures[idx] = { ...attachment };
+        else inMemorySignatures.push({ ...attachment });
+      }) as any);
+
+      // Configure mock fetch for successful server response
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'success',
+            remoteSubmissionId: '99999999-9999-4999-a999-999999999999',
+            version: 1,
+            clientSubmissionId: failedItem.submissionUuid,
+            requestId: 'ack-sig-resolved-01',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      // Re-run worker / migration
+      await processQueue('retry_after_storage_fixed');
+
+      // Assert signature copied to canonical UUID
+      const canonicalSig = inMemorySignatures.find((s) => s.submissionUuid === failedItem.submissionUuid);
+      expect(canonicalSig).toBeDefined();
+      expect(canonicalSig!.blob).toEqual(originalBlobData);
+
+      // Assert original legacy blob STILL accessible under legacyArtId
+      const stillThereLegacySig = inMemorySignatures.find((s) => s.submissionUuid === legacyArtId);
+      expect(stillThereLegacySig).toBeDefined();
+      expect(stillThereLegacySig!.blob).toEqual(originalBlobData);
+
+      // Assert single POST occurred and item transitioned to synced
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const syncedItem = inMemoryQueue.find((i) => i.id === 201)!;
+      expect(syncedItem.status).toBe('synced');
+      expect(syncedItem.schemaVersion).toBe(3);
+    });
+
+    it('submits safely when signature is payload-backed (Base64 data URL) without Dexie attachment', async () => {
+      const fetchSpy = vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'success',
+            remoteSubmissionId: '88888888-8888-4888-a888-888888888888',
+            version: 1,
+            requestId: 'ack-payload-sig',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+      global.fetch = fetchSpy;
+
+      const legacyArtId = 'DL-SOU-BASE64SIG-01';
+      const validPayload = createValidSyntheticPayload(legacyArtId, {
+        consentProvided: true,
+        caregiverName: 'Sunita Sharma',
+        caregiverRelationship: 'Mother',
+        signatureDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      });
+
+      // No Dexie attachment entry exists in inMemorySignatures
+      inMemoryQueue.push({
+        id: 202,
+        schemaVersion: 1,
+        submissionUuid: legacyArtId,
+        idempotencyKey: `legacy-${legacyArtId}`,
+        operationType: 'CREATE',
+        payload: validPayload,
+        status: 'queued',
+        errorMessage: null,
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: Date.now(),
+      });
+
+      await processQueue('manual');
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const postCall = fetchSpy.mock.calls[0];
+      const postBody = JSON.parse(postCall[1].body);
+      expect(postBody.caregiverConsent.signatureDataUrl).toContain('data:image/png;base64');
+    });
+
+    it('submits safely when signature is optional (signatureRequired: false)', async () => {
+      const fetchSpy = vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'success',
+            remoteSubmissionId: '77777777-7777-4777-a777-777777777777',
+            version: 1,
+            requestId: 'ack-optional-sig',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+      global.fetch = fetchSpy;
+
+      const legacyArtId = 'DL-SOU-NOSIGREQ-01';
+      const validPayload = createValidSyntheticPayload(legacyArtId, {
+        agreeToParticipate: true,
+        caregiverName: 'Sunita Sharma',
+        caregiverRelationship: 'Mother',
+        signatureRequired: false,
+      });
+
+      inMemoryQueue.push({
+        id: 203,
+        schemaVersion: 1,
+        submissionUuid: legacyArtId,
+        idempotencyKey: `legacy-${legacyArtId}`,
+        operationType: 'CREATE',
+        payload: validPayload,
+        status: 'queued',
+        errorMessage: null,
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: Date.now(),
+      });
+
+      await processQueue('manual');
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =========================================================================
+  // 9. Blocker 3: Removal of uniqueId as a technical identity hazard
+  // =========================================================================
+  describe('9. Blocker 3: Removal of uniqueId as a technical identity hazard', () => {
+    it('preserves ART/business references in demographics.artNumber and legacyBusinessReference, never as technical ID', async () => {
+      const artId = 'WB-KOL-999999-01';
+      const payloadWithOverloadedUniqueId: any = {
+        ...createValidSyntheticPayload('DL-SOU-TEMP-01', { agreeToParticipate: true }),
+        uniqueId: artId,
+        demographics: {
+          childName: 'Pooja Roy',
+        },
+      };
+
+      inMemoryQueue.push({
+        id: 301,
+        schemaVersion: 1,
+        submissionUuid: 'DL-SOU-TEMP-01',
+        idempotencyKey: 'legacy-key',
+        operationType: 'CREATE',
+        payload: payloadWithOverloadedUniqueId,
+        status: 'queued',
+        errorMessage: null,
+        retryCount: 0,
+        lastAttempt: null,
+        nextRetryTimestamp: Date.now(),
+      });
+
+      await migrateLegacyItems();
+
+      const item = inMemoryQueue.find((i) => i.id === 301)!;
+      // Technical ID is RFC 4122 UUIDv4
+      expect(isValidUuidV4(item.submissionUuid)).toBe(true);
+      expect(isValidUuidV4(item.payload.uuid)).toBe(true);
+      expect(isValidUuidV4(item.payload.clientSubmissionId)).toBe(true);
+
+      // Business ID preserved in demographics.artNumber and legacyBusinessReference
+      expect(item.payload.demographics.artNumber).toBe(artId);
+      expect(item.payload.legacyBusinessReference).toBe(artId);
+    });
+
+    it('proves no /api/submissions/ URL can include uniqueId or ART number', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+      );
+      global.fetch = fetchSpy;
+
+      const artId = 'DL-SOU-111409-01';
+
+      // 1. Gateway Create sends to /api/submissions (POST), never includes uniqueId in URL
+      await gatewayCreate({
+        payload: { uniqueId: artId, demographics: { artNumber: artId } },
+        createIdempotencyKey: 'create-00000000-0000-4000-a000-000000000001' as any,
+        clientSubmissionId: '00000000-0000-4000-a000-000000000001',
+      });
+      expect(fetchSpy.mock.calls[0][0]).toBe('/api/submissions');
+
+      // 2. Gateway Update with an ART ID or uniqueId throws before URL is built
+      await expect(
+        gatewayUpdate({
+          remoteSubmissionId: artId as any,
+          expectedVersion: 1,
+          changes: { test: true },
+          clientSubmissionId: '00000000-0000-4000-a000-000000000001',
+        })
+      ).rejects.toThrow(/Attempted to use an ART\/reference business ID|not a valid remote submission ID/);
+
+      // 3. Lookup by clientSubmissionId queries clientSubmissionId, never uniqueId
+      fetchSpy.mockClear();
+      await lookupByClientSubmissionId('00000000-0000-4000-a000-000000000001');
+      expect(fetchSpy.mock.calls[0][0]).toBe('/api/submissions?clientSubmissionId=00000000-0000-4000-a000-000000000001');
+    });
+
+    it('proves acknowledgement parsers throw if remoteSubmissionId is missing and do NOT fall back to uniqueId', () => {
+      const rawWithOnlyUniqueId = {
+        uniqueId: 'DL-SOU-111409-01',
+        version: 1,
+      };
+
+      // parseServerAcknowledgement must throw
+      expect(() =>
+        parseServerAcknowledgement(rawWithOnlyUniqueId, '00000000-0000-4000-a000-000000000001')
+      ).toThrow(/remoteSubmissionId absent/);
+
+      // mapAcknowledgementToLocal must throw
+      expect(() =>
+        mapAcknowledgementToLocal(rawWithOnlyUniqueId)
+      ).toThrow(/missing remoteSubmissionId/);
+    });
+
+    it('proves getSubmissionOperation ignores uniqueId and relies solely on remoteSubmissionId + version', () => {
+      // Record with uniqueId but no remoteSubmissionId -> must be CREATE
+      const op1 = getSubmissionOperation({
+        remoteSubmissionId: undefined,
+        version: 1,
+      } as any);
+      expect(op1).toBe('CREATE');
+
+      // Record with valid remoteSubmissionId and version -> UPDATE
+      const op2 = getSubmissionOperation({
+        remoteSubmissionId: '11111111-1111-4111-a111-111111111111',
+        version: 1,
+      } as any);
+      expect(op2).toBe('UPDATE');
+    });
+  });
 });
+

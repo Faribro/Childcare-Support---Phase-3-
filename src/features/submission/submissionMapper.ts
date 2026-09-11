@@ -90,9 +90,7 @@ export function mapToCreatePayload(
 export function mapAcknowledgementToLocal(
   rawAck: Record<string, unknown>
 ): Partial<AssessmentRecord> & { remoteSubmissionId: string; version: number } {
-  const remoteSubmissionId = String(
-    rawAck.remoteSubmissionId ?? rawAck.uniqueId ?? ''
-  );
+  const remoteSubmissionId = String(rawAck.remoteSubmissionId ?? '');
   if (!remoteSubmissionId) {
     throw new Error('[submissionMapper] Server acknowledgement missing remoteSubmissionId');
   }
@@ -118,7 +116,7 @@ export function parseServerAcknowledgement(
   raw: Record<string, unknown>,
   sentClientSubmissionId: string
 ): ServerAcknowledgement {
-  const remoteSubmissionId = String(raw.remoteSubmissionId ?? raw.uniqueId ?? '');
+  const remoteSubmissionId = String(raw.remoteSubmissionId ?? '');
   if (!remoteSubmissionId) {
     throw new Error('[submissionMapper] Malformed acknowledgement: remoteSubmissionId absent');
   }
@@ -129,7 +127,7 @@ export function parseServerAcknowledgement(
   }
 
   const clientSubmissionId = String(
-    raw.clientSubmissionId ?? raw.uniqueId ?? sentClientSubmissionId
+    raw.clientSubmissionId ?? sentClientSubmissionId
   );
   const requestId = String(raw.requestId ?? `ack-${Date.now().toString(36)}`);
 

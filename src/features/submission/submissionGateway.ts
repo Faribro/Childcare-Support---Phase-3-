@@ -1,4 +1,4 @@
-﻿/**
+/**
  * submissionGateway.ts — The Only Owner of HTTP Calls to /api/submissions
  *
  * Enforces:
@@ -315,7 +315,7 @@ export async function lookupByClientSubmissionId(
 
   // Server may return { data: { remoteSubmissionId, version } }
   const data = body.data ?? body;
-  const remoteSubmissionId = String(data?.remoteSubmissionId ?? data?.uniqueId ?? '');
+  const remoteSubmissionId = String(data?.remoteSubmissionId ?? '');
   const version = Number(data?.version ?? data?.revisionNumber ?? 0);
 
   if (!remoteSubmissionId || version < 1) return null;

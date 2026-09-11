@@ -556,6 +556,7 @@ function SyncCentreContent() {
       const isTerminal4xx = code >= 400 && code < 500 && code !== 408 && code !== 429 && code !== 401 && code !== 403;
       const isConflict = rawStatus === 'conflict' || code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict');
       const isNeedsReview = rawStatus === 'needs_review';
+      const isSignatureMigrationError = qItem.errorCategory === 'signature_migration_failed';
 
       if (rawStatus === 'synced') {
         status = 'synced';
@@ -589,7 +590,7 @@ function SyncCentreContent() {
         chipStatus = 'Needs correction';
         serverStatus = 'error';
         sheetsStatus = 'failed';
-      } else if (isUnauthorized) {
+      } else if (isUnauthorized || isSignatureMigrationError) {
         status = 'failed_retryable';
         chipStatus = 'Waiting to retry';
         serverStatus = 'waiting';
@@ -816,6 +817,11 @@ function SyncCentreContent() {
                   <span className="font-medium text-amber-700 sm:before:content-['•'] sm:before:mx-1 sm:before:text-slate-300">
                     Saved on this device
                   </span>
+                )}
+                {item.status === 'failed_retryable' && item.lastError && (
+                  <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1 font-medium">
+                    {item.lastError}
+                  </p>
                 )}
               </div>
             </div>
