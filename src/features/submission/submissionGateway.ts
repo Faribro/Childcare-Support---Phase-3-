@@ -1,4 +1,4 @@
-﻿/**
+/**
  * submissionGateway.ts — The Only Owner of HTTP Calls to /api/submissions
  *
  * Enforces:
@@ -38,6 +38,57 @@ export interface GatewayCreateRequest {
 export type GatewayResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: SubmissionError };
+
+function extractValidationEvidence(body: Record<string, unknown>, classified: SubmissionError): void {
+  if (classified.category !== 'validation') return;
+
+  const details = (body.details && typeof body.details === 'object') ? (body.details as any) : {};
+  const fieldsList = Array.isArray(details.fields)
+    ? details.fields
+    : Array.isArray(body.issues)
+      ? body.issues
+      : [];
+
+  const extractedFields: Array<{ field: string; issue: string; code?: string }> = [];
+  const paths: string[] = [];
+  const codes: string[] = [];
+
+  for (const f of fieldsList) {
+    const rawPath = f.field ?? f.path;
+    const pathStr = Array.isArray(rawPath) ? rawPath.join('.') : String(rawPath ?? '').trim();
+    const codeStr = f.code ? String(f.code).trim() : undefined;
+    const issueStr = String(f.issue ?? f.message ?? '');
+    if (pathStr) {
+      extractedFields.push({ field: pathStr, issue: issueStr, code: codeStr });
+      if (!paths.includes(pathStr)) paths.push(pathStr);
+    }
+    if (codeStr && !codes.includes(codeStr)) {
+      codes.push(codeStr);
+    }
+  }
+
+  // Also support direct validationIssuePaths / validationIssueCodes if supplied
+  if (Array.isArray(body.validationIssuePaths)) {
+    for (const p of body.validationIssuePaths) {
+      if (typeof p === 'string' && !paths.includes(p)) paths.push(p);
+    }
+  }
+  if (Array.isArray(body.validationIssueCodes)) {
+    for (const c of body.validationIssueCodes) {
+      if (typeof c === 'string' && !codes.includes(c)) codes.push(c);
+    }
+  }
+
+  if (extractedFields.length > 0) {
+    classified.validationFields = extractedFields;
+  }
+  if (paths.length > 0) {
+    classified.validationIssuePaths = paths;
+  }
+  if (codes.length > 0) {
+    classified.validationIssueCodes = codes;
+  }
+}
 
 /**
  * Sends a canonical CREATE request: POST /api/submissions
@@ -113,14 +164,7 @@ export async function gatewayCreate(
       res.status,
       String(body.message ?? body.error ?? '')
     );
-    // Extract validation fields if present
-    if (classified.category === 'validation' && body.details) {
-      const details = body.details as any;
-      classified.validationFields = (details.fields || []).map((f: any) => ({
-        field: f.field ?? f.path,
-        issue: f.issue ?? f.message,
-      }));
-    }
+    extractValidationEvidence(body, classified);
     return { ok: false, error: classified };
   }
 
@@ -253,6 +297,7 @@ export async function gatewayUpdate(
 
   if (!res.ok || body.status === 'error') {
     const classified = classifyHttpError(res.status, String(body.message ?? ''));
+    extractValidationEvidence(body, classified);
     return { ok: false, error: classified };
   }
 
@@ -315,7 +360,7 @@ export async function lookupByClientSubmissionId(
 
   // Server may return { data: { remoteSubmissionId, version } }
   const data = body.data ?? body;
-  const remoteSubmissionId = String(data?.remoteSubmissionId ?? data?.uniqueId ?? '');
+  const remoteSubmissionId = String(data?.remoteSubmissionId ?? '');
   const version = Number(data?.version ?? data?.revisionNumber ?? 0);
 
   if (!remoteSubmissionId || version < 1) return null;

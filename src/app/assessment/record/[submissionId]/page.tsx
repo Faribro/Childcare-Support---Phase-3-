@@ -20,6 +20,8 @@ import {
   Utensils,
 } from 'lucide-react';
 
+import { db } from '@/lib/db/dexieDb';
+
 export default function RecordDetailPage() {
   const params = useParams();
   const submissionId = params?.submissionId as string;
@@ -33,13 +35,63 @@ export default function RecordDetailPage() {
       if (!submissionId) return;
       try {
         const res = await fetch(`/api/submissions/${submissionId}`);
-        if (!res.ok) {
-          setError(`Unable to load record (${res.status})`);
+        if (res.ok) {
+          const body = await res.json();
+          setRecord(body.data);
           return;
         }
-        const body = await res.json();
-        setRecord(body.data);
+
+        // Fallback to local Dexie IndexedDB for unsynced local records
+        const queueItems = await db.syncQueue.toArray();
+        const localQueue = queueItems.find(
+          (q) =>
+            q.submissionUuid === submissionId ||
+            (q.payload as any)?.uuid === submissionId ||
+            (q.payload as any)?.clientSubmissionId === submissionId ||
+            (q.payload as any)?.uniqueId === submissionId ||
+            (q.payload as any)?.artNumber === submissionId ||
+            (q.payload as any)?.demographics?.artNumber === submissionId
+        );
+
+        if (localQueue?.payload) {
+          setRecord(localQueue.payload);
+          return;
+        }
+
+        const drafts = await db.drafts.toArray();
+        const localDraft = drafts.find(
+          (d: any) =>
+            d.uuid === submissionId ||
+            d.clientSubmissionId === submissionId ||
+            d.demographics?.artNumber === submissionId ||
+            d.artNumber === submissionId ||
+            d.formData?.uuid === submissionId ||
+            d.formData?.demographics?.artNumber === submissionId
+        );
+
+        if (localDraft) {
+          setRecord((localDraft as any).formData || (localDraft as any));
+          return;
+        }
+
+        setError(`Unable to load record (${res.status})`);
       } catch (err) {
+        // Fallback to local on network failure
+        try {
+          const queueItems = await db.syncQueue.toArray();
+          const localQueue = queueItems.find(
+            (q) =>
+              q.submissionUuid === submissionId ||
+              (q.payload as any)?.uuid === submissionId ||
+              (q.payload as any)?.clientSubmissionId === submissionId ||
+              (q.payload as any)?.uniqueId === submissionId ||
+              (q.payload as any)?.artNumber === submissionId
+          );
+          if (localQueue?.payload) {
+            setRecord(localQueue.payload);
+            return;
+          }
+        } catch (_) {}
         setError('Network error loading submission detail');
       } finally {
         setIsLoading(false);

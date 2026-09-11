@@ -163,8 +163,8 @@ export function getActionRequiredContext(
 
     case 'unauthorized':
       return {
-        message: 'You are not authorised to submit this record. Please sign in and try again.',
-        actionLabel: 'Sign in',
+        message: 'Your session expired. Please sign in again. Your saved assessment remains safe on this device.',
+        actionLabel: 'Sign in again',
         canRetryNow: false,
       };
 

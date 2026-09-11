@@ -9,6 +9,7 @@ import { getAllQueueItems, migrateLegacyQueueItems } from '@/lib/db/syncQueueRep
 import { clearAllLocalData } from '@/lib/db/dexieDb';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
 import { processQueue, isWorkerRunning } from '@/features/submission/submissionWorker';
+import { migrateLegacyItems } from '@/features/submission/submissionQueueRepository';
 import { submissionEvents } from '@/features/submission/submissionEvents';
 import type { SyncQueueItem } from '@/types/domain';
 import {
@@ -339,6 +340,7 @@ function SyncCentreContent() {
 
   const loadLocalData = useCallback(async () => {
     try {
+      await migrateLegacyItems();
       await migrateLegacyQueueItems();
       const q = await getAllQueueItems();
       setQueueItems(q || []);
@@ -350,11 +352,21 @@ function SyncCentreContent() {
   }, []);
 
   useEffect(() => {
-    loadLocalData();
+    loadLocalData().then(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        processQueue('sync_page_mount')
+          .then(() => loadLocalData())
+          .catch(() => {});
+      }
+    });
 
     const handleOnline = () => {
       setIsOnline(true);
-      loadLocalData();
+      loadLocalData().then(() => {
+        processQueue('online_event')
+          .then(() => loadLocalData())
+          .catch(() => {});
+      });
     };
     const handleOffline = () => setIsOnline(false);
 
@@ -375,7 +387,17 @@ function SyncCentreContent() {
     window.addEventListener('child_nutrition:record_synced', handleSyncUpdate);
     window.addEventListener('child_nutrition:record_queued', handleSyncUpdate);
 
+    // Periodic autosync check every 30 seconds
+    const periodicTimer = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        processQueue('periodic_autosync')
+          .then(() => loadLocalData())
+          .catch(() => {});
+      }
+    }, 30000);
+
     return () => {
+      clearInterval(periodicTimer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       unsubSuccess();
@@ -530,9 +552,11 @@ function SyncCentreContent() {
       const rawStatus = String(qItem.status || '').toLowerCase();
       const code = Number(qItem.statusCode || qItem.lastErrorCode || 0);
       const isTerminalHalted = qItem.nextRetryTimestamp === null;
-      const isTerminal4xx = code >= 400 && code < 500 && code !== 408 && code !== 429;
+      const isUnauthorized = code === 401 || code === 403 || qItem.errorCategory === 'unauthorized';
+      const isTerminal4xx = code >= 400 && code < 500 && code !== 408 && code !== 429 && code !== 401 && code !== 403;
       const isConflict = rawStatus === 'conflict' || code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict');
       const isNeedsReview = rawStatus === 'needs_review';
+      const isSignatureMigrationError = qItem.errorCategory === 'signature_migration_failed';
 
       if (rawStatus === 'synced') {
         status = 'synced';
@@ -566,6 +590,11 @@ function SyncCentreContent() {
         chipStatus = 'Needs correction';
         serverStatus = 'error';
         sheetsStatus = 'failed';
+      } else if (isUnauthorized || isSignatureMigrationError) {
+        status = 'failed_retryable';
+        chipStatus = 'Waiting to retry';
+        serverStatus = 'waiting';
+        sheetsStatus = 'waiting';
       } else if (rawStatus === 'failed_final' || (rawStatus === 'failed' && (isTerminal4xx || isTerminalHalted))) {
         status = 'failed_final';
         chipStatus = 'Needs correction';
@@ -789,6 +818,11 @@ function SyncCentreContent() {
                     Saved on this device
                   </span>
                 )}
+                {item.status === 'failed_retryable' && item.lastError && (
+                  <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1 font-medium">
+                    {item.lastError}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -865,6 +899,17 @@ function SyncCentreContent() {
                 >
                   <AlertCircle className="w-3 h-3" />
                   Open and correct
+                </button>
+              )}
+
+              {item.status === 'failed_retryable' && Boolean(item.lastError?.toLowerCase().includes('session expired') || item.lastError?.toLowerCase().includes('sign in again')) && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/login')}
+                  aria-label="Sign in again to resume synchronization"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                >
+                  Sign in again
                 </button>
               )}
 
