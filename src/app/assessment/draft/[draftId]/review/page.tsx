@@ -132,6 +132,13 @@ export default function DraftReviewPage() {
       setError('Please confirm the verification attestation before submitting.');
       return;
     }
+
+    const rawInterviewer = (record.finalReview?.formSubmittedBy || (record as any).interviewerName || '').trim();
+    if (rawInterviewer.length < 2) {
+      setError('Please enter your name using at least 2 characters.');
+      return;
+    }
+
     setError(null);
     setIsSubmitting(true);
     try {
@@ -145,6 +152,13 @@ export default function DraftReviewPage() {
         ...record,
         uuid: canonicalUuid,
         clientSubmissionId: canonicalUuid,
+        interviewerName: rawInterviewer,
+        finalReview: {
+          ...(record.finalReview || {}),
+          allInfoCorrect: record.finalReview?.allInfoCorrect ?? true,
+          organizationName: record.finalReview?.organizationName || 'India HIV/AIDS Alliance',
+          formSubmittedBy: rawInterviewer,
+        },
         stepIndex: 6,
         syncStatus: 'queued',
         updatedAt: new Date().toISOString(),

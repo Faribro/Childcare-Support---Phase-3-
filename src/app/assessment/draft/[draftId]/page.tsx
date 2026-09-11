@@ -17,6 +17,7 @@ import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelect
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
@@ -423,7 +424,7 @@ export default function ResumeDraftSinglePage() {
           uuid: clientUuid,
           clientSubmissionId: clientUuid,
           koboId: formData.koboId || formData.artNumber,
-          interviewerName: formData.formSubmittedBy || 'Caseworker',
+          interviewerName: formData.formSubmittedBy?.trim() || 'Caseworker',
           stepIndex: 1, // Single-page form
           demographics: {
             artNumber: formData.artNumber,
@@ -588,6 +589,9 @@ export default function ResumeDraftSinglePage() {
     if (!formData.allInfoCorrect) {
       return 'Please verify that all information is correct and complete in the final review section.';
     }
+    if (!formData.formSubmittedBy || formData.formSubmittedBy.trim().length < 2) {
+      return 'Please enter your name using at least 2 characters.';
+    }
     return null;
   };
 
@@ -605,6 +609,14 @@ export default function ResumeDraftSinglePage() {
     const err = validateForm();
     if (err) {
       setFormError(err);
+      if (err.includes('name using at least 2 characters')) {
+        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (el as HTMLElement).focus?.();
+          return;
+        }
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -627,13 +639,25 @@ export default function ResumeDraftSinglePage() {
         console.warn('Could not extract signature blob to DataURL:', sigErr);
       }
 
+      const trimmedInterviewer = (formData.formSubmittedBy || '').trim();
+      if (trimmedInterviewer.length < 2) {
+        setFormError('Please enter your name using at least 2 characters.');
+        setIsSubmitting(false);
+        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (el as HTMLElement).focus?.();
+        }
+        return;
+      }
+
       const finalRecord: AssessmentRecord = {
         uuid: clientUuid,
         clientSubmissionId: clientUuid,
         uniqueId: formData.artNumber,
         version: 1,
         koboId: formData.koboId || formData.artNumber,
-        interviewerName: formData.formSubmittedBy || 'Caseworker',
+        interviewerName: trimmedInterviewer,
         stepIndex: 1,
         signatureDataUrl: signatureDataUrl,
         demographics: {
@@ -742,7 +766,7 @@ export default function ResumeDraftSinglePage() {
         finalReview: {
           allInfoCorrect: formData.allInfoCorrect ?? false,
           organizationName: formData.organizationName,
-          formSubmittedBy: formData.formSubmittedBy,
+          formSubmittedBy: trimmedInterviewer,
           organizationEmail: formData.organizationEmail,
           approvedAllianceIndia: formData.approvedAllianceIndia,
           reviewConfirmed: formData.allInfoCorrect ?? false,
@@ -754,6 +778,23 @@ export default function ResumeDraftSinglePage() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+
+      const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
+      if (!schemaValidation.success) {
+        const interviewerIssue = schemaValidation.error.issues.find(
+          (i) => i.path.includes('interviewerName') || i.path.includes('formSubmittedBy')
+        );
+        if (interviewerIssue) {
+          setFormError('Please enter your name using at least 2 characters.');
+          setIsSubmitting(false);
+          const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            (el as HTMLElement).focus?.();
+          }
+          return;
+        }
+      }
 
       await enqueueCreate({
         clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
@@ -2037,6 +2078,8 @@ export default function ResumeDraftSinglePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-rev-interviewer" className={getHighlightClass('q-rev-interviewer')}>
                 <Input
+                  id="formSubmittedBy"
+                  name="formSubmittedBy"
                   label={t('interviewer_name', currentLanguage)}
                   required
                   value={formData.formSubmittedBy}
