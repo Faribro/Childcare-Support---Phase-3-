@@ -16,10 +16,102 @@
 import type { AssessmentRecord } from '@/types/domain';
 import {
   normalizeCaregiverConsent,
+  hasVerifiableConsent,
+  isValidUuidV4,
   type ServerAcknowledgement,
   type ClientSubmissionId,
   type CreateIdempotencyKey,
 } from './submissionTypes';
+
+/**
+ * Verifies whether a record has an independently verifiable signature or explicit exemption.
+ */
+export function hasVerifiableSignature(record: any): boolean {
+  if (!record || typeof record !== 'object') return false;
+  const cc = record.caregiverConsent;
+  const c = record.consent;
+
+  if (cc && typeof cc === 'object' && cc.signatureRequired === false) {
+    return true;
+  }
+
+  const sigUrl =
+    (typeof cc?.signatureDataUrl === 'string' && cc.signatureDataUrl.trim()) ||
+    (typeof c?.signatureDataUrl === 'string' && c.signatureDataUrl.trim()) ||
+    (typeof record.signatureDataUrl === 'string' && record.signatureDataUrl.trim()) ||
+    (typeof cc?.signatureUrl === 'string' && cc.signatureUrl.trim());
+
+  if (sigUrl) return true;
+
+  if (typeof cc?.signatureAssetId === 'string' && cc.signatureAssetId.trim().length > 0) {
+    return true;
+  }
+
+  if (cc?.signatureStatus === 'UPLOADED' || cc?.signatureStatus === 'CAPTURED_LOCAL') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Normalizes an AssessmentRecord or submission snapshot into canonical shape:
+ * 1. Ensures uuid and clientSubmissionId are consistent canonical UUIDs.
+ * 2. Normalizes caregiver consent via normalizeCaregiverConsent ONLY if BOTH verifiable
+ *    consent AND an independent verifiable signature exist.
+ * 3. Keeps legacy consent block aligned with canonical caregiverConsent.
+ * 4. Ensures interviewerName is trimmed.
+ * 5. Preserves existing signature references and metadata.
+ */
+export function normalizeSubmissionPayload(record: any): any {
+  if (!record || typeof record !== 'object') return record;
+  const canonical = { ...record };
+
+  // 1. UUID normalization
+  const validUuid = isValidUuidV4(canonical.uuid)
+    ? canonical.uuid
+    : isValidUuidV4(canonical.clientSubmissionId)
+    ? canonical.clientSubmissionId
+    : canonical.uuid;
+
+  if (validUuid) {
+    canonical.uuid = validUuid;
+    canonical.clientSubmissionId = validUuid;
+  }
+
+  // 2. Interviewer name normalization
+  if (typeof canonical.interviewerName === 'string') {
+    canonical.interviewerName = canonical.interviewerName.trim();
+  }
+
+  // 3. Caregiver consent & signature independent verification
+  const hasConsentFlag = hasVerifiableConsent(canonical);
+  const hasSignature = hasVerifiableSignature(canonical);
+
+  if (hasConsentFlag && hasSignature) {
+    const normalizedConsent = normalizeCaregiverConsent(canonical);
+    if (normalizedConsent) {
+      canonical.caregiverConsent = normalizedConsent;
+      canonical.consent = {
+        agreeToParticipate: true,
+        signatureDataUrl: normalizedConsent.signatureDataUrl,
+        signatureTimestamp: normalizedConsent.consentCapturedAt,
+      };
+      if (normalizedConsent.signatureDataUrl && !canonical.signatureDataUrl) {
+        canonical.signatureDataUrl = normalizedConsent.signatureDataUrl;
+      }
+    }
+  } else {
+    // Both consent flag AND real signature must exist independently.
+    // If either is missing, do NOT fabricate consentProvided: true.
+    canonical.caregiverConsent = {
+      ...(canonical.caregiverConsent || {}),
+      consentProvided: false,
+    };
+  }
+
+  return canonical;
+}
 
 // Local-only keys stripped from every API payload
 const LOCAL_ONLY_KEYS = new Set([
