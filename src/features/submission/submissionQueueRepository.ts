@@ -229,11 +229,22 @@ export async function markSubmitted(
   const now = ack.updatedAt || ack.submittedAt || ack.acceptedAt || new Date().toISOString();
 
   await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
+    const queueItem = await db.syncQueue.get(queueId);
+    const existingPayload = (queueItem?.payload as any) || {};
+
     await db.syncQueue.update(queueId, {
       status: 'synced',
+      remoteSubmissionId: ack.remoteSubmissionId,
+      version: ack.version,
+      acknowledged: true,
       errorMessage: null,
       nextRetryTimestamp: null,
       requestId: ack.requestId || null,
+      payload: {
+        ...existingPayload,
+        remoteSubmissionId: ack.remoteSubmissionId,
+        version: ack.version,
+      },
     });
 
     const draft = await db.drafts.where('uuid').equals(submissionUuid).first();

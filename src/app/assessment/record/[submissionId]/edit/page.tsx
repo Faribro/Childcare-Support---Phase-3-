@@ -23,6 +23,11 @@ import { getCaregiverSignatureBlob, saveCaregiverSignatureBlob } from '@/lib/db/
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import {
+  hydrateSubmissionForEdit,
+  assertEditSnapshotComplete,
+  logHydrationDiagnostics,
+} from '@/features/submission/submissionEditHydration';
+import {
   calculateAge,
   calculateBMI,
   classifyNutritionStatus,
@@ -89,9 +94,20 @@ export default function EditRecordPage() {
 
   const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
+  const [isReplacingSignature, setIsReplacingSignature] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<string>('en');
   const [existingSignatureUrl, setExistingSignatureUrl] = useState<string>('');
   const [fallbackSigUuid, setFallbackSigUuid] = useState<string>('');
+  const [isHydrationComplete, setIsHydrationComplete] = useState<boolean>(false);
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [missingGroups, setMissingGroups] = useState<string[]>([]);
+  const [savedDocuments, setSavedDocuments] = useState({
+    passbook: false,
+    aadhaar: false,
+    childPhoto: false,
+    feeReceipt: false,
+    marksheet: false,
+  });
 
   // Form State covering all 73 Linelist & Google Sheet fields
   const [formData, setFormData] = useState({
@@ -186,12 +202,15 @@ export default function EditRecordPage() {
 
   const loadRecord = async () => {
     setIsLoading(true);
+    setIsHydrationComplete(false);
+    setHydrationError(null);
+    setMissingGroups([]);
     setConflictError(null);
     try {
       let localRecord: any = null;
       let queueItem: any = null;
 
-      // 1. Check local Dexie sync queue
+      // 1. Check local Dexie sync queue across all primary and legacy keys
       try {
         const queue = await getAllQueueItems();
         const queued = queue.find(
@@ -202,6 +221,7 @@ export default function EditRecordPage() {
             q.payload?.demographics?.artNumber === submissionId ||
             (q.payload as any)?.artNumber === submissionId ||
             q.payload?.uniqueId === submissionId ||
+            (q.payload as any)?.['1\nUnique ID'] === submissionId ||
             String(q.id) === submissionId
         );
         if (queued && queued.payload) {
@@ -225,38 +245,55 @@ export default function EditRecordPage() {
               (d as any).artNumber === submissionId ||
               d.legacyBusinessReference === submissionId ||
               d.uniqueId === submissionId ||
+              (d as any)['1\nUnique ID'] === submissionId ||
               String(d.id) === submissionId
           );
           if (draft) localRecord = draft;
         } catch (_) {}
       }
 
-      // 3. Remote check:
-      // ZERO remote GET if localRecord exists and does not have a confirmed server-assigned UUIDv4 remoteSubmissionId.
+      // 3. Determine if remote fetch should be attempted:
       let remoteRecord: any = null;
       const candidateRemoteId = queueItem?.remoteSubmissionId || localRecord?.remoteSubmissionId;
       const hasConfirmedRemoteId = isValidUuidV4(candidateRemoteId);
+      const isUnsentLocalOutbox =
+        Boolean(queueItem) &&
+        queueItem?.status !== 'synced' &&
+        !hasConfirmedRemoteId &&
+        queueItem?.acknowledged !== true;
 
       if (hasConfirmedRemoteId) {
-        // Confirmed server remote ID exists — fetch latest state using confirmed remote ID (never ART ID)
+        // Confirmed server remote ID exists — fetch latest state using confirmed remote ID
         try {
-          const res = await fetch(`/api/submissions/${encodeURIComponent(candidateRemoteId)}`);
+          const res = await fetch(`/api/submissions/${encodeURIComponent(candidateRemoteId)}`, {
+            credentials: 'same-origin',
+          });
           if (res.ok) {
             const body = await res.json();
             if (body.data) {
               remoteRecord = body.data;
             }
+          } else if (res.status === 401 || res.status === 403) {
+            setIsHydrationComplete(false);
+            setHydrationError('Authentication required to edit this record. Please sign in.');
+            return;
           }
         } catch (_) {}
-      } else if (!localRecord && isValidUuidV4(submissionId)) {
-        // No local record found at all, and submissionId is a valid UUIDv4: attempt remote fetch
+      } else if (!isUnsentLocalOutbox) {
+        // Not an unsent local outbox record — attempt remote fetch by submissionId
         try {
-          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`, {
+            credentials: 'same-origin',
+          });
           if (res.ok) {
             const body = await res.json();
             if (body.data) {
               remoteRecord = body.data;
             }
+          } else if (res.status === 401 || res.status === 403) {
+            setIsHydrationComplete(false);
+            setHydrationError('Authentication required to edit this record. Please sign in.');
+            return;
           }
         } catch (_) {}
       }
@@ -302,8 +339,23 @@ export default function EditRecordPage() {
         }
       }
 
+      // Check local signature blob in Dexie
+      let localSigDataUrl: string | undefined = undefined;
+      const fbUuid = localRecord?.uuid || localRecord?.clientSubmissionId || remoteRecord?.uuid || remoteRecord?.client_submission_id || submissionId;
+      try {
+        const sig = (await getCaregiverSignatureBlob(submissionId)) ||
+          (fbUuid && fbUuid !== submissionId ? await getCaregiverSignatureBlob(fbUuid) : undefined);
+        if (sig && sig.blob) {
+          localSigDataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(sig.blob);
+          });
+        }
+      } catch (_) {}
+
       // Merge records so local high-res Base64 images and drafts are never erased
-      const foundRecord: any = (remoteRecord || localRecord)
+      const candidateRecord: any = (remoteRecord || localRecord)
         ? {
             ...(remoteRecord || {}),
             ...(localRecord || {}),
@@ -330,333 +382,84 @@ export default function EditRecordPage() {
           }
         : null;
 
-      if (foundRecord) {
-        const d = foundRecord.demographics || foundRecord;
-        const c = foundRecord.consent || foundRecord;
-        const b = foundRecord.bankingAndKyc || foundRecord.bankDetails || foundRecord;
-        const hf = foundRecord.householdFinancial || foundRecord.household || foundRecord;
-        const h = foundRecord.health || foundRecord.clinical || foundRecord;
-        const n = foundRecord.nutrition || foundRecord;
-        const ed = foundRecord.educationStatus || foundRecord.education || foundRecord;
-        const exp = foundRecord.educationExpenses || foundRecord;
-        const req = foundRecord.educationSupportRequired || foundRecord;
-        const fr = foundRecord.finalReview || foundRecord;
-
-        const rev = Number(
-          foundRecord.version ||
-          foundRecord.revision ||
-          foundRecord['2\\nRevision Number'] ||
-          foundRecord['2\nRevision Number'] ||
-          1
-        );
-        setCurrentVersion(rev);
-
-        // Persist the confirmed remoteSubmissionId for use in enqueue decisions
-        const loadedRemoteId =
-          foundRecord.remoteSubmissionId ||
-          remoteRecord?.remoteSubmissionId ||
-          localRecord?.remoteSubmissionId ||
-          null;
-        setConfirmedRemoteSubmissionId(loadedRemoteId || undefined);
-
-
-        const reason =
-          foundRecord.editReason ||
-          foundRecord.edit_reason ||
-          foundRecord['48\\nEdit Reason'] ||
-          foundRecord['48\nEdit Reason'] ||
-          '';
-        setAmendmentReason(reason);
-
-        // Comprehensive document photo extraction across all potential storage keys
-        const passbookPhoto =
-          b.passbookPhotoUrl ||
-          b.passbook_photo_url ||
-          foundRecord.passbookPhotoUrl ||
-          foundRecord.passbook_photo_url ||
-          localRecord?.bankingAndKyc?.passbookPhotoUrl ||
-          localRecord?.passbookPhotoUrl ||
-          remoteRecord?.bankingAndKyc?.passbookPhotoUrl ||
-          remoteRecord?.passbookPhotoUrl ||
-          remoteRecord?.passbook_photo_url ||
-          foundRecord['25\nPassbook Front Page Link'] ||
-          '';
-
-        const aadhaarPhoto =
-          b.aadhaarCardPhotoUrl ||
-          b.aadhaar_card_photo_url ||
-          foundRecord.aadhaarCardPhotoUrl ||
-          foundRecord.aadhaar_card_photo_url ||
-          localRecord?.bankingAndKyc?.aadhaarCardPhotoUrl ||
-          localRecord?.aadhaarCardPhotoUrl ||
-          remoteRecord?.bankingAndKyc?.aadhaarCardPhotoUrl ||
-          remoteRecord?.aadhaarCardPhotoUrl ||
-          remoteRecord?.aadhaar_card_photo_url ||
-          foundRecord['26\nAadhaar Card Link'] ||
-          '';
-
-        const childPhoto =
-          b.childPhotoUrl ||
-          b.child_photo_url ||
-          foundRecord.childPhotoUrl ||
-          foundRecord.child_photo_url ||
-          localRecord?.bankingAndKyc?.childPhotoUrl ||
-          localRecord?.childPhotoUrl ||
-          remoteRecord?.bankingAndKyc?.childPhotoUrl ||
-          remoteRecord?.childPhotoUrl ||
-          remoteRecord?.child_photo_url ||
-          foundRecord['27\nPassport Size Photo Link'] ||
-          '';
-
-        const feeReceiptPhoto =
-          exp.feeReceiptPhotoUrl ||
-          exp.fee_receipt_photo_url ||
-          foundRecord.feeReceiptPhotoUrl ||
-          foundRecord.fee_receipt_photo_url ||
-          localRecord?.educationExpenses?.feeReceiptPhotoUrl ||
-          localRecord?.feeReceiptPhotoUrl ||
-          remoteRecord?.educationExpenses?.feeReceiptPhotoUrl ||
-          remoteRecord?.feeReceiptPhotoUrl ||
-          remoteRecord?.fee_receipt_photo_url ||
-          foundRecord['64\nSchool Fee Receipt Link'] ||
-          '';
-
-        const marksheetPhoto =
-          exp.marksheetPhotoUrl ||
-          exp.marksheet_photo_url ||
-          foundRecord.marksheetPhotoUrl ||
-          foundRecord.marksheet_photo_url ||
-          localRecord?.educationExpenses?.marksheetPhotoUrl ||
-          localRecord?.marksheetPhotoUrl ||
-          remoteRecord?.educationExpenses?.marksheetPhotoUrl ||
-          remoteRecord?.marksheetPhotoUrl ||
-          remoteRecord?.marksheet_photo_url ||
-          foundRecord['65\nMarksheet Photo Link'] ||
-          '';
-
-        const sigDataUrl =
-          c.signatureDataUrl ||
-          c.signatureUrl ||
-          c.signature_data_url ||
-          foundRecord.signatureDataUrl ||
-          foundRecord.signature_data_url ||
-          localRecord?.caregiverConsent?.signatureDataUrl ||
-          localRecord?.consent?.signatureDataUrl ||
-          remoteRecord?.caregiverConsent?.signatureDataUrl ||
-          remoteRecord?.consent?.signatureDataUrl ||
-          remoteRecord?.signatureDataUrl ||
-          remoteRecord?.signature_data_url ||
-          foundRecord['72\nSignature Link'] ||
-          '';
-
-        if (sigDataUrl && !sigDataUrl.includes('DATA_URL_STORED_PENDING_AUTH')) {
-          setExistingSignatureUrl(sigDataUrl);
-          setHasSavedSignature(true);
-        }
-
-        const fbUuid = localRecord?.uuid || localRecord?.clientSubmissionId || foundRecord.uuid || '';
-        if (fbUuid) {
-          setFallbackSigUuid(fbUuid);
-        }
-
-        const cc = foundRecord.caregiverConsent || {};
-        const hasConsent =
-          hasVerifiableConsent(foundRecord) ||
-          cc.consentProvided === true ||
-          cc.agreeToParticipate === true ||
-          c.agreeToParticipate === true ||
-          Boolean(sigDataUrl);
-
-        const normalizedConsent = hasConsent ? normalizeCaregiverConsent(foundRecord) : null;
-
-        const consentSnap = {
-          hasVerifiableConsent: hasConsent,
-          caregiverConsent: normalizedConsent
-            ? {
-                consentProvided: normalizedConsent.consentProvided,
-                consentVersion: normalizedConsent.consentVersion,
-                caregiverName: normalizedConsent.caregiverName,
-                caregiverRelationship: normalizedConsent.caregiverRelationship,
-                consentCapturedAt: normalizedConsent.consentCapturedAt,
-                signatureRequired: normalizedConsent.signatureRequired,
-                signatureStatus: normalizedConsent.signatureStatus,
-                signatureAssetId: normalizedConsent.signatureAssetId,
-                signatureDataUrl: normalizedConsent.signatureDataUrl || sigDataUrl,
-                signatureUrl: normalizedConsent.signatureUrl,
-              }
-            : (foundRecord.caregiverConsent ? { ...foundRecord.caregiverConsent } : null),
-          consent: {
-            agreeToParticipate: c.agreeToParticipate ?? (hasConsent ? true : undefined),
-            signatureDataUrl: c.signatureDataUrl || sigDataUrl,
-            signatureTimestamp: c.signatureTimestamp || normalizedConsent?.consentCapturedAt,
-          },
-          signatureDataUrl: sigDataUrl || normalizedConsent?.signatureDataUrl,
-        };
-        setOriginalConsentSnapshot(consentSnap);
-        setFullOriginalRecord(foundRecord);
-
-        setFormData({
-          artNumber: d.artNumber || foundRecord['1\nUnique ID'] || foundRecord.uniqueId || submissionId,
-          koboId: foundRecord.koboId || d.artNumber || '',
-          dateOfFilling: d.dateOfFilling || foundRecord['7\nVisit Date'] || new Date().toISOString().split('T')[0],
-          childName: d.childName || foundRecord['9\nChild Name'] || foundRecord.child_name || '',
-          dob: d.dob || foundRecord['10\nDate of Birth'] || '',
-          gender: (d.gender || foundRecord['12\nGender'] || 'Male') as Gender,
-          orphanStatus: (d.orphanStatus || foundRecord['13\nOrphan Status'] || 'Both parents alive') as OrphanStatus,
-          caregiverName: d.caregiverName || foundRecord['14\nCaregiver Full Name'] || foundRecord.caregiver_name || '',
-          caregiverRelationship: (d.caregiverRelationship || foundRecord['15\nCaregiver Relation'] || foundRecord.caregiver_relationship || 'Mother') as CaregiverRelationship,
-          contactNumber: d.contactNumber || d.caregiverPhone || foundRecord['16\nCaregiver Contact'] || foundRecord.caregiver_phone || '',
-          fullAddress: d.fullAddress || foundRecord['17\nAddress'] || foundRecord.address || '',
-          state: d.state || foundRecord['18\nState'] || 'Maharashtra',
-          district: d.district || foundRecord['19\nDistrict'] || 'Pune',
-          childAadhaarNumber: d.childAadhaarNumber || b.childAadhaarNumber || foundRecord['24\nChild Aadhaar Number'] || '',
-
-          agreeToParticipate: hasConsent
-            ? true
-            : (c.agreeToParticipate ?? (cc.consentProvided ?? false)),
-
-          bankAccountHolderName: b.bankAccountHolderName || b.accountHolderName || foundRecord['20\nBank Account Holder Name'] || foundRecord.account_holder_name || '',
-          bankAccountNumber: b.bankAccountNumber || b.accountNumber || foundRecord['21\nBank Account Number'] || foundRecord.bank_account_number || '',
-          bankIfscCode: b.bankIfscCode || b.ifscCode || foundRecord['22\nBank IFSC Code'] || foundRecord.ifsc_code || '',
-          bankLinkedMobileNumber: b.bankLinkedMobileNumber || foundRecord['23\nBank Linked Mobile Number'] || '',
-          passbookPhotoUrl: passbookPhoto,
-          aadhaarCardPhotoUrl: aadhaarPhoto,
-          childPhotoUrl: childPhoto,
-
-          totalFamilyMembers: Number(hf.totalFamilyMembers || foundRecord['28\nHousehold Members'] || 4),
-          numberOfChildrenUnder18: Number(hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children'] || 2),
-          monthlyIncomeRs: Number(hf.monthlyIncomeRs || foundRecord['30\nMonthly Income'] || 5000),
-          mainSourceOfIncome: (hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || 'Daily wage labour') as MainSourceOfIncome,
-
-          weightKg: Number(h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg || 14.5),
-          heightCm: Number(h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm || 100),
-          haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || '12.0'),
-          otherHealthConditions: h.otherHealthConditions || [],
-          otherHealthConditionSpecify: h.otherHealthConditionSpecify || '',
-          artStatus: (h.artStatus || foundRecord['40\nART Status'] || 'On ART') as ARTStatus,
-          artRegistrationDate: h.artRegistrationDate || foundRecord['41\nART Registration Date'] || '',
-          artIdNumber: h.artIdNumber || foundRecord['42\nART ID Number'] || '',
-          vlStatus: (h.vlStatus || foundRecord['43\nVL Status'] || 'Tested in last 6 months') as VLStatus,
-          vlDate: h.vlDate || foundRecord['44\nVL Date'] || '',
-          viralLoad: String(h.viralLoad || foundRecord['45\nViral Load'] || '< 50'),
-
-          appetite: (n.appetite || foundRecord['47\nAppetite'] || 'Good') as AppetiteLevel,
-          mealsPerDay: Number(n.mealsPerDay || foundRecord['48\nMeals per Day'] || 3),
-
-          educationStatus: (ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school') as EducationStatus,
-          educationStatusSpecify: ed.educationStatusSpecify || '',
-          schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
-          schoolSessionStartDate: ed.schoolSessionStartDate || foundRecord['52\nSchool Session Start Date'] || '',
-          schoolType: (ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school') as SchoolType,
-          currentClass: ed.currentClass || ed.schoolGrade || foundRecord['54\nCurrent Class'] || 'Class 2',
-          attendance: (ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular') as AttendanceType,
-
-          schoolFees: Number(exp.schoolFees || foundRecord['56\nSchool Fees'] || 0),
-          tuitionFees: Number(exp.tuitionFees || foundRecord['57\nPrivate Tuition Fee'] || 0),
-          books: Number(exp.books || foundRecord['58\nSchool Books'] || 0),
-          stationery: Number(exp.stationery || foundRecord['59\nSchool Stationery'] || 0),
-          uniform: Number(exp.uniform || foundRecord['60\nSchool Uniform'] || 0),
-          transport: Number(exp.transport || foundRecord['61\nSchool Transport'] || 0),
-          otherExpenses: Number(exp.otherExpenses || foundRecord['62\nSchool Other Expenses'] || 0),
-          feeReceiptPhotoUrl: feeReceiptPhoto,
-          marksheetPhotoUrl: marksheetPhoto,
-          remarks: exp.remarks || foundRecord['66\nRemarks (If Any)'] || '',
-
-          requiredSchoolFees: Number(req.requiredSchoolFees || 0),
-          requiredTuitionFees: Number(req.requiredTuitionFees || 0),
-          requiredBooks: Number(req.requiredBooks || 0),
-          requiredStationery: Number(req.requiredStationery || 0),
-          requiredUniform: Number(req.requiredUniform || 0),
-          requiredTransport: Number(req.requiredTransport || 0),
-          requiredOtherSupport: Number(req.requiredOtherSupport || 0),
-
-          approvedAllianceIndia: (foundRecord.approvedAllianceIndia || fr.approvedAllianceIndia || foundRecord['67\nApproved Alliance India'] || 'Approved') as ApprovedAllianceStatus,
-          allInfoCorrect: true,
-          organizationName: fr.organizationName || foundRecord['69\nOrganization Name'] || 'India HIV/AIDS Alliance',
-          formSubmittedBy: fr.formSubmittedBy || foundRecord.interviewerName || foundRecord['70\nForm Submitted By'] || 'Caseworker',
-          organizationEmail: fr.organizationEmail || foundRecord['71\nOrganization Email'] || 'fieldworker@allianceindia.org',
+      if (!candidateRecord) {
+        setIsHydrationComplete(false);
+        setHydrationError('Record not found locally or on the central server.');
+        logHydrationDiagnostics({
+          technicalId: submissionId,
+          hydrationVersion: 0,
+          loadedGroups: [],
+          missingGroups: ['record_not_found'],
+          source: 'local',
+          editEnabled: false,
         });
-
-        // Capture the values at load time so we can diff edits in handleSaveRevision.
-        setOriginalSnapshot({
-          weightKg: Number(h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg || 14.5),
-          heightCm: Number(h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm || 100),
-          haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || '12.0'),
-          monthlyIncomeRs: Number(hf.monthlyIncomeRs || foundRecord['30\nMonthly Income'] || 0),
-          totalFamilyMembers: Number(hf.totalFamilyMembers || foundRecord['28\nHousehold Members'] || 4),
-          numberOfChildrenUnder18: Number(hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children'] || 2),
-          mainSourceOfIncome: hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || 'Daily wage labour',
-          appetite: n.appetite || foundRecord['47\nAppetite'] || 'Good',
-          mealsPerDay: Number(n.mealsPerDay || foundRecord['48\nMeals per Day'] || 3),
-          educationStatus: ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school',
-          schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
-          schoolType: ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school',
-          currentClass: ed.currentClass || ed.schoolGrade || foundRecord['54\nCurrent Class'] || 'Class 2',
-          attendance: ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular',
-          schoolFees: Number(exp.schoolFees || foundRecord['56\nSchool Fees'] || 0),
-          tuitionFees: Number(exp.tuitionFees || foundRecord['57\nPrivate Tuition Fee'] || 0),
-          books: Number(exp.books || foundRecord['58\nSchool Books'] || 0),
-          stationery: Number(exp.stationery || foundRecord['59\nSchool Stationery'] || 0),
-          uniform: Number(exp.uniform || foundRecord['60\nSchool Uniform'] || 0),
-          transport: Number(exp.transport || foundRecord['61\nSchool Transport'] || 0),
-          otherExpenses: Number(exp.otherExpenses || foundRecord['62\nSchool Other Expenses'] || 0),
-          requiredSchoolFees: Number(req.requiredSchoolFees || 0),
-          requiredTuitionFees: Number(req.requiredTuitionFees || 0),
-          requiredBooks: Number(req.requiredBooks || 0),
-          requiredStationery: Number(req.requiredStationery || 0),
-          requiredUniform: Number(req.requiredUniform || 0),
-          requiredTransport: Number(req.requiredTransport || 0),
-          requiredOtherSupport: Number(req.requiredOtherSupport || 0),
-          approvedAllianceIndia: foundRecord.approvedAllianceIndia || fr.approvedAllianceIndia || 'Approved',
-          remarks: exp.remarks || foundRecord['66\nRemarks (If Any)'] || '',
-        });
-
-        // Check local signature
-        try {
-          const sig = (await getCaregiverSignatureBlob(submissionId)) ||
-            (fbUuid ? await getCaregiverSignatureBlob(fbUuid) : undefined);
-          if (sig) {
-            setHasSavedSignature(true);
-            if (sig.blob) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                if (typeof reader.result === 'string') {
-                  const dataUrl = reader.result;
-                  setExistingSignatureUrl((prev) => prev || dataUrl);
-                  setOriginalConsentSnapshot((prev: any) => {
-                    if (!prev) return prev;
-                    return {
-                      ...prev,
-                      hasVerifiableConsent: true,
-                      signatureDataUrl: prev.signatureDataUrl || dataUrl,
-                      caregiverConsent: prev.caregiverConsent
-                        ? {
-                            ...prev.caregiverConsent,
-                            consentProvided: true,
-                            signatureDataUrl: prev.caregiverConsent.signatureDataUrl || dataUrl,
-                            signatureStatus: 'CAPTURED_LOCAL',
-                          }
-                        : {
-                            consentProvided: true,
-                            consentVersion: 'v1.0-2026',
-                            caregiverName: d.caregiverName || 'Caregiver',
-                            caregiverRelationship: d.caregiverRelationship || 'Mother',
-                            consentCapturedAt: new Date().toISOString(),
-                            signatureRequired: true,
-                            signatureStatus: 'CAPTURED_LOCAL',
-                            signatureDataUrl: dataUrl,
-                          },
-                    };
-                  });
-                }
-              };
-              reader.readAsDataURL(sig.blob);
-            }
-          }
-        } catch (_) {}
+        return;
       }
+
+      // Inject local signature if found in IndexedDB blob store
+      if (localSigDataUrl) {
+        if (!candidateRecord.caregiverConsent) candidateRecord.caregiverConsent = {};
+        if (!candidateRecord.consent) candidateRecord.consent = {};
+        candidateRecord.signatureDataUrl = localSigDataUrl;
+        candidateRecord.caregiverConsent.signatureDataUrl = localSigDataUrl;
+        candidateRecord.caregiverConsent.signatureStatus = 'CAPTURED_LOCAL';
+        candidateRecord.consent.signatureDataUrl = localSigDataUrl;
+      }
+
+      // Strict Hydration Assertion Gate:
+      const completeness = assertEditSnapshotComplete(candidateRecord);
+      if (!completeness.isComplete) {
+        setIsHydrationComplete(false);
+        setMissingGroups(completeness.missingGroups);
+        setHydrationError(
+          'Unable to load the complete record for editing. To protect submitted data, editing is disabled when record details are incomplete. Your original record remains safe and unchanged.'
+        );
+        logHydrationDiagnostics({
+          technicalId: submissionId,
+          hydrationVersion: candidateRecord.version || 1,
+          loadedGroups: Object.keys(completeness.details).filter((k) => (completeness.details as any)[k]),
+          missingGroups: completeness.missingGroups,
+          source: remoteRecord ? 'server' : 'local',
+          editEnabled: false,
+        });
+        return;
+      }
+
+      // Canonical Hydration into Form State
+      const hydrated = hydrateSubmissionForEdit(candidateRecord);
+      setFormData(hydrated.formState);
+      setOriginalSnapshot(hydrated.originalSnapshot);
+      setOriginalConsentSnapshot(hydrated.consentSnapshot);
+      setFullOriginalRecord(candidateRecord);
+      setHasSavedSignature(hydrated.hasSavedSignature);
+      setExistingSignatureUrl(hydrated.existingSignatureUrl);
+      setSavedDocuments(hydrated.savedDocuments);
+      setCurrentVersion(hydrated.currentVersion);
+      setConfirmedRemoteSubmissionId(hydrated.remoteSubmissionId);
+      if (fbUuid) setFallbackSigUuid(fbUuid);
+
+      const reason =
+        candidateRecord.editReason ||
+        candidateRecord.edit_reason ||
+        candidateRecord['48\\nEdit Reason'] ||
+        candidateRecord['48\nEdit Reason'] ||
+        '';
+      setAmendmentReason(reason);
+
+      setIsHydrationComplete(true);
+      setHydrationError(null);
+      logHydrationDiagnostics({
+        technicalId: submissionId,
+        hydrationVersion: hydrated.currentVersion,
+        loadedGroups: Object.keys(completeness.details),
+        missingGroups: [],
+        source: remoteRecord ? 'server' : 'local',
+        editEnabled: true,
+      });
     } catch (err) {
       console.error('[EditRecordPage] Error loading record:', err);
+      setIsHydrationComplete(false);
+      setHydrationError('An error occurred while loading the record. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -765,6 +568,10 @@ export default function EditRecordPage() {
 
   const handleSaveRevision = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isHydrationComplete) {
+      setFormError('Cannot save: record details are not fully loaded. To protect submitted data, edits are locked.');
+      return;
+    }
     if (!formData.childName.trim()) {
       setFormError('Child name is required.');
       return;
@@ -1206,6 +1013,85 @@ export default function EditRecordPage() {
     );
   }
 
+  // Strict Hydration Gate Fallback: Never render editable form if snapshot is incomplete!
+  if (!isHydrationComplete) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-2xl mx-auto px-4 py-8 sm:py-12 space-y-6 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+            <Link
+              href="/assessment/sync"
+              className="inline-flex items-center text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              <span>Return to Submitted Assessments</span>
+            </Link>
+            <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+              {submissionId}
+            </span>
+          </div>
+
+          <div className="bg-amber-50/80 border border-amber-300 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-start space-x-3.5">
+              <div className="p-2.5 rounded-xl bg-amber-100 border border-amber-300 text-amber-800 shrink-0 mt-0.5">
+                <AlertTriangle className="h-6 w-6 text-amber-700" />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <h2 className="text-base font-bold text-amber-950">
+                  Unable to load the complete record for editing
+                </h2>
+                <p className="text-xs text-amber-900 leading-relaxed">
+                  {hydrationError ||
+                    'To protect submitted data, editing is disabled when record details are incomplete. Your original record remains safe and unchanged.'}
+                </p>
+              </div>
+            </div>
+
+            {missingGroups.length > 0 && (
+              <div className="bg-white/80 rounded-xl p-3 border border-amber-200 text-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-amber-900 uppercase tracking-wider">
+                  Missing Record Attributes ({missingGroups.length}):
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {missingGroups.map((grp) => (
+                    <span
+                      key={grp}
+                      className="px-2 py-0.5 text-[11px] font-mono bg-amber-100 text-amber-900 rounded-md border border-amber-300"
+                    >
+                      {grp}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-amber-200 flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={loadRecord}
+                className="bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                <span>Try Loading Again</span>
+              </Button>
+              <Link href="/assessment/sync">
+                <Button type="button" variant="secondary" className="text-xs font-bold">
+                  <span>Return to Submitted Assessments</span>
+                </Button>
+              </Link>
+              <Link href={`/assessment/record/${encodeURIComponent(submissionId)}`}>
+                <Button type="button" variant="ghost" className="text-xs font-bold text-slate-600">
+                  <span>View Record Summary</span>
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-6 sm:py-10 space-y-6 animate-in fade-in duration-200">
@@ -1422,18 +1308,70 @@ export default function EditRecordPage() {
               {/* Signature Pad */}
               {formData.agreeToParticipate ? (
                 <div className="pt-1">
-                  <CaregiverSignaturePad
-                    submissionUuid={submissionId}
-                    fallbackUuid={fallbackSigUuid || submissionId}
-                    initialSignatureUrl={existingSignatureUrl}
-                    caregiverName={formData.caregiverName}
-                    caregiverRelationship={formData.caregiverRelationship || 'Caregiver'}
-                    onSignatureChange={(dataUrl) => {
-                      setExistingSignatureUrl(dataUrl);
-                      setHasSavedSignature(!!dataUrl);
-                    }}
-                    onSignatureSaved={() => setHasSavedSignature(true)}
-                  />
+                  {hasSavedSignature && !isReplacingSignature ? (
+                    <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-300 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2 text-emerald-900">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                          <div>
+                            <p className="text-xs font-bold">Saved Caregiver Signature on File</p>
+                            <p className="text-[11px] text-emerald-700">
+                              Original signature is securely preserved. Re-signing is not required for editing this record.
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setIsReplacingSignature(true)}
+                          className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-xs font-bold"
+                        >
+                          <History className="h-3.5 w-3.5 mr-1.5" />
+                          <span>Replace Signature</span>
+                        </Button>
+                      </div>
+
+                      {existingSignatureUrl && !existingSignatureUrl.includes('DATA_URL_STORED_PENDING_AUTH') && (
+                        <div className="bg-white rounded-lg p-2 border border-emerald-200 inline-block">
+                          <img
+                            src={existingSignatureUrl}
+                            alt="Saved caregiver signature"
+                            className="h-16 max-w-xs object-contain"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {isReplacingSignature && (
+                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-100 border border-slate-300">
+                          <span className="text-xs text-slate-700 font-medium">
+                            Capturing new replacement signature
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsReplacingSignature(false)}
+                            className="text-xs font-bold text-teal-700 hover:underline cursor-pointer"
+                          >
+                            Cancel &amp; Keep Saved Signature
+                          </button>
+                        </div>
+                      )}
+                      <CaregiverSignaturePad
+                        submissionUuid={submissionId}
+                        fallbackUuid={fallbackSigUuid || submissionId}
+                        initialSignatureUrl={isReplacingSignature ? undefined : existingSignatureUrl}
+                        caregiverName={formData.caregiverName}
+                        caregiverRelationship={formData.caregiverRelationship || 'Caregiver'}
+                        onSignatureChange={(dataUrl) => {
+                          setExistingSignatureUrl(dataUrl);
+                          setHasSavedSignature(!!dataUrl);
+                        }}
+                        onSignatureSaved={() => setHasSavedSignature(true)}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-3">
@@ -1685,24 +1623,48 @@ export default function EditRecordPage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
-              <PhotoUpload
-                label="PASSBOOK FRONT PAGE PHOTO"
-                
-                value={formData.passbookPhotoUrl}
-                onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
-              />
-              <PhotoUpload
-                label="AADHAAR CARD PHOTO"
-                
-                value={formData.aadhaarCardPhotoUrl}
-                onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
-              />
-              <PhotoUpload
-                label="PASSPORT SIZE / BENEFICIARY PHOTO"
-                helperText="Recent photograph of child beneficiary"
-                value={formData.childPhotoUrl}
-                onChange={(url?: string) => setFormData({ ...formData, childPhotoUrl: url || '' })}
-              />
+              <div className="space-y-1">
+                {savedDocuments.passbook && (
+                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                    Saved Passbook on File
+                  </span>
+                )}
+                <PhotoUpload
+                  label="PASSBOOK FRONT PAGE PHOTO"
+                  value={formData.passbookPhotoUrl}
+                  onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
+                />
+              </div>
+
+              <div className="space-y-1">
+                {savedDocuments.aadhaar && (
+                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                    Saved Aadhaar on File
+                  </span>
+                )}
+                <PhotoUpload
+                  label="AADHAAR CARD PHOTO"
+                  value={formData.aadhaarCardPhotoUrl}
+                  onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
+                />
+              </div>
+
+              <div className="space-y-1">
+                {savedDocuments.childPhoto && (
+                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                    Saved Beneficiary Photo on File
+                  </span>
+                )}
+                <PhotoUpload
+                  label="PASSPORT SIZE / BENEFICIARY PHOTO"
+                  helperText="Recent photograph of child beneficiary"
+                  value={formData.childPhotoUrl}
+                  onChange={(url?: string) => setFormData({ ...formData, childPhotoUrl: url || '' })}
+                />
+              </div>
             </div>
           </section>
 
@@ -2305,6 +2267,8 @@ export default function EditRecordPage() {
                 onRemarksChange={(rem: string) =>
                   setFormData((prev) => ({ ...prev, remarks: rem }))
                 }
+                savedFeeReceipt={savedDocuments.feeReceipt}
+                savedMarksheet={savedDocuments.marksheet}
               />
             </div>
           </section>

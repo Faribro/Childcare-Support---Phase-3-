@@ -25,7 +25,8 @@ import { isValidUuidV4 } from '@/features/submission/submissionTypes';
 
 export default function RecordDetailPage() {
   const params = useParams();
-  const submissionId = params?.submissionId as string;
+  const rawId = (params?.submissionId as string) || '';
+  const submissionId = decodeURIComponent(rawId);
 
   const [record, setRecord] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,6 +53,7 @@ export default function RecordDetailPage() {
               (q.payload as any)?.artNumber === submissionId ||
               (q.payload as any)?.demographics?.artNumber === submissionId ||
               (q.payload as any)?.legacyBusinessReference === submissionId ||
+              (q.payload as any)?.['1\nUnique ID'] === submissionId ||
               String(q.id) === submissionId
           );
 
@@ -78,6 +80,7 @@ export default function RecordDetailPage() {
                 d.uniqueId === submissionId ||
                 d.formData?.uuid === submissionId ||
                 d.formData?.demographics?.artNumber === submissionId ||
+                (d.formData as any)?.['1\nUnique ID'] === submissionId ||
                 String(d.id) === submissionId
             );
 
@@ -102,7 +105,9 @@ export default function RecordDetailPage() {
           // If it DOES have a confirmed valid UUIDv4 remoteSubmissionId:
           // We MAY call GET /api/submissions/${confirmedRemoteId} to fetch latest server state
           try {
-            const res = await fetch(`/api/submissions/${encodeURIComponent(confirmedRemoteId)}`);
+            const res = await fetch(`/api/submissions/${encodeURIComponent(confirmedRemoteId)}`, {
+              credentials: 'same-origin',
+            });
             if (res.ok) {
               const body = await res.json();
               if (body.data) {
@@ -118,20 +123,26 @@ export default function RecordDetailPage() {
         }
 
         // 3. If no local record matches at all:
-        // Only issue remote GET if submissionId itself is a valid UUIDv4
-        if (isValidUuidV4(submissionId)) {
-          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+        try {
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`, {
+            credentials: 'same-origin',
+          });
           if (res.ok) {
             const body = await res.json();
             if (body.data) {
               setRecord(body.data);
               return;
             }
+          } else if (res.status === 401 || res.status === 403) {
+            setError('Authentication required to view this record. Please sign in.');
+            return;
+          } else if (res.status === 404) {
+            setError('Record not found.');
+            return;
           }
           setError(`Unable to load record (${res.status})`);
-        } else {
-          // submissionId is not a UUIDv4 and not in local DB -> not found
-          setError('Record not found.');
+        } catch (_) {
+          setError('Network error loading submission detail');
         }
       } catch (err) {
         setError('Network error loading submission detail');

@@ -22,6 +22,7 @@ import {
   TrendingUp,
   School,
   HeartHandshake,
+} from 'lucide-react';
 import { normalizeGeographicKey } from '@/lib/normalizeGeographicKey';
 import { isAuthenticatedSession, markSessionExpired } from '@/lib/auth/clientAuth';
 import type { GISRegionMetrics } from './GISMapComponent';

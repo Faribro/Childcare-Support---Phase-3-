@@ -52,6 +52,8 @@ interface ExpensesAndApprovalGridProps {
   onReceiptPhotoChange?: (dataUrl?: string) => void;
   onMarksheetPhotoChange?: (dataUrl?: string) => void;
   onRemarksChange?: (remarks: string) => void;
+  savedFeeReceipt?: boolean;
+  savedMarksheet?: boolean;
   isReadOnly?: boolean;
 }
 
@@ -63,6 +65,8 @@ export function ExpensesAndApprovalGrid({
   onReceiptPhotoChange,
   onMarksheetPhotoChange,
   onRemarksChange,
+  savedFeeReceipt = false,
+  savedMarksheet = false,
   isReadOnly = false,
 }: ExpensesAndApprovalGridProps) {
   const expenseCategories = [
@@ -365,19 +369,35 @@ export function ExpensesAndApprovalGrid({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <PhotoUpload
-              label="SCHOOL FEE RECEIPT (PHOTO)"
-              helperText="Clear photo of the fee receipt. All text must be readable (< 10MB)."
-              value={currentExpenses.feeReceiptPhotoUrl}
-              onChange={onReceiptPhotoChange}
-            />
+            <div className="space-y-1">
+              {savedFeeReceipt && (
+                <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                  Saved School Fee Receipt on File
+                </span>
+              )}
+              <PhotoUpload
+                label="SCHOOL FEE RECEIPT (PHOTO)"
+                helperText="Clear photo of the fee receipt. All text must be readable (< 10MB)."
+                value={currentExpenses.feeReceiptPhotoUrl}
+                onChange={onReceiptPhotoChange}
+              />
+            </div>
 
-            <PhotoUpload
-              label="PREVIOUS YEAR MARKSHEET (PHOTO)"
-              helperText="Photo of last year's report card. Click here to upload file (< 10MB)."
-              value={currentExpenses.marksheetPhotoUrl}
-              onChange={onMarksheetPhotoChange}
-            />
+            <div className="space-y-1">
+              {savedMarksheet && (
+                <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                  Saved Marksheet on File
+                </span>
+              )}
+              <PhotoUpload
+                label="PREVIOUS YEAR MARKSHEET (PHOTO)"
+                helperText="Photo of last year's report card. Click here to upload file (< 10MB)."
+                value={currentExpenses.marksheetPhotoUrl}
+                onChange={onMarksheetPhotoChange}
+              />
+            </div>
           </div>
 
           <Input

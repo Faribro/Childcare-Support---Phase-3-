@@ -14,24 +14,120 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
+import { db } from '@/lib/db/dexieDb';
+import { isValidUuidV4 } from '@/features/submission/submissionTypes';
+
 export default function AssessmentReceiptPage() {
   const params = useParams();
-  const submissionId = params?.submissionId as string;
+  const rawId = (params?.submissionId as string) || '';
+  const submissionId = decodeURIComponent(rawId);
 
   const [record, setRecord] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       if (!submissionId) return;
+      setIsLoading(true);
+      setError(null);
       try {
-        const res = await fetch(`/api/submissions/${submissionId}`);
-        if (res.ok) {
-          const body = await res.json();
-          setRecord(body.data);
+        // 1. Inspect local IndexedDB first
+        let localRecord: any = null;
+        let confirmedRemoteId: string | undefined = undefined;
+
+        try {
+          const queueItems = await db.syncQueue.toArray();
+          const localQueue = queueItems.find(
+            (q) =>
+              q.submissionUuid === submissionId ||
+              (q.payload as any)?.uuid === submissionId ||
+              (q.payload as any)?.clientSubmissionId === submissionId ||
+              (q.payload as any)?.uniqueId === submissionId ||
+              (q.payload as any)?.artNumber === submissionId ||
+              (q.payload as any)?.demographics?.artNumber === submissionId ||
+              (q.payload as any)?.legacyBusinessReference === submissionId ||
+              (q.payload as any)?.['1\nUnique ID'] === submissionId ||
+              String(q.id) === submissionId
+          );
+
+          if (localQueue?.payload) {
+            localRecord = localQueue.payload;
+            if (isValidUuidV4(localQueue.remoteSubmissionId)) {
+              confirmedRemoteId = localQueue.remoteSubmissionId;
+            } else if (isValidUuidV4((localQueue.payload as any).remoteSubmissionId)) {
+              confirmedRemoteId = (localQueue.payload as any).remoteSubmissionId;
+            }
+          }
+        } catch (_) {}
+
+        if (!localRecord) {
+          try {
+            const drafts = await db.drafts.toArray();
+            const localDraft = drafts.find(
+              (d: any) =>
+                d.uuid === submissionId ||
+                d.clientSubmissionId === submissionId ||
+                d.demographics?.artNumber === submissionId ||
+                d.artNumber === submissionId ||
+                d.legacyBusinessReference === submissionId ||
+                d.uniqueId === submissionId ||
+                d.formData?.uuid === submissionId ||
+                d.formData?.demographics?.artNumber === submissionId ||
+                (d.formData as any)?.['1\nUnique ID'] === submissionId ||
+                String(d.id) === submissionId
+            );
+
+            if (localDraft) {
+              localRecord = (localDraft as any).formData || localDraft;
+              if (isValidUuidV4(localDraft.remoteSubmissionId)) {
+                confirmedRemoteId = localDraft.remoteSubmissionId;
+              }
+            }
+          } catch (_) {}
         }
+
+        if (localRecord) {
+          setRecord(localRecord);
+          // If remote ID exists, attempt background refresh
+          if (confirmedRemoteId) {
+            try {
+              const res = await fetch(`/api/submissions/${encodeURIComponent(confirmedRemoteId)}`, {
+                credentials: 'same-origin',
+              });
+              if (res.ok) {
+                const body = await res.json();
+                if (body.data) setRecord(body.data);
+              }
+            } catch (_) {}
+          }
+          return;
+        }
+
+        // 2. Fetch remotely if not available locally
+        try {
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`, {
+            credentials: 'same-origin',
+          });
+          if (res.ok) {
+            const body = await res.json();
+            if (body.data) {
+              setRecord(body.data);
+              return;
+            }
+          } else if (res.status === 401 || res.status === 403) {
+            setError('Authentication required to view this receipt. Please sign in.');
+            return;
+          } else if (res.status === 404) {
+            setError('Receipt not found.');
+            return;
+          }
+        } catch (_) {}
+
+        setError('Unable to load receipt.');
       } catch (err) {
         console.error('Failed to load receipt:', err);
+        setError('Network error loading receipt.');
       } finally {
         setIsLoading(false);
       }
@@ -42,6 +138,38 @@ export default function AssessmentReceiptPage() {
   const handlePrint = () => {
     window.print();
   };
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-lg mx-auto px-4 py-16 flex flex-col items-center justify-center space-y-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+          <p className="text-xs text-slate-500">Loading intake confirmation receipt...</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error && !record) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-lg mx-auto px-4 py-8 space-y-6">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center space-y-4">
+            <h2 className="text-sm font-bold text-amber-900">Receipt Not Available</h2>
+            <p className="text-xs text-amber-700">{error}</p>
+            <div>
+              <Link
+                href="/sync"
+                className="inline-flex items-center text-xs font-semibold text-teal-700 underline"
+              >
+                Return to Sync Centre
+              </Link>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
