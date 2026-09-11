@@ -27,6 +27,7 @@ import {
   normalizeValidationErrors,
   navigateToValidationError,
   normalizeNativeValidationError,
+  getResolvableSectionErrors,
 } from '@/lib/validations/formValidationRegistry';
 import {
   calculateAge,
@@ -91,12 +92,23 @@ export default function EditRecordPage() {
   );
 
   const errorsBySection = useMemo(() => {
-    const map: Record<string, FormValidationError[]> = {};
-    for (const e of validationErrors) {
-      (map[e.sectionKey] = map[e.sectionKey] || []).push(e);
-    }
-    return map;
+    return getResolvableSectionErrors(validationErrors);
   }, [validationErrors]);
+
+  const clearFieldError = useCallback((...identifiers: string[]) => {
+    setValidationErrors((prev) => {
+      if (prev.length === 0) return prev;
+      const idSet = new Set(identifiers.filter(Boolean));
+      const next = prev.filter(
+        (err) =>
+          !idSet.has(err.elementId) &&
+          !idSet.has(err.fieldKey) &&
+          !idSet.has(err.path.join('.')) &&
+          !err.path.some((p) => idSet.has(p))
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, []);
 
   const handleNativeInvalidCapture = (e: React.FormEvent<HTMLElement>) => {
     e.preventDefault();
@@ -218,6 +230,13 @@ export default function EditRecordPage() {
     formSubmittedBy: 'Caseworker',
     organizationEmail: 'fieldworker@allianceindia.org',
   });
+
+  // Clear global form error when all validation errors have resolved
+  useEffect(() => {
+    if (validationErrors.length === 0 && formError) {
+      setFormError(null);
+    }
+  }, [validationErrors.length, formError]);
 
   const loadRecord = useCallback(async () => {
     setIsLoading(true);
@@ -1403,7 +1422,10 @@ export default function EditRecordPage() {
                       type="radio"
                       name="agreeToParticipate"
                       checked={formData.agreeToParticipate === true}
-                      onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
+                      onChange={() => {
+                        setFormData({ ...formData, agreeToParticipate: true });
+                        clearFieldError('caregiver-consent', 'agreeToParticipate');
+                      }}
                       aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                       className="text-teal-600 focus:ring-teal-500"
                     />
@@ -1421,7 +1443,10 @@ export default function EditRecordPage() {
                       type="radio"
                       name="agreeToParticipate"
                       checked={formData.agreeToParticipate === false}
-                      onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
+                      onChange={() => {
+                        setFormData({ ...formData, agreeToParticipate: false });
+                        clearFieldError('caregiver-consent', 'agreeToParticipate');
+                      }}
                       aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                       className="text-rose-600 focus:ring-rose-500"
                     />
@@ -1433,23 +1458,37 @@ export default function EditRecordPage() {
               {/* Caregiver Details */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Input
+                  id="caregiver-name"
                   label="Caregiver's Full Name *"
                   required
                   value={formData.caregiverName}
-                  onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
-                  
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, caregiverName: val });
+                    if (val.trim().length >= 2) {
+                      clearFieldError('caregiver-name', 'caregiverName');
+                    }
+                  }}
+                  error={errorsByField['caregiver-name']?.message}
                   placeholder="e.g. Manoj S."
                 />
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-800 block">
+                  <label htmlFor="caregiver-relationship" className="text-xs font-bold text-slate-800 block">
                     Relationship to Child *
                   </label>
                   <select
+                    id="caregiver-relationship"
                     value={formData.caregiverRelationship}
-                    onChange={(e) =>
-                      setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
-                    }
+                    onChange={(e) => {
+                      const val = e.target.value as CaregiverRelationship;
+                      setFormData({ ...formData, caregiverRelationship: val });
+                      if (val) {
+                        clearFieldError('caregiver-relationship', 'caregiverRelationship');
+                      }
+                    }}
+                    aria-invalid={!!errorsByField['caregiver-relationship']}
+                    aria-describedby={errorsByField['caregiver-relationship'] ? 'caregiver-relationship-error' : undefined}
                     className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   >
                     {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
@@ -1458,7 +1497,11 @@ export default function EditRecordPage() {
                       </option>
                     ))}
                   </select>
-                  
+                  {errorsByField['caregiver-relationship'] && (
+                    <p id="caregiver-relationship-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['caregiver-relationship'].message}
+                    </p>
+                  )}
                 </div>
 
                 <Input
@@ -1498,8 +1541,14 @@ export default function EditRecordPage() {
                     onSignatureChange={(dataUrl) => {
                       setExistingSignatureUrl(dataUrl);
                       setHasSavedSignature(!!dataUrl);
+                      if (dataUrl) {
+                        clearFieldError('caregiver-signature', 'signatureDataUrl', 'caregiverSignature');
+                      }
                     }}
-                    onSignatureSaved={() => setHasSavedSignature(true)}
+                    onSignatureSaved={() => {
+                      setHasSavedSignature(true);
+                      clearFieldError('caregiver-signature', 'signatureDataUrl', 'caregiverSignature');
+                    }}
                   />
                 </div>
               ) : (
@@ -2219,7 +2268,18 @@ export default function EditRecordPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="space-y-1.5">
+              <div
+                id="education-educationStatus"
+                tabIndex={-1}
+                className={`space-y-1.5 p-2 rounded-xl ${
+                  errorsByField['education-educationStatus'] ? 'bg-rose-50/50 border border-rose-400' : ''
+                }`}
+              >
+                {errorsByField['education-educationStatus'] && (
+                  <p id="education-educationStatus-error" role="alert" className="text-xs font-semibold text-rose-600">
+                    {errorsByField['education-educationStatus'].message}
+                  </p>
+                )}
                 <label className="text-xs font-bold text-slate-800 block">EDUCATION STATUS *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
@@ -2242,8 +2302,12 @@ export default function EditRecordPage() {
                         name="educationStatus"
                         value={st}
                         checked={formData.educationStatus === st}
-                        onChange={() => setFormData({ ...formData, educationStatus: st as EducationStatus })}
+                        onChange={() => {
+                          setFormData({ ...formData, educationStatus: st as EducationStatus });
+                          clearFieldError('education-educationStatus', 'educationStatus');
+                        }}
                         className="text-teal-600 focus:ring-teal-500"
+                        aria-describedby={errorsByField['education-educationStatus'] ? 'education-educationStatus-error' : undefined}
                       />
                       <span className="truncate">{st}</span>
                     </label>
@@ -2251,68 +2315,142 @@ export default function EditRecordPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="sm:col-span-2">
+              {formData.educationStatus === 'Other' && (
+                <Input
+                  id="education-educationStatusSpecify"
+                  label="EDUCATION STATUS OTHER (PLEASE SPECIFY)"
+                  value={formData.educationStatusSpecify}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, educationStatusSpecify: val });
+                    if (val.trim()) {
+                      clearFieldError('education-educationStatusSpecify', 'educationStatusSpecify');
+                    }
+                  }}
+                  error={errorsByField['education-educationStatusSpecify']?.message}
+                />
+              )}
+
+              {formData.educationStatus === 'Currently going to school' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="sm:col-span-2">
+                    <Input
+                      id="education-schoolName"
+                      label="SCHOOL NAME"
+                      value={formData.schoolName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, schoolName: val });
+                        if (val.trim()) {
+                          clearFieldError('education-schoolName', 'schoolName');
+                        }
+                      }}
+                      error={errorsByField['education-schoolName']?.message}
+                      placeholder="e.g. Pune Zilla Parishad Primary School"
+                    />
+                  </div>
                   <Input
-                    label="SCHOOL NAME"
-                    value={formData.schoolName}
-                    onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
-                    
-                    placeholder="e.g. Pune Zilla Parishad Primary School"
+                    id="education-schoolSessionStartDate"
+                    label="SCHOOL SESSION START DATE"
+                    type="date"
+                    value={formData.schoolSessionStartDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, schoolSessionStartDate: val });
+                      if (val) {
+                        clearFieldError('education-schoolSessionStartDate', 'schoolSessionStartDate');
+                      }
+                    }}
+                    error={errorsByField['education-schoolSessionStartDate']?.message}
                   />
-                </div>
-                <Input
-                  label="SCHOOL SESSION START DATE"
-                  type="date"
-                  value={formData.schoolSessionStartDate}
-                  onChange={(e) => setFormData({ ...formData, schoolSessionStartDate: e.target.value })}
-                  
-                />
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">SCHOOL TYPE</label>
-                  <select
-                    value={formData.schoolType}
-                    onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  <div className="flex flex-col space-y-1.5">
+                    <label htmlFor="education-schoolType" className="block text-xs font-bold text-slate-700">
+                      SCHOOL TYPE
+                    </label>
+                    <select
+                      id="education-schoolType"
+                      value={formData.schoolType}
+                      onChange={(e) => {
+                        const val = e.target.value as SchoolType;
+                        setFormData({ ...formData, schoolType: val });
+                        clearFieldError('education-schoolType', 'schoolType');
+                      }}
+                      aria-invalid={!!errorsByField['education-schoolType']}
+                      aria-describedby={errorsByField['education-schoolType'] ? 'education-schoolType-error' : undefined}
+                      className={`w-full px-3 py-2 text-xs rounded-xl border bg-white focus:ring-2 focus:outline-none cursor-pointer ${
+                        errorsByField['education-schoolType']
+                          ? 'border-rose-400 focus:ring-rose-200'
+                          : 'border-slate-300 focus:ring-teal-500'
+                      }`}
+                    >
+                      {['Government school', 'Private school', 'Aided school'].map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                    {errorsByField['education-schoolType'] && (
+                      <p id="education-schoolType-error" role="alert" className="text-xs font-semibold text-rose-600">
+                        {errorsByField['education-schoolType'].message}
+                      </p>
+                    )}
+                  </div>
+                  <Input
+                    id="education-currentClass"
+                    label="CURRENT CLASS"
+                    value={formData.currentClass}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, currentClass: val });
+                      if (val.trim()) {
+                        clearFieldError('education-currentClass', 'currentClass');
+                      }
+                    }}
+                    error={errorsByField['education-currentClass']?.message}
+                    placeholder="e.g. Class 2"
+                  />
+                  <div
+                    id="education-attendance"
+                    tabIndex={-1}
+                    className={`sm:col-span-3 space-y-1.5 p-2 rounded-xl transition-all ${
+                      errorsByField['education-attendance'] ? 'bg-rose-50/50 border border-rose-400' : ''
+                    }`}
                   >
-                    <option value="Government school">Government school</option>
-                    <option value="Private school">Private school</option>
-                    <option value="Government aided">Government aided</option>
-                    <option value="Special school">Special school</option>
-                  </select>
-                </div>
-                <Input
-                  label="CURRENT CLASS"
-                  value={formData.currentClass}
-                  onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
-                  placeholder="e.g. Class 2"
-                />
-                <div className="sm:col-span-3">
-                  <label className="text-xs font-bold text-slate-800 block mb-1">ATTENDANCE STATUS</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['Regular', 'Irregular', 'Dropped out'] as AttendanceType[]).map((att) => (
-                      <label
-                        key={att}
-                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                          formData.attendance === att
-                            ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                            : 'bg-white border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="attendance"
-                          value={att}
-                          checked={formData.attendance === att}
-                          onChange={() => setFormData({ ...formData, attendance: att })}
-                          className="text-teal-600 focus:ring-teal-500"
-                        />
-                        <span>{att}</span>
-                      </label>
-                    ))}
+                    {errorsByField['education-attendance'] && (
+                      <p id="education-attendance-error" role="alert" className="text-xs font-semibold text-rose-600">
+                        {errorsByField['education-attendance'].message}
+                      </p>
+                    )}
+                    <label className="text-xs font-bold text-slate-800 block mb-1">ATTENDANCE STATUS</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['Regular', 'Irregular', 'Dropped out'] as AttendanceType[]).map((att) => (
+                        <label
+                          key={att}
+                          className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                            formData.attendance === att
+                              ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                              : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="attendance"
+                            value={att}
+                            checked={formData.attendance === att}
+                            onChange={() => {
+                              setFormData({ ...formData, attendance: att });
+                              clearFieldError('education-attendance', 'attendance');
+                            }}
+                            className="text-teal-600 focus:ring-teal-500"
+                            aria-describedby={errorsByField['education-attendance'] ? 'education-attendance-error' : undefined}
+                          />
+                          <span>{att}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </section>
 
@@ -2443,11 +2581,14 @@ export default function EditRecordPage() {
                       : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <input
+                    <input
                     type="radio"
                     name="allInfoCorrect"
                     checked={formData.allInfoCorrect}
-                    onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
+                    onChange={() => {
+                      setFormData({ ...formData, allInfoCorrect: true });
+                      clearFieldError('review-allInfoCorrect', 'review.allInfoCorrect', 'allInfoCorrect');
+                    }}
                     aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500"
                   />
@@ -2464,7 +2605,10 @@ export default function EditRecordPage() {
                     type="radio"
                     name="allInfoCorrect"
                     checked={!formData.allInfoCorrect}
-                    onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
+                    onChange={() => {
+                      setFormData({ ...formData, allInfoCorrect: false });
+                      clearFieldError('review-allInfoCorrect', 'review.allInfoCorrect', 'allInfoCorrect');
+                    }}
                     aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     className="accent-rose-600 text-rose-600 focus:ring-rose-500"
                   />
@@ -2483,7 +2627,13 @@ export default function EditRecordPage() {
                   label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
                   required
                   value={formData.formSubmittedBy}
-                  onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, formSubmittedBy: val });
+                    if (val.trim().length >= 2) {
+                      clearFieldError('review-formSubmittedBy', 'review.formSubmittedBy', 'formSubmittedBy');
+                    }
+                  }}
                   placeholder="e.g. Sunita Sharma"
                 />
               </div>

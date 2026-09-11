@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -24,6 +24,7 @@ import {
   normalizeValidationErrors,
   navigateToValidationError,
   normalizeNativeValidationError,
+  getResolvableSectionErrors,
 } from '@/lib/validations/formValidationRegistry';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
@@ -96,12 +97,23 @@ export default function NewSinglePageAssessment() {
   );
 
   const errorsBySection = useMemo(() => {
-    const map: Record<string, FormValidationError[]> = {};
-    for (const e of validationErrors) {
-      (map[e.sectionKey] = map[e.sectionKey] || []).push(e);
-    }
-    return map;
+    return getResolvableSectionErrors(validationErrors);
   }, [validationErrors]);
+
+  const clearFieldError = useCallback((...identifiers: string[]) => {
+    setValidationErrors((prev) => {
+      if (prev.length === 0) return prev;
+      const idSet = new Set(identifiers.filter(Boolean));
+      const next = prev.filter(
+        (err) =>
+          !idSet.has(err.elementId) &&
+          !idSet.has(err.fieldKey) &&
+          !idSet.has(err.path.join('.')) &&
+          !err.path.some((p) => idSet.has(p))
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, []);
 
   const handleNativeInvalidCapture = (e: React.FormEvent<HTMLElement>) => {
     e.preventDefault();
@@ -201,7 +213,7 @@ export default function NewSinglePageAssessment() {
     educationStatusSpecify: '',
     schoolName: '',
     schoolSessionStartDate: '',
-    schoolType: '' as SchoolType,
+    schoolType: 'Government school' as SchoolType,
     currentClass: '',
     attendance: '' as AttendanceType,
 
@@ -233,6 +245,137 @@ export default function NewSinglePageAssessment() {
     formSubmittedBy: '',
     organizationEmail: '',
   });
+
+  // Self-healing real-time error clearance: as user populates valid fields,
+  // stale validation errors are immediately purged and badge counts decrement.
+  useEffect(() => {
+    if (validationErrors.length === 0) return;
+
+    setValidationErrors((prev) => {
+      let changed = false;
+      const next = prev.filter((err) => {
+        // Section 7: Education
+        if (err.elementId === 'education-schoolName' || err.fieldKey === 'schoolName') {
+          if (formData.schoolName && formData.schoolName.trim().length > 0) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'education-currentClass' || err.fieldKey === 'currentClass') {
+          if (formData.currentClass && formData.currentClass.trim().length > 0) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'education-educationStatus' || err.fieldKey === 'educationStatus') {
+          if (formData.educationStatus) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'education-schoolType' || err.fieldKey === 'schoolType') {
+          if (formData.schoolType) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'education-attendance' || err.fieldKey === 'attendance') {
+          if (formData.attendance) {
+            changed = true;
+            return false;
+          }
+        }
+
+        // Section 9: Review
+        if (err.elementId === 'review-allInfoCorrect' || err.fieldKey === 'allInfoCorrect') {
+          if (formData.allInfoCorrect === true) {
+            changed = true;
+            return false;
+          }
+        }
+        if (
+          err.elementId === 'review-formSubmittedBy' ||
+          err.elementId === 'formSubmittedBy' ||
+          err.fieldKey === 'formSubmittedBy'
+        ) {
+          if (formData.formSubmittedBy && formData.formSubmittedBy.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
+
+        // Section 1: Consent & Caregiver
+        if (
+          err.elementId === 'caregiver-consent' ||
+          err.fieldKey === 'agreeToParticipate' ||
+          err.fieldKey === 'caregiverConsent.consentProvided'
+        ) {
+          if (formData.agreeToParticipate === true) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'caregiver-signature' || err.fieldKey === 'signature') {
+          if (hasSavedSignature) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'caregiver-name' || err.fieldKey === 'caregiverName') {
+          if (formData.caregiverName && formData.caregiverName.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-contactNumber' || err.fieldKey === 'contactNumber') {
+          if (!formData.contactNumber || /^[6-9]\d{9}$/.test(formData.contactNumber)) {
+            changed = true;
+            return false;
+          }
+        }
+
+        // Section 2: Demographics
+        if (err.elementId === 'demographics-childName' || err.fieldKey === 'childName') {
+          if (formData.childName && formData.childName.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-dob' || err.fieldKey === 'dob') {
+          if (formData.dob && new Date(formData.dob) <= new Date()) {
+            changed = true;
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [
+    validationErrors.length,
+    formData.schoolName,
+    formData.currentClass,
+    formData.educationStatus,
+    formData.schoolType,
+    formData.attendance,
+    formData.allInfoCorrect,
+    formData.formSubmittedBy,
+    formData.agreeToParticipate,
+    formData.caregiverName,
+    formData.contactNumber,
+    formData.childName,
+    formData.dob,
+    hasSavedSignature,
+  ]);
+
+  // Clear global form error when all validation errors have resolved
+  useEffect(() => {
+    if (validationErrors.length === 0 && formError) {
+      setFormError(null);
+    }
+  }, [validationErrors.length, formError]);
 
   // Client init: UUID & Reference ID
   useEffect(() => {
@@ -678,7 +821,7 @@ export default function NewSinglePageAssessment() {
           sectionKey: 'review',
           message: 'Please enter your name using at least 2 characters.',
           label: 'Interviewer / Caseworker name',
-          elementId: 'formSubmittedBy',
+          elementId: 'review-formSubmittedBy',
         });
       }
 
@@ -824,7 +967,12 @@ export default function NewSinglePageAssessment() {
           <ConsentAudioNotice
             currentLanguage={currentLanguage}
             agreeToParticipate={formData.agreeToParticipate}
-            onConsentDecision={(agreed) => setFormData({ ...formData, agreeToParticipate: agreed })}
+            onConsentDecision={(agreed) => {
+              setFormData({ ...formData, agreeToParticipate: agreed });
+              if (agreed) {
+                clearFieldError('caregiver-consent', 'agreeToParticipate', 'caregiverConsent.consentProvided');
+              }
+            }}
             renderHeader={(audioButton) => (
               <SectionHeader
                 prefix="Caregiver's "
@@ -833,6 +981,7 @@ export default function NewSinglePageAssessment() {
                 emphasisColor="text-rose-600"
                 borderColor="border-rose-100/80"
                 eyebrowColor="text-rose-400/90"
+                errorCount={errorsBySection['consent']?.length || 0}
                 action={audioButton}
               />
             )}
@@ -842,11 +991,19 @@ export default function NewSinglePageAssessment() {
 
             {/* Consent Decision */}
             <div
-              id="q-consent-decision"
-              className={`p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2 ${getHighlightClass(
-                'q-consent-decision'
-              )}`}
+              id="caregiver-consent"
+              tabIndex={-1}
+              className={`p-3.5 rounded-xl border space-y-2 transition-all ${
+                errorsByField['caregiver-consent']
+                  ? 'bg-rose-50/80 border-rose-400 ring-1 ring-rose-300'
+                  : 'bg-slate-50/80 border-slate-200/80'
+              } ${getHighlightClass('q-consent-decision')}`}
             >
+              {errorsByField['caregiver-consent'] && (
+                <p id="caregiver-consent-error" role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['caregiver-consent'].message}
+                </p>
+              )}
               <label className="text-[11.5px] font-bold tracking-wider text-slate-900 uppercase block">
                 {t('consent_q', currentLanguage)}
               </label>
@@ -863,8 +1020,12 @@ export default function NewSinglePageAssessment() {
                     type="radio"
                     name="agreeToParticipate"
                     checked={formData.agreeToParticipate === true}
-                    onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
+                    onChange={() => {
+                      setFormData({ ...formData, agreeToParticipate: true });
+                      clearFieldError('caregiver-consent', 'agreeToParticipate', 'caregiverConsent.consentProvided');
+                    }}
                     className="accent-purple-600 text-purple-600 focus:ring-purple-500"
+                    aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                   />
                   <span className="text-xs font-semibold">{t('consent_yes', currentLanguage)}</span>
                 </label>
@@ -882,6 +1043,7 @@ export default function NewSinglePageAssessment() {
                     checked={formData.agreeToParticipate === false}
                     onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
                     className="text-rose-600 focus:ring-rose-500"
+                    aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                   />
                   <span className="text-xs font-semibold">{t('consent_no', currentLanguage)}</span>
                 </label>
@@ -892,10 +1054,18 @@ export default function NewSinglePageAssessment() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-caregiver-name" className={getHighlightClass('q-caregiver-name')}>
                 <Input
+                  id="caregiver-name"
                   label={t('caregiver_name', currentLanguage)}
                   required
                   value={formData.caregiverName}
-                  onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, caregiverName: val });
+                    if (val.trim().length >= 2) {
+                      clearFieldError('caregiver-name', 'caregiverName');
+                    }
+                  }}
+                  error={errorsByField['caregiver-name']?.message}
                   placeholder="e.g. Meena Sharma"
                 />
               </div>
@@ -904,14 +1074,17 @@ export default function NewSinglePageAssessment() {
                 id="q-caregiver-rel"
                 className={`flex flex-col space-y-1.5 ${getHighlightClass('q-caregiver-rel')}`}
               >
-                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                <label htmlFor="caregiver-relationship" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                   {t('caregiver_relationship', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
                 </label>
                 <select
+                  id="caregiver-relationship"
                   value={formData.caregiverRelationship}
-                  onChange={(e) =>
-                    setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value as CaregiverRelationship;
+                    setFormData({ ...formData, caregiverRelationship: val });
+                    clearFieldError('caregiver-relationship', 'caregiverRelationship');
+                  }}
                   className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                 >
                   {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
@@ -924,28 +1097,52 @@ export default function NewSinglePageAssessment() {
 
               <div id="q-caregiver-contact" className={getHighlightClass('q-caregiver-contact')}>
                 <Input
+                  id="demographics-contactNumber"
                   label={t('caregiver_contact', currentLanguage)}
                   type="tel"
                   required
                   maxLength={10}
                   value={formData.contactNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setFormData({ ...formData, contactNumber: val });
+                    if (!val || /^[6-9]\d{9}$/.test(val)) {
+                      clearFieldError('demographics-contactNumber', 'contactNumber');
+                    }
+                  }}
+                  error={errorsByField['demographics-contactNumber']?.message}
                   placeholder="e.g. 9822012345"
                 />
               </div>
             </div>
 
             {/* Signature Pad or Refusal Alert */}
-            <div id="q-caregiver-sig" className={getHighlightClass('q-caregiver-sig')}>
+            <div
+              id="caregiver-signature"
+              tabIndex={-1}
+              className={`${getHighlightClass('q-caregiver-sig')} ${
+                errorsByField['caregiver-signature']
+                  ? 'p-2 rounded-xl bg-rose-50/60 border border-rose-400 ring-1 ring-rose-300'
+                  : ''
+              }`}
+            >
+              {errorsByField['caregiver-signature'] && (
+                <p id="caregiver-signature-error" role="alert" className="text-xs font-semibold text-rose-600 mb-2">
+                  {errorsByField['caregiver-signature'].message}
+                </p>
+              )}
               {formData.agreeToParticipate ? (
                 <div className="pt-0.5">
                   <CaregiverSignaturePad
                     submissionUuid={clientUuid}
                     caregiverName={formData.caregiverName || 'Caregiver'}
                     caregiverRelationship={formData.caregiverRelationship || 'Mother'}
-                    onSignatureSaved={(blob) => setHasSavedSignature(!!blob)}
+                    onSignatureSaved={(blob) => {
+                      setHasSavedSignature(!!blob);
+                      if (blob) {
+                        clearFieldError('caregiver-signature', 'signature');
+                      }
+                    }}
                   />
                 </div>
               ) : (
@@ -993,21 +1190,37 @@ export default function NewSinglePageAssessment() {
 
             <div id="q-child-name" className={getHighlightClass('q-child-name')}>
               <Input
+                id="demographics-childName"
                 label={t('child_name', currentLanguage)}
                 required
                 value={formData.childName}
-                onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({ ...formData, childName: val });
+                  if (val.trim().length >= 2) {
+                    clearFieldError('demographics-childName', 'childName');
+                  }
+                }}
+                error={errorsByField['demographics-childName']?.message}
                 placeholder="e.g. Aarav Sharma"
               />
             </div>
 
             <div id="q-child-dob">
               <Input
+                id="demographics-dob"
                 label={t('dob', currentLanguage)}
                 type="date"
                 required
                 value={formData.dob}
-                onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({ ...formData, dob: val });
+                  if (val) {
+                    clearFieldError('demographics-dob', 'dob');
+                  }
+                }}
+                error={errorsByField['demographics-dob']?.message}
               />
             </div>
 
@@ -1701,7 +1914,7 @@ export default function NewSinglePageAssessment() {
           <div className="space-y-4">
             <div id="education-educationStatus" tabIndex={-1} className={`space-y-1.5 p-2 rounded-xl ${errorsByField['education-educationStatus'] ? 'bg-rose-50/50 border border-rose-400' : ''} ${getHighlightClass('q-edu-status')}`}>
               {errorsByField['education-educationStatus'] && (
-                <p role="alert" className="text-xs font-semibold text-rose-600">
+                <p id="education-educationStatus-error" role="alert" className="text-xs font-semibold text-rose-600">
                   {errorsByField['education-educationStatus'].message}
                 </p>
               )}
@@ -1729,10 +1942,12 @@ export default function NewSinglePageAssessment() {
                       name="educationStatus"
                       value={st}
                       checked={formData.educationStatus === st}
-                      onChange={() =>
-                        setFormData({ ...formData, educationStatus: st as EducationStatus })
-                      }
+                      onChange={() => {
+                        setFormData({ ...formData, educationStatus: st as EducationStatus });
+                        clearFieldError('education-educationStatus', 'educationStatus');
+                      }}
                       className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
+                      aria-describedby={errorsByField['education-educationStatus'] ? 'education-educationStatus-error' : undefined}
                     />
                     <span className="text-xs font-semibold">{st}</span>
                   </label>
@@ -1742,9 +1957,17 @@ export default function NewSinglePageAssessment() {
 
             {formData.educationStatus === 'Other' && (
               <Input
+                id="education-educationStatusSpecify"
                 label="EDUCATION STATUS OTHER (PLEASE SPECIFY)"
                 value={formData.educationStatusSpecify}
-                onChange={(e) => setFormData({ ...formData, educationStatusSpecify: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({ ...formData, educationStatusSpecify: val });
+                  if (val.trim()) {
+                    clearFieldError('education-educationStatusSpecify', 'educationStatusSpecify');
+                  }
+                }}
+                error={errorsByField['education-educationStatusSpecify']?.message}
               />
             )}
 
@@ -1752,30 +1975,55 @@ export default function NewSinglePageAssessment() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
                 <div id="q-edu-school" className={`sm:col-span-2 ${getHighlightClass('q-edu-school')}`}>
                   <Input
+                    id="education-schoolName"
                     label={t('school_name', currentLanguage)}
                     value={formData.schoolName}
-                    onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, schoolName: val });
+                      if (val.trim()) {
+                        clearFieldError('education-schoolName', 'schoolName');
+                      }
+                    }}
+                    error={errorsByField['education-schoolName']?.message}
                     placeholder="e.g. Pune Zilla Parishad Primary School"
                   />
                 </div>
 
                 <Input
+                  id="education-schoolSessionStartDate"
                   label="SCHOOL SESSION START DATE"
                   type="date"
                   value={formData.schoolSessionStartDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, schoolSessionStartDate: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, schoolSessionStartDate: val });
+                    if (val) {
+                      clearFieldError('education-schoolSessionStartDate', 'schoolSessionStartDate');
+                    }
+                  }}
+                  error={errorsByField['education-schoolSessionStartDate']?.message}
                 />
 
                 <div className="flex flex-col space-y-1.5">
-                  <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                  <label htmlFor="education-schoolType" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     {t('school_type', currentLanguage)}
                   </label>
                   <select
+                    id="education-schoolType"
                     value={formData.schoolType}
-                    onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
-                    className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                    onChange={(e) => {
+                      const val = e.target.value as SchoolType;
+                      setFormData({ ...formData, schoolType: val });
+                      clearFieldError('education-schoolType', 'schoolType');
+                    }}
+                    aria-invalid={!!errorsByField['education-schoolType']}
+                    aria-describedby={errorsByField['education-schoolType'] ? 'education-schoolType-error' : undefined}
+                    className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                      errorsByField['education-schoolType']
+                        ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                        : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                    }`}
                   >
                     {['Government school', 'Private school', 'Aided school'].map((st) => (
                       <option key={st} value={st}>
@@ -1783,17 +2031,41 @@ export default function NewSinglePageAssessment() {
                       </option>
                     ))}
                   </select>
+                  {errorsByField['education-schoolType'] && (
+                    <p id="education-schoolType-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-schoolType'].message}
+                    </p>
+                  )}
                 </div>
 
                 <div id="q-edu-class" className={getHighlightClass('q-edu-class')}>
                   <Input
+                    id="education-currentClass"
                     label={t('current_class', currentLanguage)}
                     value={formData.currentClass}
-                    onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, currentClass: val });
+                      if (val.trim()) {
+                        clearFieldError('education-currentClass', 'currentClass');
+                      }
+                    }}
+                    error={errorsByField['education-currentClass']?.message}
                   />
                 </div>
 
-                <div className="sm:col-span-3 space-y-1.5">
+                <div
+                  id="education-attendance"
+                  tabIndex={-1}
+                  className={`sm:col-span-3 space-y-1.5 p-2 rounded-xl transition-all ${
+                    errorsByField['education-attendance'] ? 'bg-rose-50/50 border border-rose-400' : ''
+                  }`}
+                >
+                  {errorsByField['education-attendance'] && (
+                    <p id="education-attendance-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-attendance'].message}
+                    </p>
+                  )}
                   <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     {t('attendance', currentLanguage)}
                   </label>
@@ -1812,8 +2084,12 @@ export default function NewSinglePageAssessment() {
                           name="attendance"
                           value={att}
                           checked={formData.attendance === att}
-                          onChange={() => setFormData({ ...formData, attendance: att })}
+                          onChange={() => {
+                            setFormData({ ...formData, attendance: att });
+                            clearFieldError('education-attendance', 'attendance');
+                          }}
                           className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
+                          aria-describedby={errorsByField['education-attendance'] ? 'education-attendance-error' : undefined}
                         />
                         <span>{att}</span>
                       </label>
@@ -1872,15 +2148,25 @@ export default function NewSinglePageAssessment() {
           <div className="space-y-4">
             {/* Caseworker Attestation & Verification Confirmation */}
             <div
-              id="q-rev-confirm"
+              id="review-allInfoCorrect"
+              role="radiogroup"
+              aria-invalid={!!errorsByField['review-allInfoCorrect']}
+              tabIndex={-1}
               className={`p-4 rounded-xl border transition-all ${
-                formData.allInfoCorrect === true
+                errorsByField['review-allInfoCorrect']
+                  ? 'bg-rose-50/80 border-rose-400 ring-1 ring-rose-300'
+                  : formData.allInfoCorrect === true
                   ? 'bg-emerald-50/70 border-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
                   : formData.allInfoCorrect === false
                   ? 'bg-rose-50/70 border-rose-300'
                   : 'bg-white/80 border-slate-200'
               } ${getHighlightClass('q-rev-confirm')}`}
             >
+              {errorsByField['review-allInfoCorrect'] && (
+                <p id="review-allInfoCorrect-error" role="alert" className="text-xs font-semibold text-rose-600 mb-2">
+                  {errorsByField['review-allInfoCorrect'].message}
+                </p>
+              )}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-800 block">
@@ -1902,8 +2188,12 @@ export default function NewSinglePageAssessment() {
                       type="radio"
                       name="allInfoCorrect"
                       checked={formData.allInfoCorrect === true}
-                      onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
+                      onChange={() => {
+                        setFormData({ ...formData, allInfoCorrect: true });
+                        clearFieldError('review-allInfoCorrect', 'allInfoCorrect');
+                      }}
                       className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500"
+                      aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     />
                     <span className="text-xs font-semibold">{t('review_yes', currentLanguage)}</span>
                   </label>
@@ -1919,8 +2209,12 @@ export default function NewSinglePageAssessment() {
                       type="radio"
                       name="allInfoCorrect"
                       checked={formData.allInfoCorrect === false}
-                      onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
+                      onChange={() => {
+                        setFormData({ ...formData, allInfoCorrect: false });
+                        clearFieldError('review-allInfoCorrect', 'allInfoCorrect');
+                      }}
                       className="text-rose-600 focus:ring-rose-500"
+                      aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     />
                     <span className="text-xs font-semibold">{t('review_no', currentLanguage)}</span>
                   </label>
@@ -1932,12 +2226,19 @@ export default function NewSinglePageAssessment() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-rev-interviewer" className={getHighlightClass('q-rev-interviewer')}>
                 <Input
-                  id="formSubmittedBy"
+                  id="review-formSubmittedBy"
                   name="formSubmittedBy"
                   label={t('interviewer_name', currentLanguage)}
                   required
                   value={formData.formSubmittedBy}
-                  onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, formSubmittedBy: val });
+                    if (val.trim().length >= 2) {
+                      clearFieldError('review-formSubmittedBy', 'formSubmittedBy');
+                    }
+                  }}
+                  error={errorsByField['review-formSubmittedBy']?.message || errorsByField['formSubmittedBy']?.message}
                   placeholder="Your full name"
                 />
               </div>

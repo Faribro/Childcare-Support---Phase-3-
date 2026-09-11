@@ -50,9 +50,22 @@ export const schoolTypeEnum = z.enum([
   'Government school',
   'Private school',
   'Aided school',
+  // Legacy aliases
+  'Government aided',
+  'Special school',
 ]);
 
+export const permissiveSchoolType = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  return val;
+}, schoolTypeEnum.optional());
+
 export const attendanceEnum = z.enum(['Regular', 'Irregular', 'Dropped out']);
+
+export const permissiveAttendance = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  return val;
+}, attendanceEnum.optional());
 
 export const signatureStatusEnum = z.enum([
   'NOT_REQUIRED',
@@ -177,9 +190,9 @@ export const educationStatusSchema = z.object({
   educationStatusSpecify: z.string().optional(),
   schoolName: z.string().optional(),
   schoolSessionStartDate: z.string().optional(),
-  schoolType: schoolTypeEnum.optional(),
+  schoolType: permissiveSchoolType,
   currentClass: z.string().optional(),
-  attendance: attendanceEnum.optional(),
+  attendance: permissiveAttendance,
   // Legacy
   schoolEnrolled: z.boolean().optional(),
   schoolGrade: z.string().optional(),
