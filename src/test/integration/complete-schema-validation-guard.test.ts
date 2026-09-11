@@ -145,8 +145,8 @@ describe('toWorkerSafeValidationMessage()', () => {
   });
 
   it('returns generic fallback for completely unknown path', () => {
-    const msg = toWorkerSafeValidationMessage(fakeIssue(['someUnknownField', 'deeply', 'nested']));
-    expect(msg).toBe('Please review the highlighted field before submitting.');
+    const msg = toWorkerSafeValidationMessage(fakeIssue(['someUnknownField', 'deeply', 'nested'], 'Required'));
+    expect(msg).toBe('Some information needs review in this section.');
   });
 
   it('never exposes raw field values (safe message check)', () => {
