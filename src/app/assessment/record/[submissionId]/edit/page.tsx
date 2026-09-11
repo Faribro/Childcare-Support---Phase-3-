@@ -19,6 +19,8 @@ import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents
 import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import {
   calculateAge,
   calculateBMI,
@@ -921,6 +923,17 @@ export default function EditRecordPage() {
           if (!queuePayload.demographics) queuePayload.demographics = {};
           if (!queuePayload.demographics.artNumber && !isValidUuidV4(submissionId)) {
             queuePayload.demographics.artNumber = submissionId;
+          }
+
+          // BLOCKING: halt on ANY schema error before CREATE enqueue
+          const schemaValidation = completeSubmissionSchema.safeParse(queuePayload);
+          if (!schemaValidation.success) {
+            handleSchemaValidationFailure({
+              issues: schemaValidation.error.issues,
+              setError: setFormError,
+              setSubmitting: (v) => setIsSaving(v),
+            });
+            return;
           }
 
           await enqueueCreate({

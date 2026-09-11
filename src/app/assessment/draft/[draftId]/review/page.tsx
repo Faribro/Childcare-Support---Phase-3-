@@ -10,8 +10,10 @@ import { getDraftByAnyId } from '@/lib/db/draftRepository';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
-import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import {
   calculateAge,
   calculateBMI,
@@ -163,6 +165,18 @@ export default function DraftReviewPage() {
         syncStatus: 'queued',
         updatedAt: new Date().toISOString(),
       };
+
+      // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
+      const schemaValidation = completeSubmissionSchema.safeParse(finalPayload);
+      if (!schemaValidation.success) {
+        handleSchemaValidationFailure({
+          issues: schemaValidation.error.issues,
+          setError: (msg) => setError(msg),
+          setSubmitting: (v) => setIsSubmitting(v),
+        });
+        return;
+      }
+
       await enqueueCreate({
         clientSubmissionId: canonicalUuid,
         createIdempotencyKey: `create-${canonicalUuid}`,

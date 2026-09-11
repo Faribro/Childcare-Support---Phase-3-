@@ -18,6 +18,7 @@ import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls
 import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
@@ -781,19 +782,13 @@ export default function ResumeDraftSinglePage() {
 
       const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
       if (!schemaValidation.success) {
-        const interviewerIssue = schemaValidation.error.issues.find(
-          (i) => i.path.includes('interviewerName') || i.path.includes('formSubmittedBy')
-        );
-        if (interviewerIssue) {
-          setFormError('Please enter your name using at least 2 characters.');
-          setIsSubmitting(false);
-          const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
-          if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            (el as HTMLElement).focus?.();
-          }
-          return;
-        }
+        // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
+        handleSchemaValidationFailure({
+          issues: schemaValidation.error.issues,
+          setError: setFormError,
+          setSubmitting: (v) => setIsSubmitting(v),
+        });
+        return;
       }
 
       await enqueueCreate({
