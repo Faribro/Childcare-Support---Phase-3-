@@ -12,6 +12,8 @@ interface SectionHeaderProps {
   borderColor: string;
   eyebrowColor?: string;
   action?: React.ReactNode;
+  /** Count of validation errors in this section */
+  errorCount?: number;
 }
 
 /**
@@ -28,6 +30,7 @@ export function SectionHeader({
   borderColor,
   eyebrowColor = 'text-slate-400/90',
   action,
+  errorCount,
 }: SectionHeaderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hasStarted, setHasStarted] = useState(false);
@@ -97,11 +100,22 @@ export function SectionHeader({
         </div>
       </div>
 
-      {action && (
-        <div className="shrink-0 flex items-center">
-          {action}
-        </div>
-      )}
+      <div className="shrink-0 flex items-center space-x-2.5">
+        {errorCount !== undefined && errorCount > 0 && (
+          <span
+            role="status"
+            className="section-error-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs"
+            aria-label={`${errorCount} ${errorCount === 1 ? 'error' : 'errors'} in this section`}
+          >
+            {errorCount} {errorCount === 1 ? 'error' : 'errors'}
+          </span>
+        )}
+        {action && (
+          <div className="flex items-center">
+            {action}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

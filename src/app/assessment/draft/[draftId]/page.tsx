@@ -610,15 +610,33 @@ export default function ResumeDraftSinglePage() {
     const err = validateForm();
     if (err) {
       setFormError(err);
-      if (err.includes('name using at least 2 characters')) {
-        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          (el as HTMLElement).focus?.();
-          return;
+      const targetMap: Record<string, string[]> = {
+        'child\'s full name': ['childName', 'q-demo-name', 'demographics-childName'],
+        'date of birth': ['child-dob', 'q-demo-dob', 'dob'],
+        'caregiver\'s full name': ['caregiverName', 'q-consent-name', 'consent-caregiverName'],
+        'contact number': ['caregiverContact', 'q-demo-phone', 'contactNumber'],
+        'Consent was not granted': ['consent-agreeToParticipate', 'consent-checkbox', 'agreeToParticipate'],
+        'signature': ['consent-signature-pad', 'signature-pad'],
+        'verify that all information': ['attestation-agreeDeclaration', 'allInfoCorrect', 'q-rev-verify'],
+        'name using at least 2 characters': ['formSubmittedBy', 'q-rev-interviewer'],
+      };
+      for (const [key, ids] of Object.entries(targetMap)) {
+        if (err.includes(key)) {
+          for (const id of ids) {
+            const el = document.getElementById(id);
+            if (el) {
+              const details = el.closest('details');
+              if (details && !details.open) {
+                details.open = true;
+                details.dispatchEvent(new Event('toggle'));
+              }
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              (el as HTMLElement).focus?.();
+              return;
+            }
+          }
         }
       }
-      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     setFormError(null);

@@ -55,6 +55,7 @@ interface ExpensesAndApprovalGridProps {
   savedFeeReceipt?: boolean;
   savedMarksheet?: boolean;
   isReadOnly?: boolean;
+  errors?: Record<string, string>;
 }
 
 export function ExpensesAndApprovalGrid({
@@ -68,6 +69,7 @@ export function ExpensesAndApprovalGrid({
   savedFeeReceipt = false,
   savedMarksheet = false,
   isReadOnly = false,
+  errors = {},
 }: ExpensesAndApprovalGridProps) {
   const expenseCategories = [
     {
@@ -219,19 +221,37 @@ export function ExpensesAndApprovalGrid({
                       <span className="font-mono font-bold text-slate-800">
                         ₹{(item.currentVal || 0).toLocaleString('en-IN')}
                       </span>
-                    ) : (
-                      <input
-                        type="number"
-                        min="0"
-                        value={item.currentVal ? item.currentVal : ''}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
-                          onCurrentExpenseChange(item.key, val);
-                        }}
-                        className="w-24 text-right font-mono text-xs px-2.5 py-1.5 rounded-lg border border-black focus:ring-2 focus:ring-purple-400 focus:border-purple-600 focus:outline-none bg-white"
-                      />
-                    )}
+                    ) : (() => {
+                        const rowError = errors[item.key] || errors[`educationExpenses.${item.key}`] || errors[`expenses-${item.key}`] || (item.key === 'schoolFees' ? errors['school-fees-current-cost'] : undefined);
+                        const inputId = item.key === 'schoolFees' ? 'school-fees-current-cost' : `expenses-${item.key}`;
+                        return (
+                          <div className="flex flex-col items-end">
+                            <input
+                              id={inputId}
+                              type="number"
+                              min="0"
+                              value={item.currentVal ? item.currentVal : ''}
+                              aria-invalid={rowError ? 'true' : 'false'}
+                              aria-describedby={rowError ? `${inputId}-error` : undefined}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                                onCurrentExpenseChange(item.key, val);
+                              }}
+                              className={`w-24 text-right font-mono text-xs px-2.5 py-1.5 rounded-lg border focus:ring-2 focus:outline-none bg-white ${
+                                rowError
+                                  ? 'border-rose-400 ring-2 ring-rose-200 focus:ring-rose-200 focus:border-rose-500'
+                                  : 'border-black focus:ring-purple-400 focus:border-purple-600'
+                              }`}
+                            />
+                            {rowError && (
+                              <p id={`${inputId}-error`} role="alert" className="text-[10px] text-rose-600 font-semibold mt-0.5 text-right">
+                                {rowError}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     {item.hasRequired ? (
@@ -308,19 +328,37 @@ export function ExpensesAndApprovalGrid({
                     <span className="font-mono font-bold text-slate-900">
                       ₹{(item.currentVal || 0).toLocaleString('en-IN')}
                     </span>
-                  ) : (
-                    <input
-                      type="number"
-                      min="0"
-                      value={item.currentVal ? item.currentVal : ''}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
-                        onCurrentExpenseChange(item.key, val);
-                      }}
-                      className="w-full font-mono text-xs px-2.5 py-2 rounded-lg border border-black bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-600"
-                    />
-                  )}
+                  ) : (() => {
+                      const rowError = errors[item.key] || errors[`educationExpenses.${item.key}`] || errors[`expenses-${item.key}`] || (item.key === 'schoolFees' ? errors['school-fees-current-cost'] : undefined);
+                      const inputId = `mobile-expenses-${item.key}`;
+                      return (
+                        <div>
+                          <input
+                            id={inputId}
+                            type="number"
+                            min="0"
+                            value={item.currentVal ? item.currentVal : ''}
+                            aria-invalid={rowError ? 'true' : 'false'}
+                            aria-describedby={rowError ? `${inputId}-error` : undefined}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const val = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                              onCurrentExpenseChange(item.key, val);
+                            }}
+                            className={`w-full font-mono text-xs px-2.5 py-2 rounded-lg border bg-white focus:ring-2 ${
+                              rowError
+                                ? 'border-rose-400 ring-2 ring-rose-200 focus:ring-rose-200 focus:border-rose-500'
+                                : 'border-black focus:ring-purple-400 focus:border-purple-600'
+                            }`}
+                          />
+                          {rowError && (
+                            <p id={`${inputId}-error`} role="alert" className="text-[10px] text-rose-600 font-semibold mt-0.5">
+                              {rowError}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                 </div>
 
                 {item.hasRequired && (
@@ -377,10 +415,12 @@ export function ExpensesAndApprovalGrid({
                 </span>
               )}
               <PhotoUpload
+                id="expenses-feeReceiptPhotoUrl"
                 label="SCHOOL FEE RECEIPT (PHOTO)"
                 helperText="Clear photo of the fee receipt. All text must be readable (< 10MB)."
                 value={currentExpenses.feeReceiptPhotoUrl}
                 onChange={onReceiptPhotoChange}
+                error={errors['expenses-feeReceiptPhotoUrl'] || errors['educationExpenses.feeReceiptPhotoUrl']}
               />
             </div>
 
@@ -392,10 +432,12 @@ export function ExpensesAndApprovalGrid({
                 </span>
               )}
               <PhotoUpload
+                id="expenses-marksheetPhotoUrl"
                 label="PREVIOUS YEAR MARKSHEET (PHOTO)"
                 helperText="Photo of last year's report card. Click here to upload file (< 10MB)."
                 value={currentExpenses.marksheetPhotoUrl}
                 onChange={onMarksheetPhotoChange}
+                error={errors['expenses-marksheetPhotoUrl'] || errors['educationExpenses.marksheetPhotoUrl']}
               />
             </div>
           </div>
