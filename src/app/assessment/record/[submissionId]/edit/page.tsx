@@ -12,8 +12,10 @@ import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
-import { getAllQueueItems, enqueueSubmission } from '@/lib/db/syncQueueRepository';
-import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
+import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { enqueueCreate, enqueueUpdate } from '@/features/submission/submissionQueueRepository';
+import { processQueue } from '@/features/submission/submissionWorker';
+import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
@@ -73,6 +75,10 @@ export default function EditRecordPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [conflictError, setConflictError] = useState<any>(null);
   const [currentVersion, setCurrentVersion] = useState<number>(1);
+  const [confirmedRemoteSubmissionId, setConfirmedRemoteSubmissionId] = useState<string | undefined>(undefined);
+  // Captures the form values exactly as loaded from DB — used to diff edits before enqueueUpdate.
+  const [originalSnapshot, setOriginalSnapshot] = useState<Record<string, any> | null>(null);
+
   const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<string>('en');
@@ -327,6 +333,15 @@ export default function EditRecordPage() {
         );
         setCurrentVersion(rev);
 
+        // Persist the confirmed remoteSubmissionId for use in enqueue decisions
+        const loadedRemoteId =
+          foundRecord.remoteSubmissionId ||
+          remoteRecord?.remoteSubmissionId ||
+          localRecord?.remoteSubmissionId ||
+          null;
+        setConfirmedRemoteSubmissionId(loadedRemoteId || undefined);
+
+
         const reason =
           foundRecord.editReason ||
           foundRecord.edit_reason ||
@@ -506,6 +521,40 @@ export default function EditRecordPage() {
           organizationEmail: fr.organizationEmail || foundRecord['71\nOrganization Email'] || 'fieldworker@allianceindia.org',
         });
 
+        // Capture the values at load time so we can diff edits in handleSaveRevision.
+        setOriginalSnapshot({
+          weightKg: Number(h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg || 14.5),
+          heightCm: Number(h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm || 100),
+          haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || '12.0'),
+          monthlyIncomeRs: Number(hf.monthlyIncomeRs || foundRecord['30\nMonthly Income'] || 0),
+          totalFamilyMembers: Number(hf.totalFamilyMembers || foundRecord['28\nHousehold Members'] || 4),
+          numberOfChildrenUnder18: Number(hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children'] || 2),
+          mainSourceOfIncome: hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || 'Daily wage labour',
+          appetite: n.appetite || foundRecord['47\nAppetite'] || 'Good',
+          mealsPerDay: Number(n.mealsPerDay || foundRecord['48\nMeals per Day'] || 3),
+          educationStatus: ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school',
+          schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
+          schoolType: ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school',
+          currentClass: ed.currentClass || ed.schoolGrade || foundRecord['54\nCurrent Class'] || 'Class 2',
+          attendance: ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular',
+          schoolFees: Number(exp.schoolFees || foundRecord['56\nSchool Fees'] || 0),
+          tuitionFees: Number(exp.tuitionFees || foundRecord['57\nPrivate Tuition Fee'] || 0),
+          books: Number(exp.books || foundRecord['58\nSchool Books'] || 0),
+          stationery: Number(exp.stationery || foundRecord['59\nSchool Stationery'] || 0),
+          uniform: Number(exp.uniform || foundRecord['60\nSchool Uniform'] || 0),
+          transport: Number(exp.transport || foundRecord['61\nSchool Transport'] || 0),
+          otherExpenses: Number(exp.otherExpenses || foundRecord['62\nSchool Other Expenses'] || 0),
+          requiredSchoolFees: Number(req.requiredSchoolFees || 0),
+          requiredTuitionFees: Number(req.requiredTuitionFees || 0),
+          requiredBooks: Number(req.requiredBooks || 0),
+          requiredStationery: Number(req.requiredStationery || 0),
+          requiredUniform: Number(req.requiredUniform || 0),
+          requiredTransport: Number(req.requiredTransport || 0),
+          requiredOtherSupport: Number(req.requiredOtherSupport || 0),
+          approvedAllianceIndia: foundRecord.approvedAllianceIndia || fr.approvedAllianceIndia || 'Approved',
+          remarks: exp.remarks || foundRecord['66\nRemarks (If Any)'] || '',
+        });
+
         // Check local signature
         try {
           const sig = (await getCaregiverSignatureBlob(submissionId)) ||
@@ -646,44 +695,18 @@ export default function EditRecordPage() {
     };
 
     try {
-      // 1. Send PATCH to server API
-      let serverSaved = false;
-      try {
-        const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'If-Match': `"${currentVersion}"`,
-          },
-          body: JSON.stringify(patchPayload),
-        });
-
-        if (res.status === 409) {
-          const body = await res.json();
-          setConflictError({
-            currentVersion: body.currentVersion || currentVersion + 1,
-            expectedVersion: currentVersion,
-            message: body.message || 'This assessment was updated elsewhere. Please refresh before saving.',
-          });
-          setIsSaving(false);
-          return;
-        }
-
-        if (res.ok) {
-          serverSaved = true;
-        }
-      } catch (_) {
-        // Network offline / fallback to local queue
-      }
-
-      // 2. Also enqueue / record in local Dexie Sync Queue
+      // 1. Enqueue in local Dexie Sync Queue via canonical pipeline
       try {
         const queuePayload: any = {
           uuid: submissionId,
           clientSubmissionId: submissionId,
+          // IDENTITY FIELD: remoteSubmissionId must be forwarded if known.
+          // The enqueue decision (CREATE vs UPDATE) is based on this field alone.
+          remoteSubmissionId: confirmedRemoteSubmissionId || undefined,
           uniqueId: formData.artNumber || submissionId,
           version: nextVersion,
           editReason: note,
+
           demographics: {
             artNumber: formData.artNumber,
             dateOfFilling: formData.dateOfFilling,
@@ -788,34 +811,95 @@ export default function EditRecordPage() {
           updatedAt: new Date().toISOString(),
         };
 
-        if (!serverSaved) {
-          await enqueueSubmission(queuePayload as any, {
-            operationType: 'UPDATE',
-            expectedVersion: currentVersion,
+        // INVARIANT: Only enqueue UPDATE if the record has a confirmed server remoteSubmissionId.
+        // If no remoteSubmissionId is present, this record was never acknowledged by the server
+        // and must use POST (CREATE), never PATCH (UPDATE).
+        const confirmedRemoteId = (queuePayload as any).remoteSubmissionId;
+        const confirmedVersion = currentVersion;
+
+        if (confirmedRemoteId && confirmedVersion >= 1) {
+          // ── BLOCKER 1 FIX: Build explicit changes object by diffing editable fields ──
+          // The allowed editable fields are those a caseworker may legitimately change
+          // during a clinical follow-up visit. Identity fields (artNumber, uuid,
+          // remoteSubmissionId) are NEVER part of changes.
+          const EDITABLE_FIELDS: Array<keyof typeof formData> = [
+            'weightKg', 'heightCm', 'haemoglobinGdl',
+            'monthlyIncomeRs', 'totalFamilyMembers', 'numberOfChildrenUnder18', 'mainSourceOfIncome',
+            'appetite', 'mealsPerDay',
+            'educationStatus', 'schoolName', 'schoolType', 'currentClass', 'attendance',
+            'schoolFees', 'tuitionFees', 'books', 'stationery', 'uniform', 'transport', 'otherExpenses',
+            'requiredSchoolFees', 'requiredTuitionFees', 'requiredBooks', 'requiredStationery',
+            'requiredUniform', 'requiredTransport', 'requiredOtherSupport',
+            'approvedAllianceIndia', 'remarks',
+          ];
+
+          const changes: Record<string, { previous: any; current: any }> = {};
+          const prev = originalSnapshot || {};
+          for (const field of EDITABLE_FIELDS) {
+            const prevVal = prev[field as string];
+            const currVal = (formData as any)[field];
+            // Use loose comparison for numeric types loaded from DB that may differ in type
+            // eslint-disable-next-line eqeqeq
+            if (String(prevVal) != String(currVal)) {
+              changes[field] = { previous: prevVal, current: currVal };
+            }
+          }
+
+          if (Object.keys(changes).length === 0) {
+            setFormError('No changes detected. Please modify at least one field before saving.');
+            setIsSaving(false);
+            return;
+          }
+
+          // Flatten changes to current values only for the gateway PATCH body
+          const flatChanges: Record<string, any> = {};
+          for (const [field, diff] of Object.entries(changes)) {
+            flatChanges[field] = diff.current;
+          }
+
+          // Safe UPDATE: record has a server-confirmed remote ID, version >= 1, and non-empty changes
+          await enqueueUpdate({
+            clientSubmissionId: queuePayload.clientSubmissionId || queuePayload.uuid || submissionId,
+            submissionUuid: queuePayload.uuid || submissionId,
+            remoteSubmissionId: confirmedRemoteId,
+            expectedVersion: confirmedVersion,
+            changes: flatChanges,
+            snapshot: queuePayload as any,
+          });
+        } else {
+          // No server confirmation — must CREATE, not UPDATE.
+          await enqueueCreate({
+            clientSubmissionId: queuePayload.clientSubmissionId || queuePayload.uuid || submissionId,
+            createIdempotencyKey: `create-${queuePayload.clientSubmissionId || queuePayload.uuid || submissionId}`,
+            snapshot: queuePayload as any,
           });
         }
+
       } catch (dexieErr) {
         console.error('Dexie queue update error:', dexieErr);
       }
 
       setSaveSuccess(true);
       const refId = formData.artNumber || submissionId;
+      const targetClientId = submissionId;
 
+      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
+      // Button is already disabled via isSaving. Redirect only on confirmed event.
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
-          const flushPromise = syncOrchestrator.flushQueue('form_update');
-          const outcome = await Promise.race([
-            flushPromise,
-            new Promise<null>((r) => setTimeout(() => r(null), 1500)),
-          ]);
+        const outcomePromise = waitForSubmissionOutcome(targetClientId);
 
-          if (outcome && outcome.syncedCount > 0) {
-            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-            return;
-          }
-        } catch (_) {}
+        // Start worker AFTER listeners are registered synchronously
+        processQueue('form_update').catch(() => {/* background errors handled by worker */});
 
-        router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+        const outcome = await outcomePromise;
+        if (outcome.status === 'success') {
+          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+        } else if (outcome.status === 'failed') {
+          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
+        } else {
+          // Timeout -> non-success tracking state
+          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+        }
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }

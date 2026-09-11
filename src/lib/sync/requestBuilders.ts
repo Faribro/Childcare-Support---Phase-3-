@@ -150,6 +150,10 @@ export function buildCreateRequest(item: SyncQueueItem): CreateRequest {
 
 /**
  * Builds a validated, metadata-stripped UPDATE request for PATCH /api/submissions/{remoteSubmissionId}
+ *
+ * INVARIANT: Only a server-confirmed UUID v4 remoteSubmissionId is permitted in the URL.
+ * ART reference IDs, child IDs, beneficiary IDs, and local UUIDs are NOT valid here.
+ * If the record lacks a confirmed remoteSubmissionId, it must use POST (CREATE) instead.
  */
 export function buildUpdateRequest(item: SyncQueueItem): UpdateRequest {
   if (!item.payload || typeof item.payload !== 'object') {
@@ -158,18 +162,40 @@ export function buildUpdateRequest(item: SyncQueueItem): UpdateRequest {
 
   const payloadAny = item.payload as any;
 
-  // Resolve target identifier: remoteSubmissionId -> uniqueId -> artNumber -> submissionUuid
-  const targetId =
-    payloadAny.remoteSubmissionId ||
-    payloadAny.uniqueId ||
-    payloadAny.artNumber ||
-    payloadAny.demographics?.artNumber ||
-    item.submissionUuid;
+  // STRICT: Only remoteSubmissionId is permitted in a PATCH URL.
+  // ART numbers, uniqueId, artNumber, demographics.artNumber, and submissionUuid
+  // are business fields or local identifiers — they must NEVER appear in PATCH URL paths.
+  const targetId: string | undefined = payloadAny.remoteSubmissionId;
+
+  // Guard: reject missing, blank, ART-format, or non-UUID-v4 identifiers
+  const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const ART_ID_PATTERN = /^[A-Z]{2,6}-[A-Z0-9]{2,8}-\d{4,8}(-\d{1,4})?$/i;
 
   if (!targetId || typeof targetId !== 'string' || targetId.trim() === '') {
     throw new RequestBuilderError(
-      'UPDATE requires a valid remoteSubmissionId or reference ID',
-      'MISSING_TARGET_ID',
+      'UPDATE requires a server-confirmed remoteSubmissionId. ' +
+      'This record has no confirmed server acknowledgement — use POST /api/submissions (CREATE) instead.',
+      'MISSING_REMOTE_ID',
+      true,
+      [{ path: 'remoteSubmissionId', code: 'invalid_string' }]
+    );
+  }
+
+  if (ART_ID_PATTERN.test(targetId)) {
+    throw new RequestBuilderError(
+      `UPDATE rejected: "${targetId}" appears to be an ART/reference business ID, not a server-assigned remote submission ID. ` +
+      'ART reference IDs must only appear in the request body. Use POST /api/submissions (CREATE) for unacknowledged records.',
+      'BUSINESS_ID_IN_URL',
+      true,
+      [{ path: 'remoteSubmissionId', code: 'invalid_string' }]
+    );
+  }
+
+  if (!UUID_V4_REGEX.test(targetId)) {
+    throw new RequestBuilderError(
+      `UPDATE rejected: remoteSubmissionId "${targetId}" is not a valid UUID v4. ` +
+      'Only server-assigned UUID v4 identifiers are permitted in PATCH URL paths.',
+      'INVALID_REMOTE_ID_FORMAT',
       true,
       [{ path: 'remoteSubmissionId', code: 'invalid_string' }]
     );

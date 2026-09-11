@@ -1,8 +1,22 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { syncOrchestrator, SyncFlushResult } from '@/lib/sync/syncOrchestrator';
+import {
+  processQueue,
+  registerSubmissionWorkerListeners,
+  resumeOnHydration,
+} from '@/features/submission/submissionWorker';
+import { submissionEvents } from '@/features/submission/submissionEvents';
 import { getQueueStats } from '@/lib/db/syncQueueRepository';
+
+export interface SyncFlushResult {
+  status: 'idle' | 'success' | 'partial' | 'failed' | 'conflict_detected' | 'network_error';
+  syncedCount: number;
+  failedCount: number;
+  conflictCount: number;
+  terminalCount?: number;
+  errors?: Array<{ uuid: string; error: string; statusCode?: number }>;
+}
 
 interface SyncContextType {
   flushNow: (trigger?: string) => Promise<SyncFlushResult>;
@@ -53,12 +67,18 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const flushNow = useCallback(
-    async (trigger: string = 'manual') => {
+    async (trigger: string = 'manual'): Promise<SyncFlushResult> => {
       setIsSyncing(true);
       try {
-        const res = await syncOrchestrator.flushQueue(trigger as any);
-        setLastResult(res);
+        await processQueue(trigger);
         await refreshStats();
+        const res: SyncFlushResult = {
+          status: 'success',
+          syncedCount: 0,
+          failedCount: 0,
+          conflictCount: 0,
+        };
+        setLastResult(res);
         return res;
       } finally {
         setIsSyncing(false);
@@ -70,83 +90,64 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // 1. Initial hydration flush
+    // 1. Register canonical worker browser listeners (online, visibility) once at app root
+    const cleanupListeners = registerSubmissionWorkerListeners();
+
+    // 2. Initial hydration flush & stats load
     const initTimer = setTimeout(async () => {
       if (mounted) {
         await refreshStats();
         if (typeof navigator !== 'undefined' && navigator.onLine) {
-          flushNow('app_init').catch(() => {});
+          resumeOnHydration()
+            .then(() => {
+              if (mounted) refreshStats();
+            })
+            .catch(() => {});
         }
       }
     }, 1000);
 
-    // 2. Lifecycle event wiring
-    const handleOnline = () => {
-      if (mounted) flushNow('online_event').catch(() => {});
-    };
-
-    const handleFocus = () => {
-      if (mounted && typeof navigator !== 'undefined' && navigator.onLine) {
-        flushNow('window_focus').catch(() => {});
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (
-        mounted &&
-        document.visibilityState === 'visible' &&
-        typeof navigator !== 'undefined' &&
-        navigator.onLine
-      ) {
-        flushNow('visibility_visible').catch(() => {});
-      }
-    };
-
-    const handleCustomTrigger = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const trigger = customEvent?.detail?.trigger || 'manual';
-      if (mounted) {
-        flushNow(trigger).catch(() => {});
-      }
-    };
-
-    const handleRecordSynced = () => {
+    // 3. Read-only stats refresh on worker events
+    const handleSyncEvent = () => {
       if (mounted) {
         refreshStats();
       }
     };
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('child_nutrition:trigger_sync', handleCustomTrigger);
-    window.addEventListener('child_nutrition:record_synced', handleRecordSynced);
-    window.addEventListener('child_nutrition:sync_completed', handleRecordSynced);
+    const unsubSuccess = submissionEvents.on('submission:success', handleSyncEvent);
+    const unsubFailed = submissionEvents.on('submission:failed', handleSyncEvent);
+    const unsubRetrying = submissionEvents.on('submission:retrying', handleSyncEvent);
+    const unsubConflict = submissionEvents.on('submission:conflict', handleSyncEvent);
 
-    // 3. Periodic interval (every 25 seconds when page is visible)
-    const interval = setInterval(() => {
-      if (
-        mounted &&
-        document.visibilityState === 'visible' &&
-        typeof navigator !== 'undefined' &&
-        navigator.onLine
-      ) {
-        flushNow('interval').catch(() => {});
+    const handleCustomTrigger = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const trigger = customEvent?.detail?.trigger || 'manual';
+      if (mounted) {
+        processQueue(trigger)
+          .then(() => {
+            if (mounted) refreshStats();
+          })
+          .catch(() => {});
       }
-    }, 25000);
+    };
+
+    window.addEventListener('child_nutrition:trigger_sync', handleCustomTrigger);
+    window.addEventListener('child_nutrition:record_synced', handleSyncEvent);
+    window.addEventListener('child_nutrition:sync_completed', handleSyncEvent);
 
     return () => {
       mounted = false;
       clearTimeout(initTimer);
-      clearInterval(interval);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      cleanupListeners();
+      unsubSuccess();
+      unsubFailed();
+      unsubRetrying();
+      unsubConflict();
       window.removeEventListener('child_nutrition:trigger_sync', handleCustomTrigger);
-      window.removeEventListener('child_nutrition:record_synced', handleRecordSynced);
-      window.removeEventListener('child_nutrition:sync_completed', handleRecordSynced);
+      window.removeEventListener('child_nutrition:record_synced', handleSyncEvent);
+      window.removeEventListener('child_nutrition:sync_completed', handleSyncEvent);
     };
-  }, [flushNow, refreshStats]);
+  }, [refreshStats]);
 
   return (
     <SyncContext.Provider

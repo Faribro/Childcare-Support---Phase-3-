@@ -17,8 +17,9 @@ import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelect
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
-import { enqueueSubmission } from '@/lib/db/syncQueueRepository';
-import { syncOrchestrator } from '@/lib/sync/syncOrchestrator';
+import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
+import { processQueue } from '@/features/submission/submissionWorker';
+import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
@@ -77,6 +78,7 @@ export default function ResumeDraftSinglePage() {
   const [clientUuid, setClientUuid] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'saving' | 'sending' | 'success' | 'retrying' | 'failed'>('idle');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [currentLanguage, setCurrentLanguage] = useState('en');
@@ -740,25 +742,41 @@ export default function ResumeDraftSinglePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      await enqueueSubmission(finalRecord, { operationType: 'CREATE' });
+      await enqueueCreate({
+        clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
+        createIdempotencyKey: `create-${finalRecord.clientSubmissionId || finalRecord.uuid}`,
+        snapshot: finalRecord,
+      });
 
-      // Immediate Autosync Trigger
+      // Immediate Autosync Trigger via canonical worker
       const refId = finalRecord.demographics.artNumber || finalRecord.uuid;
+      const targetClientId = finalRecord.clientSubmissionId || finalRecord.uuid;
+
+      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
+      setSubmitStatus('saving');
+
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
-          const flushPromise = syncOrchestrator.flushQueue('form_submit');
-          const outcome = await Promise.race([
-            flushPromise,
-            new Promise<null>((r) => setTimeout(() => r(null), 1500)),
-          ]);
+        setSubmitStatus('sending');
 
-          if (outcome && outcome.syncedCount > 0) {
-            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-            return;
-          }
-        } catch (_) {}
+        const outcomePromise = waitForSubmissionOutcome(targetClientId, {
+          onSending: () => setSubmitStatus('sending'),
+          onRetrying: () => setSubmitStatus('retrying'),
+        });
 
-        router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+        // Start worker AFTER listeners are registered synchronously
+        processQueue('form_submit').catch(() => {/* worker handles its own errors */});
+
+        const outcome = await outcomePromise;
+        if (outcome.status === 'success') {
+          setSubmitStatus('success');
+          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+        } else if (outcome.status === 'failed') {
+          setSubmitStatus('failed');
+          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
+        } else {
+          // Timeout -> non-success tracking state
+          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+        }
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }
