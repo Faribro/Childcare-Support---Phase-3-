@@ -16,10 +16,66 @@
 import type { AssessmentRecord } from '@/types/domain';
 import {
   normalizeCaregiverConsent,
+  hasVerifiableConsent,
+  isValidUuidV4,
   type ServerAcknowledgement,
   type ClientSubmissionId,
   type CreateIdempotencyKey,
 } from './submissionTypes';
+
+/**
+ * Normalizes an AssessmentRecord or submission snapshot into canonical shape:
+ * 1. Ensures uuid and clientSubmissionId are consistent canonical UUIDs.
+ * 2. Normalizes caregiver consent via normalizeCaregiverConsent if verifiable consent exists.
+ * 3. Keeps legacy consent block aligned with canonical caregiverConsent.
+ * 4. Ensures interviewerName is trimmed.
+ * 5. Preserves existing signature references and metadata.
+ */
+export function normalizeSubmissionPayload(record: any): any {
+  if (!record || typeof record !== 'object') return record;
+  const canonical = { ...record };
+
+  // 1. UUID normalization
+  const validUuid = isValidUuidV4(canonical.uuid)
+    ? canonical.uuid
+    : isValidUuidV4(canonical.clientSubmissionId)
+    ? canonical.clientSubmissionId
+    : canonical.uuid;
+
+  if (validUuid) {
+    canonical.uuid = validUuid;
+    canonical.clientSubmissionId = validUuid;
+  }
+
+  // 2. Interviewer name normalization
+  if (typeof canonical.interviewerName === 'string') {
+    canonical.interviewerName = canonical.interviewerName.trim();
+  }
+
+  // 3. Caregiver consent normalization
+  if (hasVerifiableConsent(canonical)) {
+    const normalizedConsent = normalizeCaregiverConsent(canonical);
+    if (normalizedConsent) {
+      canonical.caregiverConsent = normalizedConsent;
+      canonical.consent = {
+        agreeToParticipate: true,
+        signatureDataUrl: normalizedConsent.signatureDataUrl,
+        signatureTimestamp: normalizedConsent.consentCapturedAt,
+      };
+      if (normalizedConsent.signatureDataUrl && !canonical.signatureDataUrl) {
+        canonical.signatureDataUrl = normalizedConsent.signatureDataUrl;
+      }
+    }
+  } else {
+    // Has NO verifiable consent — do not fabricate consentProvided: true
+    canonical.caregiverConsent = {
+      ...(canonical.caregiverConsent || {}),
+      consentProvided: false,
+    };
+  }
+
+  return canonical;
+}
 
 // Local-only keys stripped from every API payload
 const LOCAL_ONLY_KEYS = new Set([

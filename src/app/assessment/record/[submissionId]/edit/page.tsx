@@ -16,9 +16,10 @@ import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import { enqueueCreate, enqueueUpdate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
-import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
+import { isValidUuidV4, generateUuidV4, hasVerifiableConsent, normalizeCaregiverConsent } from '@/features/submission/submissionTypes';
+import { normalizeSubmissionPayload } from '@/features/submission/submissionMapper';
 import { getAllDrafts } from '@/lib/db/draftRepository';
-import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { getCaregiverSignatureBlob, saveCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import {
@@ -81,6 +82,10 @@ export default function EditRecordPage() {
   const [confirmedRemoteSubmissionId, setConfirmedRemoteSubmissionId] = useState<string | undefined>(undefined);
   // Captures the form values exactly as loaded from DB — used to diff edits before enqueueUpdate.
   const [originalSnapshot, setOriginalSnapshot] = useState<Record<string, any> | null>(null);
+  // Preserves the original consent snapshot separately from editable fields
+  const [originalConsentSnapshot, setOriginalConsentSnapshot] = useState<any>(null);
+  // Preserves the complete original local record so edit starts from snapshot
+  const [fullOriginalRecord, setFullOriginalRecord] = useState<any>(null);
 
   const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
@@ -318,6 +323,10 @@ export default function EditRecordPage() {
               ...(remoteRecord?.consent || remoteRecord?.caregiverConsent || {}),
               ...(localRecord?.consent || localRecord?.caregiverConsent || {}),
             },
+            caregiverConsent: {
+              ...(remoteRecord?.caregiverConsent || {}),
+              ...(localRecord?.caregiverConsent || {}),
+            },
           }
         : null;
 
@@ -450,6 +459,42 @@ export default function EditRecordPage() {
           setFallbackSigUuid(fbUuid);
         }
 
+        const cc = foundRecord.caregiverConsent || {};
+        const hasConsent =
+          hasVerifiableConsent(foundRecord) ||
+          cc.consentProvided === true ||
+          cc.agreeToParticipate === true ||
+          c.agreeToParticipate === true ||
+          Boolean(sigDataUrl);
+
+        const normalizedConsent = hasConsent ? normalizeCaregiverConsent(foundRecord) : null;
+
+        const consentSnap = {
+          hasVerifiableConsent: hasConsent,
+          caregiverConsent: normalizedConsent
+            ? {
+                consentProvided: normalizedConsent.consentProvided,
+                consentVersion: normalizedConsent.consentVersion,
+                caregiverName: normalizedConsent.caregiverName,
+                caregiverRelationship: normalizedConsent.caregiverRelationship,
+                consentCapturedAt: normalizedConsent.consentCapturedAt,
+                signatureRequired: normalizedConsent.signatureRequired,
+                signatureStatus: normalizedConsent.signatureStatus,
+                signatureAssetId: normalizedConsent.signatureAssetId,
+                signatureDataUrl: normalizedConsent.signatureDataUrl || sigDataUrl,
+                signatureUrl: normalizedConsent.signatureUrl,
+              }
+            : (foundRecord.caregiverConsent ? { ...foundRecord.caregiverConsent } : null),
+          consent: {
+            agreeToParticipate: c.agreeToParticipate ?? (hasConsent ? true : undefined),
+            signatureDataUrl: c.signatureDataUrl || sigDataUrl,
+            signatureTimestamp: c.signatureTimestamp || normalizedConsent?.consentCapturedAt,
+          },
+          signatureDataUrl: sigDataUrl || normalizedConsent?.signatureDataUrl,
+        };
+        setOriginalConsentSnapshot(consentSnap);
+        setFullOriginalRecord(foundRecord);
+
         setFormData({
           artNumber: d.artNumber || foundRecord['1\nUnique ID'] || foundRecord.uniqueId || submissionId,
           koboId: foundRecord.koboId || d.artNumber || '',
@@ -466,7 +511,9 @@ export default function EditRecordPage() {
           district: d.district || foundRecord['19\nDistrict'] || 'Pune',
           childAadhaarNumber: d.childAadhaarNumber || b.childAadhaarNumber || foundRecord['24\nChild Aadhaar Number'] || '',
 
-          agreeToParticipate: c.agreeToParticipate ?? true,
+          agreeToParticipate: hasConsent
+            ? true
+            : (c.agreeToParticipate ?? (cc.consentProvided ?? false)),
 
           bankAccountHolderName: b.bankAccountHolderName || b.accountHolderName || foundRecord['20\nBank Account Holder Name'] || foundRecord.account_holder_name || '',
           bankAccountNumber: b.bankAccountNumber || b.accountNumber || foundRecord['21\nBank Account Number'] || foundRecord.bank_account_number || '',
@@ -570,6 +617,41 @@ export default function EditRecordPage() {
             (fbUuid ? await getCaregiverSignatureBlob(fbUuid) : undefined);
           if (sig) {
             setHasSavedSignature(true);
+            if (sig.blob) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                if (typeof reader.result === 'string') {
+                  const dataUrl = reader.result;
+                  setExistingSignatureUrl((prev) => prev || dataUrl);
+                  setOriginalConsentSnapshot((prev: any) => {
+                    if (!prev) return prev;
+                    return {
+                      ...prev,
+                      hasVerifiableConsent: true,
+                      signatureDataUrl: prev.signatureDataUrl || dataUrl,
+                      caregiverConsent: prev.caregiverConsent
+                        ? {
+                            ...prev.caregiverConsent,
+                            consentProvided: true,
+                            signatureDataUrl: prev.caregiverConsent.signatureDataUrl || dataUrl,
+                            signatureStatus: 'CAPTURED_LOCAL',
+                          }
+                        : {
+                            consentProvided: true,
+                            consentVersion: 'v1.0-2026',
+                            caregiverName: d.caregiverName || 'Caregiver',
+                            caregiverRelationship: d.caregiverRelationship || 'Mother',
+                            consentCapturedAt: new Date().toISOString(),
+                            signatureRequired: true,
+                            signatureStatus: 'CAPTURED_LOCAL',
+                            signatureDataUrl: dataUrl,
+                          },
+                    };
+                  });
+                }
+              };
+              reader.readAsDataURL(sig.blob);
+            }
           }
         } catch (_) {}
       }
@@ -738,22 +820,68 @@ export default function EditRecordPage() {
     try {
       // 1. Enqueue in local Dexie Sync Queue via canonical pipeline
       try {
+        let signatureDataUrlToUse = existingSignatureUrl;
+        if (!signatureDataUrlToUse) {
+          try {
+            const sig = (await getCaregiverSignatureBlob(submissionId)) ||
+              (fallbackSigUuid ? await getCaregiverSignatureBlob(fallbackSigUuid) : undefined);
+            if (sig && sig.blob) {
+              signatureDataUrlToUse = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(sig.blob);
+              });
+              if (signatureDataUrlToUse) {
+                setExistingSignatureUrl(signatureDataUrlToUse);
+                setHasSavedSignature(true);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed reading signature blob at save time:', e);
+          }
+        }
+
+        const baseRecord = fullOriginalRecord ? JSON.parse(JSON.stringify(fullOriginalRecord)) : {};
+
+        const canonicalUuid = isValidUuidV4(baseRecord.uuid)
+          ? baseRecord.uuid
+          : isValidUuidV4(baseRecord.clientSubmissionId)
+          ? baseRecord.clientSubmissionId
+          : isValidUuidV4(submissionId)
+          ? submissionId
+          : generateUuidV4();
+
+        if (canonicalUuid !== submissionId) {
+          try {
+            const existingAttachment = await getCaregiverSignatureBlob(submissionId);
+            if (existingAttachment) {
+              await saveCaregiverSignatureBlob(
+                canonicalUuid,
+                existingAttachment.blob,
+                existingAttachment.caregiverName,
+                existingAttachment.caregiverRelationship
+              );
+            }
+          } catch (_) {}
+        }
+
         queuePayload = {
-          uuid: submissionId,
-          clientSubmissionId: submissionId,
-          // IDENTITY FIELD: remoteSubmissionId must be forwarded if known.
-          // The enqueue decision (CREATE vs UPDATE) is based on this field alone.
-          remoteSubmissionId: confirmedRemoteSubmissionId || undefined,
-          uniqueId: formData.artNumber || submissionId,
+          ...baseRecord,
+          uuid: canonicalUuid,
+          clientSubmissionId: canonicalUuid,
+          remoteSubmissionId: confirmedRemoteSubmissionId || baseRecord.remoteSubmissionId || undefined,
+          uniqueId: formData.artNumber || submissionId || baseRecord.uniqueId,
           interviewerName: trimmedInterviewer,
           version: nextVersion,
+          revision: nextVersion,
           editReason: note,
 
           demographics: {
-            artNumber: formData.artNumber,
-            dateOfFilling: formData.dateOfFilling,
+            ...(baseRecord.demographics || {}),
+            artNumber: formData.artNumber || baseRecord.demographics?.artNumber || submissionId,
+            dateOfFilling: formData.dateOfFilling || baseRecord.demographics?.dateOfFilling,
             childName: formData.childName,
-            dob: formData.dob,
+            dob: formData.dob || baseRecord.demographics?.dob,
             calculatedAgeYears: ageResult.years,
             calculatedAgeMonths: ageResult.months,
             gender: formData.gender,
@@ -767,38 +895,33 @@ export default function EditRecordPage() {
             district: formData.district,
             childAadhaarNumber: formData.childAadhaarNumber,
           },
-          consent: {
-            agreeToParticipate: formData.agreeToParticipate,
-            signatureDataUrl: existingSignatureUrl,
-          },
-          caregiverConsent: {
-            agreeToParticipate: formData.agreeToParticipate,
-            signatureDataUrl: existingSignatureUrl,
-          },
-          signatureDataUrl: existingSignatureUrl,
           bankingAndKyc: {
+            ...(baseRecord.bankingAndKyc || {}),
             bankAccountHolderName: formData.bankAccountHolderName,
             bankAccountNumber: formData.bankAccountNumber,
             bankIfscCode: formData.bankIfscCode,
             bankLinkedMobileNumber: formData.bankLinkedMobileNumber,
-            passbookPhotoUrl: formData.passbookPhotoUrl,
-            aadhaarCardPhotoUrl: formData.aadhaarCardPhotoUrl,
-            childPhotoUrl: formData.childPhotoUrl,
+            passbookPhotoUrl: formData.passbookPhotoUrl || baseRecord.bankingAndKyc?.passbookPhotoUrl,
+            aadhaarCardPhotoUrl: formData.aadhaarCardPhotoUrl || baseRecord.bankingAndKyc?.aadhaarCardPhotoUrl,
+            childPhotoUrl: formData.childPhotoUrl || baseRecord.bankingAndKyc?.childPhotoUrl,
           },
           householdFinancial: {
-            totalFamilyMembers: formData.totalFamilyMembers,
-            numberOfChildrenUnder18: formData.numberOfChildrenUnder18,
-            monthlyIncomeRs: formData.monthlyIncomeRs,
+            ...(baseRecord.householdFinancial || {}),
+            totalFamilyMembers: Number(formData.totalFamilyMembers) || 4,
+            numberOfChildrenUnder18: Number(formData.numberOfChildrenUnder18) || 2,
+            monthlyIncomeRs: Number(formData.monthlyIncomeRs) || 0,
             mainSourceOfIncome: formData.mainSourceOfIncome,
           },
           health: {
-            weightKg: formData.weightKg,
-            heightCm: formData.heightCm,
+            ...(baseRecord.health || {}),
+            weightKg: Number(formData.weightKg) || 0,
+            heightCm: Number(formData.heightCm) || 0,
             bmi: bmiValue,
             bmiCategory,
             haemoglobinGdl: Number(formData.haemoglobinGdl) || 12,
             hbCategory,
             otherHealthConditions: formData.otherHealthConditions,
+            otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
             artStatus: formData.artStatus,
             artRegistrationDate: formData.artRegistrationDate,
             artIdNumber: formData.artIdNumber,
@@ -809,10 +932,12 @@ export default function EditRecordPage() {
             nutritionStatus: nutritionResult.nutritionStatus,
           },
           nutrition: {
+            ...(baseRecord.nutrition || {}),
             appetite: formData.appetite,
-            mealsPerDay: formData.mealsPerDay,
+            mealsPerDay: Number(formData.mealsPerDay) || 3,
           },
           educationStatus: {
+            ...(baseRecord.educationStatus || {}),
             educationStatus: formData.educationStatus,
             schoolName: formData.schoolName,
             schoolSessionStartDate: formData.schoolSessionStartDate,
@@ -821,37 +946,129 @@ export default function EditRecordPage() {
             attendance: formData.attendance,
           },
           educationExpenses: {
-            schoolFees: formData.schoolFees,
-            tuitionFees: formData.tuitionFees,
-            books: formData.books,
-            stationery: formData.stationery,
-            uniform: formData.uniform,
-            transport: formData.transport,
-            otherExpenses: formData.otherExpenses,
+            ...(baseRecord.educationExpenses || {}),
+            schoolFees: Number(formData.schoolFees) || 0,
+            tuitionFees: Number(formData.tuitionFees) || 0,
+            books: Number(formData.books) || 0,
+            stationery: Number(formData.stationery) || 0,
+            uniform: Number(formData.uniform) || 0,
+            transport: Number(formData.transport) || 0,
+            otherExpenses: Number(formData.otherExpenses) || 0,
             totalAnnualCost: totalAnnualEducationCost,
-            feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
-            marksheetPhotoUrl: formData.marksheetPhotoUrl,
+            feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl || baseRecord.educationExpenses?.feeReceiptPhotoUrl,
+            marksheetPhotoUrl: formData.marksheetPhotoUrl || baseRecord.educationExpenses?.marksheetPhotoUrl,
             remarks: formData.remarks,
           },
           educationSupportRequired: {
-            requiredSchoolFees: formData.requiredSchoolFees,
-            requiredTuitionFees: formData.requiredTuitionFees,
-            requiredBooks: formData.requiredBooks,
-            requiredStationery: formData.requiredStationery,
-            requiredUniform: formData.requiredUniform,
-            requiredTransport: formData.requiredTransport,
-            requiredOtherSupport: formData.requiredOtherSupport,
+            ...(baseRecord.educationSupportRequired || {}),
+            requiredSchoolFees: Number(formData.requiredSchoolFees) || 0,
+            requiredTuitionFees: Number(formData.requiredTuitionFees) || 0,
+            requiredBooks: Number(formData.requiredBooks) || 0,
+            requiredStationery: Number(formData.requiredStationery) || 0,
+            requiredUniform: Number(formData.requiredUniform) || 0,
+            requiredTransport: Number(formData.requiredTransport) || 0,
+            requiredOtherSupport: Number(formData.requiredOtherSupport) || 0,
             totalRequiredSupport: totalRequiredSupport,
           },
           finalReview: {
+            ...(baseRecord.finalReview || {}),
             approvedAllianceIndia: formData.approvedAllianceIndia,
             allInfoCorrect: true,
-            organizationName: formData.organizationName,
+            organizationName: formData.organizationName || 'India HIV/AIDS Alliance',
             formSubmittedBy: trimmedInterviewer,
             organizationEmail: formData.organizationEmail,
           },
           updatedAt: new Date().toISOString(),
         };
+
+        const effectiveSigUrl =
+          signatureDataUrlToUse ||
+          existingSignatureUrl ||
+          originalConsentSnapshot?.caregiverConsent?.signatureDataUrl ||
+          originalConsentSnapshot?.signatureDataUrl ||
+          baseRecord.caregiverConsent?.signatureDataUrl ||
+          baseRecord.consent?.signatureDataUrl ||
+          baseRecord.signatureDataUrl ||
+          undefined;
+
+        if (effectiveSigUrl) {
+          queuePayload.signatureDataUrl = effectiveSigUrl;
+        }
+
+        if (formData.agreeToParticipate === false) {
+          // Explicit refusal by user
+          queuePayload.agreeToParticipate = false;
+          queuePayload.consent = {
+            agreeToParticipate: false,
+            signatureDataUrl: undefined,
+          };
+          if (queuePayload.caregiverConsent) {
+            queuePayload.caregiverConsent = {
+              ...queuePayload.caregiverConsent,
+              consentProvided: false,
+              agreeToParticipate: false,
+            };
+          }
+        } else {
+          // Check if original record had verifiable consent or signature exists
+          const originalHadVerifiableConsent =
+            Boolean(originalConsentSnapshot?.hasVerifiableConsent) ||
+            hasVerifiableConsent(baseRecord) ||
+            hasVerifiableConsent(fullOriginalRecord) ||
+            hasSavedSignature ||
+            Boolean(effectiveSigUrl);
+
+          if (originalHadVerifiableConsent) {
+            const prevCC = baseRecord.caregiverConsent || originalConsentSnapshot?.caregiverConsent || {};
+            const prevC = baseRecord.consent || originalConsentSnapshot?.consent || {};
+
+            const normalizedConsent = normalizeCaregiverConsent({
+              caregiverConsent: {
+                ...prevCC,
+                consentProvided: true,
+                consentVersion: prevCC.consentVersion || 'v1.0-2026',
+                caregiverName: formData.caregiverName || prevCC.caregiverName || queuePayload.demographics?.caregiverName || 'Caregiver',
+                caregiverRelationship: formData.caregiverRelationship || prevCC.caregiverRelationship || queuePayload.demographics?.caregiverRelationship || 'Mother',
+                consentCapturedAt: prevCC.consentCapturedAt || prevC.signatureTimestamp || baseRecord.createdAt || new Date().toISOString(),
+                signatureRequired: prevCC.signatureRequired ?? true,
+                signatureStatus: effectiveSigUrl || hasSavedSignature ? 'CAPTURED_LOCAL' : (prevCC.signatureStatus || 'PENDING'),
+                signatureAssetId: prevCC.signatureAssetId,
+                signatureDataUrl: effectiveSigUrl,
+                signatureUrl: prevCC.signatureUrl,
+              },
+              consent: {
+                ...prevC,
+                agreeToParticipate: true,
+                signatureDataUrl: effectiveSigUrl,
+                signatureTimestamp: prevCC.consentCapturedAt || prevC.signatureTimestamp || new Date().toISOString(),
+              },
+              demographics: queuePayload.demographics,
+            });
+
+            if (normalizedConsent) {
+              queuePayload.caregiverConsent = normalizedConsent;
+              queuePayload.consent = {
+                agreeToParticipate: true,
+                signatureDataUrl: normalizedConsent.signatureDataUrl,
+                signatureTimestamp: normalizedConsent.consentCapturedAt,
+              };
+              if (normalizedConsent.signatureDataUrl) {
+                queuePayload.signatureDataUrl = normalizedConsent.signatureDataUrl;
+              }
+            }
+          } else {
+            // Original genuinely had no verifiable consent — DO NOT fabricate consentProvided: true
+            if (queuePayload.caregiverConsent) {
+              queuePayload.caregiverConsent = {
+                ...queuePayload.caregiverConsent,
+                consentProvided: false,
+              };
+            }
+          }
+        }
+
+        // Pass through canonical normalizer
+        queuePayload = normalizeSubmissionPayload(queuePayload);
 
         // INVARIANT: Only enqueue UPDATE if the record has a confirmed server remoteSubmissionId.
         // If no remoteSubmissionId is present, this record was never acknowledged by the server
