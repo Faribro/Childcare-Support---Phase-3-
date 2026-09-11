@@ -376,11 +376,11 @@ describe('T10: classifyHttpError — correct retry/terminal classification', () 
     expect(e.isTerminal).toBe(false);
   });
 
-  it('401 → unauthorized, terminal, not retryable', () => {
+  it('401 → unauthorized, non-terminal session error, not retryable until re-authenticated', () => {
     const e = classifyHttpError(401);
     expect(e.category).toBe('unauthorized');
     expect(e.isRetryable).toBe(false);
-    expect(e.isTerminal).toBe(true);
+    expect(e.isTerminal).toBe(false);
   });
 });
 

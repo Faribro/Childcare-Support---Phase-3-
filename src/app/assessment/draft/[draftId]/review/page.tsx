@@ -10,6 +10,7 @@ import { getDraftByAnyId } from '@/lib/db/draftRepository';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
+import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
@@ -134,21 +135,29 @@ export default function DraftReviewPage() {
     setError(null);
     setIsSubmitting(true);
     try {
+      const canonicalUuid = isValidUuidV4(record.uuid)
+        ? record.uuid
+        : isValidUuidV4(record.clientSubmissionId)
+        ? record.clientSubmissionId
+        : generateUuidV4();
+
       const finalPayload: AssessmentRecord = {
         ...record,
+        uuid: canonicalUuid,
+        clientSubmissionId: canonicalUuid,
         stepIndex: 6,
         syncStatus: 'queued',
         updatedAt: new Date().toISOString(),
       };
       await enqueueCreate({
-        clientSubmissionId: finalPayload.clientSubmissionId || finalPayload.uuid,
-        createIdempotencyKey: `create-${finalPayload.clientSubmissionId || finalPayload.uuid}`,
+        clientSubmissionId: canonicalUuid,
+        createIdempotencyKey: `create-${canonicalUuid}`,
         snapshot: finalPayload,
       });
 
       // Immediate Autosync Trigger via canonical worker
-      const refId = finalPayload.demographics.artNumber || finalPayload.uuid;
-      const targetClientId = finalPayload.clientSubmissionId || finalPayload.uuid;
+      const refId = finalPayload.demographics?.artNumber || finalPayload.uniqueId || 'Record';
+      const targetClientId = canonicalUuid;
 
       // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
       setSubmitStatus('saving');

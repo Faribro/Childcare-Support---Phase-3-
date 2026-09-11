@@ -114,17 +114,18 @@ async function processItem(item: SyncQueueItem, trigger: string): Promise<void> 
   const submissionUuid = item.submissionUuid;
   const startMs = Date.now();
 
-  // Determine operation: UPDATE items must always route to handleUpdate
-  // to prevent auto-converting invalid UPDATE items into CREATE (R2).
-  const operation =
-    item.operationType === 'UPDATE'
-      ? 'UPDATE'
-      : item.operationType === 'CREATE'
-      ? 'CREATE'
-      : getSubmissionOperation({
-          remoteSubmissionId: payload?.remoteSubmissionId,
-          version: item.expectedVersion ?? payload?.version,
-        });
+  // Determine operation:
+  // - If payload has a remoteSubmissionId (valid or corrupt) or remote ack: route to UPDATE.
+  // - Valid local records without remote ID and without remote ack: route to CREATE.
+  const rawRemoteId = payload?.remoteSubmissionId;
+  const hasRemoteAck = Boolean(item.acknowledged || payload?.acknowledged);
+
+  let operation: 'CREATE' | 'UPDATE';
+  if (item.operationType === 'UPDATE' || rawRemoteId || hasRemoteAck) {
+    operation = 'UPDATE';
+  } else {
+    operation = 'CREATE';
+  }
 
   // Emit "sending" event
   submissionEvents.emit('submission:sending', {

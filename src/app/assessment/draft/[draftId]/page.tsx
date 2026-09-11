@@ -20,6 +20,7 @@ import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
+import { isValidUuidV4, generateUuidV4, normalizeCaregiverConsent } from '@/features/submission/submissionTypes';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
   calculateAge,
@@ -206,8 +207,20 @@ export default function ResumeDraftSinglePage() {
       try {
         const found = await getDraftByAnyId(draftId);
         if (found) {
-          const uuid = found.uuid || found.clientSubmissionId || draftId;
+          const rawUuid = found.uuid || found.clientSubmissionId;
+          const uuid = isValidUuidV4(rawUuid)
+            ? rawUuid
+            : isValidUuidV4(draftId)
+            ? draftId
+            : generateUuidV4();
           setClientUuid(uuid);
+          if (found.id && (found.uuid !== uuid || found.clientSubmissionId !== uuid)) {
+            await saveDraft({
+              ...found,
+              uuid,
+              clientSubmissionId: uuid,
+            });
+          }
 
           // Map found draft to formData
           const d = found.demographics || ({} as any);

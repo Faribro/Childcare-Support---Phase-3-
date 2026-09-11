@@ -379,11 +379,16 @@ export interface SyncQueueItem {
   payload: AssessmentRecord;
   status: SyncStatus;
   expectedVersion?: number;
+  expectedRemoteSubmissionId?: string;
+  remoteSubmissionId?: string;
+  version?: number;
+  acknowledged?: boolean;
   retryCount: number;
   lastAttempt: string | null;
   nextRetryTimestamp: number | null;
   lastErrorCode?: string | number | null;
   statusCode?: number | null;
+  errorCategory?: string;
   requestId?: string | null;
   errorMessage: string | null;
   validationIssues?: string[];

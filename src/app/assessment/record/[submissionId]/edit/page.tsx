@@ -16,6 +16,7 @@ import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import { enqueueCreate, enqueueUpdate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
+import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import {
@@ -694,10 +695,13 @@ export default function EditRecordPage() {
       signature_data_url: existingSignatureUrl,
     };
 
+    let queuePayload: any = null;
+    let confirmedRemoteId: string | undefined = undefined;
+
     try {
       // 1. Enqueue in local Dexie Sync Queue via canonical pipeline
       try {
-        const queuePayload: any = {
+        queuePayload = {
           uuid: submissionId,
           clientSubmissionId: submissionId,
           // IDENTITY FIELD: remoteSubmissionId must be forwarded if known.
@@ -814,7 +818,7 @@ export default function EditRecordPage() {
         // INVARIANT: Only enqueue UPDATE if the record has a confirmed server remoteSubmissionId.
         // If no remoteSubmissionId is present, this record was never acknowledged by the server
         // and must use POST (CREATE), never PATCH (UPDATE).
-        const confirmedRemoteId = (queuePayload as any).remoteSubmissionId;
+        confirmedRemoteId = (queuePayload as any).remoteSubmissionId;
         const confirmedVersion = currentVersion;
 
         if (confirmedRemoteId && confirmedVersion >= 1) {
@@ -868,9 +872,24 @@ export default function EditRecordPage() {
           });
         } else {
           // No server confirmation — must CREATE, not UPDATE.
+          const canonicalUuid = isValidUuidV4(queuePayload.uuid)
+            ? queuePayload.uuid
+            : isValidUuidV4(queuePayload.clientSubmissionId)
+            ? queuePayload.clientSubmissionId
+            : isValidUuidV4(submissionId)
+            ? submissionId
+            : generateUuidV4();
+
+          queuePayload.uuid = canonicalUuid;
+          queuePayload.clientSubmissionId = canonicalUuid;
+          if (!queuePayload.demographics) queuePayload.demographics = {};
+          if (!queuePayload.demographics.artNumber && !isValidUuidV4(submissionId)) {
+            queuePayload.demographics.artNumber = submissionId;
+          }
+
           await enqueueCreate({
-            clientSubmissionId: queuePayload.clientSubmissionId || queuePayload.uuid || submissionId,
-            createIdempotencyKey: `create-${queuePayload.clientSubmissionId || queuePayload.uuid || submissionId}`,
+            clientSubmissionId: canonicalUuid,
+            createIdempotencyKey: `create-${canonicalUuid}`,
             snapshot: queuePayload as any,
           });
         }
@@ -881,7 +900,7 @@ export default function EditRecordPage() {
 
       setSaveSuccess(true);
       const refId = formData.artNumber || submissionId;
-      const targetClientId = submissionId;
+      const targetClientId = confirmedRemoteId ? submissionId : (queuePayload?.clientSubmissionId || submissionId);
 
       // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
       // Button is already disabled via isSaving. Redirect only on confirmed event.

@@ -14,12 +14,18 @@
 
 import { db } from '@/lib/db/dexieDb';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import {
   assertValidRemoteSubmissionId,
   EmptyUpdateChangesError,
+  isValidUuidV4,
+  generateUuidV4,
+  hasVerifiableConsent,
+  normalizeCaregiverConsent,
   type ServerAcknowledgement,
   type SubmissionErrorCategory,
 } from './submissionTypes';
+import { submissionEvents } from './submissionEvents';
 
 // ---------------------------------------------------------------------------
 // Enqueue a new CREATE operation (snapshot + identity)
@@ -40,19 +46,54 @@ export async function enqueueCreate(options: EnqueueCreateOptions): Promise<numb
   const { clientSubmissionId, createIdempotencyKey, snapshot } = options;
   const now = new Date().toISOString();
 
+  // Enforce canonical UUIDv4 identity
+  const validUuid = isValidUuidV4(snapshot.uuid)
+    ? snapshot.uuid
+    : isValidUuidV4(clientSubmissionId)
+    ? clientSubmissionId
+    : generateUuidV4();
+
+  // If snapshot had an ART/reference ID as uuid, preserve it in demographics.artNumber
+  if (snapshot.demographics) {
+    if (!snapshot.demographics.artNumber && snapshot.uuid && !isValidUuidV4(snapshot.uuid)) {
+      snapshot.demographics.artNumber = snapshot.uuid;
+    }
+  }
+
+  snapshot.uuid = validUuid;
+  snapshot.clientSubmissionId = validUuid;
+  const stableIdempotencyKey = createIdempotencyKey && createIdempotencyKey.startsWith(`create-${validUuid}`)
+    ? createIdempotencyKey
+    : `create-${validUuid}`;
+
+  // Apply canonical caregiver consent normalization
+  if (hasVerifiableConsent(snapshot)) {
+    const normalizedConsent = normalizeCaregiverConsent(snapshot);
+    if (normalizedConsent) {
+      snapshot.caregiverConsent = normalizedConsent;
+      snapshot.consent = {
+        agreeToParticipate: true,
+        signatureDataUrl: normalizedConsent.signatureDataUrl,
+        signatureTimestamp: normalizedConsent.consentCapturedAt,
+      };
+    }
+  }
+
   return await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
     // 1. Persist/update the draft snapshot
     if (snapshot.id) {
       await db.drafts.update(snapshot.id, {
         ...snapshot,
-        clientSubmissionId,
+        clientSubmissionId: validUuid,
+        uuid: validUuid,
         syncStatus: 'queued',
         updatedAt: now,
       });
     } else {
       await db.drafts.put({
         ...snapshot,
-        clientSubmissionId,
+        clientSubmissionId: validUuid,
+        uuid: validUuid,
         syncStatus: 'queued',
         updatedAt: now,
         createdAt: snapshot.createdAt || now,
@@ -64,7 +105,7 @@ export async function enqueueCreate(options: EnqueueCreateOptions): Promise<numb
       .filter((item) => {
         const p = item.payload as any;
         return (
-          (p?.clientSubmissionId === clientSubmissionId || item.submissionUuid === snapshot.uuid) &&
+          (p?.clientSubmissionId === validUuid || item.submissionUuid === validUuid) &&
           item.status !== 'synced' &&
           item.status !== 'SYNCED'
         );
@@ -79,10 +120,10 @@ export async function enqueueCreate(options: EnqueueCreateOptions): Promise<numb
     // 3. Enqueue CREATE
     return await db.syncQueue.add({
       schemaVersion: 2,
-      submissionUuid: snapshot.uuid,
-      idempotencyKey: createIdempotencyKey,
+      submissionUuid: validUuid,
+      idempotencyKey: stableIdempotencyKey,
       operationType: 'CREATE',
-      payload: { ...snapshot, clientSubmissionId },
+      payload: { ...snapshot, clientSubmissionId: validUuid, uuid: validUuid },
       status: 'queued',
       expectedVersion: 1,
       retryCount: 0,
@@ -216,6 +257,7 @@ export async function markActionRequired(
     await db.syncQueue.update(queueId, {
       status: 'failed_final',
       errorMessage,
+      errorCategory: errorCategory || 'validation',
       lastErrorCode: statusCode ?? null,
       nextRetryTimestamp: null,
       lastAttempt: now,
@@ -241,10 +283,10 @@ const MAX_BACKOFF_MS = 1_800_000; // 30 minutes cap
 
 const NON_RETRYABLE_CATEGORIES: SubmissionErrorCategory[] = [
   'validation',
-  'unauthorized',
   'conflict',
   'malformed_acknowledgement',
   'invalid_update_identity',
+  'empty_update_changes',
   'not_found',
 ];
 
@@ -256,8 +298,10 @@ const NON_RETRYABLE_CATEGORIES: SubmissionErrorCategory[] = [
  * - Transient errors (network, timeout, rate_limited, upstream_unavailable)
  *   remain safely retryable indefinitely. They are NOT promoted to action-required
  *   merely because retryCount is high.
- * - Non-retryable errors (validation, auth, conflict) transition immediately
- *   to ACTION_REQUIRED.
+ * - HTTP 401/403 (unauthorized) remains preserved locally in failed_retryable
+ *   for authentication recovery, and is NEVER converted to form validation correction.
+ * - Non-retryable errors (validation, conflict, invalid update identity) transition
+ *   immediately to ACTION_REQUIRED.
  */
 export async function markRetryable(
   queueId: number,
@@ -267,6 +311,28 @@ export async function markRetryable(
   errorCategory?: SubmissionErrorCategory
 ): Promise<{ willRetry: boolean; nextRetryMs: number }> {
   const now = new Date().toISOString();
+
+  // If unauthorized: preserve locally in failed_retryable without looping
+  if (errorCategory === 'unauthorized' || statusCode === 401 || statusCode === 403) {
+    const unauthMessage = errorMessage || 'Your session expired. Please sign in again. Your saved assessment remains safe on this device.';
+    await db.syncQueue.update(queueId, {
+      status: 'failed_retryable',
+      errorMessage: unauthMessage,
+      lastErrorCode: statusCode ?? 401,
+      errorCategory: 'unauthorized',
+      lastAttempt: now,
+      nextRetryTimestamp: Date.now() + 300000, // pause automatic tight retries until user action
+    });
+    const draft = await db.drafts.where('uuid').equals(submissionUuid).first();
+    if (draft?.id) {
+      await db.drafts.update(draft.id, {
+        syncStatus: 'failed_retryable',
+        syncError: unauthMessage,
+        updatedAt: now,
+      });
+    }
+    return { willRetry: false, nextRetryMs: 0 };
+  }
 
   // If a non-retryable error reaches markRetryable, transition to ACTION_REQUIRED immediately
   if (errorCategory && NON_RETRYABLE_CATEGORIES.includes(errorCategory)) {
@@ -354,75 +420,68 @@ export async function getDispatchQueue(): Promise<SyncQueueItem[]> {
   const now = Date.now();
   return db.syncQueue
     .filter((item) => {
+      if (item.status === 'synced' || item.status === 'SYNCED') {
+        return false;
+      }
+      // Quarantined items (corrupt update identity or empty update changes) remain blocked
       if (
-        item.status === 'synced' ||
-        item.status === 'SYNCED' ||
-        item.status === 'conflict' ||
-        item.status === 'needs_review' ||
-        item.status === 'NEEDS_REVIEW' ||
-        item.status === 'failed_final' ||
-        item.status === 'FAILED_FINAL'
+        item.status === 'failed_final' &&
+        (item.errorCategory === 'invalid_update_identity' || item.errorCategory === 'empty_update_changes')
       ) {
+        return false;
+      }
+      // True conflict items wait for review
+      if (item.status === 'conflict') {
+        return false;
+      }
+      // True field validation failures (422) wait for user correction
+      if (item.status === 'failed_final' && item.errorCategory === 'validation') {
         return false;
       }
       if (item.status === 'failed_retryable' || item.status === 'FAILED_RETRYABLE') {
         return (item.nextRetryTimestamp ?? 0) <= now;
       }
-      return item.status === 'queued' || item.status === 'syncing';
+      return item.status === 'queued' || item.status === 'syncing' || item.status === 'failed';
     })
     .toArray();
 }
 
 // ---------------------------------------------------------------------------
-// Legacy migration — schemaVersion 1 -> 2
+// Legacy migration & local queue recovery — schemaVersion 1 -> 2
 // ---------------------------------------------------------------------------
 
 /**
- * Migrates legacy queue items (schemaVersion < 2) to the canonical format.
+ * Migrates legacy queue items and normalizes local queue state.
  *
- * MIGRATION RULES:
- * 1. A valid legacy item may become CREATE only when it has no evidence of a
- *    previous remote acknowledgement and has no canonical remoteSubmissionId.
- * 2. An item with an invalid or non-canonical remote identity (e.g. ART ID in remoteSubmissionId)
- *    must NEVER be auto-converted to CREATE, as this could produce duplicate records.
- *    Instead, it is quarantined to ACTION_REQUIRED ('failed_final').
- * 3. Never infer remote identity from ART/reference ID, child ID, local ID, or client submission ID.
+ * MIGRATION & RECLASSIFICATION RULES:
+ * 1. Valid final local-only CREATE:
+ *    A local record with a complete final local snapshot (uuid, demographics),
+ *    no confirmed remoteSubmissionId, and no evidence of remote acknowledgement
+ *    is reclassified as:
+ *      operationType = 'CREATE'
+ *      status = 'queued' (if it was failed_final/needs_review/failed from legacy behavior)
+ *      nextRetryTimestamp = Date.now()
+ *      stable idempotencyKey = 'create-' + clientSubmissionId
+ *    This ensures valid local records auto-submit via POST /api/submissions.
+ *
+ * 2. Corrupt / ambiguous UPDATE:
+ *    An item with evidence of remote acknowledgement or explicit non-UUID remote ID
+ *    (e.g. ART ID in remoteSubmissionId) or empty update changes MUST NOT be auto-created.
+ *    It is quarantined to ACTION_REQUIRED ('failed_final').
  *
  * Safe to call multiple times — idempotent.
  */
 export async function migrateLegacyItems(): Promise<number> {
-  const legacyItems = await db.syncQueue
-    .filter((item) => !item.schemaVersion || item.schemaVersion < 2)
-    .toArray();
+  const allItems = await db.syncQueue.toArray();
 
   let migrated = 0;
-  for (const item of legacyItems) {
+  for (const item of allItems) {
     if (!item.id) continue;
+    if (item.status === 'synced' || item.status === 'SYNCED') continue;
 
     const payload: any = item.payload ?? {};
 
-    // Ensure clientSubmissionId is set from uuid
-    if (!payload.clientSubmissionId && payload.uuid) {
-      payload.clientSubmissionId = payload.uuid;
-    }
-
-    // Ensure idempotencyKey is set
-    const idempotencyKey = item.idempotencyKey || `create-${payload.uuid || item.submissionUuid}`;
-
-    // Structurally invalid items go to ACTION_REQUIRED
-    if (!payload.uuid || !payload.demographics) {
-      await db.syncQueue.update(item.id, {
-        schemaVersion: 2,
-        status: 'failed_final',
-        errorMessage: 'Legacy record missing required fields. Please open and re-submit.',
-        payload,
-        idempotencyKey,
-      });
-      migrated++;
-      continue;
-    }
-
-    // Check remote identity
+    // 1. Check remote identity
     const rawRemoteId = payload.remoteSubmissionId;
     let hasValidRemoteId = false;
     if (rawRemoteId) {
@@ -434,42 +493,250 @@ export async function migrateLegacyItems(): Promise<number> {
         // Do NOT convert to CREATE — quarantine to ACTION_REQUIRED.
         await db.syncQueue.update(item.id, {
           schemaVersion: 2,
+          operationType: 'UPDATE',
           status: 'failed_final',
           errorMessage: 'This saved record needs help before it can be updated.',
+          errorCategory: 'invalid_update_identity',
           payload,
-          idempotencyKey,
+          idempotencyKey: item.idempotencyKey,
+          nextRetryTimestamp: null,
+        });
+        submissionEvents.emit('submission:failed', {
+          clientSubmissionId: payload.clientSubmissionId || payload.uuid || item.submissionUuid,
+          errorCategory: 'invalid_update_identity',
+          message: 'This saved record needs help before it can be updated.',
+          timestamp: new Date().toISOString(),
+          retryCount: item.retryCount,
         });
         migrated++;
         continue;
       }
     }
 
-    // If item was previously marked UPDATE or version > 1, but has no valid remote ID:
-    const isUpdateIntent = item.operationType === 'UPDATE' || (item.expectedVersion && item.expectedVersion > 1);
-    if (isUpdateIntent && !hasValidRemoteId) {
+    // 2. Check if there is evidence of previous remote acknowledgement
+    const hasRemoteAck = Boolean(item.acknowledged || payload.acknowledged);
+    if (!hasValidRemoteId && hasRemoteAck) {
       // Evidence of remote acknowledgement attempt without valid canonical ID — quarantine
       await db.syncQueue.update(item.id, {
         schemaVersion: 2,
+        operationType: 'UPDATE',
         status: 'failed_final',
         errorMessage: 'This saved record needs help before it can be updated.',
+        errorCategory: 'invalid_update_identity',
         payload,
-        idempotencyKey,
+        idempotencyKey: item.idempotencyKey,
+        nextRetryTimestamp: null,
+      });
+      submissionEvents.emit('submission:failed', {
+        clientSubmissionId: payload.clientSubmissionId || payload.uuid || item.submissionUuid,
+        errorCategory: 'invalid_update_identity',
+        message: 'This saved record needs help before it can be updated.',
+        timestamp: new Date().toISOString(),
+        retryCount: item.retryCount,
       });
       migrated++;
       continue;
     }
 
-    // Valid items without remoteSubmissionId and without update intent: treat as CREATE
-    const operationType = hasValidRemoteId ? 'UPDATE' : 'CREATE';
+    // 3. Explicit UPDATE operation without valid remote ID must NOT be auto-converted to CREATE
+    if (item.operationType === 'UPDATE' && !hasValidRemoteId) {
+      await db.syncQueue.update(item.id, {
+        schemaVersion: 2,
+        operationType: 'UPDATE',
+        status: 'failed_final',
+        errorMessage: 'This saved record needs help before it can be updated.',
+        errorCategory: 'invalid_update_identity',
+        payload,
+        idempotencyKey: item.idempotencyKey,
+        nextRetryTimestamp: null,
+      });
+      submissionEvents.emit('submission:failed', {
+        clientSubmissionId: payload.clientSubmissionId || payload.uuid || item.submissionUuid,
+        errorCategory: 'invalid_update_identity',
+        message: 'This saved record needs help before it can be updated.',
+        timestamp: new Date().toISOString(),
+        retryCount: item.retryCount,
+      });
+      migrated++;
+      continue;
+    }
+
+    // 4. Valid item with confirmed remoteSubmissionId (UPDATE)
+    if (hasValidRemoteId) {
+      await db.syncQueue.update(item.id, {
+        schemaVersion: 2,
+        operationType: 'UPDATE',
+        payload,
+        idempotencyKey: item.idempotencyKey,
+        nextRetryTimestamp: item.nextRetryTimestamp ?? Date.now(),
+        status: item.status === 'syncing' ? 'queued' : item.status,
+      });
+      migrated++;
+      continue;
+    }
+
+    // 5. Local-only record (CREATE)
+    // Perform canonical identity normalization and caregiver consent normalization
+
+    // Check if the record has legacy identity or consent defects
+    const hasLegacyIdentityDefect =
+      !isValidUuidV4(payload.uuid) ||
+      !isValidUuidV4(payload.clientSubmissionId) ||
+      !isValidUuidV4(item.submissionUuid);
+
+    const hasLegacyConsentDefect =
+      !payload.caregiverConsent ||
+      payload.caregiverConsent.consentProvided !== true;
+
+    const isLegacyEligibleForRepair = hasLegacyIdentityDefect || hasLegacyConsentDefect;
+
+    // Extract any existing business reference ID
+    const oldRefId =
+      payload.demographics?.artNumber ||
+      payload.uniqueId ||
+      (!isValidUuidV4(payload.uuid) ? payload.uuid : undefined) ||
+      (!isValidUuidV4(item.submissionUuid) ? item.submissionUuid : undefined);
+
+    if (!payload.demographics || typeof payload.demographics !== 'object') {
+      payload.demographics = {};
+    }
+    if (oldRefId && !payload.demographics.artNumber) {
+      payload.demographics.artNumber = oldRefId;
+    }
+
+    // Canonical UUIDv4: preserve existing valid UUIDv4 or generate once
+    const canonicalUuid =
+      (isValidUuidV4(payload.uuid) ? payload.uuid : null) ||
+      (isValidUuidV4(payload.clientSubmissionId) ? payload.clientSubmissionId : null) ||
+      (isValidUuidV4(item.submissionUuid) ? item.submissionUuid : null) ||
+      generateUuidV4();
+
+    payload.uuid = canonicalUuid;
+    payload.clientSubmissionId = canonicalUuid;
+    const newSubmissionUuid = canonicalUuid;
+    const stableIdempotencyKey =
+      item.idempotencyKey && item.idempotencyKey.startsWith(`create-${canonicalUuid}`)
+        ? item.idempotencyKey
+        : `create-${canonicalUuid}`;
+
+    // Preserve binary caregiver signature in IndexedDB under canonical UUID
+    if (oldRefId && oldRefId !== canonicalUuid) {
+      try {
+        if (db.signatureAttachments && typeof db.signatureAttachments.get === 'function') {
+          const oldSig = await db.signatureAttachments.get(oldRefId);
+          if (oldSig) {
+            await db.signatureAttachments.put({
+              ...oldSig,
+              submissionUuid: canonicalUuid,
+            });
+          }
+        }
+      } catch (sigErr) {
+        console.warn('[migrateLegacyItems] Could not migrate signature attachment:', sigErr);
+      }
+    }
+
+    // Update matching draft in db.drafts if old ID was used
+    try {
+      let draftToUpdate = await db.drafts.where('uuid').equals(canonicalUuid).first();
+      if (!draftToUpdate && oldRefId) {
+        draftToUpdate = await db.drafts.where('uuid').equals(oldRefId).first();
+      }
+      if (draftToUpdate?.id) {
+        await db.drafts.update(draftToUpdate.id, {
+          uuid: canonicalUuid,
+          clientSubmissionId: canonicalUuid,
+        });
+      }
+    } catch (dErr) {
+      console.warn('[migrateLegacyItems] Could not update matching draft uuid:', dErr);
+    }
+
+    // Normalize caregiver consent
+    const verifiableConsent = hasVerifiableConsent(payload);
+    if (verifiableConsent) {
+      const normalizedConsent = normalizeCaregiverConsent(payload);
+      if (normalizedConsent) {
+        payload.caregiverConsent = normalizedConsent;
+        payload.consent = {
+          agreeToParticipate: true,
+          signatureDataUrl: normalizedConsent.signatureDataUrl,
+          signatureTimestamp: normalizedConsent.consentCapturedAt,
+        };
+      }
+    }
+
+    // Check payload against completeSubmissionSchema
+    const parseResult = completeSubmissionSchema.safeParse(payload);
+    let newStatus = item.status;
+    let newErrorMessage = item.errorMessage;
+    let newErrorCategory: SubmissionErrorCategory | undefined = item.errorCategory as SubmissionErrorCategory | undefined;
+    let newErrorCode = item.lastErrorCode;
+    let newNextRetry: number | null = item.nextRetryTimestamp;
+
+    if (!verifiableConsent) {
+      // Consent cannot be verified: require user action
+      newStatus = 'failed_final';
+      newErrorCategory = 'validation';
+      newErrorMessage = 'Caregiver consent must be provided to record this assessment. Please open and record caregiver consent.';
+      newErrorCode = 422;
+      newNextRetry = null;
+    } else if (item.status === 'failed_final' && !isLegacyEligibleForRepair) {
+      // Record already had canonical identity and valid consent, but was marked failed_final (genuine server/field validation error)
+      newStatus = 'failed_final';
+      newNextRetry = null;
+    } else if (parseResult.success) {
+      // Record had a legacy defect and has now been repaired with canonical UUID and normalized consent!
+      // Clear obsolete identity/consent 422 error and re-queue for automatic dispatch
+      const isLegacyFailedState =
+        item.status === 'failed_final' ||
+        item.status === 'FAILED_FINAL' ||
+        item.status === 'needs_review' ||
+        item.status === 'NEEDS_REVIEW' ||
+        item.status === 'failed';
+
+      if (isLegacyFailedState || item.status === 'syncing' || !item.status) {
+        newStatus = 'queued';
+        newErrorMessage = null;
+        newErrorCategory = undefined;
+        newErrorCode = null;
+        newNextRetry = Date.now();
+      } else {
+        newNextRetry = item.nextRetryTimestamp ?? Date.now();
+      }
+    } else {
+      // Genuine field validation failure unrelated to UUID/consent
+      newStatus = 'failed_final';
+      newErrorCategory = 'validation';
+      newErrorMessage = parseResult.error.issues[0]?.message || 'The record needs correction before it can be sent.';
+      newErrorCode = 422;
+      newNextRetry = null;
+    }
 
     await db.syncQueue.update(item.id, {
       schemaVersion: 2,
-      operationType,
+      submissionUuid: newSubmissionUuid,
+      operationType: 'CREATE',
       payload,
-      idempotencyKey,
-      nextRetryTimestamp: item.nextRetryTimestamp ?? Date.now(),
-      status: item.status === 'syncing' ? 'queued' : item.status,
+      idempotencyKey: stableIdempotencyKey,
+      nextRetryTimestamp: newNextRetry,
+      status: newStatus,
+      errorMessage: newErrorMessage,
+      errorCategory: newErrorCategory,
+      lastErrorCode: newErrorCode,
     });
+
+    // Keep draft syncStatus in sync
+    try {
+      const draft = await db.drafts.where('uuid').equals(canonicalUuid).first();
+      if (draft?.id) {
+        await db.drafts.update(draft.id, {
+          syncStatus: newStatus === 'queued' ? 'queued' : draft.syncStatus,
+          syncError: newErrorMessage,
+        });
+      }
+    } catch {}
+
     migrated++;
   }
 

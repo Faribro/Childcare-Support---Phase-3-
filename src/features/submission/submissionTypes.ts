@@ -253,7 +253,13 @@ export function classifyHttpError(statusCode: number, message?: string): Submiss
     return { category: 'rate_limited', message: message || 'Rate limited', statusCode, isRetryable: true, isTerminal: false };
   }
   if (statusCode === 401 || statusCode === 403) {
-    return { category: 'unauthorized', message: message || 'Unauthorized', statusCode, isRetryable: false, isTerminal: true };
+    return {
+      category: 'unauthorized',
+      message: message || 'Your session expired. Please sign in again. Your saved assessment remains safe on this device.',
+      statusCode,
+      isRetryable: false,
+      isTerminal: false,
+    };
   }
   if (statusCode === 404) {
     return { category: 'not_found', message: message || 'Record not found on server', statusCode, isRetryable: false, isTerminal: false };
@@ -268,4 +274,134 @@ export function classifyHttpError(statusCode: number, message?: string): Submiss
     return { category: 'upstream_unavailable', message: message || 'Server error', statusCode, isRetryable: true, isTerminal: false };
   }
   return { category: 'unknown', message: message || 'Unknown error', statusCode, isRetryable: false, isTerminal: true };
+}
+
+// ---------------------------------------------------------------------------
+// Canonical UUID & Caregiver Consent Normalization
+// ---------------------------------------------------------------------------
+
+export function isValidUuid(val: unknown): val is string {
+  if (typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val.trim());
+}
+
+export function isValidUuidV4(val: unknown): val is string {
+  if (typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val.trim());
+}
+
+export function generateUuidV4(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function ensureValidUuidV4(candidate?: unknown): string {
+  if (isValidUuidV4(candidate)) return (candidate as string).trim();
+  return generateUuidV4();
+}
+
+export interface CanonicalCaregiverConsent {
+  consentProvided: true;
+  consentVersion: string;
+  caregiverName: string;
+  caregiverRelationship: string;
+  consentCapturedAt: string;
+  signatureRequired: boolean;
+  signatureStatus: 'NOT_REQUIRED' | 'PENDING' | 'CAPTURED_LOCAL' | 'QUEUED_FOR_UPLOAD' | 'UPLOADED' | 'FAILED' | 'NEEDS_REVIEW';
+  signatureAssetId?: string;
+  signatureDataUrl?: string;
+  signatureUrl?: string;
+}
+
+export function hasVerifiableConsent(record: any): boolean {
+  if (!record || typeof record !== 'object') return false;
+
+  const cc = record.caregiverConsent;
+  if (cc && typeof cc === 'object') {
+    if (cc.consentProvided === true || cc.consentProvided === 'true') return true;
+    if (cc.agreeToParticipate === true || cc.agreeToParticipate === 'true') return true;
+    if (cc.accepted === true || cc.accepted === 'true') return true;
+  }
+
+  const c = record.consent;
+  if (c && typeof c === 'object') {
+    if (c.agreeToParticipate === true || c.agreeToParticipate === 'true') return true;
+    if (c.consentProvided === true || c.consentProvided === 'true') return true;
+    if (c.caregiverConsentProvided === true || c.caregiverConsentProvided === 'true') return true;
+  }
+
+  const d = record.declaration;
+  if (d && typeof d === 'object') {
+    if (d.consentAcknowledged === true || d.consentAcknowledged === 'true') return true;
+  }
+
+  if (record.agreeToParticipate === true || record.agreeToParticipate === 'true') return true;
+  if (record.consentProvided === true || record.consentProvided === 'true') return true;
+
+  return false;
+}
+
+export function normalizeCaregiverConsent(record: any): CanonicalCaregiverConsent | null {
+  if (!hasVerifiableConsent(record)) {
+    return null;
+  }
+
+  const cc = (record.caregiverConsent && typeof record.caregiverConsent === 'object') ? record.caregiverConsent : {};
+  const c = (record.consent && typeof record.consent === 'object') ? record.consent : {};
+  const demographics = (record.demographics && typeof record.demographics === 'object') ? record.demographics : {};
+
+  const caregiverName =
+    cc.caregiverName ||
+    demographics.caregiverName ||
+    record.caregiverName ||
+    'Caregiver';
+
+  const caregiverRelationship =
+    cc.caregiverRelationship ||
+    demographics.caregiverRelationship ||
+    record.caregiverRelationship ||
+    'Mother';
+
+  const consentCapturedAt =
+    cc.consentCapturedAt ||
+    c.signatureTimestamp ||
+    record.createdAt ||
+    new Date().toISOString();
+
+  const signatureDataUrl =
+    cc.signatureDataUrl ||
+    c.signatureDataUrl ||
+    record.signatureDataUrl ||
+    undefined;
+
+  const rawStatus = cc.signatureStatus || (signatureDataUrl ? 'CAPTURED_LOCAL' : 'PENDING');
+  const validStatuses = new Set([
+    'NOT_REQUIRED',
+    'PENDING',
+    'CAPTURED_LOCAL',
+    'QUEUED_FOR_UPLOAD',
+    'UPLOADED',
+    'FAILED',
+    'NEEDS_REVIEW',
+  ]);
+  const signatureStatus = (validStatuses.has(rawStatus) ? rawStatus : 'CAPTURED_LOCAL') as CanonicalCaregiverConsent['signatureStatus'];
+
+  return {
+    consentProvided: true,
+    consentVersion: cc.consentVersion || 'v1.0-2026',
+    caregiverName,
+    caregiverRelationship,
+    consentCapturedAt,
+    signatureRequired: cc.signatureRequired ?? true,
+    signatureStatus,
+    signatureAssetId: cc.signatureAssetId,
+    signatureDataUrl,
+    signatureUrl: cc.signatureUrl,
+  };
 }
