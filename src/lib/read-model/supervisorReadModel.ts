@@ -1,4 +1,10 @@
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
+import {
+  isAuthenticatedSession,
+  getClientSessionStatus,
+  markSessionExpired,
+  subscribeToAuthChanges,
+} from '@/lib/auth/clientAuth';
 
 export interface BeneficiaryDocumentStatus {
   isComplete: boolean;
@@ -34,7 +40,15 @@ export interface SupervisorBeneficiaryRow {
   approvedStatus: string;
 }
 
-export type SupervisorDataStatus = 'idle' | 'loading' | 'success' | 'empty' | 'error' | 'offline_cache';
+export type SupervisorDataStatus =
+  | 'idle'
+  | 'loading'
+  | 'success'
+  | 'empty'
+  | 'error'
+  | 'offline_cache'
+  | 'unauthenticated'
+  | 'session_expired';
 
 export interface SupervisorDataError {
   code: string;
@@ -431,6 +445,10 @@ class SupervisorReadModelService {
 
     window.addEventListener('online', () => {
       this.state.isOnline = true;
+      if (!isAuthenticatedSession() || this.state.status === 'unauthenticated' || this.state.status === 'session_expired') {
+        this.notify();
+        return;
+      }
       this.state.consecutiveFailures = 0;
       this.notify();
       this.fetchSubmissions({ force: true }).catch(() => {});
@@ -450,6 +468,9 @@ class SupervisorReadModelService {
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
+        if (!isAuthenticatedSession() || this.state.status === 'unauthenticated' || this.state.status === 'session_expired') {
+          return;
+        }
         const now = Date.now();
         const lastSuccess = this.state.lastSuccessAt ? this.state.lastSuccessAt.getTime() : 0;
         if (now - lastSuccess > SUCCESS_POLL_INTERVAL_MS || this.state.status === 'error') {
@@ -466,10 +487,46 @@ class SupervisorReadModelService {
     });
 
     const handleSyncComplete = () => {
-      this.fetchSubmissions({ force: true }).catch(() => {});
+      if (isAuthenticatedSession()) {
+        this.fetchSubmissions({ force: true }).catch(() => {});
+      }
     };
     window.addEventListener('child_nutrition:sync_completed', handleSyncComplete);
     window.addEventListener('child_nutrition:record_synced', handleSyncComplete);
+
+    subscribeToAuthChanges((newStatus) => {
+      if (newStatus === 'authenticated') {
+        this.state.consecutiveFailures = 0;
+        this.state.error = null;
+        this.fetchSubmissions({ force: true }).catch(() => {});
+      } else if (newStatus === 'session_expired') {
+        this.state.status = 'session_expired';
+        this.state.error = {
+          code: 'SESSION_EXPIRED',
+          message: 'Your session expired. Please sign in again.',
+          retryable: false,
+          statusCode: 401,
+        };
+        if (this.pollTimer) {
+          clearTimeout(this.pollTimer);
+          this.pollTimer = null;
+        }
+        this.notify();
+      } else if (newStatus === 'unauthenticated') {
+        this.state.status = 'unauthenticated';
+        this.state.error = {
+          code: 'UNAUTHENTICATED',
+          message: 'Please sign in to view central records.',
+          retryable: false,
+          statusCode: 401,
+        };
+        if (this.pollTimer) {
+          clearTimeout(this.pollTimer);
+          this.pollTimer = null;
+        }
+        this.notify();
+      }
+    });
   }
 
   private schedulePoll(delayMs: number) {
@@ -478,7 +535,13 @@ class SupervisorReadModelService {
       this.pollTimer = null;
     }
     const isHidden = typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible';
-    if (isHidden || !this.state.isOnline) {
+    if (
+      isHidden ||
+      !this.state.isOnline ||
+      !isAuthenticatedSession() ||
+      this.state.status === 'unauthenticated' ||
+      this.state.status === 'session_expired'
+    ) {
       return;
     }
 
@@ -487,9 +550,40 @@ class SupervisorReadModelService {
     }, Math.max(1000, delayMs));
   }
 
+  public getTotalCount(): number {
+    return this.state.total || this.state.records.length;
+  }
+
   public async fetchSubmissions(options?: { force?: boolean }): Promise<void> {
     if (this.inFlightPromise) {
       return this.inFlightPromise;
+    }
+
+    if (!isAuthenticatedSession()) {
+      const authStatus = getClientSessionStatus();
+      if (authStatus === 'session_expired') {
+        this.state.status = 'session_expired';
+        this.state.error = {
+          code: 'SESSION_EXPIRED',
+          message: 'Your session expired. Please sign in again.',
+          retryable: false,
+          statusCode: 401,
+        };
+      } else {
+        this.state.status = 'unauthenticated';
+        this.state.error = {
+          code: 'UNAUTHENTICATED',
+          message: 'Please sign in to view central records.',
+          retryable: false,
+          statusCode: 401,
+        };
+      }
+      if (this.pollTimer) {
+        clearTimeout(this.pollTimer);
+        this.pollTimer = null;
+      }
+      this.notify();
+      return;
     }
 
     if (!this.state.isOnline) {
@@ -518,6 +612,7 @@ class SupervisorReadModelService {
       try {
         const res = await fetch('/api/submissions?limit=100', {
           method: 'GET',
+          credentials: 'same-origin',
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache, no-store',
@@ -544,6 +639,24 @@ class SupervisorReadModelService {
             }
           } catch {
             errMsg = `Gateway returned HTTP ${res.status}: ${res.statusText}`;
+          }
+
+          if (res.status === 401 || res.status === 403) {
+            markSessionExpired();
+            this.state.status = 'session_expired';
+            this.state.error = {
+              code: 'SESSION_EXPIRED',
+              message: 'Your session expired. Please sign in again.',
+              retryable: false,
+              statusCode: res.status,
+              requestId: reqId,
+            };
+            if (this.pollTimer) {
+              clearTimeout(this.pollTimer);
+              this.pollTimer = null;
+            }
+            this.notify();
+            return;
           }
 
           this.state.consecutiveFailures += 1;

@@ -12,6 +12,8 @@ import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import { Plus } from 'lucide-react';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
+import { isAuthenticatedSession } from '@/lib/auth/clientAuth';
+import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
 
 export default function FieldWorkspacePage() {
   const router = useRouter();
@@ -30,18 +32,17 @@ export default function FieldWorkspacePage() {
       setDrafts(draftsData);
       setQueueItems(queueData);
 
-      // Attempt to load total synced records from backend
-      try {
-        const res = await fetch('/api/submissions?limit=1');
-        if (res.ok) {
-          const json = await res.json();
-          if (json.pagination?.totalCount !== undefined) {
-            setServerSyncedCount(json.pagination.totalCount);
-          } else if (json.total !== undefined) {
-            setServerSyncedCount(json.total);
-          }
+      // Read central synced count from shared read model only when authenticated
+      if (isAuthenticatedSession()) {
+        const centralCount = supervisorReadModel.getTotalCount();
+        if (centralCount > 0) {
+          setServerSyncedCount(centralCount);
+        } else {
+          supervisorReadModel.fetchSubmissions().catch(() => {});
         }
-      } catch (_) {}
+      } else {
+        setServerSyncedCount(null);
+      }
     } catch (err) {
       console.error('[FieldWorkspace] Failed to load local records:', err);
     } finally {
@@ -54,8 +55,17 @@ export default function FieldWorkspacePage() {
     const handleSyncComplete = () => {
       loadData();
     };
+    const unsubReadModel = supervisorReadModel.subscribe(() => {
+      if (isAuthenticatedSession()) {
+        const centralCount = supervisorReadModel.getTotalCount();
+        if (centralCount > 0) {
+          setServerSyncedCount(centralCount);
+        }
+      }
+    });
     window.addEventListener('child_nutrition:sync_completed', handleSyncComplete);
     return () => {
+      unsubReadModel();
       window.removeEventListener('child_nutrition:sync_completed', handleSyncComplete);
     };
   }, [loadData]);

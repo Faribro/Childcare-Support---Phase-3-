@@ -52,6 +52,8 @@ export default function SupervisorAssessmentsPage() {
     isError,
     isEmpty,
     isOfflineCache,
+    isUnauthenticated,
+    isSessionExpired,
     error,
     refresh,
     retry,
@@ -330,8 +332,60 @@ export default function SupervisorAssessmentsPage() {
           }
         />
 
+        {/* Session Expired Banner */}
+        {isSessionExpired && (
+          <div className="mb-5 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Session Expired</h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Your session expired. Please sign in again. Saved assessments remain safe on this device.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+              <Link href="/login">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="text-xs bg-amber-700 hover:bg-amber-800 text-white cursor-pointer"
+                >
+                  Sign in again
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Unauthenticated Guidance Banner */}
+        {isUnauthenticated && (
+          <div className="mb-5 bg-blue-50 border border-blue-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-blue-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <Info className="w-6 h-6 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Sign-In Required for Central Records</h4>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  Please sign in to view central records. Any offline cached records remain preserved on this device.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+              <Link href="/login">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="text-xs bg-blue-700 hover:bg-blue-800 text-white cursor-pointer"
+                >
+                  Sign in
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Error State Banner */}
-        {isError && (
+        {isError && !isSessionExpired && !isUnauthenticated && (
           <div className="mb-5 bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
             <div className="flex items-start space-x-3">
               <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />

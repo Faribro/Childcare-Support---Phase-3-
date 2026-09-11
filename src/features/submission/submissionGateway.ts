@@ -112,6 +112,7 @@ export async function gatewayCreate(
   try {
     res = await fetch('/api/submissions', {
       method: 'POST',
+      credentials: 'same-origin',
       headers,
       body: JSON.stringify(request.payload),
       signal: controller.signal,
@@ -246,6 +247,7 @@ export async function gatewayUpdate(
   try {
     res = await fetch(url, {
       method: 'PATCH',
+      credentials: 'same-origin',
       headers,
       body: JSON.stringify({
         changes: request.changes,
@@ -343,6 +345,7 @@ export async function lookupByClientSubmissionId(
   try {
     res = await fetch(`/api/submissions?${params.toString()}`, {
       method: 'GET',
+      credentials: 'same-origin',
       headers,
     });
   } catch {

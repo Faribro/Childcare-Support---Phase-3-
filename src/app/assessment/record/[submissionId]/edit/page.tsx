@@ -449,7 +449,7 @@ export default function EditRecordPage() {
           foundRecord['72\nSignature Link'] ||
           '';
 
-        if (sigDataUrl) {
+        if (sigDataUrl && !sigDataUrl.includes('DATA_URL_STORED_PENDING_AUTH')) {
           setExistingSignatureUrl(sigDataUrl);
           setHasSavedSignature(true);
         }

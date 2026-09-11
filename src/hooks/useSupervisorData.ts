@@ -34,6 +34,8 @@ export interface SupervisorDataHook {
   isError: boolean;
   isEmpty: boolean;
   isOfflineCache: boolean;
+  isUnauthenticated: boolean;
+  isSessionExpired: boolean;
 }
 
 export function useSupervisorData(options?: { autoFetch?: boolean }): SupervisorDataHook {
@@ -74,5 +76,7 @@ export function useSupervisorData(options?: { autoFetch?: boolean }): Supervisor
     isError: modelState.status === 'error',
     isEmpty: modelState.status === 'empty',
     isOfflineCache: modelState.status === 'offline_cache',
+    isUnauthenticated: modelState.status === 'unauthenticated',
+    isSessionExpired: modelState.status === 'session_expired',
   };
 }

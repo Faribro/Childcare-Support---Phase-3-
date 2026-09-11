@@ -253,9 +253,14 @@ export function filterAuthorisedRecord(record: any, role: UserRole = 'caseworker
 }
 
 function sanitizeValue(val: any): any {
-  if (typeof val === 'string' && val.startsWith('=')) {
-    const match = val.match(/=HYPERLINK\("[^"]*",\s*"([^"]*)"\)/);
-    return match ? match[1] : 'Restricted Document';
+  if (typeof val === 'string') {
+    if (val.includes('DATA_URL_STORED_PENDING_AUTH')) {
+      return '';
+    }
+    if (val.startsWith('=')) {
+      const match = val.match(/=HYPERLINK\("[^"]*",\s*"([^"]*)"\)/);
+      return match ? match[1] : 'Restricted Document';
+    }
   }
   return val;
 }
@@ -272,12 +277,12 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
 
   const version = Number(raw['2\nRevision Number'] || raw.version || raw.revisionNumber || fallbackVersion || 1);
 
-  const hasPassbook = Boolean(passbookPhotoUrl && passbookPhotoUrl !== 'Restricted Document');
-  const hasAadhaar = Boolean(aadhaarCardPhotoUrl && aadhaarCardPhotoUrl !== 'Restricted Document');
-  const hasChildPhoto = Boolean(childPhotoUrl && childPhotoUrl !== 'Restricted Document');
-  const hasFeeReceipt = Boolean(feeReceiptPhotoUrl && feeReceiptPhotoUrl !== 'Restricted Document');
-  const hasMarksheet = Boolean(marksheetPhotoUrl && marksheetPhotoUrl !== 'Restricted Document');
-  const hasSignature = Boolean(signatureDataUrl && signatureDataUrl !== 'Restricted Document');
+  const hasPassbook = Boolean(passbookPhotoUrl && passbookPhotoUrl !== 'Restricted Document' && !passbookPhotoUrl.includes('DATA_URL_STORED_PENDING_AUTH'));
+  const hasAadhaar = Boolean(aadhaarCardPhotoUrl && aadhaarCardPhotoUrl !== 'Restricted Document' && !aadhaarCardPhotoUrl.includes('DATA_URL_STORED_PENDING_AUTH'));
+  const hasChildPhoto = Boolean(childPhotoUrl && childPhotoUrl !== 'Restricted Document' && !childPhotoUrl.includes('DATA_URL_STORED_PENDING_AUTH'));
+  const hasFeeReceipt = Boolean(feeReceiptPhotoUrl && feeReceiptPhotoUrl !== 'Restricted Document' && !feeReceiptPhotoUrl.includes('DATA_URL_STORED_PENDING_AUTH'));
+  const hasMarksheet = Boolean(marksheetPhotoUrl && marksheetPhotoUrl !== 'Restricted Document' && !marksheetPhotoUrl.includes('DATA_URL_STORED_PENDING_AUTH'));
+  const hasSignature = Boolean(signatureDataUrl && signatureDataUrl !== 'Restricted Document' && !signatureDataUrl.includes('DATA_URL_STORED_PENDING_AUTH'));
 
   const normalized: any = {
     ...raw,

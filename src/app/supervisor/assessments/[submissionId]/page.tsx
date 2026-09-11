@@ -22,6 +22,8 @@ import {
   Activity,
 } from 'lucide-react';
 
+import { isAuthenticatedSession, markSessionExpired } from '@/lib/auth/clientAuth';
+
 export default function SupervisorAssessmentDetailPage() {
   const params = useParams();
   const submissionId = params?.submissionId as string;
@@ -30,24 +32,45 @@ export default function SupervisorAssessmentDetailPage() {
   const [record, setRecord] = useState<AssessmentRecord | null>(null);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
+  const [isUnauthenticated, setIsUnauthenticated] = useState(false);
 
   useEffect(() => {
     async function loadData() {
       if (!submissionId) return;
+
+      if (!isAuthenticatedSession()) {
+        setIsUnauthenticated(true);
+        setError('Please sign in to view central records.');
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
         // Fetch canonical record
-        const recordRes = await fetch(`/api/submissions/${submissionId}`);
+        const recordRes = await fetch(`/api/submissions/${submissionId}`, {
+          credentials: 'same-origin',
+        });
+
+        if (recordRes.status === 401 || recordRes.status === 403) {
+          markSessionExpired();
+          setIsSessionExpired(true);
+          setError('Your session expired. Please sign in again.');
+          return;
+        }
+
         if (recordRes.ok) {
           const recData = await recordRes.json();
-          setRecord(recData);
+          setRecord(recData.data || recData);
         } else {
-          // Check if fallback sample matches
           setError('Record not found on server or sheet adapter.');
         }
 
         // Fetch audit history
-        const histRes = await fetch(`/api/submissions/${submissionId}/history`);
+        const histRes = await fetch(`/api/submissions/${submissionId}/history`, {
+          credentials: 'same-origin',
+        });
         if (histRes.ok) {
           const histData = await histRes.json();
           if (Array.isArray(histData.events)) {
@@ -78,12 +101,25 @@ export default function SupervisorAssessmentDetailPage() {
     return (
       <AppShell>
         <div className="max-w-md mx-auto py-16 px-4 text-center">
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
-            <h2 className="text-base font-bold text-slate-900">Survey Not Found</h2>
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
+            <h2 className="text-base font-bold text-slate-900">
+              {isSessionExpired
+                ? 'Session Expired'
+                : isUnauthenticated
+                ? 'Sign-In Required'
+                : 'Survey Not Found'}
+            </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Could not locate survey record &quot;{submissionId}&quot;.
+              {error || `Could not locate survey record "${submissionId}".`}
             </p>
-            <div className="mt-6">
+            <div className="pt-2 flex items-center justify-center gap-2">
+              {(isSessionExpired || isUnauthenticated) && (
+                <Link href="/login">
+                  <Button variant="primary" size="sm">
+                    {isSessionExpired ? 'Sign in again' : 'Sign in'}
+                  </Button>
+                </Link>
+              )}
               <Link href="/supervisor/assessments">
                 <Button variant="secondary" size="sm">
                   <ArrowLeft className="h-4 w-4 mr-1.5" />

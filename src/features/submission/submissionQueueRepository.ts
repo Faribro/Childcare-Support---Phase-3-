@@ -28,6 +28,7 @@ import {
   type SubmissionErrorCategory,
 } from './submissionTypes';
 import { submissionEvents } from './submissionEvents';
+import { markSessionExpired } from '@/lib/auth/clientAuth';
 
 export { isRecoverableLegacyIdentityConsentFailure, ALLOWED_LEGACY_IDENTITY_CONSENT_PATHS };
 
@@ -332,6 +333,11 @@ export async function markRetryable(
 
   // If unauthorized: preserve locally in failed_retryable without looping
   if (errorCategory === 'unauthorized' || statusCode === 401 || statusCode === 403) {
+    if (typeof window !== 'undefined') {
+      try {
+        markSessionExpired();
+      } catch {}
+    }
     const unauthMessage = errorMessage || 'Your session expired. Please sign in again. Your saved assessment remains safe on this device.';
     await db.syncQueue.update(queueId, {
       status: 'failed_retryable',

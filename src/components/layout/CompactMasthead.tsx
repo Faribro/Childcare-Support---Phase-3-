@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { isAuthenticatedSession } from '@/lib/auth/clientAuth';
+import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
 
 interface CompactMastheadProps {
   pendingSyncCount?: number;
@@ -57,30 +59,40 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
     async function loadCounts() {
       try {
         const queue = await getAllQueueItems();
-        let total = queue.filter((q) => q.status === 'synced').length;
-        try {
-          const res = await fetch('/api/submissions?limit=1');
-          if (res.ok) {
-            const json = await res.json();
-            if (json.pagination?.totalCount !== undefined) {
-              total = json.pagination.totalCount;
-            } else if (json.total !== undefined) {
-              total = json.total;
-            }
+        let localSynced = queue.filter((q) => q.status === 'synced').length;
+
+        // If authenticated, also incorporate central count from shared read model
+        if (isAuthenticatedSession()) {
+          const centralTotal = supervisorReadModel.getTotalCount();
+          if (centralTotal > 0) {
+            localSynced = Math.max(localSynced, centralTotal);
+          } else {
+            // Initiate shared deduplicated read fetch without separate limit=1 call
+            supervisorReadModel.fetchSubmissions().catch(() => {});
           }
-        } catch (_) {}
+        }
 
         if (active) {
-          setInternalSubmittedCount(total);
+          setInternalSubmittedCount(localSynced);
         }
       } catch (_) {}
     }
 
     loadCounts();
     const handleSync = () => loadCounts();
+    const unsubReadModel = supervisorReadModel.subscribe(() => {
+      if (active && isAuthenticatedSession()) {
+        const total = supervisorReadModel.getTotalCount();
+        if (total > 0) {
+          setInternalSubmittedCount(total);
+        }
+      }
+    });
+
     window.addEventListener('child_nutrition:sync_completed', handleSync);
     return () => {
       active = false;
+      unsubReadModel();
       window.removeEventListener('child_nutrition:sync_completed', handleSync);
     };
   }, [submittedCount]);

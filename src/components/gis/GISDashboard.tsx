@@ -22,8 +22,8 @@ import {
   TrendingUp,
   School,
   HeartHandshake,
-} from 'lucide-react';
 import { normalizeGeographicKey } from '@/lib/normalizeGeographicKey';
+import { isAuthenticatedSession, markSessionExpired } from '@/lib/auth/clientAuth';
 import type { GISRegionMetrics } from './GISMapComponent';
 
 const GISMapComponent = dynamic(() => import('./GISMapComponent'), {
@@ -67,6 +67,7 @@ export default function GISDashboard() {
   const [tooltip, setTooltip] = useState<any>(null);
   const [liveSubmissions, setLiveSubmissions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [authNotice, setAuthNotice] = useState<'unauthenticated' | 'session_expired' | null>(null);
 
   // Automatically request fullscreen on mount as requested
   useEffect(() => {
@@ -79,16 +80,38 @@ export default function GISDashboard() {
     }
   }, []);
 
-  // Fetch real synchronized submissions from API
+  // Fetch real synchronized submissions from API only when authenticated
   useEffect(() => {
     async function loadData() {
+      if (!isAuthenticatedSession()) {
+        setAuthNotice('unauthenticated');
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
-        const res = await fetch('/api/submissions?limit=500');
+        const res = await fetch('/api/submissions?limit=100', {
+          credentials: 'same-origin',
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          markSessionExpired();
+          setAuthNotice('session_expired');
+          return;
+        }
+
         if (res.ok) {
           const json = await res.json();
-          const items = Array.isArray(json.data) ? json.data : Array.isArray(json.items) ? json.items : [];
+          const items = Array.isArray(json.data?.records)
+            ? json.data.records
+            : Array.isArray(json.data)
+            ? json.data
+            : Array.isArray(json.items)
+            ? json.items
+            : [];
           setLiveSubmissions(items);
+          setAuthNotice(null);
         }
       } catch (err) {
         console.warn('GIS data fetch fallback to live cohort:', err);
@@ -455,6 +478,26 @@ export default function GISDashboard() {
           )}
         </div>
       </header>
+
+      {/* Auth Guidance Notice */}
+      {authNotice && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs flex items-center justify-between text-amber-900 z-20 shrink-0">
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              {authNotice === 'session_expired'
+                ? 'Your session expired. Please sign in again to view central records.'
+                : 'Please sign in to view central records.'}
+            </span>
+          </div>
+          <Link
+            href="/login"
+            className="font-bold underline text-amber-900 hover:text-amber-950 px-2 py-0.5 rounded cursor-pointer"
+          >
+            {authNotice === 'session_expired' ? 'Sign in again' : 'Sign in'}
+          </Link>
+        </div>
+      )}
 
       {/* ── Main Map Canvas (Fills entire screen) ── */}
       <div className="flex-1 w-full h-full relative overflow-hidden">

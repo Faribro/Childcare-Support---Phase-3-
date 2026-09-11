@@ -74,6 +74,36 @@ export function normalizeSubmissionPayload(record: any): any {
     };
   }
 
+  // 4. Sanitize pending auth placeholder tokens from document and signature fields
+  const photoFields = [
+    'passbookPhotoUrl',
+    'aadhaarCardPhotoUrl',
+    'childPhotoUrl',
+    'signatureDataUrl',
+    'signature_data_url',
+    'feeReceiptPhotoUrl',
+    'marksheetPhotoUrl',
+  ];
+  for (const pf of photoFields) {
+    if (typeof canonical[pf] === 'string' && canonical[pf].includes('DATA_URL_STORED_PENDING_AUTH')) {
+      delete canonical[pf];
+    }
+  }
+  if (
+    canonical.caregiverConsent &&
+    typeof canonical.caregiverConsent.signatureDataUrl === 'string' &&
+    canonical.caregiverConsent.signatureDataUrl.includes('DATA_URL_STORED_PENDING_AUTH')
+  ) {
+    delete canonical.caregiverConsent.signatureDataUrl;
+  }
+  if (
+    canonical.consent &&
+    typeof canonical.consent.signatureDataUrl === 'string' &&
+    canonical.consent.signatureDataUrl.includes('DATA_URL_STORED_PENDING_AUTH')
+  ) {
+    delete canonical.consent.signatureDataUrl;
+  }
+
   return canonical;
 }
 

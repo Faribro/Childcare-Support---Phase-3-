@@ -51,7 +51,9 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
   const caregiverName = d.caregiverName || data['14\nCaregiver Full Name'] || data.caregiver_name || item.caregiverName || 'Caregiver';
   const caregiverRelation = d.caregiverRelationship || data['15\nCaregiver Relation'] || data.caregiver_relationship || 'Mother';
   const caregiverPhone = d.contactNumber || d.caregiverPhone || data['16\nCaregiver Contact'] || data.caregiver_phone || item.caregiverPhone || '—';
-  const signatureData = c.signatureDataUrl || data.signatureDataUrl || data.signature_data_url || (data.consent && data.consent.signatureDataUrl) || (data.caregiverConsent && data.caregiverConsent.signatureDataUrl) || data['72\nSignature Link'] || '';
+  const rawSignature = c.signatureDataUrl || data.signatureDataUrl || data.signature_data_url || (data.consent && data.consent.signatureDataUrl) || (data.caregiverConsent && data.caregiverConsent.signatureDataUrl) || data['72\nSignature Link'] || '';
+  const isSignaturePendingAuth = typeof rawSignature === 'string' && rawSignature.includes('DATA_URL_STORED_PENDING_AUTH');
+  const signatureData = isSignaturePendingAuth ? '' : rawSignature;
 
   // Section 2: Demographics
   const childName = d.childName || data['9\nChild Name'] || data.child_name || item.childName || 'Child Beneficiary';
@@ -66,13 +68,14 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
   const district = d.district || data['19\nDistrict'] || data.district || item.district || 'Pune';
 
   // Section 3: Banking & KYC
+  const sanitizeDoc = (url: any) => typeof url === 'string' && url.includes('DATA_URL_STORED_PENDING_AUTH') ? '' : url;
   const accountHolder = b.bankAccountHolderName || b.accountHolderName || data['20\nBank Account Holder Name'] || data.account_holder_name || caregiverName;
   const accountNumber = b.bankAccountNumber || b.accountNumber || data['21\nBank Account Number'] || data.bank_account_number || '••••••••••••';
   const ifscCode = b.bankIfscCode || b.ifscCode || data['22\nBank IFSC Code'] || data.ifsc_code || '—';
   const bankLinkedPhone = b.bankLinkedMobileNumber || data['23\nBank Linked Mobile Number'] || caregiverPhone;
-  const passbookPhoto = b.passbookPhotoUrl || data.passbookPhotoUrl || data.passbook_photo_url || data['25\nPassbook Front Page Link'] || '';
-  const aadhaarPhoto = b.aadhaarCardPhotoUrl || data.aadhaarCardPhotoUrl || data.aadhaar_card_photo_url || data['26\nAadhaar Card Link'] || '';
-  const childPhoto = b.childPhotoUrl || data.childPhotoUrl || data.child_photo_url || data['27\nPassport Size Photo Link'] || '';
+  const passbookPhoto = sanitizeDoc(b.passbookPhotoUrl || data.passbookPhotoUrl || data.passbook_photo_url || data['25\nPassbook Front Page Link'] || '');
+  const aadhaarPhoto = sanitizeDoc(b.aadhaarCardPhotoUrl || data.aadhaarCardPhotoUrl || data.aadhaar_card_photo_url || data['26\nAadhaar Card Link'] || '');
+  const childPhoto = sanitizeDoc(b.childPhotoUrl || data.childPhotoUrl || data.child_photo_url || data['27\nPassport Size Photo Link'] || '');
 
   // Section 4: Household & Socio-Economic
   const totalFamilyMembers = hf.totalFamilyMembers || data['28\nHousehold Members'] || data.number_of_siblings ? Number(data.number_of_siblings) + 2 : 4;
@@ -206,6 +209,14 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                   <div className="border border-slate-200 rounded-lg p-2 bg-white max-w-sm">
                     <img src={signatureData} alt="Caregiver Signature" className="h-20 w-full object-contain" />
                   </div>
+                </div>
+              )}
+              {isSignaturePendingAuth && (
+                <div className="sm:col-span-3 pt-2 border-t border-slate-200">
+                  <span className="text-slate-400 block text-[11px] mb-1">Caregiver Signature Status:</span>
+                  <span className="inline-block px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
+                    Upload Pending Central Authorization
+                  </span>
                 </div>
               )}
             </div>
