@@ -2,16 +2,31 @@
  * submissionValidationGuard.ts
  *
  * Shared client-side helpers that turn completeSubmissionSchema Zod issues
- * into safe, user-facing messages and DOM focus actions.
+ * into safe, user-facing messages and exact DOM focus actions.
  *
  * Rules:
  *  - No PII is ever surfaced in error messages.
- *  - Unknown paths fall back to a generic "review before submitting" prompt.
- *  - focusFieldForValidationPath() is a no-op when the target element is not
- *    present in the current DOM (e.g. review-only pages).
+ *  - Unknown paths produce a safe section-level fallback, never a generic top-only error.
+ *  - Exact field navigation via formValidationRegistry (never window.scrollTo(0, 0)).
+ *  - All errors are normalized into FormValidationError.
  */
 
 import type { ZodIssue } from 'zod';
+import {
+  FormValidationError,
+  getFieldMetadata,
+  normalizeValidationErrors,
+  navigateToValidationError,
+  FIELD_REGISTRY,
+  SECTION_DOM_IDS,
+} from './formValidationRegistry';
+
+export type { FormValidationError };
+export {
+  getFieldMetadata,
+  normalizeValidationErrors,
+  navigateToValidationError,
+};
 
 // ── Path → human message map ─────────────────────────────────────────────────
 
@@ -24,14 +39,16 @@ const PATH_MESSAGES: Record<string, string> = {
     'Please enter the interviewer name (at least 2 characters) before submitting.',
   'caregiverConsent.consentProvided':
     'Caregiver consent must be confirmed before this assessment can be submitted.',
-  'caregiverConsent':
+  'caregiverConsent.signature':
+    'Please save the caregiver signature before submitting.',
+  caregiverConsent:
     'Caregiver consent must be confirmed before this assessment can be submitted.',
   'demographics.artNumber':
     'A valid ART / reference number (at least 3 characters) is required.',
   'demographics.childName':
     'Child full name is required (at least 2 characters).',
   'demographics.dob':
-    'A valid date of birth is required.',
+    'A valid date of birth is required and cannot be in the future.',
   'demographics.district':
     'District is required.',
   'demographics.state':
@@ -44,35 +61,16 @@ const PATH_MESSAGES: Record<string, string> = {
     'Height must be between 0 and 220 cm.',
   'finalReview.allInfoCorrect':
     'You must confirm that all information is correct before submitting.',
-  'finalReview':
+  finalReview:
     'Please complete the final review section before submitting.',
   uuid:
     'A valid client submission ID is required. Please restart the form.',
 };
 
-// ── Path → DOM element ID / selector map ────────────────────────────────────
-
-const PATH_ELEMENT_IDS: Record<string, string[]> = {
-  interviewerName: ['formSubmittedBy', 'q-rev-interviewer'],
-  'finalReview.formSubmittedBy': ['formSubmittedBy', 'q-rev-interviewer'],
-  formSubmittedBy: ['formSubmittedBy', 'q-rev-interviewer'],
-  'caregiverConsent.consentProvided': ['caregiverConsent', 'q-consent'],
-  'caregiverConsent': ['caregiverConsent', 'q-consent'],
-  'demographics.artNumber': ['artNumber', 'q-demographics'],
-  'demographics.childName': ['childName', 'q-demographics'],
-  'demographics.dob': ['dob', 'q-demographics'],
-  'demographics.district': ['district', 'q-demographics'],
-  'demographics.caregiverName': ['caregiverName', 'q-demographics'],
-  'health.weightKg': ['weightKg', 'q-health'],
-  'health.heightCm': ['heightCm', 'q-health'],
-  'finalReview.allInfoCorrect': ['allInfoCorrect', 'q-final-review'],
-  'finalReview': ['q-final-review'],
-};
-
 // ── Public helpers ────────────────────────────────────────────────────────────
 
 /**
- * Convert the first Zod issue on a payload into a safe, user-facing message.
+ * Convert a Zod issue on a payload into a safe, user-facing message.
  * Never includes field values or PII.
  */
 export function toWorkerSafeValidationMessage(issue: ZodIssue): string {
@@ -88,68 +86,71 @@ export function toWorkerSafeValidationMessage(issue: ZodIssue): string {
   const leaf = issue.path[issue.path.length - 1];
   if (leaf && PATH_MESSAGES[String(leaf)]) return PATH_MESSAGES[String(leaf)];
 
-  return 'Please review the highlighted field before submitting.';
+  // Registry metadata lookup
+  const meta = getFieldMetadata(issue.path);
+  if (issue.message && !issue.message.startsWith('Required') && !issue.message.startsWith('Invalid')) {
+    return issue.message;
+  }
+  return meta.defaultMessage || 'Some information needs review in this section.';
 }
 
 /**
  * Scroll to and focus the DOM element most appropriate for the given Zod path.
- * Safe to call in environments where the element may not exist.
+ * Uses exact field navigation and section element fallback; never window.scrollTo(0, 0).
  */
 export function focusFieldForValidationPath(path: (string | number)[]): void {
   if (typeof document === 'undefined') return;
 
-  const dotPath = path.join('.');
+  const meta = getFieldMetadata(path);
+  const error: FormValidationError = {
+    path: path.map(String),
+    fieldKey: meta.elementId,
+    sectionKey: meta.sectionKey,
+    message: meta.defaultMessage || 'Please review this field.',
+    label: meta.label,
+    elementId: meta.elementId,
+  };
 
-  // Try known element IDs first
-  const candidates = PATH_ELEMENT_IDS[dotPath] || [];
-
-  // Also try the leaf key
-  const leaf = path[path.length - 1];
-  if (leaf) candidates.push(...(PATH_ELEMENT_IDS[String(leaf)] || []));
-
-  // Add the leaf itself as a last-resort ID
-  if (leaf) candidates.push(String(leaf));
-
-  for (const id of candidates) {
-    const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      (el as HTMLElement).focus?.();
-      return;
-    }
-  }
-
-  // Final fallback: scroll to page top
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  navigateToValidationError(error);
 }
 
 /**
  * Run completeSubmissionSchema.safeParse, and if validation fails:
- *  - resolve the first issue into a safe user message;
- *  - focus the corresponding field;
- *  - call setError with the message;
- *  - call setSubmitting(false).
+ *  - normalizes issues into FormValidationError[];
+ *  - generates the count message "Please correct N field(s) before submitting.";
+ *  - navigates to the first error's exact field;
+ *  - calls setError with the count message;
+ *  - calls setSubmitting(false).
  *
- * Returns true when validation PASSED (caller may proceed to enqueue).
- * Returns false when validation FAILED (caller must stop immediately).
+ * Returns normalized errors list.
  */
 export function handleSchemaValidationFailure(params: {
   issues: ZodIssue[];
   setError: (msg: string) => void;
   setSubmitting: (val: false) => void;
-}): void {
-  const { issues, setError, setSubmitting } = params;
-  const first = issues[0];
-  const message = first
-    ? toWorkerSafeValidationMessage(first)
-    : 'Please review the highlighted field before submitting.';
+  customErrors?: FormValidationError[];
+  onErrorsNormalized?: (errors: FormValidationError[]) => void;
+}): FormValidationError[] {
+  const { issues, setError, setSubmitting, customErrors, onErrorsNormalized } = params;
+
+  const normalized = normalizeValidationErrors({
+    zodIssues: issues,
+    customErrors,
+  });
+
+  const count = normalized.length;
+  const message = `Please correct ${count} ${count === 1 ? 'field' : 'fields'} before submitting.`;
 
   setSubmitting(false);
   setError(message);
 
-  if (first) {
-    focusFieldForValidationPath(first.path);
-  } else {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (onErrorsNormalized) {
+    onErrorsNormalized(normalized);
   }
+
+  if (normalized.length > 0) {
+    navigateToValidationError(normalized[0]);
+  }
+
+  return normalized;
 }

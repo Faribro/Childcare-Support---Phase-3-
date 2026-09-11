@@ -19,6 +19,12 @@ import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
+import {
+  type FormValidationError,
+  normalizeValidationErrors,
+  navigateToValidationError,
+  normalizeNativeValidationError,
+} from '@/lib/validations/formValidationRegistry';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
@@ -82,6 +88,35 @@ export default function NewSinglePageAssessment() {
   const [formError, setFormError] = useState<string | null>(null);
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+
+  const errorsByField = useMemo(
+    () => Object.fromEntries(validationErrors.map((e) => [e.elementId, e])),
+    [validationErrors]
+  );
+
+  const errorsBySection = useMemo(() => {
+    const map: Record<string, FormValidationError[]> = {};
+    for (const e of validationErrors) {
+      (map[e.sectionKey] = map[e.sectionKey] || []).push(e);
+    }
+    return map;
+  }, [validationErrors]);
+
+  const handleNativeInvalidCapture = (e: React.FormEvent<HTMLElement>) => {
+    e.preventDefault();
+    const target = e.target as HTMLElement;
+    if (target) {
+      const nativeErr = normalizeNativeValidationError(target);
+      setValidationErrors((prev) => {
+        const next = normalizeValidationErrors({
+          customErrors: [...prev, nativeErr],
+        });
+        navigateToValidationError(next[0]);
+        return next;
+      });
+    }
+  };
 
   const getHighlightClass = (id: string) =>
     activeReadingId === id
@@ -203,7 +238,7 @@ export default function NewSinglePageAssessment() {
   useEffect(() => {
     const uuid = crypto.randomUUID();
     setClientUuid(uuid);
-    const refId = generateAssessmentId(formData.state || 'MH', formData.district || 'Pune');
+    const refId = generateAssessmentId('Maharashtra', 'Pune');
     setFormData((prev) => ({ ...prev, artNumber: refId, koboId: refId }));
   }, []);
 
@@ -451,35 +486,6 @@ export default function NewSinglePageAssessment() {
     hasSavedSignature,
   ]);
 
-  // Validation Check before queueing submission
-  const validateForm = (): string | null => {
-    if (!formData.childName.trim() || formData.childName.trim().length < 2) {
-      return "Please enter the child's full name (at least 2 characters).";
-    }
-    if (!formData.dob) {
-      return "Please enter the child's date of birth.";
-    }
-    if (!formData.caregiverName.trim() || formData.caregiverName.trim().length < 2) {
-      return "Please enter the caregiver's full name.";
-    }
-    if (formData.contactNumber.trim().length !== 10) {
-      return 'Please enter a valid 10-digit contact number.';
-    }
-    if (!formData.agreeToParticipate) {
-      return 'Consent was not granted. The form cannot be submitted without caregiver consent.';
-    }
-    if (!hasSavedSignature) {
-      return 'Caregiver signature is mandatory. Please have the caregiver draw and save their signature in Section 1.';
-    }
-    if (!formData.allInfoCorrect) {
-      return 'Please verify that all information is correct and complete in the final review section.';
-    }
-    if (!formData.formSubmittedBy || formData.formSubmittedBy.trim().length < 2) {
-      return 'Please enter your name using at least 2 characters.';
-    }
-    return null;
-  };
-
   const handleManualSaveDraft = async () => {
     setSaveStatus('saving');
     try {
@@ -490,26 +496,13 @@ export default function NewSinglePageAssessment() {
     }
   };
 
+  // Validation & Submission Engine
   const handleSubmit = async () => {
-    const err = validateForm();
-    if (err) {
-      setFormError(err);
-      if (err.includes('name using at least 2 characters')) {
-        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          (el as HTMLElement).focus?.();
-          return;
-        }
-      }
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
     setFormError(null);
     setIsSubmitting(true);
 
     try {
-      // Convert locally stored signature blob to base64 Data URL for Google Drive upload
+      // Convert locally stored signature blob to base64 Data URL
       let signatureDataUrl: string | undefined = undefined;
       try {
         const storedSig = await getCaregiverSignatureBlob(clientUuid);
@@ -525,16 +518,6 @@ export default function NewSinglePageAssessment() {
       }
 
       const trimmedInterviewer = (formData.formSubmittedBy || '').trim();
-      if (trimmedInterviewer.length < 2) {
-        setFormError('Please enter your name using at least 2 characters.');
-        setIsSubmitting(false);
-        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          (el as HTMLElement).focus?.();
-        }
-        return;
-      }
 
       const finalRecord: AssessmentRecord = {
         uuid: clientUuid,
@@ -552,27 +535,27 @@ export default function NewSinglePageAssessment() {
           dob: formData.dob,
           calculatedAgeYears: ageResult.years,
           calculatedAgeMonths: ageResult.months,
-          gender: formData.gender || 'Male',
-          orphanStatus: formData.orphanStatus || 'Both parents alive',
+          gender: formData.gender || ('' as any),
+          orphanStatus: formData.orphanStatus || ('' as any),
           caregiverName: formData.caregiverName,
-          caregiverRelationship: formData.caregiverRelationship || 'Mother',
+          caregiverRelationship: formData.caregiverRelationship || ('' as any),
           contactNumber: formData.contactNumber ? formData.contactNumber.replace(/\s+/g, '') : '',
           caregiverPhone: formData.contactNumber ? formData.contactNumber.replace(/\s+/g, '') : '',
           fullAddress: formData.fullAddress,
-          state: formData.state || 'Maharashtra',
+          state: formData.state,
           district: formData.district,
           childAadhaarNumber: formData.childAadhaarNumber,
         },
         consent: {
-          agreeToParticipate: formData.agreeToParticipate ?? true,
+          agreeToParticipate: formData.agreeToParticipate === true,
           signatureDataUrl: signatureDataUrl,
           signatureTimestamp: new Date().toISOString(),
         },
         caregiverConsent: {
-          consentProvided: formData.agreeToParticipate ?? true,
+          consentProvided: formData.agreeToParticipate === true,
           consentVersion: 'v1.0-2026',
-          caregiverName: formData.caregiverName || 'Caregiver',
-          caregiverRelationship: formData.caregiverRelationship || 'Mother',
+          caregiverName: formData.caregiverName || '',
+          caregiverRelationship: formData.caregiverRelationship || '',
           consentCapturedAt: new Date().toISOString(),
           signatureRequired: true,
           signatureStatus: (hasSavedSignature || !!signatureDataUrl) ? 'CAPTURED_LOCAL' : 'PENDING',
@@ -592,7 +575,7 @@ export default function NewSinglePageAssessment() {
           totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
           numberOfChildrenUnder18: Number(formData.numberOfChildrenUnder18) || 0,
           monthlyIncomeRs: Number(formData.monthlyIncomeRs) || 0,
-          mainSourceOfIncome: formData.mainSourceOfIncome || 'Daily wage labour',
+          mainSourceOfIncome: formData.mainSourceOfIncome || ('' as any),
         },
         health: {
           weightKg: Number(formData.weightKg) || 0,
@@ -613,11 +596,11 @@ export default function NewSinglePageAssessment() {
           nutritionStatus: nutritionResult.nutritionStatus,
         },
         nutrition: {
-          appetite: formData.appetite || 'Good',
+          appetite: formData.appetite,
           mealsPerDay: Number(formData.mealsPerDay) || 3,
         },
         educationStatus: {
-          educationStatus: formData.educationStatus || 'Currently going to school',
+          educationStatus: formData.educationStatus,
           educationStatusSpecify: formData.educationStatusSpecify,
           schoolName: formData.schoolName,
           schoolSessionStartDate: formData.schoolSessionStartDate,
@@ -648,31 +631,92 @@ export default function NewSinglePageAssessment() {
           totalRequiredSupport: totalRequiredSupport,
         },
         finalReview: {
-          allInfoCorrect: formData.allInfoCorrect ?? true,
+          allInfoCorrect: formData.allInfoCorrect === true,
           organizationName: formData.organizationName || 'India HIV/AIDS Alliance',
           formSubmittedBy: trimmedInterviewer,
           organizationEmail: formData.organizationEmail || '',
           approvedAllianceIndia: formData.approvedAllianceIndia,
-          reviewConfirmed: formData.allInfoCorrect ?? true,
+          reviewConfirmed: formData.allInfoCorrect === true,
         },
         approvedAllianceIndia: formData.approvedAllianceIndia,
-        reviewConfirmed: formData.allInfoCorrect ?? true,
+        reviewConfirmed: formData.allInfoCorrect === true,
         syncNeeded: 'NO',
         syncStatus: 'queued',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
-      const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
-      if (!schemaValidation.success) {
-        // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
-        handleSchemaValidationFailure({
-          issues: schemaValidation.error.issues,
-          setError: setFormError,
-          setSubmitting: (v) => setIsSubmitting(v),
+      // Custom business validations
+      const customErrors: FormValidationError[] = [];
+
+      if (formData.agreeToParticipate !== true) {
+        customErrors.push({
+          path: ['caregiverConsent', 'consentProvided'],
+          fieldKey: 'caregiverConsent.consentProvided',
+          sectionKey: 'consent',
+          message: 'Caregiver consent must be confirmed before this assessment can be submitted.',
+          label: 'Caregiver consent',
+          elementId: 'caregiver-consent',
         });
+      }
+
+      if (!hasSavedSignature && !signatureDataUrl) {
+        customErrors.push({
+          path: ['caregiverConsent', 'signature'],
+          fieldKey: 'caregiverConsent.signature',
+          sectionKey: 'consent',
+          message: 'Please save the caregiver signature before submitting.',
+          label: 'Caregiver signature',
+          elementId: 'caregiver-signature',
+        });
+      }
+
+      if (!trimmedInterviewer || trimmedInterviewer.length < 2) {
+        customErrors.push({
+          path: ['finalReview', 'formSubmittedBy'],
+          fieldKey: 'finalReview.formSubmittedBy',
+          sectionKey: 'review',
+          message: 'Please enter your name using at least 2 characters.',
+          label: 'Interviewer / Caseworker name',
+          elementId: 'formSubmittedBy',
+        });
+      }
+
+      if (formData.allInfoCorrect !== true) {
+        customErrors.push({
+          path: ['finalReview', 'allInfoCorrect'],
+          fieldKey: 'finalReview.allInfoCorrect',
+          sectionKey: 'review',
+          message: 'You must confirm that all information is correct before submitting.',
+          label: 'Confirmation of information correctness',
+          elementId: 'review-allInfoCorrect',
+        });
+      }
+
+      const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
+      const isInvalid = !schemaValidation.success || customErrors.length > 0;
+
+      if (isInvalid) {
+        const normalized = normalizeValidationErrors({
+          zodIssues: schemaValidation.success ? [] : schemaValidation.error.issues,
+          customErrors,
+        });
+
+        setValidationErrors(normalized);
+        const count = normalized.length;
+        const countMessage = `Please correct ${count} ${count === 1 ? 'field' : 'fields'} before submitting.`;
+        setFormError(countMessage);
+        setIsSubmitting(false);
+
+        if (normalized.length > 0) {
+          navigateToValidationError(normalized[0]);
+        }
         return;
       }
+
+      // Valid: clear previous errors
+      setValidationErrors([]);
+      setFormError(null);
 
       await enqueueCreate({
         clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
@@ -922,7 +966,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 2: Child Demographics & Residence */}
         <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
-          <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" />
+          <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" errorCount={errorsBySection['demographics']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* System Generated Unique ID Display: Unique ID directly in place of NACO REGISTRY */}
@@ -967,7 +1011,12 @@ export default function NewSinglePageAssessment() {
               />
             </div>
 
-            <div id="q-child-gender" className={`space-y-1.5 ${getHighlightClass('q-child-gender')}`}>
+            <div id="demographics-gender" tabIndex={-1} className={`space-y-1.5 p-2 rounded-xl ${errorsByField['demographics-gender'] ? 'bg-rose-50/50 border border-rose-400' : ''} ${getHighlightClass('q-child-gender')}`}>
+              {errorsByField['demographics-gender'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['demographics-gender'].message}
+                </p>
+              )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('gender', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
@@ -1100,7 +1149,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 3: Banking & Identification (KYC) Details */}
         <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
-          <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" />
+          <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" errorCount={errorsBySection['banking']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-bank-holder" className={`sm:col-span-2 ${getHighlightClass('q-bank-holder')}`}>
@@ -1170,7 +1219,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 4: Household & Financial Details */}
         <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
-          <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" />
+          <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-hh-members" className={getHighlightClass('q-hh-members')}>
@@ -1255,7 +1304,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
         <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
-          <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
+          <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" errorCount={errorsBySection['health']?.length || 0} />
 
           <div className="space-y-4">
             {/* Sub-Card 1: Growth & Measurements */}
@@ -1626,7 +1675,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 6: Nutrition Habits */}
         <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
-          <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" />
+          <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" errorCount={errorsBySection['nutrition']?.length || 0} />
 
           <div className="pt-1">
             <AnimatedAppetiteSelector
@@ -1647,10 +1696,15 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 7: Education Status */}
         <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
-          <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" />
+          <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" errorCount={errorsBySection['education']?.length || 0} />
 
           <div className="space-y-4">
-            <div id="q-edu-status" className={`space-y-1.5 ${getHighlightClass('q-edu-status')}`}>
+            <div id="education-educationStatus" tabIndex={-1} className={`space-y-1.5 p-2 rounded-xl ${errorsByField['education-educationStatus'] ? 'bg-rose-50/50 border border-rose-400' : ''} ${getHighlightClass('q-edu-status')}`}>
+              {errorsByField['education-educationStatus'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['education-educationStatus'].message}
+                </p>
+              )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('edu_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
@@ -1774,7 +1828,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 8: Expenses & Programme Support */}
         <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
-          <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" />
+          <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" errorCount={errorsBySection['expenses']?.length || 0} />
 
           <ExpensesAndApprovalGrid
             currentExpenses={{
@@ -1813,7 +1867,7 @@ export default function NewSinglePageAssessment() {
         {/* SECTION 9: Programme Approval & Final Review */}
         <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
-          <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" />
+          <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" errorCount={errorsBySection['review']?.length || 0} />
 
           <div className="space-y-4">
             {/* Caseworker Attestation & Verification Confirmation */}

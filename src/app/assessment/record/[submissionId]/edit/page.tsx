@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -22,6 +22,12 @@ import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob, saveCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
+import {
+  type FormValidationError,
+  normalizeValidationErrors,
+  navigateToValidationError,
+  normalizeNativeValidationError,
+} from '@/lib/validations/formValidationRegistry';
 import {
   calculateAge,
   calculateBMI,
@@ -77,6 +83,35 @@ export default function EditRecordPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+
+  const errorsByField = useMemo(
+    () => Object.fromEntries(validationErrors.map((e) => [e.elementId, e])),
+    [validationErrors]
+  );
+
+  const errorsBySection = useMemo(() => {
+    const map: Record<string, FormValidationError[]> = {};
+    for (const e of validationErrors) {
+      (map[e.sectionKey] = map[e.sectionKey] || []).push(e);
+    }
+    return map;
+  }, [validationErrors]);
+
+  const handleNativeInvalidCapture = (e: React.FormEvent<HTMLElement>) => {
+    e.preventDefault();
+    const target = e.target as HTMLElement;
+    if (target) {
+      const nativeErr = normalizeNativeValidationError(target);
+      setValidationErrors((prev) => {
+        const next = normalizeValidationErrors({
+          customErrors: [...prev, nativeErr],
+        });
+        navigateToValidationError(next[0]);
+        return next;
+      });
+    }
+  };
   const [conflictError, setConflictError] = useState<any>(null);
   const [currentVersion, setCurrentVersion] = useState<number>(1);
   const [confirmedRemoteSubmissionId, setConfirmedRemoteSubmissionId] = useState<string | undefined>(undefined);
@@ -184,7 +219,7 @@ export default function EditRecordPage() {
     organizationEmail: 'fieldworker@allianceindia.org',
   });
 
-  const loadRecord = async () => {
+  const loadRecord = useCallback(async () => {
     setIsLoading(true);
     setConflictError(null);
     try {
@@ -660,11 +695,11 @@ export default function EditRecordPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [submissionId]);
 
   useEffect(() => {
     loadRecord();
-  }, [submissionId]);
+  }, [loadRecord]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -1310,7 +1345,7 @@ export default function EditRecordPage() {
         )}
 
         {/* Complete 9-Section Comprehensive Intake Edit Form matching New Assessment */}
-        <form onSubmit={handleSaveRevision} className="space-y-6">
+        <form noValidate onSubmit={handleSaveRevision} onInvalidCapture={handleNativeInvalidCapture} className="space-y-6">
           {/* Unified Single Survey Entity Container (Zero Gaps) */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm divide-y divide-slate-100 overflow-hidden">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
@@ -1336,11 +1371,25 @@ export default function EditRecordPage() {
 
             <div className="space-y-4">
               {/* Consent Decision Radio Buttons */}
-              <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2">
+              <div
+                id="caregiver-consent"
+                role="radiogroup"
+                aria-invalid={!!errorsByField['caregiver-consent']}
+                tabIndex={-1}
+                className={`p-3.5 rounded-xl border space-y-2 ${
+                  errorsByField['caregiver-consent']
+                    ? 'border-rose-400 bg-rose-50/50 ring-2 ring-rose-300'
+                    : 'bg-slate-50/70 border-slate-200/80'
+                }`}
+              >
+                {errorsByField['caregiver-consent'] && (
+                  <p id="caregiver-consent-error" role="alert" className="text-xs font-semibold text-rose-600">
+                    {errorsByField['caregiver-consent'].message}
+                  </p>
+                )}
                 <label className="text-xs font-bold text-slate-900 block">
                   DO YOU AGREE TO PARTICIPATE IN THIS SURVEY? (INFORMED CONSENT) *
                 </label>
-                
 
                 <div className="flex items-center space-x-3 pt-1">
                   <label
@@ -1355,6 +1404,7 @@ export default function EditRecordPage() {
                       name="agreeToParticipate"
                       checked={formData.agreeToParticipate === true}
                       onChange={() => setFormData({ ...formData, agreeToParticipate: true })}
+                      aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                       className="text-teal-600 focus:ring-teal-500"
                     />
                     <span className="text-xs">Yes — Consent Granted</span>
@@ -1372,6 +1422,7 @@ export default function EditRecordPage() {
                       name="agreeToParticipate"
                       checked={formData.agreeToParticipate === false}
                       onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
+                      aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                       className="text-rose-600 focus:ring-rose-500"
                     />
                     <span className="text-xs">No — Consent Refused</span>
@@ -1426,7 +1477,18 @@ export default function EditRecordPage() {
 
               {/* Signature Pad */}
               {formData.agreeToParticipate ? (
-                <div className="pt-1">
+                <div
+                  id="caregiver-signature"
+                  tabIndex={-1}
+                  className={`pt-1 ${
+                    errorsByField['caregiver-signature'] ? 'border border-rose-400 bg-rose-50/50 ring-2 ring-rose-300 p-2 rounded-xl' : ''
+                  }`}
+                >
+                  {errorsByField['caregiver-signature'] && (
+                    <p id="caregiver-signature-error" role="alert" className="text-xs font-semibold text-rose-600 pb-1">
+                      {errorsByField['caregiver-signature'].message}
+                    </p>
+                  )}
                   <CaregiverSignaturePad
                     submissionUuid={submissionId}
                     fallbackUuid={fallbackSigUuid || submissionId}
@@ -1508,6 +1570,8 @@ export default function EditRecordPage() {
               />
 
               <Input
+                id="demographics-childName"
+                error={errorsByField['demographics-childName']?.message}
                 label="Child's Full Name *"
                 required
                 value={formData.childName}
@@ -1517,6 +1581,8 @@ export default function EditRecordPage() {
               />
 
               <Input
+                id="demographics-dob"
+                error={errorsByField['demographics-dob']?.message}
                 label="Date of Birth *"
                 type="date"
                 required
@@ -1691,18 +1757,22 @@ export default function EditRecordPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
               <PhotoUpload
+                id="banking-passbookPhotoUrl"
+                error={errorsByField['banking-passbookPhotoUrl']?.message}
                 label="PASSBOOK FRONT PAGE PHOTO"
-                
                 value={formData.passbookPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
               />
               <PhotoUpload
+                id="banking-aadhaarCardPhotoUrl"
+                error={errorsByField['banking-aadhaarCardPhotoUrl']?.message}
                 label="AADHAAR CARD PHOTO"
-                
                 value={formData.aadhaarCardPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
               />
               <PhotoUpload
+                id="banking-childPhotoUrl"
+                error={errorsByField['banking-childPhotoUrl']?.message}
                 label="PASSPORT SIZE / BENEFICIARY PHOTO"
                 helperText="Recent photograph of child beneficiary"
                 value={formData.childPhotoUrl}
@@ -2340,7 +2410,22 @@ export default function EditRecordPage() {
             </div>
 
             {/* Verification & Review Confirmation Card */}
-            <div className="p-4 rounded-xl border border-teal-200 bg-teal-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div
+              id="review-allInfoCorrect"
+              role="radiogroup"
+              aria-invalid={!!errorsByField['review-allInfoCorrect']}
+              tabIndex={-1}
+              className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                errorsByField['review-allInfoCorrect']
+                  ? 'border-rose-400 bg-rose-50/70 ring-2 ring-rose-300'
+                  : 'border-teal-200 bg-teal-50/60'
+              }`}
+            >
+              {errorsByField['review-allInfoCorrect'] && (
+                <p id="review-allInfoCorrect-error" role="alert" className="text-xs font-semibold text-rose-600 w-full pb-1">
+                  {errorsByField['review-allInfoCorrect'].message}
+                </p>
+              )}
               <div>
                 <h4 className="text-xs font-bold text-teal-950 uppercase tracking-wide">
                   Caseworker Verification &amp; Accuracy Attestation *
@@ -2363,6 +2448,7 @@ export default function EditRecordPage() {
                     name="allInfoCorrect"
                     checked={formData.allInfoCorrect}
                     onChange={() => setFormData({ ...formData, allInfoCorrect: true })}
+                    aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500"
                   />
                   <span>Yes — Verified</span>
@@ -2379,6 +2465,7 @@ export default function EditRecordPage() {
                     name="allInfoCorrect"
                     checked={!formData.allInfoCorrect}
                     onChange={() => setFormData({ ...formData, allInfoCorrect: false })}
+                    aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     className="accent-rose-600 text-rose-600 focus:ring-rose-500"
                   />
                   <span>No — Needs Review</span>
@@ -2390,8 +2477,9 @@ export default function EditRecordPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
               <div id="q-rev-interviewer">
                 <Input
-                  id="formSubmittedBy"
+                  id="review-formSubmittedBy"
                   name="formSubmittedBy"
+                  error={errorsByField['review-formSubmittedBy']?.message || errorsByField['formSubmittedBy']?.message}
                   label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
                   required
                   value={formData.formSubmittedBy}

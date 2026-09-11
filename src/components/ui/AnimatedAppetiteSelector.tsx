@@ -17,6 +17,8 @@ interface AnimatedAppetiteSelectorProps {
   };
   highlightAppetiteClass?: string;
   highlightMealsClass?: string;
+  errorAppetite?: string;
+  errorMeals?: string;
 }
 
 export function AnimatedAppetiteSelector({
@@ -27,6 +29,8 @@ export function AnimatedAppetiteSelector({
   labels,
   highlightAppetiteClass = '',
   highlightMealsClass = '',
+  errorAppetite,
+  errorMeals,
 }: AnimatedAppetiteSelectorProps) {
   const numMeals = Number(mealsPerDay) || 0;
 
@@ -133,11 +137,13 @@ export function AnimatedAppetiteSelector({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         {/* Meals Per Day Input Box with Quick Stepper Buttons */}
         <div
-          id="q-nut-meals"
-          className={`lg:col-span-4 p-4 rounded-2xl border border-lime-200 bg-white shadow-2xs space-y-3 ${highlightMealsClass}`}
+          id="nutrition-mealsPerDay"
+          className={`lg:col-span-4 p-4 rounded-2xl border ${
+            errorMeals ? 'border-rose-400 bg-rose-50/50' : 'border-lime-200 bg-white'
+          } shadow-2xs space-y-3 ${highlightMealsClass}`}
         >
           <div className="flex items-center justify-between">
-            <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-700 block">
+            <label htmlFor="input-nutrition-meals" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-700 block">
               {labels?.mealsTitle || 'Meals Per Day'} <span className="text-rose-500 ml-0.5">*</span>
             </label>
             <span className="text-[10px] font-bold text-lime-700 bg-lime-100 px-2 py-0.5 rounded-full">
@@ -155,14 +161,19 @@ export function AnimatedAppetiteSelector({
               −
             </button>
             <input
+              id="input-nutrition-meals"
               type="number"
               min="0"
               max="10"
               required
+              aria-invalid={errorMeals ? 'true' : 'false'}
+              aria-describedby={errorMeals ? 'nutrition-mealsPerDay-error' : undefined}
               value={mealsPerDay ? mealsPerDay : ''}
               onChange={(e) => handleMealsInput(e.target.value)}
               placeholder="e.g. 3"
-              className="w-full h-10 px-3 text-center text-lg font-black text-slate-900 bg-slate-50 border border-slate-300 focus:border-lime-500 focus:ring-2 focus:ring-lime-400/30 rounded-xl transition-all outline-none"
+              className={`w-full h-10 px-3 text-center text-lg font-black text-slate-900 bg-slate-50 border ${
+                errorMeals ? 'border-rose-400' : 'border-slate-300'
+              } focus:border-lime-500 focus:ring-2 focus:ring-lime-400/30 rounded-xl transition-all outline-none`}
             />
             <button
               type="button"
@@ -173,6 +184,12 @@ export function AnimatedAppetiteSelector({
               +
             </button>
           </div>
+
+          {errorMeals && (
+            <p id="nutrition-mealsPerDay-error" role="alert" className="text-xs font-semibold text-rose-600">
+              {errorMeals}
+            </p>
+          )}
 
           {/* Quick preset buttons */}
           <div className="flex items-center justify-between pt-1">
@@ -198,8 +215,13 @@ export function AnimatedAppetiteSelector({
 
         {/* Child's Appetite Radio Cards with Animated Emojis */}
         <div
-          id="q-nut-appetite"
-          className={`lg:col-span-8 space-y-2 ${highlightAppetiteClass}`}
+          id="nutrition-appetite"
+          tabIndex={-1}
+          aria-invalid={errorAppetite ? 'true' : 'false'}
+          aria-describedby={errorAppetite ? 'nutrition-appetite-error' : undefined}
+          className={`lg:col-span-8 space-y-2 p-3 rounded-2xl ${
+            errorAppetite ? 'border border-rose-400 bg-rose-50/40' : ''
+          } ${highlightAppetiteClass}`}
         >
           <div className="flex items-center justify-between">
             <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-700 block">
@@ -212,6 +234,12 @@ export function AnimatedAppetiteSelector({
               </span>
             )}
           </div>
+
+          {errorAppetite && (
+            <p id="nutrition-appetite-error" role="alert" className="text-xs font-semibold text-rose-600">
+              {errorAppetite}
+            </p>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {APPETITE_OPTIONS.map((opt) => {
