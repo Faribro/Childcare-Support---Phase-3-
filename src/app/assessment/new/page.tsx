@@ -17,6 +17,8 @@ import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelect
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
@@ -309,7 +311,7 @@ export default function NewSinglePageAssessment() {
           uuid: clientUuid,
           clientSubmissionId: clientUuid,
           koboId: formData.koboId || formData.artNumber,
-          interviewerName: formData.formSubmittedBy || 'Caseworker',
+          interviewerName: formData.formSubmittedBy?.trim() || 'Caseworker',
           stepIndex: 1, // Single-page form
           demographics: {
             artNumber: formData.artNumber,
@@ -472,6 +474,9 @@ export default function NewSinglePageAssessment() {
     if (!formData.allInfoCorrect) {
       return 'Please verify that all information is correct and complete in the final review section.';
     }
+    if (!formData.formSubmittedBy || formData.formSubmittedBy.trim().length < 2) {
+      return 'Please enter your name using at least 2 characters.';
+    }
     return null;
   };
 
@@ -489,6 +494,14 @@ export default function NewSinglePageAssessment() {
     const err = validateForm();
     if (err) {
       setFormError(err);
+      if (err.includes('name using at least 2 characters')) {
+        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (el as HTMLElement).focus?.();
+          return;
+        }
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -511,13 +524,25 @@ export default function NewSinglePageAssessment() {
         console.warn('Could not extract signature blob to DataURL:', sigErr);
       }
 
+      const trimmedInterviewer = (formData.formSubmittedBy || '').trim();
+      if (trimmedInterviewer.length < 2) {
+        setFormError('Please enter your name using at least 2 characters.');
+        setIsSubmitting(false);
+        const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (el as HTMLElement).focus?.();
+        }
+        return;
+      }
+
       const finalRecord: AssessmentRecord = {
         uuid: clientUuid,
         clientSubmissionId: clientUuid,
         uniqueId: formData.artNumber,
         version: 1,
         koboId: formData.koboId || formData.artNumber,
-        interviewerName: formData.formSubmittedBy || 'Caseworker',
+        interviewerName: trimmedInterviewer,
         stepIndex: 1,
         signatureDataUrl: signatureDataUrl,
         demographics: {
@@ -625,7 +650,7 @@ export default function NewSinglePageAssessment() {
         finalReview: {
           allInfoCorrect: formData.allInfoCorrect ?? true,
           organizationName: formData.organizationName || 'India HIV/AIDS Alliance',
-          formSubmittedBy: formData.formSubmittedBy || 'Caseworker',
+          formSubmittedBy: trimmedInterviewer,
           organizationEmail: formData.organizationEmail || '',
           approvedAllianceIndia: formData.approvedAllianceIndia,
           reviewConfirmed: formData.allInfoCorrect ?? true,
@@ -637,6 +662,17 @@ export default function NewSinglePageAssessment() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+
+      const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
+      if (!schemaValidation.success) {
+        // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
+        handleSchemaValidationFailure({
+          issues: schemaValidation.error.issues,
+          setError: setFormError,
+          setSubmitting: (v) => setIsSubmitting(v),
+        });
+        return;
+      }
 
       await enqueueCreate({
         clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
@@ -1842,6 +1878,8 @@ export default function NewSinglePageAssessment() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-rev-interviewer" className={getHighlightClass('q-rev-interviewer')}>
                 <Input
+                  id="formSubmittedBy"
+                  name="formSubmittedBy"
                   label={t('interviewer_name', currentLanguage)}
                   required
                   value={formData.formSubmittedBy}

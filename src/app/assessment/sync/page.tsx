@@ -48,6 +48,7 @@ export interface UnifiedAssessmentItem {
   sheetRow?: number | string;
   lastError?: string;
   retryCount?: number;
+  validationIssuePaths?: string[];
   rawRecord: any;
   isOutbox: boolean;
 }
@@ -466,7 +467,11 @@ function SyncCentreContent() {
   };
 
   const handleEditSubmission = (item: UnifiedAssessmentItem) => {
-    router.push(`/assessment/record/${encodeURIComponent(item.id)}/edit`);
+    const isInterviewerNameIssue =
+      item.validationIssuePaths?.includes('interviewerName') ||
+      Boolean(item.lastError?.includes('interviewerName'));
+    const targetUrl = `/assessment/record/${encodeURIComponent(item.id)}/edit${isInterviewerNameIssue ? '?focus=interviewerName' : ''}`;
+    router.push(targetUrl);
   };
 
   const handleCopyId = async (id: string) => {
@@ -628,6 +633,7 @@ function SyncCentreContent() {
             editReason: editReason || existing.editReason,
             lastError: qItem.errorMessage || undefined,
             retryCount: qItem.retryCount,
+            validationIssuePaths: qItem.validationIssuePaths,
             rawRecord: payload,
             isOutbox,
           });
@@ -653,6 +659,7 @@ function SyncCentreContent() {
           editReason,
           lastError: qItem.errorMessage || undefined,
           retryCount: qItem.retryCount,
+          validationIssuePaths: qItem.validationIssuePaths,
           rawRecord: payload,
           isOutbox,
         });
@@ -823,6 +830,13 @@ function SyncCentreContent() {
                     {item.lastError}
                   </p>
                 )}
+                {(item.status === 'failed_final' || item.status === 'needs_review' || item.status === 'conflict') && (
+                  <p className="text-xs text-rose-800 bg-rose-50/80 border border-rose-200 rounded-lg px-2.5 py-1.5 mt-1 font-medium">
+                    {item.validationIssuePaths?.includes('interviewerName') || item.lastError?.includes('interviewerName')
+                      ? 'Please enter your name using at least 2 characters.'
+                      : (item.lastError || 'Validation error. Please correct this assessment.')}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -890,17 +904,22 @@ function SyncCentreContent() {
                 </button>
               )}
 
-              {(item.status === 'failed_final' || item.status === 'needs_review' || item.status === 'conflict') && (
-                <button
-                  type="button"
-                  onClick={() => handleEditSubmission(item)}
-                  aria-label="Open and correct this record"
-                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
-                >
-                  <AlertCircle className="w-3 h-3" />
-                  Open and correct
-                </button>
-              )}
+              {(item.status === 'failed_final' || item.status === 'needs_review' || item.status === 'conflict') && (() => {
+                const isInterviewerNameIssue =
+                  item.validationIssuePaths?.includes('interviewerName') ||
+                  Boolean(item.lastError?.includes('interviewerName'));
+                return (
+                  <button
+                    type="button"
+                    onClick={() => handleEditSubmission(item)}
+                    aria-label={isInterviewerNameIssue ? 'Edit assessment' : 'Open and correct this record'}
+                    className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    {isInterviewerNameIssue ? 'Edit assessment' : 'Open and correct'}
+                  </button>
+                );
+              })()}
 
               {item.status === 'failed_retryable' && Boolean(item.lastError?.toLowerCase().includes('session expired') || item.lastError?.toLowerCase().includes('sign in again')) && (
                 <button

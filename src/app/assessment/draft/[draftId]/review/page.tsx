@@ -10,8 +10,10 @@ import { getDraftByAnyId } from '@/lib/db/draftRepository';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
-import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import {
   calculateAge,
   calculateBMI,
@@ -132,6 +134,13 @@ export default function DraftReviewPage() {
       setError('Please confirm the verification attestation before submitting.');
       return;
     }
+
+    const rawInterviewer = (record.finalReview?.formSubmittedBy || (record as any).interviewerName || '').trim();
+    if (rawInterviewer.length < 2) {
+      setError('Please enter your name using at least 2 characters.');
+      return;
+    }
+
     setError(null);
     setIsSubmitting(true);
     try {
@@ -145,10 +154,29 @@ export default function DraftReviewPage() {
         ...record,
         uuid: canonicalUuid,
         clientSubmissionId: canonicalUuid,
+        interviewerName: rawInterviewer,
+        finalReview: {
+          ...(record.finalReview || {}),
+          allInfoCorrect: record.finalReview?.allInfoCorrect ?? true,
+          organizationName: record.finalReview?.organizationName || 'India HIV/AIDS Alliance',
+          formSubmittedBy: rawInterviewer,
+        },
         stepIndex: 6,
         syncStatus: 'queued',
         updatedAt: new Date().toISOString(),
       };
+
+      // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
+      const schemaValidation = completeSubmissionSchema.safeParse(finalPayload);
+      if (!schemaValidation.success) {
+        handleSchemaValidationFailure({
+          issues: schemaValidation.error.issues,
+          setError: (msg) => setError(msg),
+          setSubmitting: (v) => setIsSubmitting(v),
+        });
+        return;
+      }
+
       await enqueueCreate({
         clientSubmissionId: canonicalUuid,
         createIdempotencyKey: `create-${canonicalUuid}`,

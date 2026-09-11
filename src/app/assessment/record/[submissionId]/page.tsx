@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { db } from '@/lib/db/dexieDb';
+import { isValidUuidV4 } from '@/features/submission/submissionTypes';
 
 export default function RecordDetailPage() {
   const params = useParams();
@@ -33,50 +34,13 @@ export default function RecordDetailPage() {
   useEffect(() => {
     async function load() {
       if (!submissionId) return;
+      setIsLoading(true);
+      setError(null);
       try {
-        const res = await fetch(`/api/submissions/${submissionId}`);
-        if (res.ok) {
-          const body = await res.json();
-          setRecord(body.data);
-          return;
-        }
+        // 1. Inspect local IndexedDB first
+        let localRecord: any = null;
+        let confirmedRemoteId: string | undefined = undefined;
 
-        // Fallback to local Dexie IndexedDB for unsynced local records
-        const queueItems = await db.syncQueue.toArray();
-        const localQueue = queueItems.find(
-          (q) =>
-            q.submissionUuid === submissionId ||
-            (q.payload as any)?.uuid === submissionId ||
-            (q.payload as any)?.clientSubmissionId === submissionId ||
-            (q.payload as any)?.uniqueId === submissionId ||
-            (q.payload as any)?.artNumber === submissionId ||
-            (q.payload as any)?.demographics?.artNumber === submissionId
-        );
-
-        if (localQueue?.payload) {
-          setRecord(localQueue.payload);
-          return;
-        }
-
-        const drafts = await db.drafts.toArray();
-        const localDraft = drafts.find(
-          (d: any) =>
-            d.uuid === submissionId ||
-            d.clientSubmissionId === submissionId ||
-            d.demographics?.artNumber === submissionId ||
-            d.artNumber === submissionId ||
-            d.formData?.uuid === submissionId ||
-            d.formData?.demographics?.artNumber === submissionId
-        );
-
-        if (localDraft) {
-          setRecord((localDraft as any).formData || (localDraft as any));
-          return;
-        }
-
-        setError(`Unable to load record (${res.status})`);
-      } catch (err) {
-        // Fallback to local on network failure
         try {
           const queueItems = await db.syncQueue.toArray();
           const localQueue = queueItems.find(
@@ -85,13 +49,91 @@ export default function RecordDetailPage() {
               (q.payload as any)?.uuid === submissionId ||
               (q.payload as any)?.clientSubmissionId === submissionId ||
               (q.payload as any)?.uniqueId === submissionId ||
-              (q.payload as any)?.artNumber === submissionId
+              (q.payload as any)?.artNumber === submissionId ||
+              (q.payload as any)?.demographics?.artNumber === submissionId ||
+              (q.payload as any)?.legacyBusinessReference === submissionId ||
+              String(q.id) === submissionId
           );
+
           if (localQueue?.payload) {
-            setRecord(localQueue.payload);
-            return;
+            localRecord = localQueue.payload;
+            if (isValidUuidV4(localQueue.remoteSubmissionId)) {
+              confirmedRemoteId = localQueue.remoteSubmissionId;
+            } else if (isValidUuidV4((localQueue.payload as any).remoteSubmissionId)) {
+              confirmedRemoteId = (localQueue.payload as any).remoteSubmissionId;
+            }
           }
         } catch (_) {}
+
+        if (!localRecord) {
+          try {
+            const drafts = await db.drafts.toArray();
+            const localDraft = drafts.find(
+              (d: any) =>
+                d.uuid === submissionId ||
+                d.clientSubmissionId === submissionId ||
+                d.demographics?.artNumber === submissionId ||
+                d.artNumber === submissionId ||
+                d.legacyBusinessReference === submissionId ||
+                d.uniqueId === submissionId ||
+                d.formData?.uuid === submissionId ||
+                d.formData?.demographics?.artNumber === submissionId ||
+                String(d.id) === submissionId
+            );
+
+            if (localDraft) {
+              localRecord = (localDraft as any).formData || localDraft;
+              if (isValidUuidV4(localDraft.remoteSubmissionId)) {
+                confirmedRemoteId = localDraft.remoteSubmissionId;
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 2. If a local record matches:
+        if (localRecord) {
+          // If it DOES NOT have a confirmed UUIDv4 remoteSubmissionId:
+          // Render completely from local IndexedDB state with ZERO remote GET calls
+          if (!confirmedRemoteId) {
+            setRecord(localRecord);
+            return;
+          }
+
+          // If it DOES have a confirmed valid UUIDv4 remoteSubmissionId:
+          // We MAY call GET /api/submissions/${confirmedRemoteId} to fetch latest server state
+          try {
+            const res = await fetch(`/api/submissions/${encodeURIComponent(confirmedRemoteId)}`);
+            if (res.ok) {
+              const body = await res.json();
+              if (body.data) {
+                setRecord(body.data);
+                return;
+              }
+            }
+          } catch (_) {}
+
+          // Fallback to local record if remote fetch fails
+          setRecord(localRecord);
+          return;
+        }
+
+        // 3. If no local record matches at all:
+        // Only issue remote GET if submissionId itself is a valid UUIDv4
+        if (isValidUuidV4(submissionId)) {
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+          if (res.ok) {
+            const body = await res.json();
+            if (body.data) {
+              setRecord(body.data);
+              return;
+            }
+          }
+          setError(`Unable to load record (${res.status})`);
+        } else {
+          // submissionId is not a UUIDv4 and not in local DB -> not found
+          setError('Record not found.');
+        }
+      } catch (err) {
         setError('Network error loading submission detail');
       } finally {
         setIsLoading(false);

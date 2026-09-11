@@ -19,6 +19,8 @@ import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents
 import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
+import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import {
   calculateAge,
   calculateBMI,
@@ -182,6 +184,7 @@ export default function EditRecordPage() {
     setConflictError(null);
     try {
       let localRecord: any = null;
+      let queueItem: any = null;
 
       // 1. Check local Dexie sync queue
       try {
@@ -198,6 +201,7 @@ export default function EditRecordPage() {
         );
         if (queued && queued.payload) {
           localRecord = queued.payload;
+          queueItem = queued;
           if (queued.expectedVersion) {
             setCurrentVersion(queued.expectedVersion);
           }
@@ -214,38 +218,42 @@ export default function EditRecordPage() {
               d.clientSubmissionId === submissionId ||
               d.demographics?.artNumber === submissionId ||
               (d as any).artNumber === submissionId ||
+              d.legacyBusinessReference === submissionId ||
+              d.uniqueId === submissionId ||
               String(d.id) === submissionId
           );
           if (draft) localRecord = draft;
         } catch (_) {}
       }
 
-      // 3. Check remote API
+      // 3. Remote check:
+      // ZERO remote GET if localRecord exists and does not have a confirmed server-assigned UUIDv4 remoteSubmissionId.
       let remoteRecord: any = null;
-      try {
-        const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
-        if (res.ok) {
-          const body = await res.json();
-          if (body.data) {
-            remoteRecord = body.data;
-          }
-        }
-      } catch (_) {}
+      const candidateRemoteId = queueItem?.remoteSubmissionId || localRecord?.remoteSubmissionId;
+      const hasConfirmedRemoteId = isValidUuidV4(candidateRemoteId);
 
-      // If remote wasn't found by submissionId, try altId from localRecord if available
-      if (!remoteRecord && localRecord) {
-        const altId = localRecord.demographics?.artNumber || localRecord.uuid || localRecord.clientSubmissionId;
-        if (altId && altId !== submissionId) {
-          try {
-            const res2 = await fetch(`/api/submissions/${encodeURIComponent(altId)}`);
-            if (res2.ok) {
-              const body2 = await res2.json();
-              if (body2.data) {
-                remoteRecord = body2.data;
-              }
+      if (hasConfirmedRemoteId) {
+        // Confirmed server remote ID exists — fetch latest state using confirmed remote ID (never ART ID)
+        try {
+          const res = await fetch(`/api/submissions/${encodeURIComponent(candidateRemoteId)}`);
+          if (res.ok) {
+            const body = await res.json();
+            if (body.data) {
+              remoteRecord = body.data;
             }
-          } catch (_) {}
-        }
+          }
+        } catch (_) {}
+      } else if (!localRecord && isValidUuidV4(submissionId)) {
+        // No local record found at all, and submissionId is a valid UUIDv4: attempt remote fetch
+        try {
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+          if (res.ok) {
+            const body = await res.json();
+            if (body.data) {
+              remoteRecord = body.data;
+            }
+          }
+        } catch (_) {}
       }
 
       // If localRecord was not found by submissionId, but remoteRecord was loaded, lookup local Dexie by remote identifiers
@@ -518,7 +526,7 @@ export default function EditRecordPage() {
           approvedAllianceIndia: (foundRecord.approvedAllianceIndia || fr.approvedAllianceIndia || foundRecord['67\nApproved Alliance India'] || 'Approved') as ApprovedAllianceStatus,
           allInfoCorrect: true,
           organizationName: fr.organizationName || foundRecord['69\nOrganization Name'] || 'India HIV/AIDS Alliance',
-          formSubmittedBy: fr.formSubmittedBy || foundRecord['70\nForm Submitted By'] || 'Caseworker',
+          formSubmittedBy: fr.formSubmittedBy || foundRecord.interviewerName || foundRecord['70\nForm Submitted By'] || 'Caseworker',
           organizationEmail: fr.organizationEmail || foundRecord['71\nOrganization Email'] || 'fieldworker@allianceindia.org',
         });
 
@@ -575,6 +583,22 @@ export default function EditRecordPage() {
   useEffect(() => {
     loadRecord();
   }, [submissionId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get('focus') === 'interviewerName' || window.location.hash === '#q-rev-interviewer') {
+        const timer = setTimeout(() => {
+          const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            (el as HTMLElement).focus?.();
+          }
+        }, 400);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, []);
 
   // Real-time Clinical Calculations
   const ageResult = useMemo(() => {
@@ -668,6 +692,17 @@ export default function EditRecordPage() {
       return;
     }
 
+    const trimmedInterviewer = (formData.formSubmittedBy || '').trim();
+    if (trimmedInterviewer.length < 2) {
+      setFormError('Please enter your name using at least 2 characters.');
+      const el = document.getElementById('formSubmittedBy') || document.getElementById('q-rev-interviewer') || document.querySelector('[name="formSubmittedBy"]');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        (el as HTMLElement).focus?.();
+      }
+      return;
+    }
+
     const note = amendmentReason.trim() || 'Assessment information updated during clinical review';
     setIsSaving(true);
     setConflictError(null);
@@ -677,6 +712,8 @@ export default function EditRecordPage() {
 
     const patchPayload: any = {
       ...formData,
+      formSubmittedBy: trimmedInterviewer,
+      interviewerName: trimmedInterviewer,
       expectedVersion: currentVersion,
       version: nextVersion,
       revision: nextVersion,
@@ -708,6 +745,7 @@ export default function EditRecordPage() {
           // The enqueue decision (CREATE vs UPDATE) is based on this field alone.
           remoteSubmissionId: confirmedRemoteSubmissionId || undefined,
           uniqueId: formData.artNumber || submissionId,
+          interviewerName: trimmedInterviewer,
           version: nextVersion,
           editReason: note,
 
@@ -809,7 +847,7 @@ export default function EditRecordPage() {
             approvedAllianceIndia: formData.approvedAllianceIndia,
             allInfoCorrect: true,
             organizationName: formData.organizationName,
-            formSubmittedBy: formData.formSubmittedBy,
+            formSubmittedBy: trimmedInterviewer,
             organizationEmail: formData.organizationEmail,
           },
           updatedAt: new Date().toISOString(),
@@ -885,6 +923,17 @@ export default function EditRecordPage() {
           if (!queuePayload.demographics) queuePayload.demographics = {};
           if (!queuePayload.demographics.artNumber && !isValidUuidV4(submissionId)) {
             queuePayload.demographics.artNumber = submissionId;
+          }
+
+          // BLOCKING: halt on ANY schema error before CREATE enqueue
+          const schemaValidation = completeSubmissionSchema.safeParse(queuePayload);
+          if (!schemaValidation.success) {
+            handleSchemaValidationFailure({
+              issues: schemaValidation.error.issues,
+              setError: setFormError,
+              setSubmitting: (v) => setIsSaving(v),
+            });
+            return;
           }
 
           await enqueueCreate({
@@ -2117,13 +2166,17 @@ export default function EditRecordPage() {
 
             {/* Submitter & Organization Details in Clean 3-Column Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-              <Input
-                label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
-                required
-                value={formData.formSubmittedBy}
-                onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
-                placeholder="e.g. Sunita Sharma"
-              />
+              <div id="q-rev-interviewer">
+                <Input
+                  id="formSubmittedBy"
+                  name="formSubmittedBy"
+                  label="FORM SUBMITTED BY (INTERVIEWER NAME) *"
+                  required
+                  value={formData.formSubmittedBy}
+                  onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                  placeholder="e.g. Sunita Sharma"
+                />
+              </div>
 
               <Input
                 label="ORGANIZATION NAME"
