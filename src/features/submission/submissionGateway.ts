@@ -22,7 +22,7 @@ import {
 } from './submissionTypes';
 import { parseServerAcknowledgement } from './submissionMapper';
 
-const REQUEST_TIMEOUT_MS = 25_000;
+const REQUEST_TIMEOUT_MS = 45_000;
 
 // ---------------------------------------------------------------------------
 // CREATE
@@ -122,8 +122,8 @@ export async function gatewayCreate(
       return {
         ok: false,
         error: {
-          category: 'timeout',
-          message: 'Request timed out. Your assessment is safe and will retry automatically.',
+          category: 'timeout_unknown_outcome',
+          message: 'Request timed out. We are checking whether your assessment was received…',
           isRetryable: true,
           isTerminal: false,
         },
@@ -259,8 +259,8 @@ export async function gatewayUpdate(
       return {
         ok: false,
         error: {
-          category: 'timeout',
-          message: 'Request timed out. Your changes are safe and will retry automatically.',
+          category: 'timeout_unknown_outcome',
+          message: 'Request timed out. We are checking whether your changes were received…',
           isRetryable: true,
           isTerminal: false,
         },
@@ -358,10 +358,14 @@ export async function lookupByClientSubmissionId(
     return null;
   }
 
-  // Server may return { data: { remoteSubmissionId, version } }
+  // Server may return { data: { remoteSubmissionId, version } } or top-level fields
   const data = body.data ?? body;
-  const remoteSubmissionId = String(data?.remoteSubmissionId ?? '');
-  const version = Number(data?.version ?? data?.revisionNumber ?? 0);
+  const remoteSubmissionId = String(
+    data?.remoteSubmissionId ?? data?.uniqueId ?? body?.remoteSubmissionId ?? body?.uniqueId ?? ''
+  );
+  const version = Number(
+    data?.version ?? data?.revisionNumber ?? body?.version ?? body?.revisionNumber ?? 0
+  );
 
   if (!remoteSubmissionId || version < 1) return null;
 

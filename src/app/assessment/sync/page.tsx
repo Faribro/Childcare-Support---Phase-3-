@@ -39,7 +39,20 @@ export interface UnifiedAssessmentItem {
   state?: string;
   revisionNumber: number;
   status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict' | 'needs_review';
-  chipStatus: 'Waiting to send' | 'Waiting to retry' | 'Local' | 'Retrying' | 'Sending' | 'Submitted' | 'Needs correction' | 'Conflict';
+  chipStatus:
+    | 'Waiting to send'
+    | 'Saved on this device'
+    | 'Waiting to retry'
+    | 'Local'
+    | 'Retrying'
+    | 'Sending'
+    | 'Checking submission status'
+    | 'Submitted'
+    | 'Submitted — documents processing'
+    | 'Submitted — document upload needs retry'
+    | 'Needs correction'
+    | 'Conflict'
+    | 'Sign in again';
   serverStatus: 'accepted' | 'syncing' | 'waiting' | 'error';
   sheetsStatus: 'exported' | 'exporting' | 'waiting' | 'failed';
   createdAt: string;
@@ -62,11 +75,39 @@ function StatusChip({ chipStatus }: { chipStatus: UnifiedAssessmentItem['chipSta
           Submitted
         </span>
       );
+    case 'Submitted — documents processing':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-300">
+          <Clock className="w-2.5 h-2.5" />
+          Submitted — documents processing
+        </span>
+      );
+    case 'Submitted — document upload needs retry':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
+          <RefreshCw className="w-2.5 h-2.5" />
+          Submitted — document upload needs retry
+        </span>
+      );
     case 'Sending':
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 animate-pulse">
           <RefreshCw className="w-2.5 h-2.5 animate-spin" />
           Sending…
+        </span>
+      );
+    case 'Checking submission status':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-300 animate-pulse">
+          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+          Checking submission status
+        </span>
+      );
+    case 'Sign in again':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-300">
+          <AlertCircle className="w-2.5 h-2.5" />
+          Sign in again
         </span>
       );
     case 'Waiting to retry':
@@ -91,13 +132,14 @@ function StatusChip({ chipStatus }: { chipStatus: UnifiedAssessmentItem['chipSta
           Needs correction
         </span>
       );
+    case 'Saved on this device':
     case 'Waiting to send':
     case 'Local':
     default:
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
           <Clock className="w-2.5 h-2.5" />
-          Waiting to send
+          Saved on this device
         </span>
       );
   }
@@ -562,10 +604,17 @@ function SyncCentreContent() {
       const isConflict = rawStatus === 'conflict' || code === 409 || qItem.errorMessage?.toLowerCase().includes('conflict');
       const isNeedsReview = rawStatus === 'needs_review';
       const isSignatureMigrationError = qItem.errorCategory === 'signature_migration_failed';
+      const isTimeoutUnknown = qItem.errorCategory === 'timeout_unknown_outcome' || (qItem.errorCategory === 'timeout' && !payload?.remoteSubmissionId);
 
       if (rawStatus === 'synced') {
         status = 'synced';
-        chipStatus = 'Submitted';
+        if ((payload as any)?.assetStatus === 'PENDING') {
+          chipStatus = 'Submitted — documents processing';
+        } else if ((payload as any)?.assetStatus === 'FAILED_RETRYABLE') {
+          chipStatus = 'Submitted — document upload needs retry';
+        } else {
+          chipStatus = 'Submitted';
+        }
         serverStatus = 'accepted';
         sheetsStatus = 'exported';
         isOutbox = false;
@@ -581,10 +630,20 @@ function SyncCentreContent() {
           sheetsStatus = 'exporting';
         } else {
           status = 'ready_to_sync';
-          chipStatus = 'Waiting to send';
+          chipStatus = 'Saved on this device';
           serverStatus = 'waiting';
           sheetsStatus = 'waiting';
         }
+      } else if (isTimeoutUnknown) {
+        status = 'failed_retryable';
+        chipStatus = 'Checking submission status';
+        serverStatus = 'waiting';
+        sheetsStatus = 'waiting';
+      } else if (isUnauthorized) {
+        status = 'failed_retryable';
+        chipStatus = 'Sign in again';
+        serverStatus = 'waiting';
+        sheetsStatus = 'waiting';
       } else if (isConflict) {
         status = 'conflict';
         chipStatus = 'Conflict';
@@ -595,7 +654,7 @@ function SyncCentreContent() {
         chipStatus = 'Needs correction';
         serverStatus = 'error';
         sheetsStatus = 'failed';
-      } else if (isUnauthorized || isSignatureMigrationError) {
+      } else if (isSignatureMigrationError) {
         status = 'failed_retryable';
         chipStatus = 'Waiting to retry';
         serverStatus = 'waiting';
@@ -613,7 +672,7 @@ function SyncCentreContent() {
       } else {
         // 'queued', 'draft', 'finalized_local' or newly created
         status = 'ready_to_sync';
-        chipStatus = 'Waiting to send';
+        chipStatus = 'Saved on this device';
         serverStatus = 'waiting';
         sheetsStatus = 'waiting';
       }
