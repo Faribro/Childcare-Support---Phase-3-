@@ -8,6 +8,60 @@ export async function GET(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || `req-list-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
     const { searchParams } = new URL(req.url);
+    const clientSubmissionId = searchParams.get('clientSubmissionId');
+
+    // Single-record reconciliation lookup by clientSubmissionId
+    if (clientSubmissionId) {
+      const trimmedId = clientSubmissionId.trim();
+      const record = await canonicalSubmissionAdapter.getSubmission(trimmedId, 'supervisor');
+      if (record.status === 'success' && record.data) {
+        const remoteSubmissionId = record.remoteSubmissionId || record.data.remoteSubmissionId || record.data.uniqueId;
+        const version = record.version || record.data.version || record.data.revisionNumber || 1;
+        return NextResponse.json(
+          {
+            status: 'success',
+            data: {
+              remoteSubmissionId,
+              clientSubmissionId: trimmedId,
+              version,
+              submissionStatus: 'ACCEPTED',
+              assetStatus: record.data.assetStatus || 'NOT_REQUIRED',
+            },
+            remoteSubmissionId,
+            clientSubmissionId: trimmedId,
+            version,
+            submissionStatus: 'ACCEPTED',
+            assetStatus: record.data.assetStatus || 'NOT_REQUIRED',
+            requestId,
+          },
+          {
+            status: 200,
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+              'X-Request-Id': requestId,
+            },
+          }
+        );
+      } else {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'NOT_FOUND',
+            message: `Record with clientSubmissionId "${trimmedId}" not found.`,
+            requestId,
+            retryable: false,
+          },
+          {
+            status: 404,
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+              'X-Request-Id': requestId,
+            },
+          }
+        );
+      }
+    }
+
     const cursor = searchParams.get('cursor') || undefined;
     const status = searchParams.get('status') || undefined;
     const updatedAfter = searchParams.get('updatedAfter') || undefined;
@@ -75,6 +129,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         status: 'success',
+        submissions: records,
+        count: records.length,
+        limit,
         data: {
           records,
           total,
@@ -83,6 +140,7 @@ export async function GET(req: NextRequest) {
         },
         items: records,
         pagination: {
+          total,
           totalCount: total,
           limit,
           offset: 0,
@@ -189,18 +247,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const resolvedClientSubmissionId = validation.data.clientSubmissionId || validation.data.uuid;
     return NextResponse.json(
       {
         status: 'success',
+        submissionStatus: 'ACCEPTED',
+        assetStatus: 'NOT_REQUIRED',
         data: {
           remoteSubmissionId: result.remoteSubmissionId,
-          clientSubmissionId: validation.data.clientSubmissionId || validation.data.uuid,
+          clientSubmissionId: resolvedClientSubmissionId,
           version: result.version || 1,
           updatedAt: result.updatedAt || new Date().toISOString(),
           syncStatus: 'SYNCED',
+          submissionStatus: 'ACCEPTED',
+          assetStatus: 'NOT_REQUIRED',
         },
         acknowledged: true,
         remoteSubmissionId: result.remoteSubmissionId,
+        clientSubmissionId: resolvedClientSubmissionId,
         uniqueId: result.uniqueId,
         version: result.version,
         revisionNumber: result.revisionNumber,

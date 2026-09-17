@@ -176,10 +176,14 @@ export type UserFacingSubmissionState =
   | 'DRAFT'
   | 'SAVING'
   | 'SENDING'
+  | 'CHECKING_STATUS'
   | 'SUBMITTED'
+  | 'SUBMITTED_ASSETS_PENDING'
+  | 'SUBMITTED_ASSETS_RETRY'
   | 'WAITING_FOR_CONNECTION'
   | 'RETRYING'
-  | 'ACTION_REQUIRED';
+  | 'ACTION_REQUIRED'
+  | 'UNAUTHORIZED';
 
 /**
  * Human-readable field-worker messages for each state.
@@ -189,10 +193,14 @@ export const USER_STATE_MESSAGES: Record<UserFacingSubmissionState, string> = {
   DRAFT: 'Draft saved on this device.',
   SAVING: 'Saving your assessment\u2026',
   SENDING: 'Sending your assessment\u2026',
+  CHECKING_STATUS: 'Checking whether your assessment was received\u2026',
   SUBMITTED: 'Submitted successfully.',
+  SUBMITTED_ASSETS_PENDING: 'Assessment received. Documents are being processed.',
+  SUBMITTED_ASSETS_RETRY: 'Assessment submitted. Document upload needs retry.',
   WAITING_FOR_CONNECTION: 'Saved on this device. It will send automatically when you reconnect.',
   RETRYING: 'Your assessment is safe on this device. We will try again automatically.',
   ACTION_REQUIRED: 'One item needs correction before it can be submitted.',
+  UNAUTHORIZED: 'Your session expired. Please sign in again. Your saved assessment remains safe on this device.',
 };
 
 // ---------------------------------------------------------------------------
@@ -208,6 +216,14 @@ export interface ServerAcknowledgement {
   acceptedAt?: string;
   updatedAt?: string;
   isDuplicate?: boolean;
+  submissionStatus?: 'ACCEPTED';
+  assetStatus?: 'NOT_REQUIRED' | 'PENDING' | 'UPLOADED' | 'FAILED_RETRYABLE';
+  assetOperationSummary?: Array<{
+    documentOperationId: string;
+    documentType: string;
+    uploadStatus: string;
+    sheetReferenceStatus: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +233,7 @@ export interface ServerAcknowledgement {
 export type SubmissionErrorCategory =
   | 'network'
   | 'timeout'
+  | 'timeout_unknown_outcome'
   | 'rate_limited'
   | 'upstream_unavailable'
   | 'validation'
@@ -275,6 +292,15 @@ export function classifyHttpError(statusCode: number, message?: string): Submiss
   }
   if (statusCode === 422 || statusCode === 400) {
     return { category: 'validation', message: message || 'Validation error', statusCode, isRetryable: false, isTerminal: true };
+  }
+  if (statusCode === 504) {
+    return {
+      category: 'timeout_unknown_outcome',
+      message: message || 'Request timed out. We are checking whether your assessment was received\u2026',
+      statusCode,
+      isRetryable: true,
+      isTerminal: false,
+    };
   }
   if (statusCode >= 500 && statusCode < 600) {
     return { category: 'upstream_unavailable', message: message || 'Server error', statusCode, isRetryable: true, isTerminal: false };

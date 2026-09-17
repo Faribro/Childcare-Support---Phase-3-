@@ -39,6 +39,8 @@ export default function FieldWorkspacePage() {
             setServerSyncedCount(json.pagination.totalCount);
           } else if (json.total !== undefined) {
             setServerSyncedCount(json.total);
+          } else if (json.count !== undefined) {
+            setServerSyncedCount(json.count);
           }
         }
       } catch (_) {}
