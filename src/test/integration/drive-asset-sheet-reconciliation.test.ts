@@ -25,8 +25,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+import { NextRequest } from 'next/server';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import { POST as updateAssetRoute } from '@/app/api/submissions/[submissionId]/asset/route';
 import { runReconciliation } from '../../../scripts/reconcile-dl-sou-record';
 import type { CompleteSubmissionPayload } from '@/lib/validations/submissionSchema';
 
@@ -544,6 +547,182 @@ describe('PR 2: Drive Asset & Sheet Reconciliation Integration Suite', () => {
     it('verifies raw base64 data URLs are never written to sheet cells', () => {
       expect(gasCode).toContain("val.indexOf('data:') === 0 || val.indexOf(';base64,') !== -1");
       expect(gasCode).toContain("return '[Document Pending Drive Upload]'");
+    });
+  });
+
+  describe('Part H — Fast-Follow: Mandatory OCC Enforcement on Asset Retry Route (POST /api/submissions/[submissionId]/asset)', () => {
+    const validDummyFileData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const testId = 'DL-SOU-141540-01';
+
+    async function setupExistingRecord(signatureCellVal: string = 'DATA_URL_STORED_PENDING_AUTH', version: number = 1) {
+      MockSheetStore.reset();
+      const payload = createSyntheticSubmissionPayload({
+        uuid: testId,
+        clientSubmissionId: testId,
+      });
+      MockSheetStore.setDriveFailure(true);
+      await canonicalSubmissionAdapter.createSubmission({
+        payload,
+        idempotencyKey: `setup-key-${testId}-${Date.now()}`,
+        requestId: `setup-req-${testId}`,
+      });
+      MockSheetStore.setDriveFailure(false);
+
+      const stored = MockSheetStore.findRecord(testId);
+      if (stored) {
+        stored.version = version;
+        stored.signature_data_url = signatureCellVal;
+        stored.signatureDataUrl = signatureCellVal;
+      }
+      return {
+        expectedVersion: version,
+        expectedCellHash: crypto.createHash('sha256').update(signatureCellVal.trim()).digest('hex'),
+      };
+    }
+
+    it('rejects asset retry request when expectedVersion is missing (400 VALIDATION_ERROR)', async () => {
+      const { expectedCellHash } = await setupExistingRecord();
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${testId}/asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'caseworker' },
+        body: JSON.stringify({
+          docType: 'signature',
+          fileData: validDummyFileData,
+          expectedCurrentCellStateHash: expectedCellHash,
+          // expectedVersion omitted
+        }),
+      });
+
+      const res = await updateAssetRoute(req, { params: { submissionId: testId } });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.status).toBe('error');
+      expect(json.code).toBe('VALIDATION_ERROR');
+      expect(json.message).toContain('expectedVersion');
+    });
+
+    it('rejects asset retry request when expectedVersion is not a positive integer (400 VALIDATION_ERROR)', async () => {
+      const { expectedCellHash } = await setupExistingRecord();
+      for (const badVer of [0, -1, 1.5, '1', null, {}]) {
+        const req = new NextRequest(`http://localhost:3000/api/submissions/${testId}/asset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-role': 'caseworker' },
+          body: JSON.stringify({
+            docType: 'signature',
+            fileData: validDummyFileData,
+            expectedVersion: badVer,
+            expectedCurrentCellStateHash: expectedCellHash,
+          }),
+        });
+
+        const res = await updateAssetRoute(req, { params: { submissionId: testId } });
+        expect(res.status).toBe(400);
+        const json = await res.json();
+        expect(json.code).toBe('VALIDATION_ERROR');
+        expect(json.message).toContain('expectedVersion');
+      }
+    });
+
+    it('rejects asset retry request when expectedCurrentCellStateHash is missing (400 VALIDATION_ERROR)', async () => {
+      const { expectedVersion } = await setupExistingRecord();
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${testId}/asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'caseworker' },
+        body: JSON.stringify({
+          docType: 'signature',
+          fileData: validDummyFileData,
+          expectedVersion,
+          // expectedCurrentCellStateHash omitted
+        }),
+      });
+
+      const res = await updateAssetRoute(req, { params: { submissionId: testId } });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.status).toBe('error');
+      expect(json.code).toBe('VALIDATION_ERROR');
+      expect(json.message).toContain('expectedCurrentCellStateHash');
+    });
+
+    it('rejects asset retry request when expectedCurrentCellStateHash is not a 64-character hex string (400 VALIDATION_ERROR)', async () => {
+      const { expectedVersion } = await setupExistingRecord();
+      for (const badHash of ['', 'short', 'not-a-hex-hash'.padEnd(64, 'z'), 12345, null]) {
+        const req = new NextRequest(`http://localhost:3000/api/submissions/${testId}/asset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-role': 'caseworker' },
+          body: JSON.stringify({
+            docType: 'signature',
+            fileData: validDummyFileData,
+            expectedVersion,
+            expectedCurrentCellStateHash: badHash,
+          }),
+        });
+
+        const res = await updateAssetRoute(req, { params: { submissionId: testId } });
+        expect(res.status).toBe(400);
+        const json = await res.json();
+        expect(json.code).toBe('VALIDATION_ERROR');
+        expect(json.message).toContain('expectedCurrentCellStateHash');
+      }
+    });
+
+    it('rejects asset retry request when expectedCurrentCellStateHash does not match current cell state (409 OCC_CONFLICT)', async () => {
+      const { expectedVersion } = await setupExistingRecord('DATA_URL_STORED_PENDING_AUTH');
+      const staleHash = '0000000000000000000000000000000000000000000000000000000000000000';
+
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${testId}/asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'caseworker' },
+        body: JSON.stringify({
+          docType: 'signature',
+          fileData: validDummyFileData,
+          expectedVersion,
+          expectedCurrentCellStateHash: staleHash,
+        }),
+      });
+
+      const res = await updateAssetRoute(req, { params: { submissionId: testId } });
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.code).toBe('OCC_CONFLICT');
+    });
+
+    it('accepts valid asset retry request when expectedVersion and expectedCurrentCellStateHash match current state (200 OK)', async () => {
+      // First create standard record via canonical adapter
+      const payload = createSyntheticSubmissionPayload({
+        uuid: 'test-occ-success-id',
+        clientSubmissionId: 'test-occ-success-id',
+      });
+      MockSheetStore.setDriveFailure(true);
+      await canonicalSubmissionAdapter.createSubmission({
+        payload,
+        idempotencyKey: 'occ-succ-key',
+        requestId: 'occ-succ-req',
+      });
+      MockSheetStore.setDriveFailure(false);
+
+      const targetId = payload.uuid;
+      const initialStored = MockSheetStore.findRecord(targetId);
+      const initialCellVal = initialStored?.signature_data_url || '';
+      const correctHash = crypto.createHash('sha256').update(initialCellVal.trim()).digest('hex');
+
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${targetId}/asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'caseworker' },
+        body: JSON.stringify({
+          docType: 'signature',
+          fileData: validDummyFileData,
+          expectedVersion: initialStored?.version || 1,
+          expectedCurrentCellStateHash: correctHash,
+        }),
+      });
+
+      const res = await updateAssetRoute(req, { params: { submissionId: targetId } });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.status).toBe('success');
+      expect(json.assetStatus).toBe('UPLOADED');
+      expect(json.cellFormula).toMatch(/^=HYPERLINK/);
     });
   });
 });
