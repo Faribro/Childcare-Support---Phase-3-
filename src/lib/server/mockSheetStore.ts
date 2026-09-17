@@ -93,6 +93,9 @@ export interface SheetAuditEvent {
 export interface CreateRecordResult {
   status: string;
   acknowledged: boolean;
+  submissionStatus?: string;
+  assetStatus?: 'NOT_REQUIRED' | 'PENDING' | 'UPLOADED' | 'FAILED_RETRYABLE';
+  assetOperationSummary?: Record<string, string>;
   remoteSubmissionId: string;
   clientSubmissionId: string;
   version: number;
@@ -108,11 +111,18 @@ const recordsByUuid = new Map<string, StoredSheetRecord>();
 const idempotencyMap = new Map<string, { remoteId: string; response: CreateRecordResult }>();
 const auditLogsByRemoteId = new Map<string, SheetAuditEvent[]>();
 
+let driveFailureSimulation = false;
+
 function simulateDriveUrl(val?: string, assetName: string = 'asset'): string {
   if (!val) return '';
+  if (driveFailureSimulation) {
+    return '[Document Pending Drive Upload]';
+  }
+  if (val.startsWith('=HYPERLINK(') || val.startsWith('=IMAGE(')) return val;
   if (val.startsWith('http://') || val.startsWith('https://')) return val;
-  if (val.startsWith('data:')) {
-    return `https://drive.google.com/file/d/staging-drive-${assetName}-${Date.now().toString(36)}/view`;
+  if (val.startsWith('data:') || val.includes(';base64,')) {
+    const driveUrl = `https://drive.google.com/file/d/staging-drive-${assetName}-${Date.now().toString(36)}/view`;
+    return `=HYPERLINK("${driveUrl}", "Restricted Doc [${assetName}]")`;
   }
   return val;
 }
@@ -145,11 +155,16 @@ export const MockSheetStore = {
     return found;
   },
 
+  setDriveFailure(fail: boolean) {
+    driveFailureSimulation = fail;
+  },
+
   reset() {
     recordsByRemoteId.clear();
     recordsByUuid.clear();
     idempotencyMap.clear();
     auditLogsByRemoteId.clear();
+    driveFailureSimulation = false;
   },
 
   resetStore() {
@@ -170,9 +185,14 @@ export const MockSheetStore = {
     const clientUuid = payload.uuid;
     const existing = recordsByUuid.get(clientUuid);
     if (existing) {
-      const response = {
+      const existingSig = String(existing.signature_data_url || existing.signatureDataUrl || '');
+      const existingAssetStatus = (existingSig.includes('=HYPERLINK')) ? 'UPLOADED' :
+                                  (existingSig === '[Document Pending Drive Upload]' ? 'FAILED_RETRYABLE' : 'PENDING');
+      const response: CreateRecordResult = {
         status: 'success',
         acknowledged: true,
+        submissionStatus: 'ACCEPTED',
+        assetStatus: existingAssetStatus,
         remoteSubmissionId: existing.remote_submission_id,
         clientSubmissionId: existing.client_submission_id,
         version: existing.version,
@@ -295,9 +315,27 @@ export const MockSheetStore = {
       },
     ]);
 
-    const result = {
+    const hasDocuments = Boolean(
+      payload.caregiverConsent?.signatureDataUrl ||
+      payload.consent?.signatureDataUrl ||
+      (payload as any).signatureDataUrl ||
+      payload.bankingAndKyc?.passbookPhotoUrl ||
+      payload.bankingAndKyc?.aadhaarCardPhotoUrl ||
+      payload.bankingAndKyc?.childPhotoUrl ||
+      payload.educationExpenses?.feeReceiptPhotoUrl ||
+      payload.educationExpenses?.marksheetPhotoUrl
+    );
+
+    let initialAssetStatus: 'NOT_REQUIRED' | 'PENDING' | 'UPLOADED' | 'FAILED_RETRYABLE' = 'NOT_REQUIRED';
+    if (hasDocuments) {
+      initialAssetStatus = driveFailureSimulation ? 'FAILED_RETRYABLE' : 'UPLOADED';
+    }
+
+    const result: CreateRecordResult = {
       status: 'success',
       acknowledged: true,
+      submissionStatus: 'ACCEPTED',
+      assetStatus: initialAssetStatus,
       remoteSubmissionId,
       clientSubmissionId: newRecord.client_submission_id,
       version: 1,
@@ -309,6 +347,72 @@ export const MockSheetStore = {
 
     idempotencyMap.set(idempotencyKey, { remoteId: remoteSubmissionId, response: result });
     return result;
+  },
+
+  /**
+   * Update a specific document/signature asset cell in an existing record without creating a new record
+   */
+  updateAsset(id: string, docType: string, fileData: string, requestId: string) {
+    const existing = this.findRecord(id);
+    if (!existing) {
+      return { notFound: true };
+    }
+
+    const normType = (docType || '').toLowerCase();
+    let prefix = 'Document';
+    const driveUrl = `https://drive.google.com/file/d/staging-drive-${normType}-${Date.now().toString(36)}/view`;
+
+    if (normType.includes('sig')) {
+      prefix = 'Signature';
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.signature_data_url = formula;
+      existing.signatureDataUrl = formula;
+    } else if (normType.includes('passbook')) {
+      prefix = 'Passbook';
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.passbook_photo_url = formula;
+      existing.passbookPhotoUrl = formula;
+    } else if (normType.includes('aadhaar') || normType.includes('id')) {
+      prefix = 'Aadhaar';
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.aadhaar_card_photo_url = formula;
+      existing.aadhaarCardPhotoUrl = formula;
+    } else if (normType.includes('photo')) {
+      prefix = 'Child_Photo';
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.child_photo_url = formula;
+      existing.childPhotoUrl = formula;
+    } else if (normType.includes('fee')) {
+      prefix = 'Fee_Receipt';
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.fee_receipt_photo_url = formula;
+      existing.feeReceiptPhotoUrl = formula;
+    } else if (normType.includes('mark')) {
+      prefix = 'Marksheet';
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.marksheet_photo_url = formula;
+      existing.marksheetPhotoUrl = formula;
+    } else {
+      const formula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+      existing.signature_data_url = formula;
+      existing.signatureDataUrl = formula;
+    }
+
+    const cellFormula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+    const now = new Date().toISOString();
+    existing.updated_at = now;
+
+    return {
+      status: 'success' as const,
+      acknowledged: true,
+      submissionId: id,
+      uniqueId: id,
+      docType: prefix,
+      cellFormula,
+      assetStatus: 'UPLOADED' as const,
+      updatedAt: now,
+      record: existing,
+    };
   },
 
   /**

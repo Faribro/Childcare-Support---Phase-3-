@@ -43,8 +43,15 @@ export interface CanonicalSubmissionResult {
   statusCode: number;
   code?: string;
   message?: string;
+  submissionStatus?: string;
+  assetStatus?: 'NOT_REQUIRED' | 'PENDING' | 'UPLOADED' | 'FAILED_RETRYABLE';
+  assetOperationSummary?: Record<string, string>;
   remoteSubmissionId?: string;
   uniqueId?: string;
+  docType?: string;
+  cellFormula?: string;
+  rowNumber?: number;
+  columnNumber?: number;
   version?: number;
   revisionNumber?: number;
   updatedAt?: string;
@@ -268,7 +275,18 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
   const childPhotoUrl = sanitizeValue(raw['27\nPassport Size Photo Link'] || raw['27\\nPassport Size Photo Link'] || raw['Passport Size Photo Link'] || raw.child_photo_url || raw.childPhotoUrl || raw.bankingAndKyc?.childPhotoUrl || '');
   const feeReceiptPhotoUrl = sanitizeValue(raw['64\nSchool Fee Receipt Link'] || raw['64\\nSchool Fee Receipt Link'] || raw['School Fee Receipt Link'] || raw.fee_receipt_photo_url || raw.feeReceiptPhotoUrl || raw.educationExpenses?.feeReceiptPhotoUrl || '');
   const marksheetPhotoUrl = sanitizeValue(raw['65\nMarksheet Photo Link'] || raw['65\\nMarksheet Photo Link'] || raw['Marksheet Photo Link'] || raw.marksheet_photo_url || raw.marksheetPhotoUrl || raw.educationExpenses?.marksheetPhotoUrl || '');
-  const signatureDataUrl = sanitizeValue(raw['72\nSignature Link'] || raw['72\\nSignature Link'] || raw['Signature Link'] || raw.signature_data_url || raw.signatureDataUrl || raw.caregiverConsent?.signatureDataUrl || raw.consent?.signatureDataUrl || '');
+  const signatureDataUrl = sanitizeValue(
+    raw['6\nSignature /\nThumb Impression'] ||
+    raw['6\nSignature / Thumb Impression'] ||
+    raw['72\nSignature Link'] ||
+    raw['72\\nSignature Link'] ||
+    raw['Signature Link'] ||
+    raw.signature_data_url ||
+    raw.signatureDataUrl ||
+    raw.caregiverConsent?.signatureDataUrl ||
+    raw.consent?.signatureDataUrl ||
+    ''
+  );
 
   const version = Number(raw['2\nRevision Number'] || raw.version || raw.revisionNumber || fallbackVersion || 1);
 
@@ -521,6 +539,9 @@ class CanonicalSubmissionAdapterService {
           status: 'success',
           statusCode: gasData.isDuplicate ? 200 : 201,
           acknowledged: true,
+          submissionStatus: gasData.submissionStatus || 'ACCEPTED',
+          assetStatus: gasData.assetStatus || 'NOT_REQUIRED',
+          assetOperationSummary: gasData.assetOperationSummary,
           remoteSubmissionId: gasData.remoteSubmissionId || gasData.uniqueId,
           uniqueId: gasData.uniqueId || gasData.remoteSubmissionId,
           version: gasData.version || gasData.revisionNumber || 1,
@@ -548,6 +569,9 @@ class CanonicalSubmissionAdapterService {
       status: 'success',
       statusCode: mockRes.isDuplicate ? 200 : 201,
       acknowledged: true,
+      submissionStatus: mockRes.submissionStatus || 'ACCEPTED',
+      assetStatus: mockRes.assetStatus || 'NOT_REQUIRED',
+      assetOperationSummary: mockRes.assetOperationSummary,
       remoteSubmissionId: mockRes.remoteSubmissionId,
       uniqueId: (mockRes as any).uniqueId || mockRes.remoteSubmissionId,
       version: mockRes.version,
@@ -873,6 +897,110 @@ class CanonicalSubmissionAdapterService {
         hasMore: mockResult.hasMore,
         totalCount: mockResult.totalCount,
       },
+    };
+  }
+
+  /**
+   * CANONICAL ASSET UPDATE
+   */
+  async updateAsset(input: {
+    submissionId: string;
+    docType: string;
+    fileData: string;
+    documentOperationId?: string;
+    requestId: string;
+  }): Promise<CanonicalSubmissionResult> {
+    const configCheck = this.checkConfiguration('write');
+    if (!configCheck.valid && configCheck.errorResponse) {
+      return configCheck.errorResponse;
+    }
+
+    const appsScriptUrl = this.getAppsScriptUrl();
+    const webhookSecret = this.getWebhookSecret();
+
+    if (this.isConfigured() && appsScriptUrl) {
+      try {
+        const res = await fetch(appsScriptUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+          },
+          body: JSON.stringify({
+            action: 'updateAsset',
+            submissionId: input.submissionId,
+            uniqueId: input.submissionId,
+            docType: input.docType,
+            fileData: input.fileData,
+            documentOperationId: input.documentOperationId,
+            secret: webhookSecret,
+            requestId: input.requestId,
+          }),
+        });
+
+        const gasData = await res.json().catch(() => ({}));
+        if (!res.ok || gasData.status === 'error') {
+          const upstreamCode = extractUpstreamStatusCode(res, gasData);
+          return {
+            status: 'error',
+            statusCode: upstreamCode,
+            code: gasData.code || 'UPSTREAM_FAILURE',
+            message: gasData.message || 'Failed to update asset on central bridge',
+            requestId: input.requestId,
+          };
+        }
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          acknowledged: true,
+          remoteSubmissionId: gasData.submissionId || input.submissionId,
+          uniqueId: gasData.submissionId || input.submissionId,
+          docType: gasData.docType || input.docType,
+          cellFormula: gasData.cellFormula,
+          assetStatus: 'UPLOADED',
+          rowNumber: gasData.rowNumber,
+          columnNumber: gasData.columnNumber,
+          updatedAt: gasData.updatedAt || new Date().toISOString(),
+          requestId: input.requestId,
+          data: gasData,
+        };
+      } catch (err: any) {
+        console.error('Canonical ASSET UPDATE fetch exception:', err?.message || err);
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'GATEWAY_TIMEOUT',
+          message: 'Unable to reach central Google Sheets bridge for asset update.',
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // Local / Dev Mock Store Execution
+    const mockRes = MockSheetStore.updateAsset(input.submissionId, input.docType, input.fileData, input.requestId);
+    if ('notFound' in mockRes) {
+      return {
+        status: 'error',
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        message: `Submission ${input.submissionId} not found`,
+        requestId: input.requestId,
+      };
+    }
+
+    return {
+      status: 'success',
+      statusCode: 200,
+      acknowledged: true,
+      remoteSubmissionId: mockRes.submissionId,
+      uniqueId: mockRes.uniqueId,
+      docType: mockRes.docType,
+      cellFormula: mockRes.cellFormula,
+      assetStatus: mockRes.assetStatus,
+      updatedAt: mockRes.updatedAt,
+      requestId: input.requestId,
+      data: mockRes.record,
     };
   }
 
