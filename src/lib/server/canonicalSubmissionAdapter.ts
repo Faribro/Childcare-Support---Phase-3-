@@ -50,6 +50,7 @@ export interface CanonicalSubmissionResult {
   uniqueId?: string;
   docType?: string;
   cellFormula?: string;
+  resolvedRow?: number;
   rowNumber?: number;
   columnNumber?: number;
   version?: number;
@@ -908,6 +909,8 @@ class CanonicalSubmissionAdapterService {
     docType: string;
     fileData: string;
     documentOperationId?: string;
+    expectedVersion?: number;
+    expectedCurrentCellStateHash?: string;
     requestId: string;
   }): Promise<CanonicalSubmissionResult> {
     const configCheck = this.checkConfiguration('write');
@@ -933,16 +936,18 @@ class CanonicalSubmissionAdapterService {
             docType: input.docType,
             fileData: input.fileData,
             documentOperationId: input.documentOperationId,
+            expectedVersion: input.expectedVersion,
+            expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
             secret: webhookSecret,
             requestId: input.requestId,
           }),
         });
 
         const gasData = await res.json().catch(() => ({}));
-        if (!res.ok || gasData.status === 'error') {
+        if (!res.ok || gasData.status === 'error' || gasData.status === 'conflict') {
           const upstreamCode = extractUpstreamStatusCode(res, gasData);
           return {
-            status: 'error',
+            status: gasData.status === 'conflict' ? 'conflict' : 'error',
             statusCode: upstreamCode,
             code: gasData.code || 'UPSTREAM_FAILURE',
             message: gasData.message || 'Failed to update asset on central bridge',
@@ -959,6 +964,7 @@ class CanonicalSubmissionAdapterService {
           docType: gasData.docType || input.docType,
           cellFormula: gasData.cellFormula,
           assetStatus: 'UPLOADED',
+          resolvedRow: gasData.resolvedRow || gasData.rowNumber,
           rowNumber: gasData.rowNumber,
           columnNumber: gasData.columnNumber,
           updatedAt: gasData.updatedAt || new Date().toISOString(),
@@ -978,13 +984,31 @@ class CanonicalSubmissionAdapterService {
     }
 
     // Local / Dev Mock Store Execution
-    const mockRes = MockSheetStore.updateAsset(input.submissionId, input.docType, input.fileData, input.requestId);
+    const mockRes = MockSheetStore.updateAsset(
+      input.submissionId,
+      input.docType,
+      input.fileData,
+      input.requestId,
+      {
+        expectedVersion: input.expectedVersion,
+        expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+      }
+    );
     if ('notFound' in mockRes) {
       return {
         status: 'error',
         statusCode: 404,
         code: 'NOT_FOUND',
-        message: `Submission ${input.submissionId} not found`,
+        message: mockRes.message || `Submission ${input.submissionId} not found`,
+        requestId: input.requestId,
+      };
+    }
+    if ('conflict' in mockRes) {
+      return {
+        status: 'conflict',
+        statusCode: 409,
+        code: mockRes.code || 'OCC_CONFLICT',
+        message: mockRes.message || 'Asset update conflict',
         requestId: input.requestId,
       };
     }
@@ -998,9 +1022,43 @@ class CanonicalSubmissionAdapterService {
       docType: mockRes.docType,
       cellFormula: mockRes.cellFormula,
       assetStatus: mockRes.assetStatus,
+      resolvedRow: mockRes.resolvedRow,
+      rowNumber: mockRes.rowNumber,
       updatedAt: mockRes.updatedAt,
       requestId: input.requestId,
       data: mockRes.record,
+    };
+  }
+
+  /**
+   * Safe server-side row lookup for reconciliation inspection
+   */
+  async lookupSubmissionRow(submissionId: string, docType = 'Signature'): Promise<{
+    found: boolean;
+    matchCount: number;
+    resolvedRow: number;
+    targetColumn: number;
+    currentCellVal: string;
+    cellHash: string;
+    cellStateCategory: string;
+    version?: number;
+  }> {
+    const rowInfo = MockSheetStore.findRowIndex(submissionId, docType);
+    const targetColumn = docType.toLowerCase().includes('sig') ? 6 :
+                         docType.toLowerCase().includes('passbook') ? 25 :
+                         docType.toLowerCase().includes('aadhaar') ? 26 :
+                         docType.toLowerCase().includes('photo') ? 27 :
+                         docType.toLowerCase().includes('fee') ? 64 :
+                         docType.toLowerCase().includes('mark') ? 65 : 6;
+    return {
+      found: rowInfo.matchCount > 0,
+      matchCount: rowInfo.matchCount,
+      resolvedRow: rowInfo.rowIndex,
+      targetColumn,
+      currentCellVal: rowInfo.currentCellVal,
+      cellHash: rowInfo.cellHash,
+      cellStateCategory: rowInfo.cellStateCategory,
+      version: rowInfo.record?.version,
     };
   }
 

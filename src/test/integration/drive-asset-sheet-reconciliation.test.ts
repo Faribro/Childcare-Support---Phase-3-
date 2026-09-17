@@ -1,19 +1,23 @@
 /**
  * drive-asset-sheet-reconciliation.test.ts
  *
- * Integration Test Suite for Part H Tests 5 and 6:
+ * Integration Test Suite for Part H Tests 5 and 6 (Row-Identity-Safe):
  * - Test 5: Signature/document upload lifecycle & fail-safe Drive integration
- *   - Raw data URL never reaches final Sheet display cell
- *   - Successful Drive upload writes approved link/thumbnail representation
- *   - Drive file ID and Sheet reference are reconciled
- *   - Temporary Drive failure marks asset FAILED_RETRYABLE while assessment row remains accepted
- *   - Document retry updates only asset/reference state without creating a new submission row
- * - Test 6: Existing DL-SOU-141540-01-like fixture reconciliation
- *   - Accepted Sheet row + asset pending
- *   - Reconciliation updates correct document cell only
- *   - No form/consent data is altered
- *   - No duplicate row/file is created
- * - Safe dry-run tooling validation
+ *   - 5A: Successful Drive upload writes approved hyperlink formula; raw data URL never reaches Sheet
+ *   - 5B: Temporary Drive failure marks asset FAILED_RETRYABLE while assessment row remains accepted
+ *   - 5C: Document retry updates only asset reference cell and does NOT create a duplicate submission row
+ * - Test 6: Row-Identity-Safe Dynamic Reconciliation & Concurrency Guards
+ *   - 6A: Record currently at Row 5, not Row 18: script dynamically resolves Row 5 by ID
+ *   - 6B: Reordering/inserting rows does not change target selection
+ *   - 6C: Zero matches fails closed with ZERO mutations
+ *   - 6D: Duplicate matches fails closed with ZERO mutations
+ *   - 6E: Changed cell after dry-run fails optimistic concurrency
+ *   - 6F: Execution mode requires ALL safety gates (exact ID, hash, confirmation token, pre-write relookup)
+ *   - 6G: Asset update modifies only resolved asset cell plus allowed timestamp column
+ *   - 6H: No appendRow / no record count increase occurs
+ *   - 6I: Script strictly rejects arbitrary --row CLI argument fail-closed
+ *   - 6J: Dry-run output contains ONLY safe redacted metadata with ZERO PII/secrets/signatures
+ * - Apps Script Contract Tests (gas/Code.js)
  *
  * Synthetic non-PII test data only.
  */
@@ -240,12 +244,20 @@ describe('PR 2: Drive Asset & Sheet Reconciliation Integration Suite', () => {
     });
   });
 
-  describe('Part H — Test 6: Existing DL-SOU-141540-01-like Fixture Reconciliation', () => {
-    it('6A: accepted Sheet row with pending asset updates only the document cell and preserves all consent & clinical data', async () => {
-      // 1. Seed existing DL-SOU-141540-01 incident fixture
-      const businessId = 'DL-SOU-141540-01';
-      MockSheetStore.setDriveFailure(true); // Row was accepted but asset did not reach Drive
+  describe('Part H — Test 6: Row-Identity-Safe Dynamic Reconciliation & Concurrency Guards', () => {
+    const businessId = 'DL-SOU-141540-01';
 
+    function seedTestRecordAtRow(targetRowIndex: number) {
+      MockSheetStore.reset();
+      // In Sheet linelist: Rows 1, 2, 3 are headers. Data starts at Row 4.
+      // If targetRowIndex is 5, prepend 1 dummy record (Row 4 = dummy 1, Row 5 = target).
+      // If targetRowIndex is 18, prepend 14 dummy records (Rows 4-17 = dummy, Row 18 = target).
+      const dummyCount = Math.max(0, targetRowIndex - 4);
+      if (dummyCount > 0) {
+        MockSheetStore.prependDummyRecords(dummyCount, 'PRE-PAD');
+      }
+
+      MockSheetStore.setDriveFailure(true); // Row was accepted but asset did not reach Drive
       const payload = createSyntheticSubmissionPayload({
         uuid: businessId,
         clientSubmissionId: businessId,
@@ -265,61 +277,215 @@ describe('PR 2: Drive Asset & Sheet Reconciliation Integration Suite', () => {
         },
       });
 
-      await canonicalSubmissionAdapter.createSubmission({
+      canonicalSubmissionAdapter.createSubmission({
         payload,
-        idempotencyKey: `idemp-dlsou-${businessId}`,
+        idempotencyKey: `idemp-dlsou-${businessId}-${targetRowIndex}`,
         requestId: `req-dlsou-${businessId}`,
       });
-
-      const beforeRec = MockSheetStore.findRecord(businessId);
-      expect(beforeRec).toBeDefined();
-      expect(beforeRec?.signature_data_url).toBe('[Document Pending Drive Upload]');
-      expect(beforeRec?.child_name).toBe('Incident Child');
-      expect(MockSheetStore.recordCount()).toBe(1);
-
-      // 2. Perform reconciliation update on Column 6
       MockSheetStore.setDriveFailure(false);
-      const recResult = await canonicalSubmissionAdapter.updateAsset({
-        submissionId: businessId,
-        docType: 'Signature',
-        fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-        requestId: 'req-rec-fixture',
-      });
+    }
 
-      expect(recResult.status).toBe('success');
-      expect(recResult.assetStatus).toBe('UPLOADED');
-      expect(recResult.cellFormula).toContain('=HYPERLINK(');
-      expect(recResult.cellFormula).toContain('Restricted Doc [Signature]');
+    it('6A: record currently at Row 5, not Row 18: script dynamically resolves Row 5 by ID', async () => {
+      // Seed record at Row 5 (matching the visible Google Sheet screenshot)
+      seedTestRecordAtRow(5);
 
-      // 3. Verify Sheet state after reconciliation:
-      // - ZERO duplicate rows created
-      expect(MockSheetStore.recordCount()).toBe(1);
-
-      const afterRec = MockSheetStore.findRecord(businessId);
-      expect(afterRec?.signature_data_url).toContain('=HYPERLINK(');
-      expect(afterRec?.signature_data_url).toContain('Restricted Doc [Signature]');
-
-      // - Form & consent data is completely preserved
-      expect(afterRec?.child_name).toBe('Incident Child');
-      expect(afterRec?.orphan_status).toBe('Single orphan (one parent deceased)');
-      expect(afterRec?.district).toBe('South Delhi');
-      expect(afterRec?.weight_kg).toBe(18.5);
-    });
-
-    it('6B: dry-run reconciliation tool executes safely with ZERO mutations and ZERO PII logged', async () => {
-      const report = await runReconciliation(['--dry-run']);
+      const report = await runReconciliation(['--dry-run', '--id', businessId]);
 
       expect(report.mode).toBe('DRY_RUN');
+      expect(report.matchVerification).toBe('EXACT_SINGLE_ROW_MATCH');
       expect(report.reconciliationVerdict).toBe('DRY_RUN_READY_FOR_APPROVAL');
-      expect(report.plannedAction.willCreateRow).toBe(false);
-      expect(report.plannedAction.targetCell).toContain('F18 (Col 6)');
 
-      // Verify 0 PII in audit report
+      // CRITICAL PROOF: Row is dynamically resolved to Row 5, NEVER hardcoded to Row 18
+      expect(report.resolvedRowIndex).toBe(5);
+      expect(report.targetColumn).toBe('Column 6 (F) — Signature / Thumb Impression');
+      expect(report.currentCellStateCategory).toBe('PENDING_DRIVE_UPLOAD');
+      expect(report.currentCellStateHash).toBeTruthy();
+
+      // Zero mutations during dry run
+      const record = MockSheetStore.findRecord(businessId);
+      expect(record?.signature_data_url).toBe('[Document Pending Drive Upload]');
+      expect(MockSheetStore.recordCount()).toBe(2); // 1 dummy + 1 target = 2
+    });
+
+    it('6B: reordering / inserting rows does not change target selection', async () => {
+      // Initially at Row 5
+      seedTestRecordAtRow(5);
+
+      // Now insert 10 additional rows before it, shifting target to Row 15
+      MockSheetStore.prependDummyRecords(10, 'SHIFT');
+
+      const report = await runReconciliation(['--dry-run', '--id', businessId]);
+
+      // Script resolves dynamic position Row 15 without confusing targets
+      expect(report.matchVerification).toBe('EXACT_SINGLE_ROW_MATCH');
+      expect(report.resolvedRowIndex).toBe(15);
+      expect(report.targetColumn).toBe('Column 6 (F) — Signature / Thumb Impression');
+    });
+
+    it('6C: zero matches fails closed with ZERO mutations', async () => {
+      seedTestRecordAtRow(5);
+      const countBefore = MockSheetStore.recordCount();
+
+      const report = await runReconciliation(['--dry-run', '--id', 'DL-NON-000000-01']);
+
+      expect(report.matchVerification).toBe('ZERO_MATCHES_FAIL_CLOSED');
+      expect(report.reconciliationVerdict).toBe('RECORD_NOT_FOUND_EXECUTION_BLOCKED');
+      expect(report.resolvedRowIndex).toBe(-1);
+      expect(MockSheetStore.recordCount()).toBe(countBefore);
+    });
+
+    it('6D: duplicate matches fails closed with ZERO mutations', async () => {
+      seedTestRecordAtRow(5);
+      // Inject duplicate record with identical clientSubmissionId
+      MockSheetStore.injectDuplicateRecord(businessId);
+      const countBefore = MockSheetStore.recordCount();
+
+      const report = await runReconciliation(['--dry-run', '--id', businessId]);
+
+      expect(report.matchVerification).toBe('AMBIGUOUS_DUPLICATE_FAIL_CLOSED');
+      expect(report.reconciliationVerdict).toBe('AMBIGUOUS_DUPLICATE_EXECUTION_BLOCKED');
+      expect(report.resolvedRowIndex).toBe(-1);
+      expect(MockSheetStore.recordCount()).toBe(countBefore);
+    });
+
+    it('6E: changed cell after dry-run fails optimistic concurrency with ZERO mutations', async () => {
+      seedTestRecordAtRow(5);
+
+      // 1. Dry run to obtain hash
+      const dryRunReport = await runReconciliation(['--dry-run', '--id', businessId]);
+      const initialHash = dryRunReport.currentCellStateHash;
+      expect(initialHash).toBeTruthy();
+
+      // 2. Simulate concurrent modification to the cell
+      const record = MockSheetStore.findRecord(businessId);
+      record!.signature_data_url = 'CONCURRENTLY_MODIFIED_CELL_VALUE';
+
+      // 3. Attempt execution with the stale dry-run hash
+      const execReport = await runReconciliation([
+        '--execute',
+        '--id', businessId,
+        '--expected-hash', initialHash,
+        '--confirm-token', `CONFIRM_RECONCILE_${businessId}`,
+      ]);
+
+      expect(execReport.reconciliationVerdict).toBe('STALE_CELL_STATE_OCC_CONFLICT');
+      // Cell was NOT overwritten
+      expect(record?.signature_data_url).toBe('CONCURRENTLY_MODIFIED_CELL_VALUE');
+    });
+
+    it('6F: execution mode requires ALL safety gates (exact ID, hash, confirmation token, pre-write check)', async () => {
+      seedTestRecordAtRow(5);
+
+      // Missing ID refuses execution
+      const noIdReport = await runReconciliation(['--execute']);
+      expect(noIdReport.reconciliationVerdict).toBe('MISSING_EXPLICIT_ID_REFUSED');
+
+      // Missing hash refuses execution
+      const noHashReport = await runReconciliation(['--execute', '--id', businessId]);
+      expect(noHashReport.reconciliationVerdict).toBe('MISSING_EXPECTED_HASH_REFUSED');
+
+      // Missing or wrong confirmation token refuses execution
+      const dryRun = await runReconciliation(['--dry-run', '--id', businessId]);
+      const wrongTokenReport = await runReconciliation([
+        '--execute',
+        '--id', businessId,
+        '--expected-hash', dryRun.currentCellStateHash,
+        '--confirm-token', 'WRONG_TOKEN',
+      ]);
+      expect(wrongTokenReport.reconciliationVerdict).toBe('INVALID_CONFIRMATION_TOKEN_REFUSED');
+
+      // With ALL valid parameters, execution succeeds
+      const successReport = await runReconciliation([
+        '--execute',
+        '--id', businessId,
+        '--expected-hash', dryRun.currentCellStateHash,
+        '--confirm-token', `CONFIRM_RECONCILE_${businessId}`,
+      ]);
+      expect(successReport.reconciliationVerdict).toBe('RECONCILIATION_COMPLETED');
+    });
+
+    it('6G: asset update modifies only resolved asset cell plus allowed timestamp column', async () => {
+      seedTestRecordAtRow(5);
+
+      const before = JSON.parse(JSON.stringify(MockSheetStore.findRecord(businessId)));
+      expect(before.signature_data_url).toBe('[Document Pending Drive Upload]');
+
+      const dryRun = await runReconciliation(['--dry-run', '--id', businessId]);
+      await runReconciliation([
+        '--execute',
+        '--id', businessId,
+        '--expected-hash', dryRun.currentCellStateHash,
+        '--confirm-token', `CONFIRM_RECONCILE_${businessId}`,
+      ]);
+
+      const after = MockSheetStore.findRecord(businessId)!;
+
+      // Asset cell modified to approved hyperlink
+      expect(after.signature_data_url).toContain('=HYPERLINK(');
+      expect(after.signature_data_url).toContain('Restricted Doc [Signature]');
+
+      // Timestamp updated
+      expect(after.updated_at).toBeTruthy();
+
+      // ALL 9 clinical/demographic/consent/banking categories strictly unaltered
+      expect(after.child_name).toBe(before.child_name);
+      expect(after.dob).toBe(before.dob);
+      expect(after.gender).toBe(before.gender);
+      expect(after.orphan_status).toBe(before.orphan_status);
+      expect(after.caregiver_name).toBe(before.caregiver_name);
+      expect(after.caregiver_relationship).toBe(before.caregiver_relationship);
+      expect(after.caregiverPhone).toBe(before.caregiverPhone);
+      expect(after.weight_kg).toBe(before.weight_kg);
+      expect(after.height_cm).toBe(before.height_cm);
+      expect(after.muac_mm).toBe(before.muac_mm);
+      expect(after.bank_account_number).toBe(before.bank_account_number);
+      expect(after.ifsc_code).toBe(before.ifsc_code);
+      expect(after.monthly_household_income).toBe(before.monthly_household_income);
+      expect(after.version).toBe(before.version);
+    });
+
+    it('6H: no appendRow / no record data field mutation occurs', async () => {
+      seedTestRecordAtRow(5);
+      const countBefore = MockSheetStore.recordCount();
+
+      const dryRun = await runReconciliation(['--dry-run', '--id', businessId]);
+      await runReconciliation([
+        '--execute',
+        '--id', businessId,
+        '--expected-hash', dryRun.currentCellStateHash,
+        '--confirm-token', `CONFIRM_RECONCILE_${businessId}`,
+      ]);
+
+      expect(MockSheetStore.recordCount()).toBe(countBefore);
+    });
+
+    it('6I: script strictly rejects arbitrary --row CLI argument fail-closed', async () => {
+      await expect(runReconciliation(['--row', '18'])).rejects.toThrow(
+        /Arbitrary row arguments \(--row\) are strictly prohibited/
+      );
+      await expect(runReconciliation(['--row-number', '5'])).rejects.toThrow(
+        /Arbitrary row arguments \(--row\) are strictly prohibited/
+      );
+      await expect(runReconciliation(['-r', '5'])).rejects.toThrow(
+        /Arbitrary row arguments \(--row\) are strictly prohibited/
+      );
+    });
+
+    it('6J: dry-run output contains ONLY safe redacted metadata with ZERO PII/secrets/signatures', async () => {
+      seedTestRecordAtRow(5);
+
+      const report = await runReconciliation(['--dry-run', '--id', businessId]);
       expect(report.redactedRecordId).toBe('DL-SOU-***-01');
-      const jsonReport = JSON.stringify(report);
-      expect(jsonReport).not.toContain('Incident Child');
-      expect(jsonReport).not.toContain('9123456780');
-      expect(jsonReport).not.toContain('data:image');
+      expect(report.recordIdHashPrefix).toBeTruthy();
+
+      const json = JSON.stringify(report);
+      // Zero PII / zero clinical / zero raw data URLs / zero signatures
+      expect(json).not.toContain('Incident Child');
+      expect(json).not.toContain('9123456780');
+      expect(json).not.toContain('Caregiver A');
+      expect(json).not.toContain('data:image');
+      expect(json).not.toContain('base64');
+      expect(json).not.toContain('iVBORw0KGgo');
     });
   });
 
@@ -342,11 +508,30 @@ describe('PR 2: Drive Asset & Sheet Reconciliation Integration Suite', () => {
       expect(gasCode).toContain('return handleUpdateAsset_(payload, requestId);');
     });
 
-    it('verifies handleUpdateAsset_ updates cell without calling appendRow', () => {
+    it('verifies handleUpdateAsset_ resolves row dynamically by Column 1 scan', () => {
       expect(gasCode).toContain('function handleUpdateAsset_(payload, requestId)');
+      expect(gasCode).toContain('var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();');
+      expect(gasCode).toContain('matchingRows.push(4 + r);');
+    });
+
+    it('verifies handleUpdateAsset_ fails closed on zero or duplicate row matches', () => {
+      expect(gasCode).toContain('if (matchingRows.length === 0)');
+      expect(gasCode).toContain("return errorResponse_('Record not found with ID: ' + targetId, 'NOT_FOUND', 404, requestId);");
+      expect(gasCode).toContain('if (matchingRows.length > 1)');
+      expect(gasCode).toContain("return errorResponse_('Ambiguous match: multiple rows found with ID: ' + targetId + '. Execution refused.', 'CONFLICT', 409, requestId);");
+    });
+
+    it('verifies handleUpdateAsset_ checks expectedVersion and expectedCurrentCellStateHash', () => {
+      expect(gasCode).toContain('var expectedVersion = payload.expectedVersion || payload.expectedRevision;');
+      expect(gasCode).toContain("if (currentVersion !== Number(expectedVersion))");
+      expect(gasCode).toContain('if (payload.expectedCurrentCellStateHash)');
+      expect(gasCode).toContain("return errorResponse_('Optimistic concurrency failed: current cell state hash changed after dry-run.', 'OCC_CONFLICT', 409, requestId);");
+    });
+
+    it('verifies handleUpdateAsset_ updates cell without calling appendRow', () => {
       expect(gasCode).toContain('sheet.getRange(foundRow, targetCol).setValue(cellFormula);');
       // Must not call sheet.appendRow in handleUpdateAsset_
-      const updateAssetFn = gasCode.substring(gasCode.indexOf('function handleUpdateAsset_'), gasCode.indexOf('function handleUpdateAsset_') + 3000);
+      const updateAssetFn = gasCode.substring(gasCode.indexOf('function handleUpdateAsset_'), gasCode.indexOf('function handleUpdateAsset_') + 4500);
       expect(updateAssetFn).not.toContain('.appendRow(');
       expect(updateAssetFn).not.toContain('sheet.appendRow');
     });

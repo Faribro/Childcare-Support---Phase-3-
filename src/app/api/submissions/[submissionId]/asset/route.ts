@@ -31,7 +31,7 @@ export async function POST(
       );
     }
 
-    const { docType, fileData, documentOperationId } = rawBody || {};
+    const { docType, fileData, documentOperationId, expectedVersion, expectedCurrentCellStateHash } = rawBody || {};
 
     if (!docType || typeof docType !== 'string') {
       return NextResponse.json(
@@ -52,6 +52,8 @@ export async function POST(
       docType,
       fileData,
       documentOperationId,
+      expectedVersion,
+      expectedCurrentCellStateHash,
       requestId,
     });
 

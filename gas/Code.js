@@ -1397,6 +1397,13 @@ function handleUpdate_(payload) {
 /**
  * Updates a single document/signature asset cell in an existing row without
  * creating a new row or bumping revision.
+ * 
+ * Safety Invariants:
+ * - Never accepts client-provided row numbers. Resolves row exclusively by exact Unique ID lookup.
+ * - Refuses execution fail-closed if 0 or >1 rows match.
+ * - Verifies expected revision/version if provided.
+ * - Verifies expectedCurrentCellStateHash optimistic concurrency check if provided.
+ * - Modifies ONLY the target document cell and Column 73 (Last Updated). Strictly never appends new rows.
  */
 function handleUpdateAsset_(payload, requestId) {
   var targetId = payload.submissionId || payload.uniqueId || payload.remoteSubmissionId || payload.uuid;
@@ -1422,19 +1429,43 @@ function handleUpdateAsset_(payload, requestId) {
     return errorResponse_('Record not found: Sheet has no data rows.', 'NOT_FOUND', 404, requestId);
   }
 
+  // Row numbers are dynamic layout coordinates and MUST NEVER be accepted as production identity.
+  // We resolve the current row dynamically at execution time by exact Unique ID scan.
   var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
-  var foundRow = -1;
+  var matchingRows = [];
 
   for (var r = 0; r < ids.length; r++) {
     var existingId = String(ids[r][0]).trim();
     if (existingId === String(targetId).trim()) {
-      foundRow = 4 + r;
-      break;
+      matchingRows.push(4 + r);
     }
   }
 
-  if (foundRow === -1) {
+  // Refuse execution fail-closed if zero rows match
+  if (matchingRows.length === 0) {
     return errorResponse_('Record not found with ID: ' + targetId, 'NOT_FOUND', 404, requestId);
+  }
+
+  // Refuse execution fail-closed if multiple rows match (ambiguous duplicate conflict)
+  if (matchingRows.length > 1) {
+    return errorResponse_('Ambiguous match: multiple rows found with ID: ' + targetId + '. Execution refused.', 'CONFLICT', 409, requestId);
+  }
+
+  var foundRow = matchingRows[0];
+
+  // Verify resolved row's Unique ID equals requested ID
+  var verifiedId = String(sheet.getRange(foundRow, 1).getValue()).trim();
+  if (verifiedId !== String(targetId).trim()) {
+    return errorResponse_('Integrity check failed: resolved row Unique ID mismatch.', 'INTEGRITY_ERROR', 500, requestId);
+  }
+
+  // Verify expected revision/version if available
+  var expectedVersion = payload.expectedVersion || payload.expectedRevision;
+  if (expectedVersion !== undefined && expectedVersion !== null) {
+    var currentVersion = Number(sheet.getRange(foundRow, 2).getValue()) || 1;
+    if (currentVersion !== Number(expectedVersion)) {
+      return errorResponse_('Version mismatch: expected ' + expectedVersion + ' but sheet has ' + currentVersion, 'OCC_CONFLICT', 409, requestId);
+    }
   }
 
   // Determine target column by docType
@@ -1466,10 +1497,27 @@ function handleUpdateAsset_(payload, requestId) {
     return errorResponse_('Unsupported docType: ' + docType, 'VALIDATION_ERROR', 400, requestId);
   }
 
+  var oldVal = String(sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue() || '').trim();
+
+  // Optimistic concurrency check: verify current cell state hash if provided
+  if (payload.expectedCurrentCellStateHash) {
+    var rawBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, oldVal, Utilities.Charset.UTF_8);
+    var currentHash = '';
+    for (var b = 0; b < rawBytes.length; b++) {
+      var byteVal = rawBytes[b];
+      if (byteVal < 0) byteVal += 256;
+      var hex = byteVal.toString(16);
+      if (hex.length === 1) hex = '0' + hex;
+      currentHash += hex;
+    }
+    if (currentHash.toLowerCase() !== String(payload.expectedCurrentCellStateHash).toLowerCase()) {
+      return errorResponse_('Optimistic concurrency failed: current cell state hash changed after dry-run.', 'OCC_CONFLICT', 409, requestId);
+    }
+  }
+
   var childName = sheet.getRange(foundRow, 9).getValue() || '';
   var childFolder = getOrCreateChildFolder_(childName, targetId);
 
-  var oldVal = sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue();
   var cellFormula = processDocumentUpload_(fileData, childFolder, docPrefix, targetId, oldVal);
 
   // Write ONLY the document cell and last updated - never append new rows
@@ -1484,6 +1532,7 @@ function handleUpdateAsset_(payload, requestId) {
       submissionId: targetId,
       uniqueId: targetId,
       docType: docPrefix,
+      resolvedRow: foundRow,
       rowNumber: foundRow,
       columnNumber: targetCol,
       cellFormula: cellFormula,
