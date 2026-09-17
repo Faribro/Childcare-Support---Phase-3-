@@ -47,6 +47,20 @@ export async function POST(
       );
     }
 
+    if (expectedVersion === undefined || expectedVersion === null || typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return NextResponse.json(
+        { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing or invalid required field: expectedVersion (must be positive integer)' },
+        { status: 400 }
+      );
+    }
+
+    if (!expectedCurrentCellStateHash || typeof expectedCurrentCellStateHash !== 'string' || !/^[a-fA-F0-9]{64}$/.test(expectedCurrentCellStateHash.trim())) {
+      return NextResponse.json(
+        { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing or invalid required field: expectedCurrentCellStateHash (must be 64-character hex SHA-256 hash)' },
+        { status: 400 }
+      );
+    }
+
     const result = await canonicalSubmissionAdapter.updateAsset({
       submissionId,
       docType,
@@ -57,15 +71,15 @@ export async function POST(
       requestId,
     });
 
-    if (result.status === 'error') {
+    if (result.status === 'error' || result.status === 'conflict') {
       return NextResponse.json(
         {
-          status: 'error',
-          code: result.code || 'UPSTREAM_FAILURE',
+          status: result.status,
+          code: result.code || (result.status === 'conflict' ? 'OCC_CONFLICT' : 'UPSTREAM_FAILURE'),
           message: result.message || 'Failed to update asset',
           requestId,
         },
-        { status: result.statusCode || 500 }
+        { status: result.statusCode || (result.status === 'conflict' ? 409 : 500) }
       );
     }
 
