@@ -22,8 +22,8 @@ import crypto from 'crypto';
 import { canonicalSubmissionAdapter } from '../src/lib/server/canonicalSubmissionAdapter';
 import { MockSheetStore } from '../src/lib/server/mockSheetStore';
 
-const TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';
-const TARGET_GID = '1462106769';
+const TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
+const TARGET_GID = '0';
 const DEFAULT_BUSINESS_ID = 'DL-SOU-141540-01';
 
 export const SCHEMA_DOC_COLUMNS: Record<string, { colIndex: number; colLetter: string; name: string; prefix: string }> = {
@@ -221,7 +221,7 @@ export async function resolveRecordRow(targetId: string, docType: string): Promi
     try {
       // Try 2a: Direct single-record lookup
       const singleRes = await fetch(`${remoteApiBase}/api/submissions/${encodeURIComponent(cleanId)}`, {
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(25000),
         headers: { 'Cache-Control': 'no-cache' },
       });
       if (singleRes.status === 200) {
@@ -255,7 +255,7 @@ export async function resolveRecordRow(targetId: string, docType: string): Promi
 
       // Try 2b: List query fallback
       const apiRes = await fetch(`${remoteApiBase}/api/submissions?limit=100`, {
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(25000),
         headers: { 'Cache-Control': 'no-cache' },
       });
       if (apiRes.status === 200) {

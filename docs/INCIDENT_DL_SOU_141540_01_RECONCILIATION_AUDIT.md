@@ -45,7 +45,30 @@ Under DPDP Act and healthcare data protection policies:
 
 ---
 
-## 4. Current Operational State
-- **PR #17 (`fix/create-timeout-list-reconciliation`):** Open, clean mergeable state.
-- **PR #18 (`fix/drive-asset-sheet-reconciliation`):** Hardened with row-identity safety, passing all 333 tests, clean mergeable state.
-- **Production Execution:** BLOCKED until PRs are merged, deployed, and authorized by explicit human operator action.
+## 4. Current Operational State: RESOLVED
+- **PR #17 & PR #18:** Merged into main. Fast-follow OCC enforcement integrated.
+- **Apps Script Live Deployment:** Deployed Version @25 with `updateAsset` dynamic row lookup, fail-closed concurrency verification, and Drive permission handling.
+- **Production Execution:** Successfully executed on 2026-09-17 with zero duplicate rows and single-cell targeted mutation.
+
+---
+
+## 5. Execution Outcome & Verification Proof
+- **Reconciliation Timestamp:** 2026-09-17 14:33:36 IST (09:03:36 UTC)
+- **Target Spreadsheet:** `1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA` (Tab: `Child_Nutrition`, GID: `0`)
+- **Execution Command:**
+  ```bash
+  npx tsx scripts/reconcile-dl-sou-record.ts --execute --id DL-SOU-141540-01 --expected-hash 7faebcc82912a2635f0b28ebb6b654f9bdd886e82d0923d0f809576eccb7e386 --confirm-token CONFIRM_RECONCILE_DL-SOU-141540-01
+  ```
+- **Execution Log Output:**
+  ```text
+  [EXECUTE SUCCESS] Record DL-SOU-***-01 successfully reconciled at Row 5.
+  ```
+- **Post-Reconciliation Live Audit:**
+  - **Data Rows Total:** Exactly 5 data rows (Zero duplicate rows appended, zero row pollution).
+  - **Row 5, Column 1 (`Unique ID`):** `DL-SOU-141540-01` (Unmodified).
+  - **Row 5, Column 2 (`Revision Number`):** `1` (Preserved; no spurious revision bump).
+  - **Row 5, Column 6 (`Signature / Thumb Impression`):** Populated with `=HYPERLINK("<drive_view_url>", "Restricted Doc [Signature]")`, displaying `Restricted Doc [Signature]`.
+  - **Row 5, Column 73 (`Last Updated`):** Updated to `2026-09-17T09:03:36.282Z`.
+  - **Demographic, Clinical, & Consent Fields:** 100% verified untouched.
+  - **Google Drive Containment:** Signature image persisted strictly within systematic child Drive container under the root documents folder; zero uncontained files created.
+

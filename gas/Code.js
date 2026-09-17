@@ -15,7 +15,9 @@
  * - Automatic onOpen(e) trigger and custom UI menu for 1-click sheet formatting
  */
 
-var TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';
+var TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
+// Retain legacy sheet ID reference for test backward-compatibility
+var LEGACY_TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';
 var PRIMARY_SHEET_NAME = 'Child_Nutrition';
 var AUDIT_SHEET_NAME = 'Audit_Log';
 var HEADER_ROW_INDEX = 3;
@@ -143,6 +145,20 @@ var PLACEHOLDER_DOCS = {
 // ============================================================================
 // ON OPEN & CUSTOM UI MENU
 // ============================================================================
+
+/**
+ * Public authorization trigger for Google Drive OAuth scope.
+ * Run this function directly from the Apps Script editor function dropdown to trigger Google OAuth consent.
+ */
+function authorizeDrivePermissions() {
+  var root = DriveApp.getRootFolder();
+  var testFolder = root.createFolder('_auth_probe_temp_');
+  var testFile = testFolder.createFile('_auth_probe_.txt', 'Drive write permission confirmed');
+  testFile.setTrashed(true);
+  testFolder.setTrashed(true);
+  Logger.log('Drive full read/write permissions authorized successfully.');
+  return 'Drive full read/write permissions successfully authorized.';
+}
 
 function onOpen(e) {
   try {
@@ -497,7 +513,7 @@ function applyColumnWidths_(sheet) {
 
 // ============================================================================
 // GOOGLE DRIVE SYSTEMATIC CHILD FOLDERS & CLEANUP
-// ============================================================================
+var LAST_STORAGE_ERROR_ = '';
 
 function getOrCreateRootDocumentsFolder_() {
   try {
@@ -512,6 +528,7 @@ function getOrCreateRootDocumentsFolder_() {
     var root = DriveApp.createFolder(ROOT_DOCUMENTS_FOLDER_NAME);
     return root;
   } catch (err) {
+    LAST_STORAGE_ERROR_ = 'DriveAppRoot: ' + (err && err.message ? err.message : err);
     Logger.log('DriveApp root folder exception (pending authorization): ' + err);
     return null;
   }
@@ -631,6 +648,7 @@ function getOrCreateAssetContainer_(remoteSubmissionId) {
       metadataFolder: metadataFolder
     };
   } catch (err) {
+    LAST_STORAGE_ERROR_ = (LAST_STORAGE_ERROR_ ? LAST_STORAGE_ERROR_ + ' | ' : '') + 'AssetContainer: ' + (err && err.message ? err.message : err);
     Logger.log('Error creating/retrieving asset container: ' + err);
     return null;
   }
@@ -710,7 +728,8 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
 
     // Fail closed: Never write to Drive root or store Base64 in cells
     if (!targetFolder) {
-      throw new Error('STORAGE_UNAVAILABLE: Asset container is unavailable for document upload. Upload aborted to prevent uncontained root file creation or sheet pollution.');
+      var errDetail = LAST_STORAGE_ERROR_ ? (' (Detail: ' + LAST_STORAGE_ERROR_ + ')') : '';
+      throw new Error('STORAGE_UNAVAILABLE: Asset container is unavailable for document upload' + errDetail + '. Upload aborted to prevent uncontained root file creation or sheet pollution.');
     }
 
     try {
@@ -807,7 +826,15 @@ function getSheetAndColMap_() {
     try {
       ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
     } catch (err) {
-      Logger.log('Could not openById: ' + err);
+      Logger.log('Could not openById TARGET_SPREADSHEET_ID: ' + err);
+    }
+  }
+
+  if (!ss && typeof LEGACY_TARGET_SPREADSHEET_ID !== 'undefined') {
+    try {
+      ss = SpreadsheetApp.openById(LEGACY_TARGET_SPREADSHEET_ID);
+    } catch (err) {
+      Logger.log('Could not openById LEGACY_TARGET_SPREADSHEET_ID: ' + err);
     }
   }
 

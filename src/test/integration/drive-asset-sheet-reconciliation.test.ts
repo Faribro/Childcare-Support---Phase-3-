@@ -503,7 +503,8 @@ describe('PR 2: Drive Asset & Sheet Reconciliation Integration Suite', () => {
     });
 
     it('verifies target spreadsheet ID is updated to production sheet', () => {
-      expect(gasCode).toContain("var TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';");
+      expect(gasCode).toContain("var TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';");
+      expect(gasCode).toContain("var LEGACY_TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';");
     });
 
     it('verifies updateAsset action is routed in doPost', () => {

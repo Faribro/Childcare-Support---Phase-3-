@@ -1166,10 +1166,12 @@ export function navigateToValidationError(
       return false;
     }
 
-    target.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    });
+    if (typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
 
     focusValidationTarget(target);
     return true;
