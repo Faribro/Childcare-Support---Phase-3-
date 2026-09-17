@@ -66,6 +66,8 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
               total = json.pagination.totalCount;
             } else if (json.total !== undefined) {
               total = json.total;
+            } else if (json.count !== undefined) {
+              total = json.count;
             }
           }
         } catch (_) {}

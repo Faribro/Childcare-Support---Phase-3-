@@ -825,6 +825,25 @@ class CanonicalSubmissionAdapterService {
         const gasData = await res.json().catch(() => ({}));
         if (!res.ok || gasData.status === 'error') {
           const upstreamCode = extractUpstreamStatusCode(res, gasData);
+          // Empty list or NOT_FOUND from central bridge is a valid empty collection (200), never 404
+          if (upstreamCode === 404 || gasData?.code === 'NOT_FOUND' || (gasData?.message && /not found/i.test(gasData.message))) {
+            return {
+              status: 'success',
+              statusCode: 200,
+              data: {
+                records: [],
+                total: 0,
+                nextCursor: null,
+                sourceUpdatedAt: new Date().toISOString(),
+              },
+              pagination: {
+                nextCursor: null,
+                hasMore: false,
+                totalCount: 0,
+              },
+            };
+          }
+
           // If upstream returns 400 (e.g. Unsupported action: list), that represents an
           // upstream bridge capability limitation (502), not an invalid client request from the PWA.
           const isUpstreamCapabilityIssue = upstreamCode === 400;
@@ -872,7 +891,7 @@ class CanonicalSubmissionAdapterService {
       }
     }
 
-    if (MockSheetStore.recordCount() === 0) {
+    if (MockSheetStore.recordCount() === 0 && !MockSheetStore.isExplicitlyCleared()) {
       MockSheetStore.seedDefaultRecords();
     }
     const mockResult = MockSheetStore.listRecords(params);

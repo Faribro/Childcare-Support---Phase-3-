@@ -129,6 +129,8 @@ function simulateDriveUrl(val?: string, assetName: string = 'asset'): string {
 }
 
 
+let explicitlyCleared = false;
+
 export const MockSheetStore = {
   /**
    * Reset store (useful between isolated tests)
@@ -166,10 +168,15 @@ export const MockSheetStore = {
     idempotencyMap.clear();
     auditLogsByRemoteId.clear();
     driveFailureSimulation = false;
+    explicitlyCleared = true;
   },
 
   resetStore() {
     this.reset();
+  },
+
+  isExplicitlyCleared(): boolean {
+    return explicitlyCleared;
   },
 
   /**
@@ -668,8 +675,10 @@ export const MockSheetStore = {
 
     let startIndex = 0;
     if (options.cursor) {
-      const idx = filtered.findIndex((r) => r.remote_submission_id === options.cursor || r.updated_at <= options.cursor!);
-      if (idx !== -1) startIndex = idx;
+      const idx = filtered.findIndex((r) => r.remote_submission_id === options.cursor || r._uuid === options.cursor);
+      if (idx !== -1) {
+        startIndex = idx + 1;
+      }
     }
 
     const slice = filtered.slice(startIndex, startIndex + limit);
@@ -941,6 +950,7 @@ export const MockSheetStore = {
    * Seed 5 diverse realistic synthetic records conforming to the 73-column schema
    */
   seedDefaultRecords() {
+    explicitlyCleared = false;
     if (recordsByRemoteId.size > 0) return;
 
     const baseRecords = [

@@ -153,6 +153,55 @@ async function handleCreate(
   correlationId: string,
   startMs: number
 ): Promise<void> {
+  // 1. Guard against blind retries: Check if server already processed this submission
+  const isRetry =
+    item.status === 'failed' ||
+    item.status === 'failed_retryable' ||
+    item.errorCategory === 'timeout_unknown_outcome' ||
+    item.errorCategory === 'timeout' ||
+    Boolean(item.retryCount && item.retryCount > 0 && item.status !== 'queued');
+
+  if (isRetry) {
+    const existing = await lookupByClientSubmissionId(clientSubmissionId, correlationId);
+    if (existing) {
+      const ack = {
+        remoteSubmissionId: existing.remoteSubmissionId,
+        clientSubmissionId,
+        version: existing.version,
+        requestId: correlationId,
+        isDuplicate: true,
+        submissionStatus: 'ACCEPTED' as const,
+      };
+
+      await markSubmitted(item.id!, submissionUuid, ack);
+
+      submissionEvents.emit('submission:success', {
+        clientSubmissionId,
+        remoteSubmissionId: existing.remoteSubmissionId,
+        version: existing.version,
+        requestId: correlationId,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      });
+
+      logDiagnostic({
+        timestamp: new Date().toISOString(),
+        operation: 'CREATE',
+        clientSubmissionId,
+        correlationId,
+        remoteSubmissionId: existing.remoteSubmissionId,
+        stateBefore: String(item.status),
+        stateAfter: 'synced',
+        statusCode: 200,
+        adapterAction: 'reconcile_pre_create',
+        retryCount: item.retryCount,
+        elapsedMs: Date.now() - startMs,
+      });
+
+      return;
+    }
+  }
+
   const payload = item.payload as any;
   const createIdempotencyKey: CreateIdempotencyKey =
     item.idempotencyKey || `create-${clientSubmissionId}`;
@@ -201,6 +250,48 @@ async function handleCreate(
 
   // Failure handling
   const error = result.error;
+
+  // 2. On timeout / unknown outcome, immediately check if server write actually completed
+  if (error.category === 'timeout_unknown_outcome' || error.category === 'timeout') {
+    const reconciled = await lookupByClientSubmissionId(clientSubmissionId, correlationId);
+    if (reconciled) {
+      const ack = {
+        remoteSubmissionId: reconciled.remoteSubmissionId,
+        clientSubmissionId,
+        version: reconciled.version,
+        requestId: correlationId,
+        isDuplicate: true,
+        submissionStatus: 'ACCEPTED' as const,
+      };
+
+      await markSubmitted(item.id!, submissionUuid, ack);
+
+      submissionEvents.emit('submission:success', {
+        clientSubmissionId,
+        remoteSubmissionId: reconciled.remoteSubmissionId,
+        version: reconciled.version,
+        requestId: correlationId,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      });
+
+      logDiagnostic({
+        timestamp: new Date().toISOString(),
+        operation: 'CREATE',
+        clientSubmissionId,
+        correlationId,
+        remoteSubmissionId: reconciled.remoteSubmissionId,
+        stateBefore: String(item.status),
+        stateAfter: 'synced',
+        statusCode: 200,
+        adapterAction: 'reconcile_post_timeout',
+        retryCount: item.retryCount,
+        elapsedMs: Date.now() - startMs,
+      });
+
+      return;
+    }
+  }
 
   logDiagnostic({
     timestamp: new Date().toISOString(),
