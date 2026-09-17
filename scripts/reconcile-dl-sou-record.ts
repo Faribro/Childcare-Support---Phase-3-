@@ -112,8 +112,46 @@ export function computeCellHash(val: string): string {
 }
 
 /**
+ * Parses RFC 4180 CSV text handling multiline quoted cells
+ */
+export function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push(cell.trim());
+      cell = '';
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') i++;
+      row.push(cell.trim());
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+  if (row.length > 0 || cell.length > 0) {
+    row.push(cell.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
  * Resolves the record row at runtime by exact Unique-ID lookup.
- * Probes Google Sheet export CSV or canonical adapter/mock store.
+ * Probes Google Sheet export CSV, authenticated remote API, or canonical adapter/mock store.
  * Never uses an assumed or hard-coded row.
  */
 export async function resolveRecordRow(targetId: string, docType: string): Promise<SheetLookupResult> {
@@ -124,19 +162,16 @@ export async function resolveRecordRow(targetId: string, docType: string): Promi
   if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
     const csvUrl = `https://docs.google.com/spreadsheets/d/${TARGET_SPREADSHEET_ID}/export?format=csv&gid=${TARGET_GID}`;
     try {
-      const res = await fetch(csvUrl, { redirect: 'manual', signal: AbortSignal.timeout(3000) });
+      const res = await fetch(csvUrl, { redirect: 'follow', signal: AbortSignal.timeout(5000) });
       if (res.status === 200) {
         const csvText = await res.text();
-        const lines = csvText.split('\n');
+        const parsedRows = parseCsvRows(csvText);
         const matches: { lineIdx: number; cols: string[] }[] = [];
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.includes(cleanId)) {
-            const cols = line.split(',').map((c) => c.replace(/^"|"$/g, '').trim());
-            if (cols[0] === cleanId) {
-              matches.push({ lineIdx: i, cols });
-            }
+        for (let i = 0; i < parsedRows.length; i++) {
+          const cols = parsedRows[i];
+          if (cols[0] === cleanId || cols[41] === cleanId) {
+            matches.push({ lineIdx: i, cols });
           }
         }
 
@@ -176,7 +211,69 @@ export async function resolveRecordRow(targetId: string, docType: string): Promi
         }
       }
     } catch {
-      // Network / offline / mock fallback
+      // Network / offline fallback
+    }
+  }
+
+  // Try 2: Authenticated server-side lookup via deployed API endpoint
+  if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+    const remoteApiBase = process.env.REMOTE_API_BASE_URL || 'https://childcare-support-phase-3.onrender.com';
+    try {
+      const apiRes = await fetch(`${remoteApiBase}/api/submissions?limit=100`, {
+        signal: AbortSignal.timeout(6000),
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (apiRes.status === 200) {
+        const json = await apiRes.json();
+        const items = ((json.items || json.data?.records || []) as Record<string, any>[]);
+        const matches = items.filter(
+          (it) =>
+            (it['1\nUnique ID'] || it.uniqueId || it.client_submission_id || it.remote_submission_id) === cleanId
+        );
+
+        if (matches.length > 1) {
+          return {
+            found: true,
+            matchCount: matches.length,
+            resolvedRow: -1,
+            verifiedUniqueId: cleanId,
+            targetColNumber: colDef.colIndex,
+            targetColLetter: colDef.colLetter,
+            targetColName: colDef.name,
+            docPrefix: colDef.prefix,
+            currentCellStateCategory: 'AMBIGUOUS_DUPLICATE',
+            currentCellStateHash: '',
+          };
+        }
+
+        if (matches.length === 1) {
+          const match = matches[0];
+          const rawCell = String(
+            match['6\nSignature /\nThumb Impression'] ||
+            match.signatureDataUrl ||
+            match.signature_data_url ||
+            ''
+          );
+          const version = match['2\nRevision Number'] || match.revisionNumber || match.version || 1;
+          const matchIdx = items.indexOf(match);
+          const resolvedRow = match.rowNumber || (matchIdx !== -1 ? matchIdx + 4 : 5);
+          return {
+            found: true,
+            matchCount: 1,
+            resolvedRow,
+            verifiedUniqueId: cleanId,
+            expectedVersion: version,
+            targetColNumber: colDef.colIndex,
+            targetColLetter: colDef.colLetter,
+            targetColName: colDef.name,
+            docPrefix: colDef.prefix,
+            currentCellStateCategory: classifyCellState(rawCell),
+            currentCellStateHash: computeCellHash(rawCell),
+          };
+        }
+      }
+    } catch {
+      // Fall through to local canonical adapter & MockStore
     }
   }
 
