@@ -219,13 +219,48 @@ export async function resolveRecordRow(targetId: string, docType: string): Promi
   if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
     const remoteApiBase = process.env.REMOTE_API_BASE_URL || 'https://childcare-support-phase-3.onrender.com';
     try {
+      // Try 2a: Direct single-record lookup
+      const singleRes = await fetch(`${remoteApiBase}/api/submissions/${encodeURIComponent(cleanId)}`, {
+        signal: AbortSignal.timeout(6000),
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (singleRes.status === 200) {
+        const singleJson = await singleRes.json();
+        const match = singleJson.data || singleJson;
+        const matchId = match['1\nUnique ID'] || match.uniqueId || match.client_submission_id || match.remote_submission_id || match.remoteSubmissionId;
+        if (matchId === cleanId) {
+          const rawCell = String(
+            match['6\nSignature /\nThumb Impression'] ||
+            match.signatureDataUrl ||
+            match.signature_data_url ||
+            ''
+          );
+          const version = match['2\nRevision Number'] || match.revisionNumber || match.version || 1;
+          const resolvedRow = match.rowNumber || match.resolvedRow || 5;
+          return {
+            found: true,
+            matchCount: 1,
+            resolvedRow,
+            verifiedUniqueId: cleanId,
+            expectedVersion: version,
+            targetColNumber: colDef.colIndex,
+            targetColLetter: colDef.colLetter,
+            targetColName: colDef.name,
+            docPrefix: colDef.prefix,
+            currentCellStateCategory: classifyCellState(rawCell),
+            currentCellStateHash: computeCellHash(rawCell),
+          };
+        }
+      }
+
+      // Try 2b: List query fallback
       const apiRes = await fetch(`${remoteApiBase}/api/submissions?limit=100`, {
         signal: AbortSignal.timeout(6000),
         headers: { 'Cache-Control': 'no-cache' },
       });
       if (apiRes.status === 200) {
         const json = await apiRes.json();
-        const items = ((json.items || json.data?.records || []) as Record<string, any>[]);
+        const items = ((json.submissions || json.items || json.data?.records || []) as Record<string, any>[]);
         const matches = items.filter(
           (it) =>
             (it['1\nUnique ID'] || it.uniqueId || it.client_submission_id || it.remote_submission_id) === cleanId
