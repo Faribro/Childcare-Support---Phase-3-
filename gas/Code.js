@@ -15,7 +15,7 @@
  * - Automatic onOpen(e) trigger and custom UI menu for 1-click sheet formatting
  */
 
-var TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
+var TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';
 var PRIMARY_SHEET_NAME = 'Child_Nutrition';
 var AUDIT_SHEET_NAME = 'Audit_Log';
 var HEADER_ROW_INDEX = 3;
@@ -300,6 +300,10 @@ function doPost(e) {
 
     if (action === 'update') {
       return handleUpdate_(payload);
+    }
+
+    if (action === 'updateAsset') {
+      return handleUpdateAsset_(payload, requestId);
     }
 
     if (action === 'read') {
@@ -725,6 +729,15 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
       var slotFileName = getStandardSlotFilename_(docPrefix);
       var blob = Utilities.newBlob(decodedBytes, mimeType, slotFileName);
 
+      // Check if file already exists in targetFolder to prevent duplicates
+      var existingFiles = targetFolder.getFilesByName(slotFileName);
+      if (existingFiles.hasNext()) {
+        var existingFile = existingFiles.next();
+        var existingFileId = existingFile.getId();
+        var existingViewUrl = 'https://drive.google.com/file/d/' + existingFileId + '/view';
+        return '=HYPERLINK("' + existingViewUrl + '", "Restricted Doc [' + docPrefix + ']")';
+      }
+
       var newFile = targetFolder.createFile(blob);
       if (!newFile || !newFile.getId() || newFile.getSize() <= 0) {
         throw new Error('STORAGE_UNAVAILABLE: Uploaded file failed verification (zero bytes or invalid ID).');
@@ -743,7 +756,7 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
   var driveId = extractDriveId_(val);
   if (driveId) {
     var restrictedViewUrl = 'https://drive.google.com/file/d/' + driveId + '/view';
-    return '=HYPERLINK("' + restrictedViewUrl + '", "Restricted Document")';
+    return '=HYPERLINK("' + restrictedViewUrl + '", "Restricted Doc [' + docPrefix + ']")';
   }
 
   // Handle standard web image URL - sanitize to avoid embedding public URLs
@@ -753,6 +766,11 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
 
   if (val.indexOf('=HYPERLINK(') === 0 || val.indexOf('=IMAGE(') === 0) {
     return val;
+  }
+
+  if (val.indexOf('data:') === 0 || val.indexOf(';base64,') !== -1) {
+    // Uncontained or unprocessable base64 data URL: NEVER store in sheet cell!
+    return '[Document Pending Drive Upload]';
   }
 
   return val;
@@ -922,10 +940,15 @@ function handleCreate_(payload) {
         var rowIndex = 4 + r;
         var existingRow = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getValues()[0];
         var currentRev = parseInt(existingRow[1], 10) || 1;
+        var existingSig = String(existingRow[5] || '');
+        var existingAssetStatus = (existingSig.indexOf('=HYPERLINK') !== -1) ? 'UPLOADED' :
+                                  (existingSig === '[Document Pending Drive Upload]' ? 'FAILED_RETRYABLE' : 'PENDING');
         return ContentService.createTextOutput(
           JSON.stringify({
             status: 'success',
             acknowledged: true,
+            submissionStatus: 'ACCEPTED',
+            assetStatus: existingAssetStatus,
             remoteSubmissionId: String(existingRow[0]),
             clientSubmissionId: uniqueId,
             uniqueId: String(existingRow[0]),
@@ -945,6 +968,33 @@ function handleCreate_(payload) {
   // Get or create dedicated child folder in Drive: "<ChildName> - <UniqueID>"
   var childFolder = getOrCreateChildFolder_(childName, uniqueId);
 
+  // Helper for safe document upload during CREATE:
+  // Catches Drive errors fail-safe, prevents whole CREATE from aborting or timing out.
+  var assetStatus = 'NOT_REQUIRED';
+  var assetSummary = {};
+
+  function safeProcessDoc_(inputVal, docPrefix) {
+    if (!inputVal) return 'Not Submitted';
+    try {
+      var res = processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId);
+      if (res === '[Document Pending Drive Upload]') {
+        assetStatus = 'FAILED_RETRYABLE';
+        assetSummary[docPrefix.toLowerCase()] = 'FAILED_RETRYABLE';
+      } else {
+        assetSummary[docPrefix.toLowerCase()] = 'UPLOADED';
+        if (assetStatus !== 'FAILED_RETRYABLE') {
+          assetStatus = 'UPLOADED';
+        }
+      }
+      return res;
+    } catch (err) {
+      Logger.log(docPrefix + ' upload exception: ' + err);
+      assetStatus = 'FAILED_RETRYABLE';
+      assetSummary[docPrefix.toLowerCase()] = 'FAILED_RETRYABLE';
+      return '[Document Pending Drive Upload]';
+    }
+  }
+
   // Build the 73-value array matching COLUMN_HEADERS 1-to-1
   var row = new Array(COLUMN_HEADERS.length);
 
@@ -960,7 +1010,13 @@ function handleCreate_(payload) {
                (payload.caregiverConsent && payload.caregiverConsent.signatureDataUrl) ||
                payload.signatureUrl || (payload.caregiverConsent && payload.caregiverConsent.signatureUrl) ||
                payload.signatureStatus || '';
-  row[5] = sigVal ? processDocumentUpload_(sigVal, childFolder, 'Signature', uniqueId) : 'CAPTURED_LOCAL';
+  if (sigVal && sigVal !== 'CAPTURED_LOCAL' && sigVal !== 'Not Submitted') {
+    row[5] = safeProcessDoc_(sigVal, 'Signature');
+  } else if (sigVal === 'CAPTURED_LOCAL') {
+    row[5] = 'CAPTURED_LOCAL';
+  } else {
+    row[5] = (row[4] === 'Yes') ? 'CAPTURED_LOCAL' : 'Not Submitted';
+  }
 
   row[6] = d.dateOfFilling || payload.visitDate || now.split('T')[0]; // 7 Visit Date
   row[7] = payload.interviewerName || f.formSubmittedBy || ''; // 8 Interviewer Name
@@ -982,9 +1038,9 @@ function handleCreate_(payload) {
   row[23] = b.childAadhaarNumber || d.childAadhaarNumber || payload.childAadhaarNumber || ''; // 24 Child Aadhaar Number
 
   // KYC Image Links (Cols 25, 26, 27) — In-cell embedded formulas
-  row[24] = processDocumentUpload_(b.passbookPhotoUrl || d.passbookPhotoUrl || payload.passbookFrontPageLink || payload.passbookPhotoUrl, childFolder, 'Passbook', uniqueId);
-  row[25] = processDocumentUpload_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, childFolder, 'Aadhaar', uniqueId);
-  row[26] = processDocumentUpload_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, childFolder, 'Child_Photo', uniqueId);
+  row[24] = safeProcessDoc_(b.passbookPhotoUrl || d.passbookPhotoUrl || payload.passbookFrontPageLink || payload.passbookPhotoUrl, 'Passbook');
+  row[25] = safeProcessDoc_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, 'Aadhaar');
+  row[26] = safeProcessDoc_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, 'Child_Photo');
 
   row[27] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || 4); // 28 Household Members
   row[28] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || 2); // 29 No of Children
@@ -1024,8 +1080,8 @@ function handleCreate_(payload) {
   row[62] = Number(exp.totalAnnualCost) || 0; // 63 Total Annual Education Cost
 
   // Education Photo Links (Cols 64, 65) — In-cell embedded formulas
-  row[63] = processDocumentUpload_(exp.feeReceiptPhotoUrl || e.feeReceiptPhotoUrl || payload.feeReceiptPhotoUrl || payload.schoolFeeReceiptLink, childFolder, 'Fee_Receipt', uniqueId);
-  row[64] = processDocumentUpload_(exp.marksheetPhotoUrl || e.marksheetPhotoUrl || payload.marksheetPhotoUrl || payload.marksheetPhotoLink, childFolder, 'Marksheet', uniqueId);
+  row[63] = safeProcessDoc_(exp.feeReceiptPhotoUrl || e.feeReceiptPhotoUrl || payload.feeReceiptPhotoUrl || payload.schoolFeeReceiptLink, 'Fee_Receipt');
+  row[64] = safeProcessDoc_(exp.marksheetPhotoUrl || e.marksheetPhotoUrl || payload.marksheetPhotoUrl || payload.marksheetPhotoLink, 'Marksheet');
 
   row[65] = exp.remarks || payload.remarks || ''; // 66 Remarks (If Any)
   row[66] = f.approvedAllianceIndia || payload.approvedAllianceIndia || 'Pending'; // 67 Approved Alliance India
@@ -1044,6 +1100,9 @@ function handleCreate_(payload) {
     JSON.stringify({
       status: 'success',
       acknowledged: true,
+      submissionStatus: 'ACCEPTED',
+      assetStatus: assetStatus,
+      assetOperationSummary: assetSummary,
       remoteSubmissionId: uniqueId,
       clientSubmissionId: uniqueId,
       uniqueId: uniqueId,
@@ -1331,6 +1390,155 @@ function handleUpdate_(payload) {
       rowNumber: foundRow,
       updatedAt: now,
       requestId: payload.requestId || ('req-' + Utilities.getUuid()),
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Updates a single document/signature asset cell in an existing row without
+ * creating a new row or bumping revision.
+ * 
+ * Safety Invariants:
+ * - Never accepts client-provided row numbers. Resolves row exclusively by exact Unique ID lookup.
+ * - Refuses execution fail-closed if 0 or >1 rows match.
+ * - Verifies expected revision/version if provided.
+ * - Verifies expectedCurrentCellStateHash optimistic concurrency check if provided.
+ * - Modifies ONLY the target document cell and Column 73 (Last Updated). Strictly never appends new rows.
+ */
+function handleUpdateAsset_(payload, requestId) {
+  var targetId = payload.submissionId || payload.uniqueId || payload.remoteSubmissionId || payload.uuid;
+  if (!targetId) {
+    return errorResponse_('Missing submissionId or uniqueId for updateAsset.', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var docType = payload.docType || payload.documentType;
+  if (!docType) {
+    return errorResponse_('Missing docType for updateAsset.', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var fileData = payload.fileData || payload.file || payload.dataUrl || payload.signatureDataUrl;
+  if (!fileData) {
+    return errorResponse_('Missing fileData for updateAsset.', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < 4) {
+    return errorResponse_('Record not found: Sheet has no data rows.', 'NOT_FOUND', 404, requestId);
+  }
+
+  // Row numbers are dynamic layout coordinates and MUST NEVER be accepted as production identity.
+  // We resolve the current row dynamically at execution time by exact Unique ID scan.
+  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+  var matchingRows = [];
+
+  for (var r = 0; r < ids.length; r++) {
+    var existingId = String(ids[r][0]).trim();
+    if (existingId === String(targetId).trim()) {
+      matchingRows.push(4 + r);
+    }
+  }
+
+  // Refuse execution fail-closed if zero rows match
+  if (matchingRows.length === 0) {
+    return errorResponse_('Record not found with ID: ' + targetId, 'NOT_FOUND', 404, requestId);
+  }
+
+  // Refuse execution fail-closed if multiple rows match (ambiguous duplicate conflict)
+  if (matchingRows.length > 1) {
+    return errorResponse_('Ambiguous match: multiple rows found with ID: ' + targetId + '. Execution refused.', 'CONFLICT', 409, requestId);
+  }
+
+  var foundRow = matchingRows[0];
+
+  // Verify resolved row's Unique ID equals requested ID
+  var verifiedId = String(sheet.getRange(foundRow, 1).getValue()).trim();
+  if (verifiedId !== String(targetId).trim()) {
+    return errorResponse_('Integrity check failed: resolved row Unique ID mismatch.', 'INTEGRITY_ERROR', 500, requestId);
+  }
+
+  // Verify expected revision/version if available
+  var expectedVersion = payload.expectedVersion || payload.expectedRevision;
+  if (expectedVersion !== undefined && expectedVersion !== null) {
+    var currentVersion = Number(sheet.getRange(foundRow, 2).getValue()) || 1;
+    if (currentVersion !== Number(expectedVersion)) {
+      return errorResponse_('Version mismatch: expected ' + expectedVersion + ' but sheet has ' + currentVersion, 'OCC_CONFLICT', 409, requestId);
+    }
+  }
+
+  // Determine target column by docType
+  var targetCol = -1;
+  var normalizedType = String(docType).toLowerCase();
+  var docPrefix = 'Document';
+
+  if (normalizedType.indexOf('sig') !== -1) {
+    targetCol = DOC_COLUMNS.SIGNATURE;
+    docPrefix = 'Signature';
+  } else if (normalizedType.indexOf('passbook') !== -1) {
+    targetCol = DOC_COLUMNS.PASSBOOK;
+    docPrefix = 'Passbook';
+  } else if (normalizedType.indexOf('aadhaar') !== -1 || normalizedType.indexOf('id') !== -1) {
+    targetCol = DOC_COLUMNS.AADHAAR;
+    docPrefix = 'Aadhaar';
+  } else if (normalizedType.indexOf('photo') !== -1) {
+    targetCol = DOC_COLUMNS.CHILD_PHOTO;
+    docPrefix = 'Child_Photo';
+  } else if (normalizedType.indexOf('fee') !== -1) {
+    targetCol = DOC_COLUMNS.FEE_RECEIPT;
+    docPrefix = 'Fee_Receipt';
+  } else if (normalizedType.indexOf('mark') !== -1) {
+    targetCol = DOC_COLUMNS.MARKSHEET;
+    docPrefix = 'Marksheet';
+  }
+
+  if (targetCol === -1) {
+    return errorResponse_('Unsupported docType: ' + docType, 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var oldVal = String(sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue() || '').trim();
+
+  // Optimistic concurrency check: verify current cell state hash if provided
+  if (payload.expectedCurrentCellStateHash) {
+    var rawBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, oldVal, Utilities.Charset.UTF_8);
+    var currentHash = '';
+    for (var b = 0; b < rawBytes.length; b++) {
+      var byteVal = rawBytes[b];
+      if (byteVal < 0) byteVal += 256;
+      var hex = byteVal.toString(16);
+      if (hex.length === 1) hex = '0' + hex;
+      currentHash += hex;
+    }
+    if (currentHash.toLowerCase() !== String(payload.expectedCurrentCellStateHash).toLowerCase()) {
+      return errorResponse_('Optimistic concurrency failed: current cell state hash changed after dry-run.', 'OCC_CONFLICT', 409, requestId);
+    }
+  }
+
+  var childName = sheet.getRange(foundRow, 9).getValue() || '';
+  var childFolder = getOrCreateChildFolder_(childName, targetId);
+
+  var cellFormula = processDocumentUpload_(fileData, childFolder, docPrefix, targetId, oldVal);
+
+  // Write ONLY the document cell and last updated - never append new rows
+  sheet.getRange(foundRow, targetCol).setValue(cellFormula);
+  var now = new Date().toISOString();
+  sheet.getRange(foundRow, 73).setValue(now);
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      acknowledged: true,
+      submissionId: targetId,
+      uniqueId: targetId,
+      docType: docPrefix,
+      resolvedRow: foundRow,
+      rowNumber: foundRow,
+      columnNumber: targetCol,
+      cellFormula: cellFormula,
+      assetStatus: 'UPLOADED',
+      updatedAt: now,
+      requestId: requestId || '',
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }

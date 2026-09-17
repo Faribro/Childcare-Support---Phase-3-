@@ -3,6 +3,7 @@
  * Implements the exact canonical Apps Script data contracts and OCC guarantees.
  */
 
+import crypto from 'crypto';
 import { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 import { calculateBMI, calculateGrantEntitlement, classifyNutritionStatus } from '@/lib/clinical/nutritionCalculations';
 import {
@@ -93,6 +94,9 @@ export interface SheetAuditEvent {
 export interface CreateRecordResult {
   status: string;
   acknowledged: boolean;
+  submissionStatus?: string;
+  assetStatus?: 'NOT_REQUIRED' | 'PENDING' | 'UPLOADED' | 'FAILED_RETRYABLE';
+  assetOperationSummary?: Record<string, string>;
   remoteSubmissionId: string;
   clientSubmissionId: string;
   version: number;
@@ -108,11 +112,18 @@ const recordsByUuid = new Map<string, StoredSheetRecord>();
 const idempotencyMap = new Map<string, { remoteId: string; response: CreateRecordResult }>();
 const auditLogsByRemoteId = new Map<string, SheetAuditEvent[]>();
 
+let driveFailureSimulation = false;
+
 function simulateDriveUrl(val?: string, assetName: string = 'asset'): string {
   if (!val) return '';
+  if (driveFailureSimulation) {
+    return '[Document Pending Drive Upload]';
+  }
+  if (val.startsWith('=HYPERLINK(') || val.startsWith('=IMAGE(')) return val;
   if (val.startsWith('http://') || val.startsWith('https://')) return val;
-  if (val.startsWith('data:')) {
-    return `https://drive.google.com/file/d/staging-drive-${assetName}-${Date.now().toString(36)}/view`;
+  if (val.startsWith('data:') || val.includes(';base64,')) {
+    const driveUrl = `https://drive.google.com/file/d/staging-drive-${assetName}-${Date.now().toString(36)}/view`;
+    return `=HYPERLINK("${driveUrl}", "Restricted Doc [${assetName}]")`;
   }
   return val;
 }
@@ -147,11 +158,16 @@ export const MockSheetStore = {
     return found;
   },
 
+  setDriveFailure(fail: boolean) {
+    driveFailureSimulation = fail;
+  },
+
   reset() {
     recordsByRemoteId.clear();
     recordsByUuid.clear();
     idempotencyMap.clear();
     auditLogsByRemoteId.clear();
+    driveFailureSimulation = false;
     explicitlyCleared = true;
   },
 
@@ -177,9 +193,14 @@ export const MockSheetStore = {
     const clientUuid = payload.uuid;
     const existing = recordsByUuid.get(clientUuid);
     if (existing) {
-      const response = {
+      const existingSig = String(existing.signature_data_url || existing.signatureDataUrl || '');
+      const existingAssetStatus = (existingSig.includes('=HYPERLINK')) ? 'UPLOADED' :
+                                  (existingSig === '[Document Pending Drive Upload]' ? 'FAILED_RETRYABLE' : 'PENDING');
+      const response: CreateRecordResult = {
         status: 'success',
         acknowledged: true,
+        submissionStatus: 'ACCEPTED',
+        assetStatus: existingAssetStatus,
         remoteSubmissionId: existing.remote_submission_id,
         clientSubmissionId: existing.client_submission_id,
         version: existing.version,
@@ -302,9 +323,27 @@ export const MockSheetStore = {
       },
     ]);
 
-    const result = {
+    const hasDocuments = Boolean(
+      payload.caregiverConsent?.signatureDataUrl ||
+      payload.consent?.signatureDataUrl ||
+      (payload as any).signatureDataUrl ||
+      payload.bankingAndKyc?.passbookPhotoUrl ||
+      payload.bankingAndKyc?.aadhaarCardPhotoUrl ||
+      payload.bankingAndKyc?.childPhotoUrl ||
+      payload.educationExpenses?.feeReceiptPhotoUrl ||
+      payload.educationExpenses?.marksheetPhotoUrl
+    );
+
+    let initialAssetStatus: 'NOT_REQUIRED' | 'PENDING' | 'UPLOADED' | 'FAILED_RETRYABLE' = 'NOT_REQUIRED';
+    if (hasDocuments) {
+      initialAssetStatus = driveFailureSimulation ? 'FAILED_RETRYABLE' : 'UPLOADED';
+    }
+
+    const result: CreateRecordResult = {
       status: 'success',
       acknowledged: true,
+      submissionStatus: 'ACCEPTED',
+      assetStatus: initialAssetStatus,
       remoteSubmissionId,
       clientSubmissionId: newRecord.client_submission_id,
       version: 1,
@@ -316,6 +355,294 @@ export const MockSheetStore = {
 
     idempotencyMap.set(idempotencyKey, { remoteId: remoteSubmissionId, response: result });
     return result;
+  },
+
+  /**
+   * Update a specific document/signature asset cell in an existing record without creating a new record
+   * 
+   * Strict Safety Invariants:
+   * 1. Resolves row by exact Unique ID lookup.
+   * 2. Refuses execution if 0 or >1 matches.
+   * 3. Verifies expectedVersion if provided.
+   * 4. Verifies expectedCurrentCellStateHash if provided.
+   * 5. Modifies only the asset cell and updated_at.
+   */
+  updateAsset(
+    id: string,
+    docType: string,
+    fileData: string,
+    requestId: string,
+    options?: {
+      expectedVersion?: number;
+      expectedCurrentCellStateHash?: string;
+    }
+  ) {
+    const allMatching = this.findAllMatching(id);
+    if (allMatching.length === 0) {
+      return { notFound: true, message: `Record not found with ID: ${id}` };
+    }
+    if (allMatching.length > 1) {
+      return {
+        conflict: true,
+        code: 'AMBIGUOUS_DUPLICATE_MATCH',
+        message: `Ambiguous match: multiple rows found with ID: ${id}. Execution refused.`,
+      };
+    }
+
+    const existing = allMatching[0];
+
+    // Verify expected revision/version if provided
+    if (options?.expectedVersion !== undefined && existing.version !== options.expectedVersion) {
+      return {
+        conflict: true,
+        code: 'OCC_CONFLICT',
+        message: `Version mismatch: expected ${options.expectedVersion} but found ${existing.version}`,
+      };
+    }
+
+    const normType = (docType || '').toLowerCase();
+    let prefix = 'Document';
+    const driveUrl = `https://drive.google.com/file/d/staging-drive-${normType}-${Date.now().toString(36)}/view`;
+
+    let currentVal = '';
+    if (normType.includes('sig')) {
+      prefix = 'Signature';
+      currentVal = existing.signature_data_url || existing.signatureDataUrl || '';
+    } else if (normType.includes('passbook')) {
+      prefix = 'Passbook';
+      currentVal = existing.passbook_photo_url || existing.passbookPhotoUrl || '';
+    } else if (normType.includes('aadhaar') || normType.includes('id')) {
+      prefix = 'Aadhaar';
+      currentVal = existing.aadhaar_card_photo_url || existing.aadhaarCardPhotoUrl || '';
+    } else if (normType.includes('photo')) {
+      prefix = 'Child_Photo';
+      currentVal = existing.child_photo_url || existing.childPhotoUrl || '';
+    } else if (normType.includes('fee')) {
+      prefix = 'Fee_Receipt';
+      currentVal = existing.fee_receipt_photo_url || existing.feeReceiptPhotoUrl || '';
+    } else if (normType.includes('mark')) {
+      prefix = 'Marksheet';
+      currentVal = existing.marksheet_photo_url || existing.marksheetPhotoUrl || '';
+    } else {
+      currentVal = existing.signature_data_url || existing.signatureDataUrl || '';
+    }
+
+    // Optimistic concurrency check: verify current cell state hash if provided
+    if (options?.expectedCurrentCellStateHash) {
+      const computedHash = crypto.createHash('sha256').update(currentVal.trim()).digest('hex');
+      if (computedHash.toLowerCase() !== options.expectedCurrentCellStateHash.toLowerCase()) {
+        return {
+          conflict: true,
+          code: 'OCC_CONFLICT',
+          message: 'Optimistic concurrency failed: current cell state hash changed after dry-run.',
+        };
+      }
+    }
+
+    const cellFormula = `=HYPERLINK("${driveUrl}", "Restricted Doc [${prefix}]")`;
+    if (prefix === 'Signature') {
+      existing.signature_data_url = cellFormula;
+      existing.signatureDataUrl = cellFormula;
+    } else if (prefix === 'Passbook') {
+      existing.passbook_photo_url = cellFormula;
+      existing.passbookPhotoUrl = cellFormula;
+    } else if (prefix === 'Aadhaar') {
+      existing.aadhaar_card_photo_url = cellFormula;
+      existing.aadhaarCardPhotoUrl = cellFormula;
+    } else if (prefix === 'Child_Photo') {
+      existing.child_photo_url = cellFormula;
+      existing.childPhotoUrl = cellFormula;
+    } else if (prefix === 'Fee_Receipt') {
+      existing.fee_receipt_photo_url = cellFormula;
+      existing.feeReceiptPhotoUrl = cellFormula;
+    } else if (prefix === 'Marksheet') {
+      existing.marksheet_photo_url = cellFormula;
+      existing.marksheetPhotoUrl = cellFormula;
+    } else {
+      existing.signature_data_url = cellFormula;
+      existing.signatureDataUrl = cellFormula;
+    }
+
+    const now = new Date().toISOString();
+    existing.updated_at = now;
+
+    const rowInfo = this.findRowIndex(id, prefix);
+
+    return {
+      status: 'success' as const,
+      acknowledged: true,
+      submissionId: id,
+      uniqueId: id,
+      docType: prefix,
+      cellFormula,
+      resolvedRow: rowInfo.rowIndex,
+      rowNumber: rowInfo.rowIndex,
+      assetStatus: 'UPLOADED' as const,
+      updatedAt: now,
+      record: existing,
+    };
+  },
+
+  /**
+   * Return all records matching a given business or UUID key
+   */
+  findAllMatching(id: string): StoredSheetRecord[] {
+    const cleanId = String(id).trim();
+    const all = Array.from(recordsByRemoteId.values());
+    return all.filter(
+      (r) =>
+        r.remote_submission_id === cleanId ||
+        r._uuid === cleanId ||
+        r.client_submission_id === cleanId ||
+        r.art_number === cleanId
+    );
+  },
+
+  /**
+   * Dynamically resolves the 1-based sheet row index for an ID at runtime
+   */
+  findRowIndex(id: string, docType = 'Signature'): {
+    rowIndex: number;
+    record?: StoredSheetRecord;
+    matchCount: number;
+    currentCellVal: string;
+    cellHash: string;
+    cellStateCategory: string;
+  } {
+    const cleanId = String(id).trim();
+    const all = Array.from(recordsByRemoteId.values());
+    const matches: { idx: number; record: StoredSheetRecord }[] = [];
+    all.forEach((rec, idx) => {
+      if (
+        rec.remote_submission_id === cleanId ||
+        rec._uuid === cleanId ||
+        rec.client_submission_id === cleanId ||
+        rec.art_number === cleanId
+      ) {
+        matches.push({ idx, record: rec });
+      }
+    });
+
+    if (matches.length === 0) {
+      return {
+        rowIndex: -1,
+        matchCount: 0,
+        currentCellVal: '',
+        cellHash: '',
+        cellStateCategory: 'NOT_FOUND',
+      };
+    }
+
+    const first = matches[0];
+    // In Sheet, headers occupy Rows 1, 2, 3. Data rows start at Row 4.
+    const resolvedRow = 4 + first.idx;
+
+    const normType = docType.toLowerCase();
+    let currentVal = '';
+    if (normType.includes('sig')) {
+      currentVal = first.record.signature_data_url || first.record.signatureDataUrl || '';
+    } else if (normType.includes('passbook')) {
+      currentVal = first.record.passbook_photo_url || first.record.passbookPhotoUrl || '';
+    } else if (normType.includes('aadhaar') || normType.includes('id')) {
+      currentVal = first.record.aadhaar_card_photo_url || first.record.aadhaarCardPhotoUrl || '';
+    } else if (normType.includes('photo')) {
+      currentVal = first.record.child_photo_url || first.record.childPhotoUrl || '';
+    } else if (normType.includes('fee')) {
+      currentVal = first.record.fee_receipt_photo_url || first.record.feeReceiptPhotoUrl || '';
+    } else if (normType.includes('mark')) {
+      currentVal = first.record.marksheet_photo_url || first.record.marksheetPhotoUrl || '';
+    } else {
+      currentVal = first.record.signature_data_url || first.record.signatureDataUrl || '';
+    }
+
+    const cellHash = crypto.createHash('sha256').update(currentVal.trim()).digest('hex');
+    let cellStateCategory = 'EMPTY';
+    if (!currentVal) cellStateCategory = 'EMPTY';
+    else if (currentVal === 'Not Submitted') cellStateCategory = 'NOT_SUBMITTED';
+    else if (currentVal === 'CAPTURED_LOCAL') cellStateCategory = 'CAPTURED_LOCAL';
+    else if (currentVal.includes('[Document Pending Drive Upload]')) cellStateCategory = 'PENDING_DRIVE_UPLOAD';
+    else if (currentVal.startsWith('=HYPERLINK')) cellStateCategory = 'HYPERLINK_FORMULA';
+    else if (currentVal.startsWith('data:')) cellStateCategory = 'RAW_DATA_URL_MARKER';
+    else cellStateCategory = 'OTHER_TEXT';
+
+    return {
+      rowIndex: resolvedRow,
+      record: first.record,
+      matchCount: matches.length,
+      currentCellVal: currentVal,
+      cellHash,
+      cellStateCategory,
+    };
+  },
+
+  /**
+   * Prepend dummy records to simulate row shifting / reordering
+   */
+  prependDummyRecords(count: number, prefix = 'DUMMY') {
+    const existing = Array.from(recordsByRemoteId.entries());
+    recordsByRemoteId.clear();
+    for (let i = 0; i < count; i++) {
+      const dummyId = `${prefix}-${i + 1}`;
+      const dummyRec: StoredSheetRecord = {
+        _uuid: dummyId,
+        client_submission_id: dummyId,
+        remote_submission_id: dummyId,
+        version: 1,
+        idempotency_key: `dummy-key-${i}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        interviewer_name: 'Dummy Worker',
+        art_number: dummyId,
+        child_name: `Dummy Child ${i + 1}`,
+        dob: '2018-01-01',
+        calculated_age: 6,
+        gender: 'Male',
+        caregiver_name: 'Dummy Caregiver',
+        caregiver_relationship: 'Parent',
+        caregiverPhone: '9000000000',
+        district: 'South Delhi',
+        orphan_status: 'Both parents alive',
+        primary_caregiver_occupation: 'Worker',
+        monthly_household_income: 10000,
+        ration_card_type: 'BPL',
+        number_of_siblings: 1,
+        height_cm: 110,
+        weight_kg: 18,
+        bilateral_pitting_oedema: false,
+        bmi: 14.8,
+        bmi_z_score: -0.5,
+        nutrition_status: 'Normal',
+        school_enrolled: true,
+        grant_recommended: false,
+        recommended_grant_amount: 0,
+        support_materials_needed: [],
+        account_holder_name: 'Dummy Holder',
+        bank_account_number: '1234567890',
+        ifsc_code: 'SBIN0001234',
+        bank_name: 'SBI',
+        branch_name: 'Delhi',
+        passbook_photo_captured: false,
+        caseworker_name: 'Worker',
+        declaration_date: '2026-09-01',
+        sync_state: 'SYNCED',
+      };
+      recordsByRemoteId.set(dummyId, dummyRec);
+      recordsByUuid.set(dummyId, dummyRec);
+    }
+    for (const [k, v] of existing) {
+      recordsByRemoteId.set(k, v);
+    }
+  },
+
+  /**
+   * Inject a duplicate record for testing fail-closed ambiguous duplicate detection
+   */
+  injectDuplicateRecord(id: string) {
+    const existing = this.findRecord(id);
+    if (!existing) return;
+    const dupKey = `dup-${id}-${Date.now()}`;
+    const dupRec = { ...existing, _uuid: dupKey, remote_submission_id: dupKey, client_submission_id: id };
+    recordsByRemoteId.set(dupKey, dupRec);
   },
 
   /**
