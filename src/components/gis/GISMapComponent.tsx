@@ -3,11 +3,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import MapLibreMap from 'react-map-gl/maplibre';
 import { GeoJsonLayer, TextLayer, ColumnLayer } from '@deck.gl/layers';
-import { LightingEffect, AmbientLight, PointLight } from '@deck.gl/core';
+import { LightingEffect, AmbientLight, DirectionalLight } from '@deck.gl/core';
 import dynamic from 'next/dynamic';
 import { normalizeGeographicKey } from '@/lib/normalizeGeographicKey';
-import { feature } from 'topojson-client';
+import { feature, mesh } from 'topojson-client';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import {
+  MAP_BOUNDARY_STYLES,
+  MAP_LIGHTING_CONFIG,
+  MAP_FILL_PALETTES,
+} from '@/lib/gis/mapStyles';
 
 const DeckGL = dynamic(() => import('@deck.gl/react').then((mod) => mod.default), {
   ssr: false,
@@ -60,14 +65,10 @@ const STATE_FILE_MAP: Record<string, string> = {
   puducherry: 'puducherry',
 };
 
-// Premium ambient & 3D point lighting
-const ambientLight = new AmbientLight({ color: [255, 255, 255], intensity: 1.2 });
-const pointLight = new PointLight({
-  color: [240, 253, 250],
-  intensity: 2.2,
-  position: [78.0, 20.0, 150000],
-});
-const lightingEffect = new LightingEffect({ ambientLight, pointLight });
+// Evenly-balanced ambient & directional lighting (eliminates central point light glare)
+const ambientLight = new AmbientLight(MAP_LIGHTING_CONFIG.ambient);
+const directionalLight = new DirectionalLight(MAP_LIGHTING_CONFIG.directional);
+const lightingEffect = new LightingEffect({ ambientLight, directionalLight });
 
 // Bounding box calculator
 const getBBox = (coordinates: any[]): [number, number, number, number] => {
@@ -144,6 +145,8 @@ export default function GISMapComponent({
   });
 
   const [topoGeoData, setTopoGeoData] = useState<any>(null);
+  const [stateBoundariesData, setStateBoundariesData] = useState<any>(null);
+  const [districtBoundariesData, setDistrictBoundariesData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   // Depth level: 'state' = national overview, 'district' = state drilldown
@@ -152,7 +155,7 @@ export default function GISMapComponent({
     return 'state';
   }, [selectedState, viewState.zoom]);
 
-  // Load TopoJSON / GeoJSON boundaries
+  // Load TopoJSON / GeoJSON boundaries: extracts features, state mesh, and district mesh
   useEffect(() => {
     setLoading(true);
     const stateKey = selectedState ? normalizeGeographicKey(selectedState) : null;
@@ -170,19 +173,63 @@ export default function GISMapComponent({
           .then((topology) => {
             const objectKey = Object.keys(topology.objects)[0];
             const geojson: any = feature(topology, topology.objects[objectKey]);
-            if (geojson.type === 'FeatureCollection') return geojson.features;
-            if (geojson.type === 'Feature') return [geojson];
-            return [];
+            const features =
+              geojson.type === 'FeatureCollection'
+                ? geojson.features
+                : geojson.type === 'Feature'
+                ? [geojson]
+                : [];
+
+            // Outer state perimeter mesh (a === b represents outer boundaries)
+            const stateMesh: any = mesh(
+              topology,
+              topology.objects[objectKey],
+              (a: any, b: any) => a === b
+            );
+            const stateFeature =
+              stateMesh && stateMesh.coordinates && stateMesh.coordinates.length > 0
+                ? {
+                    type: 'Feature',
+                    geometry: stateMesh,
+                    properties: { stateFile: fileName },
+                  }
+                : null;
+
+            // Interior district boundaries mesh (a !== b represents shared borders between districts)
+            const districtMesh: any = mesh(
+              topology,
+              topology.objects[objectKey],
+              (a: any, b: any) => a !== b
+            );
+            const districtFeature =
+              districtMesh && districtMesh.coordinates && districtMesh.coordinates.length > 0
+                ? {
+                    type: 'Feature',
+                    geometry: districtMesh,
+                    properties: { stateFile: fileName },
+                  }
+                : null;
+
+            return {
+              features: (features || []).filter((f: any) => f && f.geometry),
+              stateFeature,
+              districtFeature,
+            };
           })
-          .then((features) => (features || []).filter((f: any) => f && f.geometry))
           .catch((err) => {
             console.warn(`Could not load boundary for ${fileName}:`, err);
-            return [];
+            return { features: [], stateFeature: null, districtFeature: null };
           })
       )
     ).then((results) => {
       if (isCancelled) return;
-      setTopoGeoData({ type: 'FeatureCollection', features: results.flat() });
+      const allFeatures = results.flatMap((r) => r.features);
+      const allStateBoundaries = results.map((r) => r.stateFeature).filter(Boolean);
+      const allDistrictBoundaries = results.map((r) => r.districtFeature).filter(Boolean);
+
+      setTopoGeoData({ type: 'FeatureCollection', features: allFeatures });
+      setStateBoundariesData({ type: 'FeatureCollection', features: allStateBoundaries });
+      setDistrictBoundariesData({ type: 'FeatureCollection', features: allDistrictBoundaries });
       setLoading(false);
     });
 
@@ -273,9 +320,9 @@ export default function GISMapComponent({
 
   const getColor = useCallback(
     (metrics: any): [number, number, number, number] => {
-      if (!metrics) return [226, 232, 240, 110]; // slate-200
+      if (!metrics) return MAP_FILL_PALETTES.noData;
       const val = metrics[activeMetric] || 0;
-      if (val === 0) return [226, 232, 240, 110];
+      if (val === 0) return MAP_FILL_PALETTES.noData;
       const ratio = Math.min(val / maxVal, 1);
 
       if (isAlertIndicator) {
@@ -420,20 +467,39 @@ export default function GISMapComponent({
     return max;
   }, [activeLabels]);
 
-  // GeoJSON 3D Extruded Polygon Layer
-  const mapLayer = useMemo(() => {
+  // Selected district or state boundary geometry
+  const selectedFeatureData = useMemo(() => {
+    if (!topoGeoData?.features || (!selectedDistrict && !selectedState)) return null;
+
+    const matched = topoGeoData.features.filter((f: any) => {
+      if (selectedDistrict) {
+        const dist = f.properties?.district || f.properties?.dtname || '';
+        return normalizeGeographicKey(dist) === normalizeGeographicKey(selectedDistrict);
+      }
+      if (selectedState) {
+        const st = f.properties?.st_nm || f.properties?.state || '';
+        return normalizeGeographicKey(st) === normalizeGeographicKey(selectedState);
+      }
+      return false;
+    });
+
+    if (matched.length === 0) return null;
+    return { type: 'FeatureCollection', features: matched };
+  }, [topoGeoData, selectedDistrict, selectedState]);
+
+  // 1. Layer: District Fills (Pickable & Extruded, no strokes to preserve border hierarchy)
+  const districtFillsLayer = useMemo(() => {
     if (!topoGeoData) return null;
     return new GeoJsonLayer({
-      id: 'india-clinical-geojson-layer',
+      id: 'india-district-fills',
       data: topoGeoData,
       pickable: true,
       autoHighlight: true,
-      stroked: true,
+      highlightColor: MAP_BOUNDARY_STYLES.hoverHighlight,
+      stroked: false,
       filled: true,
       extruded: is3DEnabled,
       wireframe: false,
-      lineWidthMinPixels: 1,
-      getLineColor: [100, 116, 139, 80],
       getFillColor: (f: any) => {
         const districtName = f.properties?.district || f.properties?.dtname || '';
         const stateName = f.properties?.st_nm || f.properties?.state || '';
@@ -498,7 +564,68 @@ export default function GISMapComponent({
     is3DEnabled,
   ]);
 
-  // Glowing 3D column pillars on each region centroid
+  // 2. Layer: District Boundaries (Secondary hierarchy: 1.4px, #64748B, opacity 0.80)
+  const districtBoundariesLayer = useMemo(() => {
+    if (!districtBoundariesData?.features?.length) return null;
+    return new GeoJsonLayer({
+      id: 'india-district-boundaries',
+      data: districtBoundariesData,
+      pickable: false,
+      filled: false,
+      stroked: true,
+      getLineColor: MAP_BOUNDARY_STYLES.district.color,
+      lineWidthUnits: 'pixels',
+      getLineWidth: MAP_BOUNDARY_STYLES.district.width,
+      lineWidthMinPixels: MAP_BOUNDARY_STYLES.district.minWidthPixels,
+      lineJointRounded: MAP_BOUNDARY_STYLES.district.lineJointRounded,
+      lineCapRounded: MAP_BOUNDARY_STYLES.district.lineCapRounded,
+      lineAntialiasing: true,
+      parameters: { depthTest: !is3DEnabled },
+    });
+  }, [districtBoundariesData, is3DEnabled]);
+
+  // 3. Layer: State Boundaries (Primary hierarchy: 2.5px, #475569, opacity 0.90)
+  // Renders ABOVE district boundaries and remains visually dominant
+  const stateBoundariesLayer = useMemo(() => {
+    if (!stateBoundariesData?.features?.length) return null;
+    return new GeoJsonLayer({
+      id: 'india-state-boundaries',
+      data: stateBoundariesData,
+      pickable: false,
+      filled: false,
+      stroked: true,
+      getLineColor: MAP_BOUNDARY_STYLES.state.color,
+      lineWidthUnits: 'pixels',
+      getLineWidth: MAP_BOUNDARY_STYLES.state.width,
+      lineWidthMinPixels: MAP_BOUNDARY_STYLES.state.minWidthPixels,
+      lineJointRounded: MAP_BOUNDARY_STYLES.state.lineJointRounded,
+      lineCapRounded: MAP_BOUNDARY_STYLES.state.lineCapRounded,
+      lineAntialiasing: true,
+      parameters: { depthTest: !is3DEnabled },
+    });
+  }, [stateBoundariesData, is3DEnabled]);
+
+  // 4. Layer: Selected Region Boundary (Interactive highlight: 3.0px, Alliance India teal #0d9488, opacity 1.0)
+  const selectedBoundaryLayer = useMemo(() => {
+    if (!selectedFeatureData?.features?.length) return null;
+    return new GeoJsonLayer({
+      id: 'india-selected-boundary',
+      data: selectedFeatureData as any,
+      pickable: false,
+      filled: false,
+      stroked: true,
+      getLineColor: MAP_BOUNDARY_STYLES.selectedDistrict.color,
+      lineWidthUnits: 'pixels',
+      getLineWidth: MAP_BOUNDARY_STYLES.selectedDistrict.width,
+      lineWidthMinPixels: MAP_BOUNDARY_STYLES.selectedDistrict.minWidthPixels,
+      lineJointRounded: MAP_BOUNDARY_STYLES.selectedDistrict.lineJointRounded,
+      lineCapRounded: MAP_BOUNDARY_STYLES.selectedDistrict.lineCapRounded,
+      lineAntialiasing: true,
+      parameters: { depthTest: false },
+    });
+  }, [selectedFeatureData]);
+
+  // 5. Layer: 3D Column Pillars on Region Centroids (Caseload Indicators)
   const columnLayer = useMemo(() => {
     if (!activeLabels.length || !is3DEnabled) return null;
     return new ColumnLayer({
@@ -529,7 +656,7 @@ export default function GISMapComponent({
     });
   }, [activeLabels, maxLabelVal, depthLevel, isAlertIndicator, is3DEnabled]);
 
-  // Text label layer on top of each centroid
+  // 6. Layer: Text Label Layer on Region Centroids
   const textLayer = useMemo(() => {
     if (!activeLabels.length) return null;
 
@@ -583,7 +710,14 @@ export default function GISMapComponent({
         viewState={viewState}
         onViewStateChange={(e: any) => setViewState(e.viewState)}
         controller={true}
-        layers={[mapLayer, columnLayer, textLayer].filter(Boolean)}
+        layers={[
+          districtFillsLayer,
+          districtBoundariesLayer,
+          stateBoundariesLayer,
+          selectedBoundaryLayer,
+          columnLayer,
+          textLayer,
+        ].filter(Boolean)}
         effects={[lightingEffect]}
         getCursor={({ isHovering }) => (isHovering ? 'pointer' : 'default')}
       >
