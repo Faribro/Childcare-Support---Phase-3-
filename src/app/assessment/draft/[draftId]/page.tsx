@@ -15,10 +15,13 @@ import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
+import { MobileFormSectionRunner, FORM_SECTIONS } from '@/components/forms/MobileFormSectionRunner';
+import { MobileFormSummaryCard } from '@/components/forms/MobileFormSummaryCard';
 import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
-import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
+import { handleSchemaValidationFailure, type FormValidationError } from '@/lib/validations/submissionValidationGuard';
+import { getResolvableSectionErrors } from '@/lib/validations/formValidationRegistry';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
@@ -86,6 +89,12 @@ export default function ResumeDraftSinglePage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+
+  const errorsBySection = useMemo(() => {
+    return getResolvableSectionErrors(validationErrors);
+  }, [validationErrors]);
 
   const getHighlightClass = (id: string) =>
     activeReadingId === id
@@ -610,6 +619,22 @@ export default function ResumeDraftSinglePage() {
     const err = validateForm();
     if (err) {
       setFormError(err);
+      const targetSectionMap: Record<string, number> = {
+        'caregiver\'s full name': 0,
+        'Consent was not granted': 0,
+        'signature': 0,
+        'child\'s full name': 1,
+        'date of birth': 1,
+        'contact number': 1,
+        'verify that all information': 8,
+        'name using at least 2 characters': 8,
+      };
+      for (const [key, secIdx] of Object.entries(targetSectionMap)) {
+        if (err.includes(key)) {
+          setActiveSectionIndex(secIdx);
+          break;
+        }
+      }
       const targetMap: Record<string, string[]> = {
         'child\'s full name': ['childName', 'q-demo-name', 'demographics-childName'],
         'date of birth': ['child-dob', 'q-demo-dob', 'dob'],
@@ -805,9 +830,24 @@ export default function ResumeDraftSinglePage() {
           issues: schemaValidation.error.issues,
           setError: setFormError,
           setSubmitting: (v) => setIsSubmitting(v),
+          onErrorsNormalized: (errors) => {
+            setValidationErrors(errors);
+            if (errors.length > 0) {
+              const first = errors[0];
+              const secIdx = FORM_SECTIONS.findIndex(
+                (s) => s.key === first.sectionKey || s.id === first.sectionKey
+              );
+              if (secIdx !== -1) {
+                setActiveSectionIndex(secIdx);
+              }
+            }
+          },
         });
         return;
       }
+
+      setValidationErrors([]);
+      setFormError(null);
 
       await enqueueCreate({
         clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
@@ -900,16 +940,10 @@ export default function ResumeDraftSinglePage() {
   }
 
   return (
-    <AppShell
-      activeChild={{
-        artNumber: formData.artNumber,
-        childName: formData.childName,
-        saveStatus: saveStatus,
-      }}
-    >
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6 pb-32 sm:pb-24">
-        {/* Header Summary Banner */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
+    <AppShell hideHeader>
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-8 space-y-6 pb-32 sm:pb-24">
+        {/* Header Summary Banner (Desktop only: >=768px) */}
+        <div className="hidden md:block bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-slate-100 gap-3">
             <div className="flex items-center space-x-3">
               <Link
@@ -985,10 +1019,22 @@ export default function ResumeDraftSinglePage() {
           </div>
         )}
 
+        {/* Mobile Grouped Form Section Runner (<768px) */}
+        <MobileFormSectionRunner
+          activeSectionIndex={activeSectionIndex}
+          onSelectSection={setActiveSectionIndex}
+          onSaveDraft={handleManualSaveDraft}
+          onSubmit={handleSubmit}
+          isSubmitting={isSubmitting}
+          errorsBySection={errorsBySection}
+          artNumber={formData.artNumber}
+          hasSavedSignature={hasSavedSignature}
+        />
+
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="flex flex-col gap-3">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
+        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg} ${activeSectionIndex === 0 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
           
           <ConsentAudioNotice
@@ -1134,7 +1180,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 2: Child Demographics & Residence */}
-        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
+        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg} ${activeSectionIndex === 1 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
           <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" />
 
@@ -1312,7 +1358,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
+        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg} ${activeSectionIndex === 2 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
           <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" />
 
@@ -1381,7 +1427,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
+        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg} ${activeSectionIndex === 3 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
           <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" />
 
@@ -1466,7 +1512,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
+        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg} ${activeSectionIndex === 4 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
 
@@ -1837,7 +1883,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
+        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg} ${activeSectionIndex === 5 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
           <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" />
 
@@ -1858,7 +1904,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
+        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg} ${activeSectionIndex === 6 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
           <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" />
 
@@ -1985,7 +2031,7 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
+        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg} ${activeSectionIndex === 7 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
           <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" />
 
@@ -2024,9 +2070,20 @@ export default function ResumeDraftSinglePage() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
+        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg} ${activeSectionIndex === 8 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
           <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" />
+
+          {/* Mobile Completion Summary Card (<768px) */}
+          <MobileFormSummaryCard
+            formData={formData}
+            hasSavedSignature={hasSavedSignature}
+            totalRequiredSupport={totalRequiredSupport}
+            onJumpToSection={(idx) => {
+              setActiveSectionIndex(idx);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
 
           <div className="space-y-4">
             {/* Caseworker Attestation & Verification Confirmation */}
@@ -2120,8 +2177,8 @@ export default function ResumeDraftSinglePage() {
         </section>
         </div>
 
-        {/* Sticky Floating Bottom Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
+        {/* Sticky Floating Bottom Action Bar (Desktop only: >=768px) */}
+        <div className="hidden md:block fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-start">
               <span className="font-mono font-bold text-purple-950">{formData.artNumber}</span>
