@@ -6,12 +6,14 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
 import { getAllQueueItems, migrateLegacyQueueItems } from '@/lib/db/syncQueueRepository';
+import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
+import { DraftCard } from '@/components/forms/DraftCard';
 import { clearAllLocalData } from '@/lib/db/dexieDb';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
 import { processQueue, isWorkerRunning } from '@/features/submission/submissionWorker';
 import { migrateLegacyItems } from '@/features/submission/submissionQueueRepository';
 import { submissionEvents } from '@/features/submission/submissionEvents';
-import type { SyncQueueItem } from '@/types/domain';
+import type { SyncQueueItem, AssessmentRecord } from '@/types/domain';
 import {
   Search,
   Calendar,
@@ -373,8 +375,19 @@ function SyncCentreContent() {
     isLoading: isServerLoading,
   } = useSupervisorData();
 
-  // Tab State: 'all' | 'outbox' | 'synced'
-  const [activeTab, setActiveTab] = useState<'all' | 'outbox' | 'synced'>('all');
+  // Tab State: 'all' | 'drafts' | 'outbox' | 'synced'
+  const tabParam = searchParams.get('tab');
+  const initialTab: 'all' | 'drafts' | 'outbox' | 'synced' =
+    tabParam === 'drafts'
+      ? 'drafts'
+      : tabParam === 'outbox'
+      ? 'outbox'
+      : tabParam === 'synced' || tabParam === 'submitted'
+      ? 'synced'
+      : 'all';
+
+  const [activeTab, setActiveTab] = useState<'all' | 'drafts' | 'outbox' | 'synced'>(initialTab);
+  const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -385,14 +398,24 @@ function SyncCentreContent() {
     try {
       await migrateLegacyItems();
       await migrateLegacyQueueItems();
-      const q = await getAllQueueItems();
+      const [q, d] = await Promise.all([getAllQueueItems(), getAllDrafts()]);
       setQueueItems(q || []);
+      setDrafts(d || []);
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(online);
     } catch (err) {
       console.error('[SyncCentre] Error loading local queue:', err);
     }
   }, []);
+
+  const handleDeleteDraft = async (id: number) => {
+    await deleteDraft(id);
+    await loadLocalData();
+  };
+
+  const handleResumeDraft = (id: string | number) => {
+    router.push(`/assessment/draft/${id}`);
+  };
 
   useEffect(() => {
     loadLocalData().then(() => {
@@ -1208,6 +1231,21 @@ function SyncCentreContent() {
 
             <button
               type="button"
+              onClick={() => setActiveTab('drafts')}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer touch-target min-h-[40px] flex items-center gap-1.5 ${
+                activeTab === 'drafts'
+                  ? 'bg-blue-100 text-blue-950 border border-blue-300'
+                  : 'text-slate-600 hover:bg-slate-100 border border-transparent'
+              }`}
+            >
+              <span>Drafts</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/80 font-bold border border-slate-200">
+                {drafts.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('synced')}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-colors cursor-pointer touch-target min-h-[40px] flex items-center gap-1.5 ${
                 activeTab === 'synced'
@@ -1281,7 +1319,35 @@ function SyncCentreContent() {
 
         {/* Survey Lists Section */}
         <section className="space-y-4">
-          {filteredItems.length === 0 ? (
+          {activeTab === 'drafts' ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Local Drafts ({drafts.length})
+                </h3>
+                <span className="text-[11px] text-slate-500">Saved on this device</span>
+              </div>
+              {drafts.length === 0 ? (
+                <div className="p-8 rounded-xl border border-dashed border-slate-300 text-center space-y-1.5 bg-white">
+                  <p className="text-xs font-semibold text-slate-800">No active drafts on this device</p>
+                  <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                    When you start a survey, your edits will save locally so you can continue anytime.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {drafts.map((d) => (
+                    <DraftCard
+                      key={d.id || d.uuid}
+                      draft={d}
+                      onResume={handleResumeDraft}
+                      onDelete={handleDeleteDraft}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : filteredItems.length === 0 ? (
             <div className="p-8 rounded-xl border border-dashed border-slate-300 text-center space-y-1.5 bg-white">
               <p className="text-xs font-semibold text-slate-800">
                 {searchQuery || fromDate || toDate
