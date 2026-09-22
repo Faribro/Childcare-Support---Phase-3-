@@ -30,7 +30,7 @@ export function MobileKoboHomeScreen({
   const count = draftsCount ?? drafts?.length ?? 0;
 
   return (
-    <div className="md:hidden w-full max-w-md mx-auto px-4 py-4 space-y-4 animate-in fade-in duration-150">
+    <div className="md:hidden w-full max-w-md mx-auto px-4 py-3 sm:py-4 space-y-3 animate-in fade-in duration-150">
       {/* Action 1: Start New Survey (Prominent Full-Width Primary Touch Action) */}
       <Link href="/assessment/new" className="block">
         <button
@@ -96,7 +96,7 @@ export function MobileKoboHomeScreen({
       </div>
 
       {/* Restored Decorative Animated Playground at Bottom */}
-      <div className="pt-2">
+      <div className="pt-1">
         <MiniatureGardenPlayground />
       </div>
     </div>

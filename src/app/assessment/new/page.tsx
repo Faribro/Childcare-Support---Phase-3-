@@ -916,7 +916,7 @@ export default function NewSinglePageAssessment() {
 
   return (
     <AppShell>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-32 sm:pb-24">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-36 sm:pb-28">
         {/* Minimal Focus Header with Return Link, Language Selector, and Immersive Reader */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
           <div className="flex items-center space-x-2.5">
@@ -2265,14 +2265,16 @@ export default function NewSinglePageAssessment() {
         {/* Sticky Floating Bottom Action Bar (Mobile & Desktop) */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-start">
-              <span className="font-mono font-bold text-purple-950">{formData.artNumber}</span>
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs w-full sm:w-auto justify-between sm:justify-start">
+              <span className="font-mono font-bold text-purple-950 truncate max-w-[130px]" title={formData.artNumber}>
+                {formData.artNumber || 'ID Pending'}
+              </span>
               <span className="text-slate-400">•</span>
-              <span className="text-slate-600">
+              <span className="text-slate-600 shrink-0">
                 Grant: <strong className="text-purple-950 font-bold">₹{totalRequiredSupport}</strong>
               </span>
               <span className="text-slate-400">•</span>
-              <span className="text-slate-600">
+              <span className="text-slate-600 shrink-0">
                 Signature:{' '}
                 {hasSavedSignature ? (
                   <strong className="text-emerald-700">Captured</strong>
