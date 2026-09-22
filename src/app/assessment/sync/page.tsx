@@ -391,6 +391,18 @@ function SyncCentreContent() {
   const [activeTab, setActiveTab] = useState<'all' | 'drafts' | 'outbox' | 'synced'>(initialTab);
   const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
 
+  useEffect(() => {
+    if (tabParam === 'drafts') {
+      setActiveTab('drafts');
+    } else if (tabParam === 'outbox') {
+      setActiveTab('outbox');
+    } else if (tabParam === 'synced' || tabParam === 'submitted') {
+      setActiveTab('synced');
+    } else if (tabParam === 'all') {
+      setActiveTab('all');
+    }
+  }, [tabParam]);
+
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [fromDate, setFromDate] = useState('');

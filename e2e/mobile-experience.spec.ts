@@ -111,4 +111,55 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     const backBtn = page.getByRole('link', { name: /Back to Dashboard/i });
     await expect(backBtn).toBeVisible();
   });
+
+  test('Mobile Home navigation cards: Drafts and Submitted Surveys open dedicated pages with back navigation', async ({ page }) => {
+    // Test across standard mobile widths: 360px, 390px, and 430px
+    for (const width of [360, 390, 430]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/app');
+      await page.waitForLoadState('domcontentloaded');
+
+      // Verify no horizontal overflow on mobile home
+      let hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      expect(hasOverflow).toBe(false);
+
+      // Verify Drafts navigation card exists and links to /assessment/drafts
+      const draftsLink = page.getByRole('link', { name: /Drafts/i });
+      await expect(draftsLink).toBeVisible();
+      await expect(draftsLink).toHaveAttribute('href', '/assessment/drafts');
+
+      // Verify Submitted surveys navigation card exists and links to /assessment/sync?tab=synced
+      const submittedLink = page.getByRole('link', { name: /Submitted surveys/i });
+      await expect(submittedLink).toBeVisible();
+      await expect(submittedLink).toHaveAttribute('href', '/assessment/sync?tab=synced');
+
+      // Verify no expandable dropdown or accordion button
+      const accordionBtn = page.locator('button:has-text("Drafts")');
+      await expect(accordionBtn).toHaveCount(0);
+    }
+
+    // Test navigating to /assessment/drafts and returning
+    await page.goto('/app');
+    await page.getByRole('link', { name: /Drafts/i }).click();
+    await page.waitForURL('**/assessment/drafts');
+    expect(page.url()).toContain('/assessment/drafts');
+
+    const backFromDrafts = page.getByRole('link', { name: /Back to Dashboard/i });
+    await expect(backFromDrafts).toBeVisible();
+    await backFromDrafts.click();
+    await page.waitForURL('**/app');
+    expect(page.url()).toContain('/app');
+
+    // Test navigating to /assessment/sync?tab=synced and returning
+    await page.getByRole('link', { name: /Submitted surveys/i }).click();
+    await page.waitForURL('**/assessment/sync?tab=synced');
+    expect(page.url()).toContain('/assessment/sync?tab=synced');
+
+    const backFromSync = page.getByRole('link', { name: /Back to Dashboard/i });
+    await expect(backFromSync).toBeVisible();
+    await backFromSync.click();
+    await page.waitForURL('**/app');
+    expect(page.url()).toContain('/app');
+  });
 });
+
