@@ -15,8 +15,6 @@ import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
-import { MobileFormSectionRunner, FORM_SECTIONS } from '@/components/forms/MobileFormSectionRunner';
-import { MobileFormSummaryCard } from '@/components/forms/MobileFormSummaryCard';
 import { t } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
@@ -92,7 +90,6 @@ export default function NewSinglePageAssessment() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
-  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
 
   const errorsByField = useMemo(
     () => Object.fromEntries(validationErrors.map((e) => [e.elementId, e])),
@@ -856,12 +853,6 @@ export default function NewSinglePageAssessment() {
 
         if (normalized.length > 0) {
           const firstError = normalized[0];
-          const secIdx = FORM_SECTIONS.findIndex(
-            (s) => s.key === firstError.sectionKey || s.id === firstError.sectionKey
-          );
-          if (secIdx !== -1) {
-            setActiveSectionIndex(secIdx);
-          }
           navigateToValidationError(firstError);
         }
         return;
@@ -924,7 +915,7 @@ export default function NewSinglePageAssessment() {
   };
 
   return (
-    <AppShell hideHeader>
+    <AppShell>
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:py-6 space-y-6 pb-32 sm:pb-24">
         {/* Minimal Focus Header with Return Link, Language Selector, and Immersive Reader */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
@@ -968,22 +959,10 @@ export default function NewSinglePageAssessment() {
           </div>
         )}
 
-        {/* Mobile Grouped Form Section Runner (<768px) */}
-        <MobileFormSectionRunner
-          activeSectionIndex={activeSectionIndex}
-          onSelectSection={setActiveSectionIndex}
-          onSaveDraft={handleManualSaveDraft}
-          onSubmit={handleSubmit}
-          isSubmitting={isSubmitting}
-          errorsBySection={errorsBySection}
-          artNumber={formData.artNumber}
-          hasSavedSignature={hasSavedSignature}
-        />
-
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="flex flex-col gap-3">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg} ${activeSectionIndex === 0 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
+        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
           
           <ConsentAudioNotice
@@ -1032,7 +1011,7 @@ export default function NewSinglePageAssessment() {
 
               <div className="flex items-center space-x-3 pt-0.5">
                 <label
-                  className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
+                  className={`flex items-center space-x-2.5 min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                     formData.agreeToParticipate === true
                       ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                       : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -1046,14 +1025,14 @@ export default function NewSinglePageAssessment() {
                       setFormData({ ...formData, agreeToParticipate: true });
                       clearFieldError('caregiver-consent', 'agreeToParticipate', 'caregiverConsent.consentProvided');
                     }}
-                    className="accent-purple-600 text-purple-600 focus:ring-purple-500"
+                    className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                   />
                   <span className="text-xs font-semibold">{t('consent_yes', currentLanguage)}</span>
                 </label>
 
                 <label
-                  className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
+                  className={`flex items-center space-x-2.5 min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                     formData.agreeToParticipate === false
                       ? 'bg-rose-50 border-rose-500 text-rose-950 font-bold'
                       : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -1064,7 +1043,7 @@ export default function NewSinglePageAssessment() {
                     name="agreeToParticipate"
                     checked={formData.agreeToParticipate === false}
                     onChange={() => setFormData({ ...formData, agreeToParticipate: false })}
-                    className="text-rose-600 focus:ring-rose-500"
+                    className="text-rose-600 focus:ring-rose-500 shrink-0"
                     aria-describedby={errorsByField['caregiver-consent'] ? 'caregiver-consent-error' : undefined}
                   />
                   <span className="text-xs font-semibold">{t('consent_no', currentLanguage)}</span>
@@ -1182,8 +1161,8 @@ export default function NewSinglePageAssessment() {
           </div>
         </section>
 
-        {/* SECTION 2: Child Demographics & Residence */}
-        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg} ${activeSectionIndex === 1 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
+        {/* SECTION 2: Child Demographics */}
+        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
           <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" errorCount={errorsBySection['demographics']?.length || 0} />
 
@@ -1259,7 +1238,7 @@ export default function NewSinglePageAssessment() {
                 {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
                   <label
                     key={g}
-                    className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                    className={`flex items-center justify-center space-x-1.5 min-h-[44px] py-2 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.gender === g
                         ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -1286,12 +1265,12 @@ export default function NewSinglePageAssessment() {
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('orphan_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {ORPHAN_OPTIONS.map((opt) => (
                   <label
                     key={opt.value}
                     title={opt.tooltip}
-                    className={`group relative flex items-center space-x-2 h-11 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                    className={`group relative flex items-center space-x-2 min-h-[44px] py-2 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                       formData.orphanStatus === opt.value
                         ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -1305,7 +1284,7 @@ export default function NewSinglePageAssessment() {
                       onChange={() => setFormData({ ...formData, orphanStatus: opt.value })}
                       className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
-                    <span className="truncate">{opt.label}</span>
+                    <span className="break-words leading-tight">{opt.label}</span>
 
                     {opt.tooltip && opt.tooltip !== opt.label && (
                       <>
@@ -1382,7 +1361,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg} ${activeSectionIndex === 2 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
+        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
           <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" errorCount={errorsBySection['banking']?.length || 0} />
 
@@ -1451,7 +1430,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg} ${activeSectionIndex === 3 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
+        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
           <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
 
@@ -1536,7 +1515,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg} ${activeSectionIndex === 4 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
+        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" errorCount={errorsBySection['health']?.length || 0} />
 
@@ -1846,7 +1825,7 @@ export default function NewSinglePageAssessment() {
                 <p className="text-[11px] text-slate-500">Select all confirmed conditions requiring clinical management</p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-4 gap-2.5">
                 {[
                   'TB (Tuberculosis)',
                   'Hepatitis B',
@@ -1857,7 +1836,7 @@ export default function NewSinglePageAssessment() {
                   return (
                     <label
                       key={cond}
-                      className={`flex items-center space-x-2.5 h-11 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                      className={`flex items-center space-x-2.5 min-h-[44px] py-2.5 px-3.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                         isChecked
                           ? 'bg-purple-50 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                           : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -1881,9 +1860,9 @@ export default function NewSinglePageAssessment() {
                             });
                           }
                         }}
-                        className="rounded accent-purple-600 text-purple-600 focus:ring-purple-500"
+                        className="rounded accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                       />
-                      <span className="truncate">{cond}</span>
+                      <span className="break-words leading-tight">{cond}</span>
                     </label>
                   );
                 })}
@@ -1907,7 +1886,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg} ${activeSectionIndex === 5 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
+        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
           <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" errorCount={errorsBySection['nutrition']?.length || 0} />
 
@@ -1928,7 +1907,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg} ${activeSectionIndex === 6 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
+        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
           <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" errorCount={errorsBySection['education']?.length || 0} />
 
@@ -1952,7 +1931,7 @@ export default function NewSinglePageAssessment() {
                 ].map((st) => (
                   <label
                     key={st}
-                    className={`flex items-center space-x-2.5 h-11 px-3 rounded-xl border cursor-pointer transition-all shadow-2xs ${
+                    className={`flex items-center space-x-2.5 min-h-[44px] py-2.5 px-3 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.educationStatus === st
                         ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -1970,7 +1949,7 @@ export default function NewSinglePageAssessment() {
                       className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                       aria-describedby={errorsByField['education-educationStatus'] ? 'education-educationStatus-error' : undefined}
                     />
-                    <span className="text-xs font-semibold">{st}</span>
+                    <span className="text-xs font-semibold break-words leading-tight">{st}</span>
                   </label>
                 ))}
               </div>
@@ -2090,11 +2069,11 @@ export default function NewSinglePageAssessment() {
                   <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     {t('attendance', currentLanguage)}
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
                     {(['Regular', 'Irregular', 'Dropped out'] as AttendanceType[]).map((att) => (
                       <label
                         key={att}
-                        className={`flex items-center justify-center space-x-1.5 h-11 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                        className={`flex items-center justify-center space-x-1.5 min-h-[44px] py-2 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
                           formData.attendance === att
                             ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
                             : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -2123,7 +2102,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg} ${activeSectionIndex === 7 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
+        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
           <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" errorCount={errorsBySection['expenses']?.length || 0} />
 
@@ -2162,20 +2141,9 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg} ${activeSectionIndex === 8 ? 'block' : 'hidden md:block'}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
+        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
           <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" errorCount={errorsBySection['review']?.length || 0} />
-
-          {/* Mobile Completion Summary Card (<768px) */}
-          <MobileFormSummaryCard
-            formData={formData}
-            hasSavedSignature={hasSavedSignature}
-            totalRequiredSupport={totalRequiredSupport}
-            onJumpToSection={(idx) => {
-              setActiveSectionIndex(idx);
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-          />
 
           <div className="space-y-4">
             {/* Caseworker Attestation & Verification Confirmation */}
@@ -2210,7 +2178,7 @@ export default function NewSinglePageAssessment() {
                 </div>
                 <div className="flex items-center space-x-3 shrink-0">
                   <label
-                    className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
+                    className={`flex items-center space-x-2.5 min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === true
                         ? 'bg-emerald-600 border-emerald-700 text-white font-bold ring-2 ring-emerald-400/50 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -2224,14 +2192,14 @@ export default function NewSinglePageAssessment() {
                         setFormData({ ...formData, allInfoCorrect: true });
                         clearFieldError('review-allInfoCorrect', 'allInfoCorrect');
                       }}
-                      className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500"
+                      className="accent-emerald-600 text-emerald-600 focus:ring-emerald-500 shrink-0"
                       aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     />
                     <span className="text-xs font-semibold">{t('review_yes', currentLanguage)}</span>
                   </label>
 
                   <label
-                    className={`flex items-center space-x-2.5 h-11 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
+                    className={`flex items-center space-x-2.5 min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === false
                         ? 'bg-rose-600 border-rose-700 text-white font-bold ring-2 ring-rose-400/50 shadow-[0_0_12px_rgba(244,63,94,0.25)]'
                         : 'bg-white border-black text-slate-800 hover:bg-slate-50'
@@ -2245,7 +2213,7 @@ export default function NewSinglePageAssessment() {
                         setFormData({ ...formData, allInfoCorrect: false });
                         clearFieldError('review-allInfoCorrect', 'allInfoCorrect');
                       }}
-                      className="text-rose-600 focus:ring-rose-500"
+                      className="text-rose-600 focus:ring-rose-500 shrink-0"
                       aria-describedby={errorsByField['review-allInfoCorrect'] ? 'review-allInfoCorrect-error' : undefined}
                     />
                     <span className="text-xs font-semibold">{t('review_no', currentLanguage)}</span>
@@ -2294,8 +2262,8 @@ export default function NewSinglePageAssessment() {
         </section>
         </div>
 
-        {/* Sticky Floating Bottom Action Bar (Desktop only: >=768px) */}
-        <div className="hidden md:block fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
+        {/* Sticky Floating Bottom Action Bar (Mobile & Desktop) */}
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-start">
               <span className="font-mono font-bold text-purple-950">{formData.artNumber}</span>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { SubmissionViewModal } from '@/components/sync/SubmissionViewModal';
@@ -26,6 +27,7 @@ import {
   AlertTriangle,
   Clock,
   Trash2,
+  ArrowLeft,
 } from 'lucide-react';
 
 export interface UnifiedAssessmentItem {
@@ -857,7 +859,7 @@ function SyncCentreContent() {
         </div>
 
         {/* Main Card Content */}
-        <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
+        <div className="p-3 sm:p-5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-1.5 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -1096,6 +1098,17 @@ function SyncCentreContent() {
   return (
     <AppShell pendingSyncCount={pendingCount} submittedCount={submittedCount}>
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5 animate-in fade-in duration-200">
+        {/* Navigation Bar / Return to Dashboard */}
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            href="/app"
+            className="inline-flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold shadow-2xs transition-colors touch-target"
+            aria-label="Return to Dashboard"
+          >
+            <ArrowLeft className="w-4 h-4 text-slate-500" />
+            <span>Back to Dashboard</span>
+          </Link>
+        </div>
         {/* Read-only Submission View Modal */}
         {viewingItem && (
           <SubmissionViewModal

@@ -26,7 +26,7 @@ export function MiniatureGardenPlayground() {
 
   useEffect(() => {
     // Detect reduced motion preference and start paused if requested
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setIsPaused(true);
       pausedRef.current = true;
     }
