@@ -96,6 +96,27 @@ describe('Mobile UX Corrections (Issues #24, #25, #26)', () => {
       const primaryBtn = screen.getByText('Start New Survey').closest('button');
       expect(primaryBtn?.className).toMatch(/min-h-\[(48|52|56)px\]/);
     });
+
+    it('renders Drafts as a dedicated navigation card linking to /assessment/drafts', () => {
+      render(<MobileKoboHomeScreen {...defaultHomeProps} />);
+      const draftsLink = screen.getByText('Drafts').closest('a');
+      expect(draftsLink).toBeDefined();
+      expect(draftsLink?.getAttribute('href')).toBe('/assessment/drafts');
+    });
+
+    it('renders Submitted surveys as a dedicated navigation card linking to /assessment/sync?tab=synced', () => {
+      render(<MobileKoboHomeScreen {...defaultHomeProps} />);
+      const submittedLink = screen.getByText('Submitted surveys').closest('a');
+      expect(submittedLink).toBeDefined();
+      expect(submittedLink?.getAttribute('href')).toBe('/assessment/sync?tab=synced');
+    });
+
+    it('does NOT render inline expandable draft list or accordion toggle on mobile home', () => {
+      render(<MobileKoboHomeScreen {...defaultHomeProps} />);
+      expect(screen.queryByRole('button', { name: /Drafts/i })).toBeNull();
+      expect(screen.queryByText('Aarav')).toBeNull();
+      expect(screen.queryByText('No active drafts on this device')).toBeNull();
+    });
   });
 
   describe('Issue #24: Single Continuous Mobile Form Invariants', () => {

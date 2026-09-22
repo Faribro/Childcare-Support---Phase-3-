@@ -121,33 +121,32 @@ describe('Mobile UX Refinement — KoboCollect-Style Mobile Experience', () => {
       expect(canvas).toBeDefined();
     });
 
-    it('toggles the drafts drawer when the Drafts button is clicked', () => {
+    it('renders Drafts as a dedicated navigation link to /assessment/drafts', () => {
       render(<MobileKoboHomeScreen {...defaultHomeProps} />);
 
-      // The button wrapping the Drafts row has aria-expanded attribute
-      const draftsButton = screen.getByRole('button', { name: /Drafts/i });
-      expect(draftsButton).toBeDefined();
-
-      // Drawer is initially closed — draft names should NOT be visible
-      expect(screen.queryByText('No active drafts on this device')).toBeNull();
-
-      // Open the drawer
-      fireEvent.click(draftsButton);
-
-      // After expanding, DraftCards (or empty state) should render
-      // With 2 drafts the empty-state message should not appear
-      expect(screen.queryByText('No active drafts on this device')).toBeNull();
+      const draftsLink = screen.getByText('Drafts').closest('a');
+      expect(draftsLink).toBeDefined();
+      expect(draftsLink?.getAttribute('href')).toBe('/assessment/drafts');
+      expect(screen.getByText('2')).toBeDefined(); // draft count badge
     });
 
-    it('shows empty-state message when drafts array is empty', () => {
-      render(
-        <MobileKoboHomeScreen {...defaultHomeProps} drafts={[]} waitingCount={0} submittedCount={0} />
-      );
+    it('renders Submitted surveys as a dedicated navigation link to /assessment/sync?tab=synced', () => {
+      render(<MobileKoboHomeScreen {...defaultHomeProps} />);
 
-      const draftsButton = screen.getByRole('button', { name: /Drafts/i });
-      fireEvent.click(draftsButton);
+      const submittedLink = screen.getByText('Submitted surveys').closest('a');
+      expect(submittedLink).toBeDefined();
+      expect(submittedLink?.getAttribute('href')).toBe('/assessment/sync?tab=synced');
+      expect(screen.getByText('12')).toBeDefined(); // submitted count badge
+    });
 
-      expect(screen.getByText('No active drafts on this device')).toBeDefined();
+    it('does not render any inline collapsible drawers or expanded records on mobile home', () => {
+      render(<MobileKoboHomeScreen {...defaultHomeProps} />);
+
+      // No accordion buttons or inline drawer states
+      expect(screen.queryByRole('button', { name: /Drafts/i })).toBeNull();
+      expect(screen.queryByText('No active drafts on this device')).toBeNull();
+      expect(screen.queryByText('Aarav Kumar')).toBeNull();
+      expect(screen.queryByText('Priya Sharma')).toBeNull();
     });
   });
 

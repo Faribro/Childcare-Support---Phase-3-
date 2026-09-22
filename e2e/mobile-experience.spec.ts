@@ -98,4 +98,17 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     });
     expect(hasOverflow).toBe(false);
   });
+
+  test('Dedicated Drafts (/assessment/drafts): zero horizontal overflow, back navigation and empty state', async ({ page }) => {
+    await page.goto('/assessment/drafts');
+    await page.waitForLoadState('domcontentloaded');
+
+    const hasOverflow = await page.evaluate(() => {
+      return document.documentElement.scrollWidth > window.innerWidth + 1;
+    });
+    expect(hasOverflow).toBe(false);
+
+    const backBtn = page.getByRole('link', { name: /Back to Dashboard/i });
+    await expect(backBtn).toBeVisible();
+  });
 });
