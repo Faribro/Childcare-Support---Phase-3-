@@ -532,7 +532,7 @@ export default function GISDashboard() {
                 </div>
               </div>
             ) : (
-              <p className="text-slate-400 italic text-center py-2 text-xs">No survey records in this sector.</p>
+              <p className="text-slate-600 font-medium italic text-center py-2 text-xs">No survey records in this sector.</p>
             )}
           </div>
         )}
