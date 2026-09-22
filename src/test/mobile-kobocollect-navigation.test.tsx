@@ -95,30 +95,30 @@ describe('Mobile UX Refinement — KoboCollect-Style Mobile Experience', () => {
 
   // ──────────────────────────────────────────────────────────────────────────
   describe('1. MobileKoboHomeScreen', () => {
-    it('renders all 5 core mobile workflow actions with correct headings', () => {
+    it('renders core mobile workflow actions with correct headings and removes outbox/evaluation', () => {
       render(<MobileKoboHomeScreen {...defaultHomeProps} />);
 
-      // Actual h3/h4 text from the component
+      // Active actions
       expect(screen.getByText('Start New Survey')).toBeDefined();
       expect(screen.getByText('Drafts')).toBeDefined();
-      expect(screen.getByText('Ready to send')).toBeDefined();
       expect(screen.getByText('Submitted surveys')).toBeDefined();
-      expect(screen.getByText('Evaluation')).toBeDefined();
+
+      // Removed actions (Issue #24 & #25)
+      expect(screen.queryByText('Ready to send')).toBeNull();
+      expect(screen.queryByText('Evaluation')).toBeNull();
     });
 
-    it('shows static subtitle labels for Drafts and Ready-to-send', () => {
+    it('shows static subtitle labels for Drafts and Submitted surveys', () => {
       render(<MobileKoboHomeScreen {...defaultHomeProps} />);
 
-      // Static subtitle strings from the component source (not dynamic)
       expect(screen.getByText('Saved locally on this device')).toBeDefined();
-      // waitingCount > 0 → shows "Waiting for network or retry"
-      expect(screen.getByText('Waiting for network or retry')).toBeDefined();
       expect(screen.getByText('Confirmed on central server')).toBeDefined();
     });
 
-    it('shows Alliance India brand footer', () => {
-      render(<MobileKoboHomeScreen {...defaultHomeProps} />);
-      expect(screen.getByText('India HIV/AIDS Alliance • Child Nutrition Phase 3')).toBeDefined();
+    it('renders the restored miniature garden playground at the bottom', () => {
+      const { container } = render(<MobileKoboHomeScreen {...defaultHomeProps} />);
+      const canvas = container.querySelector('canvas');
+      expect(canvas).toBeDefined();
     });
 
     it('toggles the drafts drawer when the Drafts button is clicked', () => {
