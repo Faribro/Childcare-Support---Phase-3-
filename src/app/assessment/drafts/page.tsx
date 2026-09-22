@@ -66,7 +66,7 @@ export default function DedicatedDraftsPage() {
     <AppShell pendingSyncCount={waitingCount} submittedCount={submittedCount}>
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5 animate-in fade-in duration-200">
         {/* Navigation Bar / Return to Dashboard */}
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             href="/app"
             className="inline-flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold shadow-2xs transition-colors touch-target"

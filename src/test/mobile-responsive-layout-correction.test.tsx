@@ -28,6 +28,7 @@ import path from 'path';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
+import { DraftCard } from '@/components/forms/DraftCard';
 
 // Mock Next.js Link
 vi.mock('next/link', () => ({
@@ -219,6 +220,112 @@ describe('Mobile UX Corrections (Issues #24, #25, #26)', () => {
       // Review confirmation buttons
       expect(newPageSource).toContain('min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer');
       expect(draftPageSource).toContain('min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer');
+    });
+  });
+
+  describe('Responsive Refinements for Dashboard, Drafts, and Submitted Surveys', () => {
+    const syncPagePath = path.resolve(__dirname, '../app/assessment/sync/page.tsx');
+    const syncPageSource = fs.readFileSync(syncPagePath, 'utf8');
+    const newPagePath = path.resolve(__dirname, '../app/assessment/new/page.tsx');
+    const newPageSource = fs.readFileSync(newPagePath, 'utf8');
+    const draftPagePath = path.resolve(__dirname, '../app/assessment/draft/[draftId]/page.tsx');
+    const draftPageSource = fs.readFileSync(draftPagePath, 'utf8');
+    const draftsPagePath = path.resolve(__dirname, '../app/assessment/drafts/page.tsx');
+    const draftsPageSource = fs.readFileSync(draftsPagePath, 'utf8');
+    const homeSource = fs.readFileSync(path.resolve(__dirname, '../components/mobile/MobileKoboHomeScreen.tsx'), 'utf8');
+
+    it('sync screen uses 2x2 grid segmented tabs on mobile', () => {
+      expect(syncPageSource).toContain('grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2');
+      expect(syncPageSource).toContain('tabular-nums shrink-0');
+    });
+
+    it('sync screen uses full-width search input with unclipped placeholder', () => {
+      expect(syncPageSource).toContain('placeholder="Search by child name, ART number, caregiver..."');
+      expect(syncPageSource).toContain('pl-10 pr-3 py-2.5 min-h-[44px]');
+    });
+
+    it('sync screen uses accessible stacked From/To date range inputs with Calendar icons', () => {
+      expect(syncPageSource).toContain('grid grid-cols-1 xs:grid-cols-2 gap-2.5 pt-0.5');
+      expect(syncPageSource).toContain('htmlFor="filter-from-date"');
+      expect(syncPageSource).toContain('htmlFor="filter-to-date"');
+      expect(syncPageSource).toContain('From Date');
+      expect(syncPageSource).toContain('To Date');
+    });
+
+    it('sync screen uses compact empty state styling', () => {
+      expect(syncPageSource).toContain('p-6 sm:p-8 rounded-2xl border border-dashed border-slate-300 text-center space-y-2 bg-white shadow-2xs');
+    });
+
+    it('sync screen History button has min-h-[44px] and responsive layout', () => {
+      expect(syncPageSource).toContain('touch-target-44 min-h-[44px] text-xs px-3 font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial');
+      expect(syncPageSource).toContain("{isExpanded ? 'Hide' : 'History'}");
+    });
+
+    it('sticky bottom bar in new and draft uses flex-wrap and generous bottom clearance', () => {
+      expect(newPageSource).toContain('flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs');
+      expect(newPageSource).toContain('pb-36 sm:pb-28');
+
+      expect(draftPageSource).toContain('flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs');
+      expect(draftPageSource).toContain('pb-36 sm:pb-28');
+    });
+
+    it('mobile home screen uses tightened vertical spacing and compact playground container', () => {
+      expect(homeSource).toContain('py-3 sm:py-4 space-y-3');
+      expect(homeSource).toContain('<div className="pt-1">');
+    });
+
+    it('dedicated drafts page header uses flex-wrap', () => {
+      expect(draftsPageSource).toContain('flex flex-wrap items-center justify-between gap-3');
+    });
+
+    it('DraftCard renders responsive non-colliding badge and timestamp, touch-friendly buttons', () => {
+      const mockDraft = {
+        id: 42,
+        uuid: 'draft-uuid-42',
+        updatedAt: '2026-09-22T14:00:00.000Z',
+        stepIndex: 3,
+        demographics: {
+          childName: 'Aarav Patel',
+          artNumber: 'DL-01-2024-4242',
+          caregiverName: 'Pooja Patel',
+        },
+      } as any;
+
+      const handleResume = vi.fn();
+      const handleDelete = vi.fn();
+
+      render(<DraftCard draft={mockDraft} onResume={handleResume} onDelete={handleDelete} />);
+
+      // Child name and ART number rendered
+      expect(screen.getByText(/Aarav Patel/)).toBeDefined();
+      expect(screen.getByText(/DL-01-2024-4242/)).toBeDefined();
+
+      // "Saved on this device" badge and timestamp rendered
+      expect(screen.getByText('Saved on this device')).toBeDefined();
+      expect(screen.getByText(/Last edited/)).toBeDefined();
+
+      // Delete button
+      const deleteBtn = screen.getByRole('button', { name: 'Delete' });
+      expect(deleteBtn.className).toContain('min-h-[44px]');
+      expect(deleteBtn.className).toContain('bg-rose-50');
+
+      // Click Delete to test confirmation state
+      fireEvent.click(deleteBtn);
+      const confirmBtn = screen.getByRole('button', { name: 'Confirm' });
+      const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+      expect(confirmBtn.className).toContain('min-h-[44px]');
+      expect(confirmBtn.className).toContain('bg-rose-600');
+      expect(cancelBtn.className).toContain('min-h-[44px]');
+
+      // Click Confirm
+      fireEvent.click(confirmBtn);
+      expect(handleDelete).toHaveBeenCalledWith(42);
+
+      // Resume intake button
+      const resumeBtn = screen.getByRole('button', { name: /Resume Intake/i });
+      expect(resumeBtn.className).toContain('min-h-[44px]');
+      fireEvent.click(resumeBtn);
+      expect(handleResume).toHaveBeenCalledWith(42);
     });
   });
 });

@@ -161,5 +161,67 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     await page.waitForURL('**/app');
     expect(page.url()).toContain('/app');
   });
+
+  test('Responsive refinement pass across 360px, 390px, 430px viewports (no overflow, touch targets, and controls)', async ({ page }) => {
+    const viewports = [
+      { name: 'Android Compact (360px)', width: 360, height: 800 },
+      { name: 'Android Standard (390px)', width: 390, height: 844 },
+      { name: 'Android Large (430px)', width: 430, height: 932 },
+    ];
+
+    for (const vp of viewports) {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+
+      // 1. Check Sync Centre (/assessment/sync)
+      await page.goto('/assessment/sync');
+      await page.waitForLoadState('domcontentloaded');
+
+      let hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      expect(hasOverflow, `Sync screen had overflow at ${vp.width}px`).toBe(false);
+
+      // Verify search input with unclipped placeholder and >=44px height
+      const searchInput = page.getByPlaceholder('Search by child name, ART number, caregiver...');
+      await expect(searchInput).toBeVisible();
+      const searchBox = await searchInput.boundingBox();
+      expect(searchBox).not.toBeNull();
+      if (searchBox) {
+        expect(searchBox.height).toBeGreaterThanOrEqual(44);
+      }
+
+      // Verify From and To date filter inputs
+      const fromDateInput = page.locator('#filter-from-date');
+      const toDateInput = page.locator('#filter-to-date');
+      await expect(fromDateInput).toBeVisible();
+      await expect(toDateInput).toBeVisible();
+
+      // Verify All Records tab button is visible
+      const allRecordsTab = page.getByRole('button', { name: /All Records/i });
+      await expect(allRecordsTab).toBeVisible();
+
+      // 2. Check Dedicated Drafts (/assessment/drafts)
+      await page.goto('/assessment/drafts');
+      await page.waitForLoadState('domcontentloaded');
+
+      hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      expect(hasOverflow, `Drafts screen had overflow at ${vp.width}px`).toBe(false);
+
+      const backToDashDrafts = page.getByRole('link', { name: /Back to Dashboard/i });
+      await expect(backToDashDrafts).toBeVisible();
+
+      const startNewSurveyDrafts = page.getByRole('link', { name: /Start New Survey/i });
+      await expect(startNewSurveyDrafts).toBeVisible();
+
+      // 3. Check Assessment New (/assessment/new)
+      await page.goto('/assessment/new');
+      await page.waitForLoadState('domcontentloaded');
+
+      hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      expect(hasOverflow, `New Assessment screen had overflow at ${vp.width}px`).toBe(false);
+
+      // Verify bottom action bar
+      const bottomBar = page.locator('.fixed.bottom-0');
+      await expect(bottomBar).toBeVisible();
+    }
+  });
 });
 
