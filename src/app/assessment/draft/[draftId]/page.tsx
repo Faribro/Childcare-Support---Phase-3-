@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -420,148 +420,131 @@ export default function ResumeDraftSinglePage() {
     formData.requiredOtherSupport,
   ]);
 
-  // Continuous Autosave to Dexie drafts table with all 73 fields
-  useEffect(() => {
-    if (!clientUuid || isLoading || draftNotFound) return;
-
-    setSaveStatus('saving');
-    const timer = setTimeout(async () => {
-      try {
-        const record: Partial<AssessmentRecord> = {
-          uuid: clientUuid,
-          clientSubmissionId: clientUuid,
-          koboId: formData.koboId || formData.artNumber,
-          interviewerName: formData.formSubmittedBy?.trim() || 'Caseworker',
-          stepIndex: 1, // Single-page form
-          demographics: {
-            artNumber: formData.artNumber,
-            dateOfFilling: formData.dateOfFilling,
-            childName: formData.childName,
-            dob: formData.dob,
-            calculatedAgeYears: ageResult.years,
-            calculatedAgeMonths: ageResult.months,
-            gender: formData.gender,
-            orphanStatus: formData.orphanStatus,
-            caregiverName: formData.caregiverName,
-            caregiverRelationship: formData.caregiverRelationship,
-            contactNumber: formData.contactNumber,
-            caregiverPhone: formData.contactNumber,
-            fullAddress: formData.fullAddress,
-            state: formData.state,
-            district: formData.district,
-            childAadhaarNumber: formData.childAadhaarNumber,
-          },
-          consent: {
-            agreeToParticipate: formData.agreeToParticipate ?? false,
-            signatureTimestamp: new Date().toISOString(),
-          },
-          caregiverConsent: {
-            consentProvided: formData.agreeToParticipate ?? false,
-            consentVersion: 'v1.0-2026',
-            caregiverName: formData.caregiverName || 'Caregiver',
-            caregiverRelationship: formData.caregiverRelationship || 'Mother',
-            consentCapturedAt: new Date().toISOString(),
-            signatureRequired: true,
-            signatureStatus: hasSavedSignature ? 'CAPTURED_LOCAL' : 'PENDING',
-          },
-          bankingAndKyc: {
-            bankAccountHolderName: formData.bankAccountHolderName,
-            bankAccountNumber: formData.bankAccountNumber,
-            bankIfscCode: formData.bankIfscCode,
-            bankLinkedMobileNumber: formData.bankLinkedMobileNumber,
-            childAadhaarNumber: formData.childAadhaarNumber,
-            passbookPhotoUrl: formData.passbookPhotoUrl,
-            aadhaarCardPhotoUrl: formData.aadhaarCardPhotoUrl,
-            childPhotoUrl: formData.childPhotoUrl,
-          },
-          householdFinancial: {
-            totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
-            numberOfChildrenUnder18: Number(formData.numberOfChildrenUnder18) || 0,
-            monthlyIncomeRs: Number(formData.monthlyIncomeRs) || 0,
-            mainSourceOfIncome: formData.mainSourceOfIncome,
-          },
-          health: {
-            weightKg: Number(formData.weightKg) || 0,
-            heightCm: Number(formData.heightCm) || 0,
-            bmi: bmiValue,
-            bmiCategory: bmiCategory,
-            haemoglobinGdl: formData.haemoglobinGdl ? Number(formData.haemoglobinGdl) : undefined,
-            hbCategory: hbCategory,
-            otherHealthConditions: formData.otherHealthConditions,
-            otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
-            artStatus: formData.artStatus,
-            artRegistrationDate: formData.artRegistrationDate,
-            artIdNumber: formData.artIdNumber,
-            vlStatus: formData.vlStatus,
-            vlDate: formData.vlDate,
-            viralLoad: formData.viralLoad,
-            vlCategory: vlCategory,
-            nutritionStatus: nutritionResult.nutritionStatus,
-          },
-          nutrition: {
-            appetite: formData.appetite,
-            mealsPerDay: Number(formData.mealsPerDay) || 3,
-          },
-          educationStatus: {
-            educationStatus: formData.educationStatus,
-            educationStatusSpecify: formData.educationStatusSpecify,
-            schoolName: formData.schoolName,
-            schoolSessionStartDate: formData.schoolSessionStartDate,
-            schoolType: formData.schoolType,
-            currentClass: formData.currentClass,
-            attendance: formData.attendance,
-          },
-          educationExpenses: {
-            schoolFees: Number(formData.schoolFees) || 0,
-            tuitionFees: Number(formData.tuitionFees) || 0,
-            books: Number(formData.books) || 0,
-            stationery: Number(formData.stationery) || 0,
-            uniform: Number(formData.uniform) || 0,
-            transport: Number(formData.transport) || 0,
-            otherExpenses: Number(formData.otherExpenses) || 0,
-            totalAnnualCost: totalAnnualEducationCost,
-            feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
-            marksheetPhotoUrl: formData.marksheetPhotoUrl,
-            remarks: formData.remarks,
-          },
-          educationSupportRequired: {
-            requiredSchoolFees: Number(formData.requiredSchoolFees) || 0,
-            requiredBooks: Number(formData.requiredBooks) || 0,
-            requiredStationery: Number(formData.requiredStationery) || 0,
-            requiredUniform: Number(formData.requiredUniform) || 0,
-            requiredTransport: Number(formData.requiredTransport) || 0,
-            requiredOtherSupport: Number(formData.requiredOtherSupport) || 0,
-            totalRequiredSupport: totalRequiredSupport,
-          },
-          finalReview: {
-            allInfoCorrect: formData.allInfoCorrect ?? false,
-            organizationName: formData.organizationName,
-            formSubmittedBy: formData.formSubmittedBy,
-            organizationEmail: formData.organizationEmail,
-            approvedAllianceIndia: formData.approvedAllianceIndia,
-            reviewConfirmed: formData.allInfoCorrect ?? false,
-          },
-          approvedAllianceIndia: formData.approvedAllianceIndia,
-          reviewConfirmed: formData.allInfoCorrect ?? false,
-          syncNeeded: 'NO',
-          syncStatus: 'draft',
-          updatedAt: new Date().toISOString(),
-        };
-
-        await saveDraft(record as any);
-        setSaveStatus('saved');
-      } catch (err) {
-        console.error('Autosave error:', err);
-        setSaveStatus('saved');
-      }
-    }, 400);
-
-    return () => clearTimeout(timer);
+  // Helper to build canonical draft record snapshot
+  const buildCurrentDraftRecord = useCallback((): Partial<AssessmentRecord> => {
+    return {
+      uuid: clientUuid,
+      clientSubmissionId: clientUuid,
+      koboId: formData.koboId || formData.artNumber,
+      interviewerName: formData.formSubmittedBy?.trim() || 'Caseworker',
+      stepIndex: 1, // Single-page form
+      demographics: {
+        artNumber: formData.artNumber,
+        dateOfFilling: formData.dateOfFilling,
+        childName: formData.childName,
+        dob: formData.dob,
+        calculatedAgeYears: ageResult.years,
+        calculatedAgeMonths: ageResult.months,
+        gender: formData.gender,
+        orphanStatus: formData.orphanStatus,
+        caregiverName: formData.caregiverName,
+        caregiverRelationship: formData.caregiverRelationship,
+        contactNumber: formData.contactNumber,
+        caregiverPhone: formData.contactNumber,
+        fullAddress: formData.fullAddress,
+        state: formData.state,
+        district: formData.district,
+        childAadhaarNumber: formData.childAadhaarNumber,
+      },
+      consent: {
+        agreeToParticipate: formData.agreeToParticipate ?? false,
+        signatureTimestamp: new Date().toISOString(),
+      },
+      caregiverConsent: {
+        consentProvided: formData.agreeToParticipate ?? false,
+        consentVersion: 'v1.0-2026',
+        caregiverName: formData.caregiverName || 'Caregiver',
+        caregiverRelationship: formData.caregiverRelationship || 'Mother',
+        consentCapturedAt: new Date().toISOString(),
+        signatureRequired: true,
+        signatureStatus: hasSavedSignature ? 'CAPTURED_LOCAL' : 'PENDING',
+      },
+      bankingAndKyc: {
+        bankAccountHolderName: formData.bankAccountHolderName,
+        bankAccountNumber: formData.bankAccountNumber,
+        bankIfscCode: formData.bankIfscCode,
+        bankLinkedMobileNumber: formData.bankLinkedMobileNumber,
+        childAadhaarNumber: formData.childAadhaarNumber,
+        passbookPhotoUrl: formData.passbookPhotoUrl,
+        aadhaarCardPhotoUrl: formData.aadhaarCardPhotoUrl,
+        childPhotoUrl: formData.childPhotoUrl,
+      },
+      householdFinancial: {
+        totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
+        numberOfChildrenUnder18: Number(formData.numberOfChildrenUnder18) || 0,
+        monthlyIncomeRs: Number(formData.monthlyIncomeRs) || 0,
+        mainSourceOfIncome: formData.mainSourceOfIncome,
+      },
+      health: {
+        weightKg: Number(formData.weightKg) || 0,
+        heightCm: Number(formData.heightCm) || 0,
+        bmi: bmiValue,
+        bmiCategory: bmiCategory,
+        haemoglobinGdl: formData.haemoglobinGdl ? Number(formData.haemoglobinGdl) : undefined,
+        hbCategory: hbCategory,
+        otherHealthConditions: formData.otherHealthConditions,
+        otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
+        artStatus: formData.artStatus,
+        artRegistrationDate: formData.artRegistrationDate,
+        artIdNumber: formData.artIdNumber,
+        vlStatus: formData.vlStatus,
+        vlDate: formData.vlDate,
+        viralLoad: formData.viralLoad,
+        vlCategory: vlCategory,
+        nutritionStatus: nutritionResult.nutritionStatus,
+      },
+      nutrition: {
+        appetite: formData.appetite,
+        mealsPerDay: Number(formData.mealsPerDay) || 3,
+      },
+      educationStatus: {
+        educationStatus: formData.educationStatus,
+        educationStatusSpecify: formData.educationStatusSpecify,
+        schoolName: formData.schoolName,
+        schoolSessionStartDate: formData.schoolSessionStartDate,
+        schoolType: formData.schoolType,
+        currentClass: formData.currentClass,
+        attendance: formData.attendance,
+      },
+      educationExpenses: {
+        schoolFees: Number(formData.schoolFees) || 0,
+        tuitionFees: Number(formData.tuitionFees) || 0,
+        books: Number(formData.books) || 0,
+        stationery: Number(formData.stationery) || 0,
+        uniform: Number(formData.uniform) || 0,
+        transport: Number(formData.transport) || 0,
+        otherExpenses: Number(formData.otherExpenses) || 0,
+        totalAnnualCost: totalAnnualEducationCost,
+        feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
+        marksheetPhotoUrl: formData.marksheetPhotoUrl,
+        remarks: formData.remarks,
+      },
+      educationSupportRequired: {
+        requiredSchoolFees: Number(formData.requiredSchoolFees) || 0,
+        requiredBooks: Number(formData.requiredBooks) || 0,
+        requiredStationery: Number(formData.requiredStationery) || 0,
+        requiredUniform: Number(formData.requiredUniform) || 0,
+        requiredTransport: Number(formData.requiredTransport) || 0,
+        requiredOtherSupport: Number(formData.requiredOtherSupport) || 0,
+        totalRequiredSupport: totalRequiredSupport,
+      },
+      finalReview: {
+        allInfoCorrect: formData.allInfoCorrect ?? false,
+        organizationName: formData.organizationName,
+        formSubmittedBy: formData.formSubmittedBy,
+        organizationEmail: formData.organizationEmail,
+        approvedAllianceIndia: formData.approvedAllianceIndia,
+        reviewConfirmed: formData.allInfoCorrect ?? false,
+      },
+      approvedAllianceIndia: formData.approvedAllianceIndia,
+      reviewConfirmed: formData.allInfoCorrect ?? false,
+      syncNeeded: 'NO',
+      syncStatus: 'draft',
+      updatedAt: new Date().toISOString(),
+    };
   }, [
-    formData,
     clientUuid,
-    isLoading,
-    draftNotFound,
+    formData,
     ageResult,
     bmiValue,
     bmiCategory,
@@ -572,6 +555,25 @@ export default function ResumeDraftSinglePage() {
     totalRequiredSupport,
     hasSavedSignature,
   ]);
+
+  // Continuous Autosave to Dexie drafts table with all 73 fields
+  useEffect(() => {
+    if (!clientUuid || isLoading || draftNotFound) return;
+
+    const timer = setTimeout(async () => {
+      setSaveStatus('saving');
+      try {
+        const record = buildCurrentDraftRecord();
+        await saveDraft(record as any);
+        setSaveStatus('saved');
+      } catch (err) {
+        console.error('Autosave error:', err);
+        setSaveStatus('saved');
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [clientUuid, isLoading, draftNotFound, buildCurrentDraftRecord]);
 
   // Validation Check before queueing submission
   const validateForm = (): string | null => {
@@ -603,12 +605,17 @@ export default function ResumeDraftSinglePage() {
   };
 
   const handleManualSaveDraft = async () => {
+    if (!clientUuid) return;
     setSaveStatus('saving');
     try {
+      const record = buildCurrentDraftRecord();
+      await saveDraft(record as any);
       setSaveStatus('saved');
       setFormError(null);
     } catch (e: any) {
-      console.error(e);
+      console.error('Manual draft save error:', e);
+      setSaveStatus('saved');
+      setFormError('Failed to save draft locally.');
     }
   };
 
@@ -842,6 +849,7 @@ export default function ResumeDraftSinglePage() {
         setSubmitStatus('sending');
 
         const outcomePromise = waitForSubmissionOutcome(targetClientId, {
+          timeoutMs: 90_000, // 90s: covers Apps Script cold-start (may take 25–60s) + 45s gateway abort
           onSending: () => setSubmitStatus('sending'),
           onRetrying: () => setSubmitStatus('retrying'),
         });

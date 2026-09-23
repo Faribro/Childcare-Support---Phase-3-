@@ -63,9 +63,16 @@ export default function FieldWorkspacePage() {
     };
   }, [loadData]);
 
-  const handleDeleteDraft = async (id: number) => {
-    await deleteDraft(id);
-    await loadData();
+  const handleDeleteDraft = async (id: number): Promise<void> => {
+    // Optimistic remove — instant visual feedback
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+    try {
+      await deleteDraft(id);
+    } catch (err: any) {
+      console.error('[FieldWorkspace] deleteDraft failed:', err);
+      // Restore list on failure
+      await loadData();
+    }
   };
 
   const handleResumeDraft = (id: string | number) => {
