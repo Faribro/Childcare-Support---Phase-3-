@@ -15,7 +15,10 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
       }),
       addAll: vi.fn(async (urls: string[]) => {
         for (const u of urls) {
-          cacheStore.set(new URL(u, ORIGIN).href, new Response('<html>Shell</html>', { status: 200 }));
+          cacheStore.set(
+            new URL(u, ORIGIN).href,
+            new Response('<html>Shell</html>', { status: 200 })
+          );
         }
       }),
     })),
@@ -26,7 +29,10 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
       if (options?.ignoreSearch) {
         for (const [key, response] of cacheStore.entries()) {
           const parsedKey = new URL(key, ORIGIN);
-          if (parsedKey.origin === parsedTarget.origin && parsedKey.pathname === parsedTarget.pathname) {
+          if (
+            parsedKey.origin === parsedTarget.origin &&
+            parsedKey.pathname === parsedTarget.pathname
+          ) {
             return response.clone();
           }
         }
@@ -44,14 +50,34 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
     cacheStore = new Map();
 
     // Pre-populate standard precache shells
-    cacheStore.set(`${ORIGIN}/assessment/sync`, new Response('<!doctype html><html><body>Sync Shell</body></html>', {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' },
-    }));
-    cacheStore.set(`${ORIGIN}/app`, new Response('<!doctype html><html><body>App Shell</body></html>', {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' },
-    }));
+    cacheStore.set(
+      `${ORIGIN}/assessment/sync`,
+      new Response('<!doctype html><html><body>Sync Shell</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    );
+    cacheStore.set(
+      `${ORIGIN}/assessment/new`,
+      new Response('<!doctype html><html><body>New Survey Shell</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    );
+    cacheStore.set(
+      `${ORIGIN}/assessment/drafts`,
+      new Response('<!doctype html><html><body>Drafts Shell</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    );
+    cacheStore.set(
+      `${ORIGIN}/app`,
+      new Response('<!doctype html><html><body>App Shell</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    );
 
     // Setup global service worker mocks
     (global as any).self = {
@@ -75,7 +101,10 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
     vi.restoreAllMocks();
   });
 
-  function triggerFetch(request: Request): { responded: boolean; responsePromise: Promise<Response> | null } {
+  function triggerFetch(request: Request): {
+    responded: boolean;
+    responsePromise: Promise<Response> | null;
+  } {
     let responded = false;
     let responsePromise: Promise<Response> | null = null;
 
@@ -98,10 +127,13 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
   // ── 1. Navigation fetch success ──
   it('1. Navigation fetch success: /assessment/sync?status=syncing&ref=ART-TEST-0001 returns a Response', async () => {
     const syntheticUrl = `${ORIGIN}/assessment/sync?status=syncing&ref=ART-TEST-0001`;
-    const networkResponse = new Response('<!doctype html><html><body>Live Sync Page</body></html>', {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' },
-    });
+    const networkResponse = new Response(
+      '<!doctype html><html><body>Live Sync Page</body></html>',
+      {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      }
+    );
 
     global.fetch = vi.fn(async () => networkResponse);
 
@@ -184,7 +216,9 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
   it('4. POST/PATCH submission requests bypass cache and remain network-only', () => {
     const mutationRequests = [
       new Request(`${ORIGIN}/api/submissions`, { method: 'POST' }),
-      new Request(`${ORIGIN}/api/submissions/f47ac10b-58cc-4372-a567-0e02b2c3d479`, { method: 'PATCH' }),
+      new Request(`${ORIGIN}/api/submissions/f47ac10b-58cc-4372-a567-0e02b2c3d479`, {
+        method: 'PATCH',
+      }),
       new Request(`${ORIGIN}/api/sync`, { method: 'POST' }),
       new Request(`${ORIGIN}/api/submissions?limit=10`, { method: 'GET' }),
     ];
@@ -216,5 +250,70 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
     expect(result).toBeDefined();
     expect(result instanceof Response).toBe(true);
     expect(result.status).toBe(200);
+  });
+
+  // ── 6. Client-side subrequest / RSC fetch to /assessment/new and /assessment/drafts returns cached shells when offline ──
+  it('6. Subrequest fetch to /assessment/new and /assessment/drafts returns cached shells when offline', async () => {
+    global.fetch = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    const routes = [
+      { url: `${ORIGIN}/assessment/new?_rsc=123`, expectedText: 'New Survey Shell' },
+      { url: `${ORIGIN}/assessment/drafts?_rsc=456`, expectedText: 'Drafts Shell' },
+    ];
+
+    for (const route of routes) {
+      const request = new Request(route.url, { method: 'GET' });
+      Object.defineProperty(request, 'mode', { value: 'cors' });
+
+      const { responded, responsePromise } = triggerFetch(request);
+
+      expect(responded).toBe(true);
+      const result = await responsePromise!;
+      expect(result).toBeDefined();
+      expect(result instanceof Response).toBe(true);
+      expect(result.status).toBe(200);
+      const body = await result.text();
+      expect(body).toContain(route.expectedText);
+    }
+  });
+
+  // ── 7. Top-level navigation fetch to /assessment/new and /assessment/drafts returns cached shells when offline ──
+  it('7. Navigation fetch to /assessment/new and /assessment/drafts returns cached shells when offline', async () => {
+    global.fetch = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    const routes = [
+      { url: `${ORIGIN}/assessment/new`, expectedText: 'New Survey Shell' },
+      { url: `${ORIGIN}/assessment/drafts`, expectedText: 'Drafts Shell' },
+    ];
+
+    for (const route of routes) {
+      const request = new Request(route.url, { method: 'GET' });
+      Object.defineProperty(request, 'mode', { value: 'navigate' });
+
+      const { responded, responsePromise } = triggerFetch(request);
+
+      expect(responded).toBe(true);
+      const result = await responsePromise!;
+      expect(result).toBeDefined();
+      expect(result instanceof Response).toBe(true);
+      expect(result.status).toBe(200);
+      const body = await result.text();
+      expect(body).toContain(route.expectedText);
+    }
+  });
+
+  // ── 8. Service Worker versioning and precache definitions ──
+  it('8. Service Worker contains version alliance-pwa-v3.0.2 and precaches /assessment/drafts', () => {
+    const swPath = path.resolve(process.cwd(), 'public/sw.js');
+    const swContent = fs.readFileSync(swPath, 'utf8');
+
+    expect(swContent).toContain("CACHE_NAME = 'alliance-pwa-v3.0.2'");
+    expect(swContent).toContain("'/assessment/drafts'");
+    expect(swContent).toContain("'/assessment/new'");
+    expect(swContent).toContain("'/assessment/sync'");
   });
 });

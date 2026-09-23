@@ -2,12 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import {
-  Plus,
-  FileText,
-  CheckCircle2,
-  ChevronRight,
-} from 'lucide-react';
+import { Plus, FileText, CheckCircle2, ChevronRight } from 'lucide-react';
 import type { AssessmentRecord } from '@/types/domain';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 
@@ -40,12 +35,25 @@ export function MobileKoboHomeScreen({
   const submittedLoading = isSubmittedLoading ?? isLoading;
   const count = draftsCount ?? drafts?.length ?? 0;
 
+  const handleOfflineNav = (e: React.MouseEvent, url: string) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      e.preventDefault();
+      window.location.assign(url);
+    }
+  };
+
   return (
     <div className="md:hidden w-full max-w-md mx-auto px-4 py-3 sm:py-4 space-y-3 animate-in fade-in duration-150">
       {/* Action 1: Start New Survey (Prominent Full-Width Primary Touch Action) */}
-      <Link href="/assessment/new" className="block">
+      <Link
+        href="/assessment/new"
+        prefetch={true}
+        className="block"
+        onClick={(e) => handleOfflineNav(e, '/assessment/new')}
+      >
         <button
           type="button"
+          onClick={(e) => handleOfflineNav(e, '/assessment/new')}
           className="w-full min-h-[56px] bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-800 hover:to-emerald-700 active:scale-[0.99] text-white rounded-2xl p-4 shadow-sm border border-teal-800 flex items-center justify-between transition-all cursor-pointer"
         >
           <div className="flex items-center gap-3">
@@ -54,7 +62,9 @@ export function MobileKoboHomeScreen({
             </div>
             <div className="text-left">
               <h3 className="text-base font-bold leading-tight text-white">Start New Survey</h3>
-              <p className="text-xs text-teal-50/90 font-medium">New beneficiary intake assessment</p>
+              <p className="text-xs text-teal-50/90 font-medium">
+                New beneficiary intake assessment
+              </p>
             </div>
           </div>
           <ChevronRight className="w-5 h-5 text-white/80 shrink-0" />
@@ -64,7 +74,12 @@ export function MobileKoboHomeScreen({
       {/* Navigation Action Cards (White, High-Contrast, >=48px touch targets) */}
       <div className="space-y-2.5">
         {/* Action 2: Drafts (Dedicated Page Navigation) */}
-        <Link href="/assessment/drafts" className="block">
+        <Link
+          href="/assessment/drafts"
+          prefetch={true}
+          className="block"
+          onClick={(e) => handleOfflineNav(e, '/assessment/drafts')}
+        >
           <div className="w-full min-h-[52px] bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 flex items-center justify-center shrink-0">
@@ -94,7 +109,10 @@ export function MobileKoboHomeScreen({
 
         {/* Action 3: Submitted Surveys */}
         <div className="w-full min-h-[52px] bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-slate-50 active:bg-slate-100 transition-colors">
-          <Link href="/assessment/sync?tab=synced" className="flex items-center gap-3 min-w-0 flex-1">
+          <Link
+            href="/assessment/sync?tab=synced"
+            className="flex items-center gap-3 min-w-0 flex-1"
+          >
             <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center shrink-0">
               <CheckCircle2 className="w-4 h-4" />
             </div>
@@ -109,12 +127,18 @@ export function MobileKoboHomeScreen({
                       aria-label="Loading submitted count"
                     />
                   ) : (
-                    submittedCount ?? 0
+                    (submittedCount ?? 0)
                   )}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 truncate">
-                {submittedStatus === 'offline' ? 'Showing locally confirmed (offline)' : 'Confirmed on central server'}
+                {submittedStatus === 'offline'
+                  ? 'Showing locally confirmed (offline)'
+                  : submittedStatus === 'error'
+                    ? 'Server unreachable (tap Retry)'
+                    : submittedLoading
+                      ? 'Checking server...'
+                      : 'Confirmed on central server'}
               </p>
             </div>
           </Link>

@@ -1,9 +1,10 @@
 // Alliance Child Nutrition & Education Support - High Reliability Offline PWA Service Worker
-const CACHE_NAME = 'alliance-pwa-v3.0.1';
+const CACHE_NAME = 'alliance-pwa-v3.0.2';
 const PRECACHE_URLS = [
   '/',
   '/app',
   '/assessment/new',
+  '/assessment/drafts',
   '/assessment/sync',
   '/manifest.json',
   '/alliance-india-logo.png',
@@ -76,6 +77,10 @@ self.addEventListener('fetch', (event) => {
             const newShell = await caches.match('/assessment/new');
             if (newShell) return newShell;
           }
+          if (url.pathname.startsWith('/assessment/drafts')) {
+            const draftsShell = await caches.match('/assessment/drafts');
+            if (draftsShell) return draftsShell;
+          }
 
           // Fallback app or home shell
           const fallbackApp = await caches.match('/app');
@@ -126,9 +131,21 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(async () => {
           // If network fails and item is not in cache, check if route shell can satisfy it
+          if (url.pathname.startsWith('/assessment/new')) {
+            const newShell = await caches.match('/assessment/new');
+            if (newShell) return newShell;
+          }
+          if (url.pathname.startsWith('/assessment/drafts')) {
+            const draftsShell = await caches.match('/assessment/drafts');
+            if (draftsShell) return draftsShell;
+          }
           if (url.pathname.startsWith('/assessment/sync')) {
             const syncShell = await caches.match('/assessment/sync');
             if (syncShell) return syncShell;
+          }
+          if (url.pathname === '/' || url.pathname === '/app') {
+            const appShell = (await caches.match('/app')) || (await caches.match('/'));
+            if (appShell) return appShell;
           }
 
           // NEVER return undefined, null, or rejected promise. Always return a valid Response.
