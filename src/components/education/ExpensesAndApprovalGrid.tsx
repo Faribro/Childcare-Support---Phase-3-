@@ -208,18 +208,16 @@ export function ExpensesAndApprovalGrid({
   errors = {},
 }: ExpensesAndApprovalGridProps) {
   /**
-   * Per-row "Current cost = required cost" checkbox state.
+   * Per-row "Current cost = Required cost" checkbox state.
    * Key: expense row key (e.g. "schoolFees").
-   * Value: true when checked — the required field mirrors current cost.
+   * Value: true when checked — the required field mirrors the current cost.
    *
    * Behavior:
-   * - Checking copies currentCost → requiredCost immediately.
-   * - If currentCost subsequently changes while checked, requiredCost
-   *   updates in sync (least surprising — user opted in to mirroring).
-   * - Unchecking breaks the link; user can edit requiredCost freely.
-   * - State lives only in this component; it is NOT persisted to
-   *   IndexedDB or submitted to the server (it is a UX convenience,
-   *   not a data field — the actual requiredCost values ARE persisted).
+   * - Checking copies currentCost → requiredCost immediately for that row.
+   * - While checked, changes to currentCost keep requiredCost in sync.
+   * - Unchecking restores independent editing of requiredCost for that row.
+   * - Manually editing requiredCost automatically unlinks the mirror for that row.
+   * - State is UI-only; it does NOT affect IndexedDB, Sheets, Zod, or payload.
    */
   const [sameCostRows, setSameCostRows] = useState<Record<string, boolean>>({});
 
@@ -260,7 +258,7 @@ export function ExpensesAndApprovalGrid({
     (rowKey: string, reqKey: string, checked: boolean) => {
       setSameCostRows((prev) => ({ ...prev, [rowKey]: checked }));
       if (checked) {
-        // Copy current cost → required cost immediately
+        // Copy current cost → required cost immediately for this row
         onRequiredSupportChange(reqKey, currentMap[rowKey] ?? 0);
       }
     },
@@ -271,7 +269,7 @@ export function ExpensesAndApprovalGrid({
   const handleCurrentChange = useCallback(
     (rowKey: string, reqKey: string, val: number) => {
       onCurrentExpenseChange(rowKey, val);
-      // If mirror is active, propagate to required as well
+      // If this row's mirror is active, propagate to required as well
       if (sameCostRows[rowKey]) {
         onRequiredSupportChange(reqKey, val);
       }
@@ -294,14 +292,14 @@ export function ExpensesAndApprovalGrid({
       <div className="p-3.5 bg-purple-50/60 border border-purple-200/90 rounded-xl text-xs space-y-1.5 shadow-2xs">
         <div className="flex items-center space-x-2 text-purple-950 font-bold">
           <GraduationCap className="h-4 w-4 text-purple-700 shrink-0" />
-          <span>Educational Support Approval & Disbursement Guidelines</span>
+          <span>Educational Support Approval &amp; Disbursement Guidelines</span>
         </div>
         <p className="text-slate-600 leading-relaxed text-[11.5px]">
           Each line item must be validated against programme schedules:
-          <span className="font-semibold text-purple-900"> Stationery is approved twice in the year</span> (Semester 1 &
+          <span className="font-semibold text-purple-900"> Stationery is approved twice in the year</span> (Semester 1 &amp;
           2),
           <span className="font-semibold text-amber-900"> Transport and Private Tuition are approved monthly</span>, and
-          <span className="font-semibold text-purple-900"> School Fees, Books & Uniform are approved annually</span>.
+          <span className="font-semibold text-purple-900"> School Fees, Books &amp; Uniform are approved annually</span>.
         </p>
       </div>
 
@@ -311,12 +309,11 @@ export function ExpensesAndApprovalGrid({
           <table className="w-full text-left text-xs text-slate-900">
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="py-3 px-4 w-[24%]">Expense Category</th>
-                <th className="py-3 px-4 w-[18%]">Frequency Schedule</th>
-                <th className="py-3 px-4 w-[26%]">Programme Approval Criteria</th>
-                <th className="py-3 px-4 w-[13%] text-right">Current Cost (₹)</th>
-                <th className="py-3 px-4 w-[7%] text-center">Same?</th>
-                <th className="py-3 px-4 w-[12%] text-right">Required (₹)</th>
+                <th className="py-3 px-4 w-[22%]">Expense Category</th>
+                <th className="py-3 px-4 w-[16%]">Frequency Schedule</th>
+                <th className="py-3 px-4 w-[25%]">Programme Approval Criteria</th>
+                <th className="py-3 px-4 w-[16%] text-right">Current Cost (₹)</th>
+                <th className="py-3 px-4 w-[21%] text-right">Required Cost (₹)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -333,7 +330,7 @@ export function ExpensesAndApprovalGrid({
                   item.key === 'schoolFees' ? 'school-fees-current-cost' : `expenses-${item.key}`;
 
                 return (
-                  <tr key={item.key} className="hover:bg-slate-50/70 transition-colors">
+                  <tr key={item.key} className="hover:bg-slate-50/70 transition-colors align-top">
                     <td className="py-3.5 px-4">
                       <span className="font-bold text-slate-900 block leading-snug">{item.label}</span>
                     </td>
@@ -361,43 +358,46 @@ export function ExpensesAndApprovalGrid({
                         />
                       )}
                     </td>
-                    <td className="py-3.5 px-4 text-center">
-                      {!isReadOnly && (
-                        <label
-                          className="inline-flex flex-col items-center gap-0.5 cursor-pointer select-none"
-                          title="Current cost is same as required cost"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isMirrored}
-                            onChange={(e) => handleSameCostToggle(item.key, item.reqKey, e.target.checked)}
-                            className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                            aria-label={`Current cost is same as required cost for ${item.label}`}
-                          />
-                          <Copy className="w-2.5 h-2.5 text-slate-400" aria-hidden />
-                        </label>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
+                    <td className="py-3.5 px-4">
                       {isReadOnly ? (
-                        <span className="font-mono font-bold text-purple-950">
-                          ₹{requiredVal.toLocaleString('en-IN')}
-                        </span>
+                        <div className="text-right">
+                          <span className="font-mono font-bold text-purple-950">
+                            ₹{requiredVal.toLocaleString('en-IN')}
+                          </span>
+                        </div>
                       ) : (
-                        <CostInput
-                          id={`req-${item.reqKey}`}
-                          value={requiredVal}
-                          onChange={(val) => {
-                            // Unlink mirror if user manually edits required
-                            if (sameCostRows[item.key]) {
-                              setSameCostRows((prev) => ({ ...prev, [item.key]: false }));
-                            }
-                            onRequiredSupportChange(item.reqKey, val);
-                          }}
-                          disabled={isMirrored}
-                          accent
-                          aria-label={`Required cost for ${item.label}${isMirrored ? ' (mirroring current cost)' : ''}`}
-                        />
+                        <div className="space-y-1.5">
+                          <CostInput
+                            id={`req-${item.reqKey}`}
+                            value={requiredVal}
+                            onChange={(val) => {
+                              // Manually editing required cost unlinks the mirror for this row
+                              if (sameCostRows[item.key]) {
+                                setSameCostRows((prev) => ({ ...prev, [item.key]: false }));
+                              }
+                              onRequiredSupportChange(item.reqKey, val);
+                            }}
+                            disabled={isMirrored}
+                            accent
+                            aria-label={`Required cost for ${item.label}${isMirrored ? ' (mirroring current cost)' : ''}`}
+                          />
+                          <label
+                            className="flex items-center gap-1.5 cursor-pointer select-none group min-h-[44px] py-1"
+                            title="Check to mirror current cost into required cost for this item"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isMirrored}
+                              onChange={(e) => handleSameCostToggle(item.key, item.reqKey, e.target.checked)}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer shrink-0"
+                              aria-label={`Current Cost (₹) is same as Required Cost (₹) for ${item.label}`}
+                            />
+                            <span className="text-[10px] leading-tight text-slate-500 group-hover:text-slate-800 flex items-center gap-1">
+                              <Copy className="w-2.5 h-2.5 text-slate-400 shrink-0" aria-hidden />
+                              Current Cost (₹) = Required Cost (₹)
+                            </span>
+                          </label>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -413,7 +413,6 @@ export function ExpensesAndApprovalGrid({
                 <td className="py-3.5 px-4 text-right font-mono text-slate-900">
                   ₹{totalCurrentCost.toLocaleString('en-IN')}
                 </td>
-                <td className="py-3.5 px-4" />
                 <td className="py-3.5 px-4 text-right font-mono text-purple-950 text-sm">
                   ₹{totalRequired.toLocaleString('en-IN')}
                 </td>
@@ -474,7 +473,7 @@ export function ExpensesAndApprovalGrid({
                   )}
                 </div>
 
-                {/* "Same as required" checkbox */}
+                {/* Per-row cost-match checkbox — between current and required */}
                 {!isReadOnly && (
                   <label className="flex items-center gap-2.5 cursor-pointer select-none group min-h-[44px]">
                     <input
@@ -482,11 +481,11 @@ export function ExpensesAndApprovalGrid({
                       checked={isMirrored}
                       onChange={(e) => handleSameCostToggle(item.key, item.reqKey, e.target.checked)}
                       className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer shrink-0"
-                      aria-label={`Current cost is same as required cost for ${item.label}`}
+                      aria-label={`Current Cost (₹) is same as Required Cost (₹) for ${item.label}`}
                     />
                     <span className="text-xs text-slate-600 group-hover:text-slate-900 flex items-center gap-1.5 leading-tight">
                       <Copy className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
-                      Current cost is same as required cost
+                      Current Cost (₹) is same as Required Cost (₹)
                     </span>
                   </label>
                 )}
@@ -511,6 +510,7 @@ export function ExpensesAndApprovalGrid({
                       id={`mobile-req-${item.reqKey}`}
                       value={requiredVal}
                       onChange={(val) => {
+                        // Manually editing required cost unlinks the mirror for this row
                         if (sameCostRows[item.key]) {
                           setSameCostRows((prev) => ({ ...prev, [item.key]: false }));
                         }
