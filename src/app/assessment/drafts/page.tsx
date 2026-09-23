@@ -20,6 +20,7 @@ export default function DedicatedDraftsPage() {
   const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
   const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -48,9 +49,18 @@ export default function DedicatedDraftsPage() {
     };
   }, [loadData]);
 
-  const handleDeleteDraft = async (id: number) => {
-    await deleteDraft(id);
-    await loadData();
+  const handleDeleteDraft = async (id: number): Promise<void> => {
+    setDeleteError(null);
+    // Optimistic remove — instant visual feedback
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+    try {
+      await deleteDraft(id);
+    } catch (err: any) {
+      // Restore list on failure
+      console.error('[DraftsPage] deleteDraft failed:', err);
+      setDeleteError('Failed to delete draft. Please try again.');
+      await loadData();
+    }
   };
 
   const handleResumeDraft = (id: string | number) => {
@@ -102,6 +112,14 @@ export default function DedicatedDraftsPage() {
             </p>
           </div>
         </div>
+
+        {/* Delete Error Banner */}
+        {deleteError && (
+          <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold flex items-center justify-between gap-2">
+            <span>{deleteError}</span>
+            <button type="button" onClick={() => setDeleteError(null)} className="text-rose-500 hover:text-rose-700 shrink-0" aria-label="Dismiss error">✕</button>
+          </div>
+        )}
 
         {/* Drafts List Section */}
         <section className="space-y-4">
