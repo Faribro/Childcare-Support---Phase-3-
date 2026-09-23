@@ -959,10 +959,7 @@ export default function ResumeDraftSinglePage() {
                 hasSavedSignature={hasSavedSignature}
               />
 
-              <div className="flex items-center space-x-1 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono">
-                <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">ID</span>
-                <span className="font-bold text-slate-900">{formData.artNumber || 'Pending'}</span>
-              </div>
+
             </div>
           </div>
 
