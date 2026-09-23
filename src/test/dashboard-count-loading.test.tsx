@@ -179,9 +179,15 @@ describe('Dashboard Count Loading Performance (/app)', () => {
       render(<FieldWorkspacePage />);
 
       // Accessible status roles must be present
-      expect(screen.getAllByRole('status', { name: /loading draft count/i }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('status', { name: /loading waiting count/i }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('status', { name: /loading submitted count/i }).length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByRole('status', { name: /loading draft count/i }).length
+      ).toBeGreaterThan(0);
+      expect(
+        screen.getAllByRole('status', { name: /loading waiting count/i }).length
+      ).toBeGreaterThan(0);
+      expect(
+        screen.getAllByRole('status', { name: /loading submitted count/i }).length
+      ).toBeGreaterThan(0);
 
       // Raw '...' must not be present
       expect(screen.queryByText('...')).toBeNull();
@@ -210,7 +216,8 @@ describe('Dashboard Count Loading Performance (/app)', () => {
     });
 
     it('displays accessible retry trigger on remote fetch error and allows re-fetching', async () => {
-      global.fetch = vi.fn()
+      global.fetch = vi
+        .fn()
         .mockRejectedValueOnce(new Error('Network error 500'))
         .mockResolvedValueOnce({
           ok: true,
@@ -222,7 +229,9 @@ describe('Dashboard Count Loading Performance (/app)', () => {
 
       // Wait for error state to appear
       await waitFor(() => {
-        const retryButtons = screen.getAllByRole('button', { name: /retry loading submitted count/i });
+        const retryButtons = screen.getAllByRole('button', {
+          name: /retry loading submitted count/i,
+        });
         expect(retryButtons.length).toBeGreaterThan(0);
       });
 
@@ -235,6 +244,59 @@ describe('Dashboard Count Loading Performance (/app)', () => {
       // Should now resolve with new count 99
       await waitFor(() => {
         expect(screen.getAllByText('99').length).toBeGreaterThan(0);
+      });
+    });
+
+    it('sets error status (never false offline) when remote request aborts or times out while online', async () => {
+      const abortError = new Error('The user aborted a request.');
+      abortError.name = 'AbortError';
+
+      global.fetch = vi.fn().mockRejectedValue(abortError);
+
+      render(<FieldWorkspacePage />);
+
+      await waitFor(() => {
+        const retryButtons = screen.getAllByRole('button', {
+          name: /retry loading submitted count/i,
+        });
+        expect(retryButtons.length).toBeGreaterThan(0);
+        // Must NOT display "Offline" badge because device is online
+        expect(screen.queryByText('Offline')).toBeNull();
+      });
+    });
+
+    it('refreshes submitted and waiting count automatically when window online event fires', async () => {
+      // Start offline
+      Object.defineProperty(navigator, 'onLine', {
+        value: false,
+        configurable: true,
+      });
+
+      render(<FieldWorkspacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Offline')).toBeDefined();
+      });
+
+      // Now come online
+      Object.defineProperty(navigator, 'onLine', {
+        value: true,
+        configurable: true,
+      });
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ pagination: { totalCount: 77 } }),
+      } as any);
+
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByText('77').length).toBeGreaterThan(0);
+        expect(screen.queryByText('Offline')).toBeNull();
       });
     });
   });

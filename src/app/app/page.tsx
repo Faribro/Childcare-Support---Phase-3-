@@ -31,7 +31,9 @@ export default function FieldWorkspacePage() {
   // Decoupled state for Submitted Surveys
   const [submittedCount, setSubmittedCount] = useState<number | null>(null);
   const [isSubmittedLoading, setIsSubmittedLoading] = useState(true);
-  const [submittedStatus, setSubmittedStatus] = useState<'loading' | 'success' | 'offline' | 'error'>('loading');
+  const [submittedStatus, setSubmittedStatus] = useState<
+    'loading' | 'success' | 'offline' | 'error'
+  >('loading');
 
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -91,10 +93,15 @@ export default function FieldWorkspacePage() {
     }
   }, []);
 
-  // 4. Remote submitted count with 8s AbortController and offline fallback
+  // 4. Remote submitted count with 12s AbortController and offline fallback
   const refreshSubmitted = useCallback(async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+    }
+
+    if (isMountedRef.current) {
+      setIsSubmittedLoading(true);
+      setSubmittedStatus('loading');
     }
 
     const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
@@ -119,7 +126,7 @@ export default function FieldWorkspacePage() {
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     try {
       const res = await fetch('/api/submissions?limit=1', {
@@ -153,19 +160,18 @@ export default function FieldWorkspacePage() {
       clearTimeout(timeoutId);
       if (!isMountedRef.current) return;
 
-      const isAborted = err.name === 'AbortError';
       const isNetworkOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
       try {
         const localCount = await getLocalSyncedCount();
         if (isMountedRef.current) {
           setSubmittedCount((prev) => (prev !== null ? prev : localCount));
-          setSubmittedStatus(isAborted || isNetworkOffline ? 'offline' : 'error');
+          setSubmittedStatus(isNetworkOffline ? 'offline' : 'error');
           setIsSubmittedLoading(false);
         }
       } catch (_) {
         if (isMountedRef.current) {
-          setSubmittedStatus(isAborted || isNetworkOffline ? 'offline' : 'error');
+          setSubmittedStatus(isNetworkOffline ? 'offline' : 'error');
           setIsSubmittedLoading(false);
         }
       }
@@ -177,6 +183,17 @@ export default function FieldWorkspacePage() {
     setSubmittedStatus('loading');
     refreshSubmitted();
   }, [refreshSubmitted]);
+
+  // Prefetch key operational routes once on mount for instant offline navigation
+  useEffect(() => {
+    try {
+      router.prefetch('/assessment/new');
+      router.prefetch('/assessment/drafts');
+      router.prefetch('/assessment/sync');
+    } catch (_) {
+      // Safe fallback if router prefetch fails
+    }
+  }, [router]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -202,7 +219,23 @@ export default function FieldWorkspacePage() {
       refreshSubmitted();
     };
     const handleOffline = () => {
-      setSubmittedStatus('offline');
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      getLocalSyncedCount()
+        .then((localCount) => {
+          if (isMountedRef.current) {
+            setSubmittedCount((prev) => (prev !== null ? prev : localCount));
+            setSubmittedStatus('offline');
+            setIsSubmittedLoading(false);
+          }
+        })
+        .catch(() => {
+          if (isMountedRef.current) {
+            setSubmittedStatus('offline');
+            setIsSubmittedLoading(false);
+          }
+        });
     };
 
     window.addEventListener('child_nutrition:draft_updated', handleDraftUpdated);
@@ -304,10 +337,26 @@ export default function FieldWorkspacePage() {
                   <div className="waves wave-2"></div>
                   <div className="waves wave-3"></div>
                 </div>
-                <Link href="/assessment/new" className="block">
+                <Link
+                  href="/assessment/new"
+                  prefetch={true}
+                  className="block"
+                  onClick={(e) => {
+                    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+                      e.preventDefault();
+                      window.location.assign('/assessment/new');
+                    }
+                  }}
+                >
                   <Button
                     variant="primary"
                     size="lg"
+                    onClick={(e) => {
+                      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+                        e.preventDefault();
+                        window.location.assign('/assessment/new');
+                      }
+                    }}
                     className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
                   >
                     <Plus className="w-5 h-5 stroke-[2.5]" />
@@ -331,7 +380,7 @@ export default function FieldWorkspacePage() {
                       aria-label="Loading draft count"
                     />
                   ) : (
-                    draftCount ?? drafts.length
+                    (draftCount ?? drafts.length)
                   )}
                 </span>
               </div>
@@ -351,7 +400,7 @@ export default function FieldWorkspacePage() {
                       aria-label="Loading waiting count"
                     />
                   ) : (
-                    waitingCount ?? 0
+                    (waitingCount ?? 0)
                   )}
                 </span>
               </Link>
@@ -391,7 +440,7 @@ export default function FieldWorkspacePage() {
                       aria-label="Loading submitted count"
                     />
                   ) : (
-                    submittedCount ?? 0
+                    (submittedCount ?? 0)
                   )}
                 </Link>
               </div>
@@ -412,7 +461,7 @@ export default function FieldWorkspacePage() {
                       aria-label="Loading draft count"
                     />
                   ) : (
-                    draftCount ?? drafts.length
+                    (draftCount ?? drafts.length)
                   )}
                   )
                 </span>
@@ -425,12 +474,25 @@ export default function FieldWorkspacePage() {
               </div>
             ) : drafts.length === 0 ? (
               <div className="p-8 rounded-xl border border-dashed border-[hsl(215,18%,85%)] text-center space-y-2 bg-white/50">
-                <svg className="w-8 h-8 text-[hsl(215,12%,60%)] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <svg
+                  className="w-8 h-8 text-[hsl(215,12%,60%)] mx-auto"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
                 </svg>
-                <p className="text-xs font-semibold text-[hsl(220,15%,30%)]">No active drafts on this device</p>
+                <p className="text-xs font-semibold text-[hsl(220,15%,30%)]">
+                  No active drafts on this device
+                </p>
                 <p className="text-[11px] text-[hsl(215,12%,50%)]">
-                  When you start a survey, your edits will autosave here so you can continue anytime.
+                  When you start a survey, your edits will autosave here so you can continue
+                  anytime.
                 </p>
               </div>
             ) : (
