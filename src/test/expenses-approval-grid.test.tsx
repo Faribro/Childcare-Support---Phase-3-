@@ -168,63 +168,99 @@ describe('ExpensesAndApprovalGrid (Issue #31)', () => {
     });
   });
 
-  describe('3. "Current cost is same as required cost" checkbox', () => {
-    it('renders per-row checkbox in editable mode', () => {
+  describe('3. Per-row "Current Cost (₹) is same as Required Cost (₹)" checkbox', () => {
+    it('renders one labeled checkbox per expense row (7 rows × 2 = 14 total) in editable mode', () => {
       render(<ExpensesAndApprovalGrid {...makeProps()} />);
       const checkboxes = screen.getAllByRole('checkbox');
-      // 7 rows × 2 (mobile + desktop) = 14 checkboxes
+      // 7 rows × 2 renderings (desktop table + mobile card) = 14
       expect(checkboxes.length).toBe(14);
     });
 
-    it('is unchecked by default', () => {
+    it('uses the fully-labeled aria-label for each row checkbox', () => {
       render(<ExpensesAndApprovalGrid {...makeProps()} />);
-      const checkboxes = screen.getAllByRole('checkbox');
-      checkboxes.forEach((cb) => {
+      // Each row label appears twice (desktop + mobile)
+      const schoolFeesCbs = screen.getAllByLabelText(
+        /Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i
+      );
+      expect(schoolFeesCbs.length).toBe(2);
+      const tuitionCbs = screen.getAllByLabelText(
+        /Current Cost \(₹\) is same as Required Cost \(₹\) for Private Tuition/i
+      );
+      expect(tuitionCbs.length).toBe(2);
+    });
+
+    it('does NOT render a section-level "Same?" column header', () => {
+      const { container } = render(<ExpensesAndApprovalGrid {...makeProps()} />);
+      // No th with "Same?" text
+      const ths = container.querySelectorAll('th');
+      ths.forEach((th) => {
+        expect(th.textContent).not.toMatch(/same\?/i);
+      });
+    });
+
+    it('is unchecked by default for all rows', () => {
+      render(<ExpensesAndApprovalGrid {...makeProps()} />);
+      screen.getAllByRole('checkbox').forEach((cb) => {
         expect((cb as HTMLInputElement).checked).toBe(false);
       });
     });
 
-    it('copies current cost to required cost when checkbox is checked', () => {
+    it('copies current cost to required cost for that row when checkbox is checked', () => {
       const onRequired = vi.fn();
-      render(
-        <ExpensesAndApprovalGrid
-          {...makeProps({ onRequiredSupportChange: onRequired })}
-        />
-      );
-      const cbForSchoolFees = screen.getAllByLabelText(
-        /Current cost is same as required cost for School Fees/i
+      render(<ExpensesAndApprovalGrid {...makeProps({ onRequiredSupportChange: onRequired })} />);
+
+      const schoolFeesCb = screen.getAllByLabelText(
+        /Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i
       )[0];
-      fireEvent.click(cbForSchoolFees);
-      // Should copy currentExpenses.schoolFees (5000) → requiredSchoolFees
+      fireEvent.click(schoolFeesCb);
+      // Only schoolFees should be copied (currentExpenses.schoolFees = 5000)
       expect(onRequired).toHaveBeenCalledWith('requiredSchoolFees', 5000);
+      expect(onRequired).toHaveBeenCalledTimes(1);
     });
 
-    it('required input is disabled while checkbox is checked', () => {
-      const { rerender } = render(<ExpensesAndApprovalGrid {...makeProps()} />);
+    it('does not affect other rows when one row checkbox is checked', () => {
+      const onRequired = vi.fn();
+      render(<ExpensesAndApprovalGrid {...makeProps({ onRequiredSupportChange: onRequired })} />);
 
-      const cbForSchoolFees = screen.getAllByLabelText(
-        /Current cost is same as required cost for School Fees/i
+      const booksCb = screen.getAllByLabelText(
+        /Current Cost \(₹\) is same as Required Cost \(₹\) for Books & Syllabi/i
       )[0];
-      fireEvent.click(cbForSchoolFees);
-
-      // After checking, the required input should be disabled
-      const requiredInputs = screen.getAllByLabelText(/Required cost for School Fees.*mirroring/i);
-      expect(requiredInputs.length).toBeGreaterThanOrEqual(1);
-      requiredInputs.forEach((el) => {
-        expect((el as HTMLInputElement).disabled).toBe(true);
-      });
+      fireEvent.click(booksCb);
+      // Only books row should be mirrored (currentExpenses.books = 800)
+      expect(onRequired).toHaveBeenCalledWith('requiredBooks', 800);
+      expect(onRequired).toHaveBeenCalledTimes(1);
     });
 
-    it('propagates current cost changes to required cost while checkbox is checked', () => {
+    it('disables that row\'s required input while its checkbox is checked', () => {
+      render(<ExpensesAndApprovalGrid {...makeProps()} />);
+      const schoolFeesCb = screen.getAllByLabelText(
+        /Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i
+      )[0];
+      fireEvent.click(schoolFeesCb);
+      // Required inputs for School Fees should be disabled
+      const mirroredReqs = screen.getAllByLabelText(/Required cost for School Fees.*mirroring/i);
+      expect(mirroredReqs.length).toBeGreaterThanOrEqual(1);
+      mirroredReqs.forEach((el) => expect((el as HTMLInputElement).disabled).toBe(true));
+    });
+
+    it('does not disable required inputs for other rows when one is checked', () => {
+      render(<ExpensesAndApprovalGrid {...makeProps()} />);
+      const schoolFeesCb = screen.getAllByLabelText(
+        /Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i
+      )[0];
+      fireEvent.click(schoolFeesCb);
+      // Books row required inputs should still be enabled
+      const booksReqs = screen.getAllByLabelText(/^Required cost for Books & Syllabi$/i);
+      booksReqs.forEach((el) => expect((el as HTMLInputElement).disabled).toBe(false));
+    });
+
+    it('propagates current cost changes to required cost while row checkbox is checked', () => {
       const onRequired = vi.fn();
       const onCurrent = vi.fn();
 
-      // Use a component wrapper to simulate state updates
-      let currentState = 5000;
       const Wrapper = () => {
         const [currentCost, setCurrentCost] = React.useState(5000);
         const [requiredCost, setRequiredCost] = React.useState(4000);
-
         const props = makeProps();
         return (
           <ExpensesAndApprovalGrid
@@ -245,65 +281,54 @@ describe('ExpensesAndApprovalGrid (Issue #31)', () => {
 
       render(<Wrapper />);
 
-      // Check the checkbox first
-      const cb = screen.getAllByLabelText(/Current cost is same as required cost for School Fees/i)[0];
+      // Check the per-row checkbox for School Fees
+      const cb = screen.getAllByLabelText(/Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i)[0];
       fireEvent.click(cb);
       expect(onRequired).toHaveBeenCalledWith('requiredSchoolFees', 5000);
-
       onRequired.mockClear();
 
-      // Now change current cost — mirror should propagate
+      // Change current cost — mirror should propagate for this row only
       const currentInputs = screen.getAllByLabelText(/Current cost for School Fees/i);
       fireEvent.change(currentInputs[0], { target: { value: '7000' } });
       expect(onCurrent).toHaveBeenCalledWith('schoolFees', 7000);
       expect(onRequired).toHaveBeenCalledWith('requiredSchoolFees', 7000);
     });
 
-    it('unchecking restores required cost input to editable', () => {
-      render(<ExpensesAndApprovalGrid {...makeProps()} />);
-
-      const cb = screen.getAllByLabelText(/Current cost is same as required cost for School Fees/i)[0];
-
-      // Check
-      fireEvent.click(cb);
-      // Uncheck
-      fireEvent.click(cb);
-
-      // Required inputs for school fees should no longer be disabled
-      const reqInputs = screen.getAllByLabelText(/^Required cost for School Fees$/i);
-      reqInputs.forEach((el) => {
-        expect((el as HTMLInputElement).disabled).toBe(false);
-      });
-    });
-
-    it('manually editing required cost unlinks the mirror', () => {
+    it('unchecking restores independent editing for that row only', () => {
       const onRequired = vi.fn();
       render(<ExpensesAndApprovalGrid {...makeProps({ onRequiredSupportChange: onRequired })} />);
 
-      // Check the mirror
-      const cb = screen.getAllByLabelText(/Current cost is same as required cost for School Fees/i)[0];
+      const cb = screen.getAllByLabelText(/Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i)[0];
+      fireEvent.click(cb); // check
+      fireEvent.click(cb); // uncheck
+
+      // School Fees required inputs should be enabled again
+      const reqInputs = screen.getAllByLabelText(/^Required cost for School Fees$/i);
+      reqInputs.forEach((el) => expect((el as HTMLInputElement).disabled).toBe(false));
+    });
+
+    it('manually editing required cost unlinks the mirror for that row only', () => {
+      const onRequired = vi.fn();
+      render(<ExpensesAndApprovalGrid {...makeProps({ onRequiredSupportChange: onRequired })} />);
+
+      // Check School Fees row
+      const cb = screen.getAllByLabelText(/Current Cost \(₹\) is same as Required Cost \(₹\) for School Fees/i)[0];
       fireEvent.click(cb);
+      expect((cb as HTMLInputElement).checked).toBe(true);
       onRequired.mockClear();
 
-      // At this point required inputs are disabled so we can't directly interact.
-      // We verify the checkbox is checked
-      expect((cb as HTMLInputElement).checked).toBe(true);
-
-      // Uncheck and then edit required
+      // Uncheck first (mirror disables the input), then edit
       fireEvent.click(cb);
       const reqInputs = screen.getAllByLabelText(/^Required cost for School Fees$/i);
-      const editableReq = reqInputs.find((el) => !(el as HTMLInputElement).disabled);
-      fireEvent.change(editableReq!, { target: { value: '4500' } });
+      const editable = reqInputs.find((el) => !(el as HTMLInputElement).disabled)!;
+      fireEvent.change(editable, { target: { value: '4500' } });
       expect(onRequired).toHaveBeenCalledWith('requiredSchoolFees', 4500);
-
-      // Checkbox should remain unchecked
       expect((cb as HTMLInputElement).checked).toBe(false);
     });
 
     it('does NOT render checkboxes in read-only mode', () => {
       render(<ExpensesAndApprovalGrid {...makeProps({ isReadOnly: true })} />);
-      const checkboxes = screen.queryAllByRole('checkbox');
-      expect(checkboxes.length).toBe(0);
+      expect(screen.queryAllByRole('checkbox').length).toBe(0);
     });
   });
 
@@ -413,9 +438,8 @@ describe('ExpensesAndApprovalGrid (Issue #31)', () => {
     });
   });
 
-  describe('7. Desktop table structure', () => {
-    it('source contains desktop table with 6 header columns (incl. Same? column)', () => {
-      // Read source to verify structure — avoids jsdom CSS-class rendering issues
+  describe('7. Desktop table and mobile structure', () => {
+    it('source contains desktop table with 5 columns and no Same? column', () => {
       const fs = require('fs');
       const path = require('path');
       const source = fs.readFileSync(
@@ -424,14 +448,32 @@ describe('ExpensesAndApprovalGrid (Issue #31)', () => {
       );
       expect(source).toContain('hidden md:block overflow-x-auto');
       expect(source).toContain('<th'); // table headers present
-      expect(source).toContain('Same?');
+      // Verify no "Same?" column in desktop table
+      expect(source).not.toContain('>Same?<');
       expect(source).toContain('Current Cost (₹)');
-      expect(source).toContain('Required (₹)');
-      // tfoot does not have a blank colSpan—has explicit blank <td /> instead
+      expect(source).toContain('Required Cost (₹)');
+      // Clean colSpan={3} footer matching 5 columns (3 + 1 + 1 = 5)
       expect(source).toContain('Total Annual Education Financial Summary');
+      expect(source).toContain('colSpan={3}');
       // Mobile totals show both sides
       expect(source).toContain('Current Cost');
       expect(source).toContain('Required Grant');
+    });
+
+    it('source has per-row labeled checkboxes in mobile cards (not a section-level checkbox)', () => {
+      const fs = require('fs');
+      const path = require('path');
+      const source = fs.readFileSync(
+        path.resolve(__dirname, '../components/education/ExpensesAndApprovalGrid.tsx'),
+        'utf8'
+      );
+      // No section-level id — the old design is gone
+      expect(source).not.toContain('id="section-same-cost-checkbox"');
+      // Mobile cards section contains per-row checkboxes
+      const mobileSection = source.split('md:hidden divide-y')[1].split('Document Verification Proofs')[0];
+      expect(mobileSection).toContain('type="checkbox"');
+      // Per-row checkbox uses the correct aria-label pattern
+      expect(mobileSection).toContain('Current Cost (₹) is same as Required Cost (₹) for ${item.label}');
     });
 
     it('source uses md:hidden for mobile cards', () => {
@@ -468,13 +510,16 @@ describe('ExpensesAndApprovalGrid (Issue #31)', () => {
       expect(source).toContain('min-h-[44px]');
     });
 
-    it('checkbox touch target wrapper has min-h-[44px]', () => {
+    it('per-row checkbox labels have min-h-[44px] for touch target compliance', () => {
       const fs = require('fs');
       const path = require('path');
       const source = fs.readFileSync(
         path.resolve(__dirname, '../components/education/ExpensesAndApprovalGrid.tsx'),
         'utf8'
       );
+      // Section-level id must NOT be present
+      expect(source).not.toContain('section-same-cost-checkbox');
+      // Per-row checkbox labels must satisfy 44px touch target
       expect(source).toContain('min-h-[44px]');
     });
   });
