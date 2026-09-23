@@ -5,6 +5,14 @@
 import { db } from './dexieDb';
 import type { AssessmentRecord } from '@/types/domain';
 
+function notifyDraftChanged(): void {
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(new CustomEvent('child_nutrition:draft_updated'));
+    } catch (_) {}
+  }
+}
+
 export async function saveDraft(
   draft: Omit<AssessmentRecord, 'id' | 'createdAt' | 'updatedAt'> & {
     id?: number;
@@ -16,6 +24,8 @@ export async function saveDraft(
   const clientSubmissionId = draft.clientSubmissionId || draft.uuid;
   const version = draft.version || 1;
 
+  let savedId: number;
+
   if (draft.id) {
     await db.drafts.update(draft.id, {
       ...draft,
@@ -23,30 +33,32 @@ export async function saveDraft(
       version,
       updatedAt: now,
     });
-    return draft.id;
+    savedId = draft.id;
+  } else {
+    const existing = await db.drafts.where('uuid').equals(draft.uuid).first();
+    if (existing && existing.id) {
+      await db.drafts.update(existing.id, {
+        ...draft,
+        clientSubmissionId: existing.clientSubmissionId || clientSubmissionId,
+        version: existing.version || version,
+        updatedAt: now,
+      });
+      savedId = existing.id;
+    } else {
+      const newId = await db.drafts.add({
+        ...draft,
+        clientSubmissionId,
+        version,
+        createdAt: draft.createdAt || now,
+        updatedAt: now,
+        syncStatus: draft.syncStatus || 'draft',
+      } as AssessmentRecord);
+      savedId = newId;
+    }
   }
 
-  const existing = await db.drafts.where('uuid').equals(draft.uuid).first();
-  if (existing && existing.id) {
-    await db.drafts.update(existing.id, {
-      ...draft,
-      clientSubmissionId: existing.clientSubmissionId || clientSubmissionId,
-      version: existing.version || version,
-      updatedAt: now,
-    });
-    return existing.id;
-  }
-
-  const newId = await db.drafts.add({
-    ...draft,
-    clientSubmissionId,
-    version,
-    createdAt: draft.createdAt || now,
-    updatedAt: now,
-    syncStatus: draft.syncStatus || 'draft',
-  } as AssessmentRecord);
-
-  return newId;
+  notifyDraftChanged();
+  return savedId;
 }
 
 export async function getDraftById(id: number): Promise<AssessmentRecord | undefined> {
@@ -81,6 +93,13 @@ export async function getLatestDraft(): Promise<AssessmentRecord | undefined> {
     .then((items) => items[0]);
 }
 
+export async function getDraftsCount(): Promise<number> {
+  return db.drafts
+    .where('syncStatus')
+    .equals('draft')
+    .count();
+}
+
 export async function getAllDrafts(): Promise<AssessmentRecord[]> {
   return db.drafts
     .where('syncStatus')
@@ -91,4 +110,6 @@ export async function getAllDrafts(): Promise<AssessmentRecord[]> {
 
 export async function deleteDraft(id: number): Promise<void> {
   await db.drafts.delete(id);
+  notifyDraftChanged();
 }
+

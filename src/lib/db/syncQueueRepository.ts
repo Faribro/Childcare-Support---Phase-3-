@@ -424,3 +424,34 @@ export async function getQueueStats() {
     conflict: all.filter((i) => i.status === 'conflict' || i.status === 'NEEDS_REVIEW').length,
   };
 }
+
+/**
+ * Direct count query for outbox/waiting queue items (queued, syncing, failed, retryable).
+ * Executes directly against IndexedDB without deserializing payload records.
+ */
+export async function getWaitingQueueCount(): Promise<number> {
+  return db.syncQueue
+    .filter((q) => {
+      const s = q.status;
+      return (
+        s === 'queued' ||
+        s === 'syncing' ||
+        s === 'failed' ||
+        s === 'failed_retryable' ||
+        (s as string) === 'QUEUED' ||
+        (s as string) === 'SYNCING' ||
+        (s as string) === 'FAILED'
+      );
+    })
+    .count();
+}
+
+/**
+ * Direct count query for locally synced queue items.
+ */
+export async function getLocalSyncedCount(): Promise<number> {
+  return db.syncQueue
+    .filter((q) => q.status === 'synced' || (q.status as string) === 'SYNCED')
+    .count();
+}
+
