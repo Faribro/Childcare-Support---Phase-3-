@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Heart, ShieldCheck, WifiOff } from 'lucide-react';
 
 export function NotebookFooter() {
@@ -10,13 +11,21 @@ export function NotebookFooter() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-8 border-b border-[#1C3A2B]">
           {/* Institutional Brand */}
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="bg-white rounded-md px-2.5 py-1 inline-flex items-center shadow-xs">
+                <Image
+                  src="/alliance-india-logo.png"
+                  alt="India HIV/AIDS Alliance"
+                  width={140}
+                  height={36}
+                  className="h-7 w-auto object-contain"
+                />
+              </div>
               <span className="font-bold text-base text-white">India HIV/AIDS Alliance</span>
             </div>
             <p className="text-xs text-[#8BA496]">
-              Child Nutrition &amp; Support Platform • Frontline Field Caseworker PWA
+              Child Nutrition &amp; Support Platform
             </p>
           </div>
 
@@ -40,8 +49,6 @@ export function NotebookFooter() {
         {/* Bottom Metadata & Compliance */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[11px] text-[#7A9486]">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="font-mono font-bold text-emerald-400">DOCKET: CNSP-2026-IND</span>
-            <span>•</span>
             <span>Production Field App</span>
             <span>•</span>
             <span className="inline-flex items-center gap-1">

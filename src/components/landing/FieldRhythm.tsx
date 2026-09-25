@@ -148,26 +148,6 @@ export function FieldRhythm() {
             })}
           </div>
         </div>
-
-        {/* Operational Assurance Banner */}
-        <div className="mt-10 p-5 rounded-2xl bg-[#EDE4D4] border border-[#D2BFA8] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
-          <div className="flex items-start gap-3.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-800 text-white flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 shadow-xs">
-              <CheckCircle className="w-5 h-5 text-emerald-200" />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-bold text-slate-900">
-                Thoroughly Verified Field Workflow
-              </p>
-              <p className="text-xs text-slate-600 font-medium">
-                Automated regression suites verify that draft preservation, normalization, and sync conflict resolution function reliably in offline state.
-              </p>
-            </div>
-          </div>
-          <span className="font-mono text-xs font-bold text-emerald-900 bg-white/80 px-3 py-1.5 rounded-lg border border-[#D2BFA8] self-end sm:self-center shrink-0">
-            TEST-SUITE: CI-VERIFIED
-          </span>
-        </div>
       </div>
     </section>
   );

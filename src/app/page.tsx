@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { 
   Download, 
@@ -78,23 +79,21 @@ export default function LandingPage() {
       {/* ── Compact Archival Binder Header Bar (Low Profile) ── */}
       <header className="sticky top-0 z-40 bg-[#FAF7F0]/95 backdrop-blur-md border-b border-[#E4D8C7] shadow-2xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-12 sm:h-13 flex items-center justify-between">
-          {/* Brand Logo & Archival Tag */}
+          {/* Brand Logo - Official Alliance India */}
           <Link 
             href="/"
-            className="flex items-center gap-2 text-slate-900 hover:opacity-90 transition-opacity"
+            className="flex items-center gap-2.5 text-slate-900 hover:opacity-90 transition-opacity"
             aria-label="Alliance India Child Nutrition Platform Home"
           >
-            <div className="w-7 h-7 rounded-md bg-[#0F5132] text-white flex items-center justify-center font-bold text-xs shadow-xs">
-              AI
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 block leading-none">
-                Alliance India
-              </span>
-              <span className="hidden sm:inline-block text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">
-                CASEFILE #2026
-              </span>
-            </div>
+            <Image
+              src="/alliance-india-logo.png"
+              alt="India HIV/AIDS Alliance"
+              width={160}
+              height={44}
+              className="h-8 sm:h-9 w-auto object-contain"
+              priority
+            />
+            <span className="sr-only">India HIV/AIDS Alliance</span>
           </Link>
 
           {/* Desktop Chapter Index Navigation Links */}

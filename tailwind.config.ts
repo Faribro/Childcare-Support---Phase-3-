@@ -64,6 +64,52 @@ const config: Config = {
         'lg': '1024px',
         'xl': '1280px',
       },
+      keyframes: {
+        float: {
+          '0%, 100%': { transform: 'translateY(0px)' },
+          '50%': { transform: 'translateY(-8px)' },
+        },
+        'float-slow': {
+          '0%, 100%': { transform: 'translateY(0px) rotate(0deg)' },
+          '50%': { transform: 'translateY(-12px) rotate(1deg)' },
+        },
+        'kite-soar': {
+          '0%, 100%': { transform: 'translateY(0px) rotate(-12deg) scale(1)' },
+          '50%': { transform: 'translateY(-18px) rotate(-7deg) scale(1.04)' },
+        },
+        'sun-pulse': {
+          '0%, 100%': { transform: 'scale(1)', opacity: '0.9' },
+          '50%': { transform: 'scale(1.08)', opacity: '1' },
+        },
+        'cloud-drift': {
+          '0%, 100%': { transform: 'translateX(0px)' },
+          '50%': { transform: 'translateX(16px)' },
+        },
+        'stamp-impact': {
+          '0%': { transform: 'scale(1.35) rotate(-9deg)', opacity: '0' },
+          '65%': { transform: 'scale(0.97) rotate(-2deg)', opacity: '1' },
+          '100%': { transform: 'scale(1) rotate(-2.5deg)', opacity: '1' },
+        },
+        'folder-unfold': {
+          '0%': { transform: 'rotate(-1.5deg) scale(0.985)', opacity: '0.7' },
+          '100%': { transform: 'rotate(0deg) scale(1)', opacity: '1' },
+        },
+        'polaroid-drop': {
+          '0%': { transform: 'translateY(-16px) scale(0.94) rotate(3deg)', opacity: '0' },
+          '65%': { transform: 'translateY(2px) scale(1.02) rotate(-0.5deg)', opacity: '1' },
+          '100%': { transform: 'translateY(0) scale(1) rotate(0deg)', opacity: '1' },
+        },
+      },
+      animation: {
+        float: 'float 4s ease-in-out infinite',
+        'float-slow': 'float-slow 6s ease-in-out infinite',
+        'kite-soar': 'kite-soar 5s ease-in-out infinite',
+        'sun-pulse': 'sun-pulse 4s ease-in-out infinite',
+        'cloud-drift': 'cloud-drift 9s ease-in-out infinite',
+        'stamp-impact': 'stamp-impact 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+        'folder-unfold': 'folder-unfold 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+        'polaroid-drop': 'polaroid-drop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+      },
     },
   },
   plugins: [
