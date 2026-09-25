@@ -62,15 +62,27 @@ export function FieldFaq() {
           </p>
         </div>
 
-        {/* Accessible Accordion with Archival Query Sleeves */}
-        <div className="space-y-3.5">
-          {faqs.map((faq, idx) => {
-            const isOpen = openIndex === idx;
-            return (
-              <div
-                key={idx}
-                className="rounded-2xl bg-[#FCFAF6] border border-[#D5C2AA] overflow-hidden transition-all shadow-xs hover:border-[#C4B097] notebook-paper-sheet"
-              >
+        {/* Spiral-Bound Notebook Docket Container */}
+        <div className="relative">
+          {/* Spiral Binder Metallic Wire Rings along top */}
+          <div className="relative -mb-3.5 z-20 flex justify-around px-6 sm:px-12 pointer-events-none" aria-hidden="true">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center">
+                <div className="w-3.5 h-7 rounded-full bg-gradient-to-r from-slate-300 via-white to-slate-400 border border-slate-400 shadow-xs" />
+                <div className="w-2 h-2 rounded-xs bg-[#3E342B]/30 -mt-1" />
+              </div>
+            ))}
+          </div>
+
+          {/* Accessible Accordion with Archival Query Sleeves */}
+          <div className="rounded-3xl bg-[#F5EFE6] border border-[#D5C2AA] p-3 sm:p-6 pt-7 space-y-3.5 shadow-md">
+            {faqs.map((faq, idx) => {
+              const isOpen = openIndex === idx;
+              return (
+                <div
+                  key={idx}
+                  className="rounded-2xl bg-[#FCFAF6] border border-[#D5C2AA] overflow-hidden transition-all shadow-xs hover:border-[#C4B097] notebook-paper-sheet"
+                >
                 <h3>
                   <button
                     type="button"
@@ -112,6 +124,7 @@ export function FieldFaq() {
           })}
         </div>
       </div>
-    </section>
-  );
+    </div>
+  </section>
+);
 }

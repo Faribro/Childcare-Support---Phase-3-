@@ -10,7 +10,9 @@ import {
   Check, 
   ShieldCheck,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Database,
+  Users
 } from 'lucide-react';
 
 interface PreviewTab {
@@ -18,18 +20,28 @@ interface PreviewTab {
   number: string;
   name: string;
   badge: string;
+  tabColor: string;
+  activeColor: string;
   summary: string;
   sanitizedFields: { label: string; value: string; note?: string }[];
   highlight: string;
+  polaroid: {
+    title: string;
+    caption: string;
+    rotation: string;
+    badge: string;
+  };
 }
 
 export function ExperiencePreview() {
   const tabs: PreviewTab[] = [
     {
       id: 'demographics',
-      number: '02',
+      number: '01',
       name: 'Demographics & Enrolment',
       badge: 'Step 2',
+      tabColor: 'bg-[#EDE0CD] text-[#5C452D] border-[#D1BD9F]',
+      activeColor: 'bg-[#FCFAF6] text-[#45321F] border-[#C4AC8C]',
       summary: 'Basic child identity and enrollment status without invasive profiling. Standardized Indian class dropdown.',
       sanitizedFields: [
         { label: 'Enrolled Class', value: 'Class 4', note: 'Standard Indian School Standard' },
@@ -38,12 +50,20 @@ export function ExperiencePreview() {
         { label: 'District / Cluster', value: 'Field Sector B-4 (Sample)' },
       ],
       highlight: 'Standardized Pre-Nursery to Class 12+ India standard with optional Other specification.',
+      polaroid: {
+        title: 'CLASS ENROLMENT',
+        caption: 'DOCKET: STD-CLASS-4 • GOVT PRIMARY',
+        rotation: '-rotate-1',
+        badge: 'CONFIRMED',
+      },
     },
     {
       id: 'clinical',
-      number: '05',
+      number: '02',
       name: 'Clinical & Anthropometry',
       badge: 'Step 5',
+      tabColor: 'bg-[#F0D5CC] text-[#7A3622] border-[#DDB4A6]',
+      activeColor: 'bg-[#FCFAF6] text-[#612413] border-[#CFA191]',
       summary: 'Accurate clinical growth monitoring with instant on-device WHO Z-Score calculations.',
       sanitizedFields: [
         { label: 'Standing Height', value: '114.5 cm' },
@@ -52,13 +72,21 @@ export function ExperiencePreview() {
         { label: 'Calculated Growth Status', value: 'Normal Development (Green)', note: 'WHO standard' },
       ],
       highlight: 'Real-time color-coded growth references reassure caseworkers and families immediately.',
+      polaroid: {
+        title: 'WHO GROWTH CHART',
+        caption: 'HEIGHT: 114.5cm • WT: 19.2kg • Z: 0.2',
+        rotation: 'rotate-1',
+        badge: 'GREEN ZONE',
+      },
     },
     {
       id: 'nutrition',
-      number: '06',
+      number: '03',
       name: 'Nutrition & Daily Appetite',
       badge: 'Step 6',
-      summary: 'Observational eating frequency and appetite monitoring using empathetic, respectful icons.',
+      tabColor: 'bg-[#F6E3C0] text-[#785116] border-[#E8CD96]',
+      activeColor: 'bg-[#FCFAF6] text-[#5C3D0E] border-[#D9BA7D]',
+      summary: 'Observational eating frequency and appetite monitoring using empathetic, respectful questions.',
       sanitizedFields: [
         { label: 'Appetite Level', value: 'Good / Regular Meals' },
         { label: 'Meals Per Day', value: '3 Balanced Meals' },
@@ -66,12 +94,20 @@ export function ExperiencePreview() {
         { label: 'Nutrition Support Kit', value: 'Monthly Supplementary Ration Allocated' },
       ],
       highlight: 'Non-stigmatizing evaluation helps identify micronutrient gaps without shaming.',
+      polaroid: {
+        title: 'NUTRITION LOG',
+        caption: 'DAILY INTAKE: BALANCED • RATION ALLOCATED',
+        rotation: '-rotate-1.5',
+        badge: 'ACTIVE RATION',
+      },
     },
     {
       id: 'education',
-      number: '08',
+      number: '04',
       name: 'Education Costs & Aid',
       badge: 'Step 8',
+      tabColor: 'bg-[#D2E4D8] text-[#1E5232] border-[#ADCBB7]',
+      activeColor: 'bg-[#FCFAF6] text-[#143B23] border-[#97BDA3]',
       summary: 'Itemized expense requirements enabling exact, transparent support grants and direct transfers.',
       sanitizedFields: [
         { label: 'School Tuition & Examination', value: '₹ 1,800 / Term' },
@@ -80,6 +116,56 @@ export function ExperiencePreview() {
         { label: 'Recommended Programme Support', value: '₹ 3,400 Total Direct Aid' },
       ],
       highlight: 'Itemized verification prevents misallocation and accelerates district approval.',
+      polaroid: {
+        title: 'GRANT DISBURSEMENT',
+        caption: 'RECOMMENDED AID: ₹ 3,400 • RECEIPTS OK',
+        rotation: 'rotate-1',
+        badge: 'MATCHED',
+      },
+    },
+    {
+      id: 'family',
+      number: '05',
+      name: 'Family Support & Consent',
+      badge: 'Step 1',
+      tabColor: 'bg-[#E3DCED] text-[#483366] border-[#C8BDD9]',
+      activeColor: 'bg-[#FCFAF6] text-[#362352] border-[#B2A4C7]',
+      summary: 'Verified caregiver consent, guardian signature preservation, and household stability details.',
+      sanitizedFields: [
+        { label: 'Legal Guardian', value: 'Maternal Grandmother (Verified)' },
+        { label: 'Consent Status', value: 'Informed Consent Signed & Recorded' },
+        { label: 'Primary Caregiver Phone', value: '+91 ••••• •••12 (Masked for privacy)' },
+        { label: 'Bank Direct Transfer', value: 'DBT Seeded / Account Verified' },
+      ],
+      highlight: 'Caregiver autonomy and mutual consent precede all field recording.',
+      polaroid: {
+        title: 'CAREGIVER ACCORD',
+        caption: 'INFORMED CONSENT ON FILE • AADHAAR MIN',
+        rotation: '-rotate-1',
+        badge: 'VERIFIED',
+      },
+    },
+    {
+      id: 'sync',
+      number: '06',
+      name: 'Field Sync & Offline Queue',
+      badge: 'Step 9',
+      tabColor: 'bg-[#CFE2EB] text-[#1D4A5E] border-[#A9C8D6]',
+      activeColor: 'bg-[#FCFAF6] text-[#133645] border-[#91B5C6]',
+      summary: 'On-device IndexedDB queue management with zero data loss during network dropouts.',
+      sanitizedFields: [
+        { label: 'Offline Queue Status', value: '1 Record Ready for Upload' },
+        { label: 'Device Storage', value: 'Committed to Browser IndexedDB' },
+        { label: 'Sync Channel', value: 'Google Sheets Apps Script API' },
+        { label: 'Idempotent Token', value: 'UUIDv4 Checksum Validated' },
+      ],
+      highlight: 'Automatic retry with exponential backoff guarantees clean zero-duplicate reconciliation.',
+      polaroid: {
+        title: 'OFFLINE QUEUE',
+        caption: '1 DRAFT COMMITTED • READY FOR SYNC',
+        rotation: 'rotate-1.5',
+        badge: 'LOCAL FIRST',
+      },
     },
   ];
 
@@ -87,12 +173,12 @@ export function ExperiencePreview() {
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
 
   return (
-    <section id="preview-heading" aria-labelledby="preview-heading" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#FAF8F5]">
+    <section id="preview-heading" aria-labelledby="preview-heading-title" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#FAF8F5]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="max-w-2xl mb-12">
+        <div className="max-w-3xl mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA] mb-3">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
-            Chapter V • Interaction Preview
+            Chapter V • The 6-Section Case Navigator
           </div>
           <h2
             id="preview-heading-title"
@@ -106,13 +192,13 @@ export function ExperiencePreview() {
           </p>
         </div>
 
-        {/* Interactive Notebook Preview Container with Tabbed Ledger Binder */}
-        <div className="rounded-3xl bg-[#F4EDE2] border border-[#D5C2AA] shadow-lg p-2 sm:p-4">
-          {/* Physical Ledger Divider Tabs */}
+        {/* ── Mosby's Files Interactive Folder Filing System ── */}
+        <div className="rounded-3xl bg-[#F0E6D6] border-2 border-[#CBB89F] shadow-2xl p-2 sm:p-5">
+          {/* Staggered Colorful Folder Tabs */}
           <div
             role="tablist"
             aria-label="Assessment Section Previews"
-            className="flex items-end gap-1.5 px-2 overflow-x-auto pb-0"
+            className="flex items-end gap-1 sm:gap-2 px-1 sm:px-2 overflow-x-auto pb-0"
           >
             {tabs.map((tab) => {
               const isActive = tab.id === activeTabId;
@@ -124,25 +210,25 @@ export function ExperiencePreview() {
                   id={`tab-${tab.id}`}
                   aria-controls={`panel-${tab.id}`}
                   onClick={() => setActiveTabId(tab.id)}
-                  className={`flex items-center gap-2 px-3.5 sm:px-5 py-3 rounded-t-xl text-xs font-mono font-bold transition-all shrink-0 cursor-pointer border-t border-x ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-t-xl sm:rounded-t-2xl text-[11px] sm:text-xs font-mono font-bold transition-all shrink-0 cursor-pointer border-t-2 border-x-2 ${
                     isActive
-                      ? 'bg-[#FCFAF6] text-emerald-950 border-[#D5C2AA] shadow-xs z-10 translate-y-0.5'
-                      : 'bg-[#EAE1D1] text-slate-600 hover:text-slate-900 border-[#D8C7B0] hover:bg-[#E2D8C7]'
+                      ? `${tab.activeColor} shadow-md z-20 translate-y-1`
+                      : `${tab.tabColor} hover:brightness-95 opacity-85 hover:opacity-100 z-10`
                   }`}
                 >
-                  <span className="text-[10px] text-slate-400">/{tab.number}</span>
-                  <span>{tab.name}</span>
+                  <span className="text-[10px] opacity-60">/{tab.number}</span>
+                  <span className="whitespace-nowrap">{tab.name}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Active Tab Panel — Tactile Ruled Ledger Sheet */}
+          {/* Active Folder Interior: Layered Cotton Ruled Sheet & Polaroid Specimen */}
           <div
             id={`panel-${activeTab.id}`}
             role="tabpanel"
             aria-labelledby={`tab-${activeTab.id}`}
-            className="relative rounded-2xl p-6 sm:p-8 space-y-6 notebook-paper-sheet border border-[#D5C2AA] shadow-xs overflow-hidden"
+            className="relative rounded-2xl p-6 sm:p-8 space-y-6 notebook-paper-sheet border-2 border-[#CBB89F] shadow-lg overflow-hidden bg-[#FCFAF6]"
           >
             {/* Red left ledger vertical margin line */}
             <div 
@@ -150,13 +236,13 @@ export function ExperiencePreview() {
               aria-hidden="true" 
             />
 
-            {/* Panel Header */}
+            {/* Folder Interior Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-[#E8DFD1] sm:pl-6">
               <div>
                 <span className="inline-block px-2.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300 mb-1">
                   {activeTab.badge} — Form Preview
                 </span>
-                <h3 className="text-xl font-bold text-slate-900">
+                <h3 className="text-xl sm:text-2xl font-bold text-slate-900">
                   {activeTab.name}
                 </h3>
               </div>
@@ -165,31 +251,71 @@ export function ExperiencePreview() {
               </div>
             </div>
 
-            <p className="text-sm text-slate-700 max-w-2xl sm:pl-6 font-normal">
+            <p className="text-sm sm:text-base text-slate-700 max-w-2xl sm:pl-6 font-normal">
               {activeTab.summary}
             </p>
 
-            {/* Sanitized Fields Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:pl-6">
-              {activeTab.sanitizedFields.map((field, idx) => (
-                <div
-                  key={idx}
-                  className="p-4 rounded-xl bg-white border border-[#E2D8C7] space-y-1 shadow-2xs"
-                >
-                  <div className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">
-                    {field.label}
-                  </div>
-                  <div className="text-sm font-bold text-slate-900 flex items-center justify-between">
-                    <span>{field.value}</span>
-                    <Check className="w-4 h-4 text-emerald-700 shrink-0" />
-                  </div>
-                  {field.note && (
-                    <div className="text-[11px] text-slate-500 font-medium">
-                      {field.note}
+            {/* 2-Column Spread: Left Form Fields, Right Specimen Polaroid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:pl-6">
+              {/* Sanitized Fields Grid */}
+              <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {activeTab.sanitizedFields.map((field, idx) => (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-xl bg-white border border-[#E2D8C7] space-y-1 shadow-2xs"
+                  >
+                    <div className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">
+                      {field.label}
                     </div>
-                  )}
+                    <div className="text-sm font-bold text-slate-900 flex items-center justify-between">
+                      <span>{field.value}</span>
+                      <Check className="w-4 h-4 text-emerald-700 shrink-0" />
+                    </div>
+                    {field.note && (
+                      <div className="text-[11px] text-slate-500 font-medium">
+                        {field.note}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Tilted Specimen Polaroid Card with Paperclip */}
+              <div className="lg:col-span-4 flex justify-center items-center">
+                <div className={`relative p-3.5 pb-5 rounded-xl bg-white border border-slate-300 shadow-xl max-w-[240px] w-full transform ${activeTab.polaroid.rotation} transition-transform`}>
+                  {/* Silver Paperclip SVG pinning the Polaroid */}
+                  <div className="absolute -top-3.5 right-6 w-5 h-10 z-20 pointer-events-none" aria-hidden="true">
+                    <svg viewBox="0 0 24 48" fill="none" className="w-full h-full drop-shadow-sm">
+                      <path
+                        d="M8,12 L8,36 C8,41 16,41 16,36 L16,8 C16,3 4,3 4,8 L4,38 C4,45 20,45 20,38 L20,12"
+                        stroke="#64748B"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Polaroid Photo Frame */}
+                  <div className="h-32 bg-[#F1E9DB] rounded-lg border border-[#DECDBB] flex flex-col items-center justify-center p-3 text-center">
+                    <div className="w-8 h-8 rounded-full bg-emerald-800 text-white flex items-center justify-center mb-2 shadow-xs">
+                      <FileCheck2 className="w-4 h-4" />
+                    </div>
+                    <span className="font-mono text-[9px] font-extrabold text-slate-800 tracking-wider">
+                      {activeTab.polaroid.title}
+                    </span>
+                    <span className="mt-1 px-2 py-0.5 rounded-full text-[8px] font-mono font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                      {activeTab.polaroid.badge}
+                    </span>
+                  </div>
+
+                  {/* Typewritten Metadata Caption */}
+                  <div className="mt-3 text-center">
+                    <p className="font-mono text-[9px] text-slate-600 font-semibold tracking-tight">
+                      {activeTab.polaroid.caption}
+                    </p>
+                  </div>
                 </div>
-              ))}
+              </div>
             </div>
 
             {/* Key Field Assurance Highlight */}
