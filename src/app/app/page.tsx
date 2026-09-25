@@ -93,7 +93,11 @@ export default function FieldWorkspacePage() {
     }
   }, []);
 
-  // 4. Remote submitted count with 12s AbortController and offline fallback
+  // 4. Remote submitted count with 12s AbortController, offline fallback, and
+  //    stale-while-revalidate: the local IndexedDB synced-count is shown
+  //    immediately (~5 ms) while the authoritative remote fetch runs in the
+  //    background.  This eliminates the multi-second blank/skeleton delay
+  //    reported in issue #41.
   const refreshSubmitted = useCallback(async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -123,6 +127,22 @@ export default function FieldWorkspacePage() {
       }
       return;
     }
+
+    // ── Stale-while-revalidate: paint a local count immediately ──────────────
+    // getLocalSyncedCount() is an IndexedDB point-read, typically resolves in
+    // < 10 ms.  Showing it removes the perceptible loading gap while the
+    // network round-trip (GAS backend, 1–12 s) completes in the background.
+    try {
+      const staleCount = await getLocalSyncedCount();
+      if (isMountedRef.current && staleCount > 0) {
+        setSubmittedCount(staleCount);
+        // Keep submittedStatus as 'loading' so the UI can still show a subtle
+        // "refreshing" indicator if desired; isSubmittedLoading stays true.
+      }
+    } catch (_) {
+      // Non-fatal — remote fetch continues regardless.
+    }
+    // ── End stale-while-revalidate ───────────────────────────────────────────
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
