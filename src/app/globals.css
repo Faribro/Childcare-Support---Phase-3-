@@ -452,6 +452,34 @@ body {
   }
 }
 
+/* Editorial Field Notebook Theme Utilities */
+.notebook-paper-bg {
+  background-color: #FAF8F5;
+  background-image: 
+    radial-gradient(#E2D9CC 0.75px, transparent 0.75px),
+    linear-gradient(to right, rgba(226, 217, 204, 0.25) 1px, transparent 1px);
+  background-size: 24px 24px, 24px 24px;
+}
+
+.notebook-lines {
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 27px,
+    rgba(226, 217, 204, 0.5) 28px
+  );
+}
+
+.notebook-border {
+  border: 1px solid rgba(214, 205, 192, 0.8);
+  box-shadow: 0 4px 20px -2px rgba(44, 39, 33, 0.06), 0 2px 6px -1px rgba(44, 39, 33, 0.04);
+}
+
+.archival-tag {
+  font-family: 'Anonymous Pro', monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 /* Respect user prefers-reduced-motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,
