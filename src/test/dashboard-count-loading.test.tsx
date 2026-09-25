@@ -7,7 +7,9 @@
  * 1. Independent Count Resolution:
  *    - Draft count loads immediately via getDraftsCount() (IndexedDB).
  *    - Waiting count loads immediately via getWaitingQueueCount().
- *    - Submitted count loads independently via /api/submissions?limit=1 with 8s AbortController.
+ *    - Submitted count uses stale-while-revalidate: localSyncedCount is
+ *      displayed immediately (< 10 ms), then silently replaced by the
+ *      authoritative remote total once the network round-trip completes.
  *    - Slow or hanging remote fetch DOES NOT block local draft or waiting counts.
  *
  * 2. Accessible Presentation (No Raw '...'):
@@ -132,9 +134,12 @@ describe('Dashboard Count Loading Performance (/app)', () => {
         expect(screen.getAllByText('2').length).toBeGreaterThan(0); // Waiting to be sent
       });
 
-      // Submitted count should show accessible loading skeleton, NOT block draft/waiting counts
-      const submittedLoaders = screen.getAllByRole('status', { name: /loading submitted count/i });
-      expect(submittedLoaders.length).toBeGreaterThan(0);
+      // Stale-while-revalidate: submitted count should show the LOCAL stale
+      // value (5, from getLocalSyncedCount mock) while the remote fetch is
+      // still in-flight.  No blank/skeleton should be the only visible state.
+      await waitFor(() => {
+        expect(screen.getAllByText('5').length).toBeGreaterThan(0); // stale local count
+      });
 
       // Verify no raw '...' strings are rendered in the count badges
       expect(screen.queryByText('...')).toBeNull();
@@ -151,9 +156,46 @@ describe('Dashboard Count Loading Performance (/app)', () => {
         });
       });
 
-      // Submitted count should update to 42
+      // Submitted count should update to the authoritative remote value (42)
       await waitFor(() => {
         expect(screen.getAllByText('42').length).toBeGreaterThan(0);
+      });
+    });
+
+    it('paints stale local count before remote response to eliminate loading gap (issue #41)', async () => {
+      // localSyncedCount = 5 (from beforeEach mock)
+      // Remote fetch is artificially delayed – simulates the 1-12s GAS round-trip
+      let resolveFetch: (val: any) => void;
+      global.fetch = vi.fn().mockImplementation(
+        () => new Promise((resolve) => { resolveFetch = resolve; })
+      );
+
+      render(<FieldWorkspacePage />);
+
+      // The stale count (5) must appear BEFORE the remote fetch resolves.
+      // This is the core guarantee of the stale-while-revalidate fix.
+      await waitFor(() => {
+        expect(screen.getAllByText('5').length).toBeGreaterThan(0);
+      });
+
+      // The remote fetch has not yet been resolved at this point –
+      // confirming the local count was painted without waiting for the network.
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/submissions'),
+        expect.any(Object)
+      );
+
+      // Resolve and verify the count is updated to the server total
+      await act(async () => {
+        resolveFetch!({
+          ok: true,
+          status: 200,
+          json: async () => ({ pagination: { totalCount: 88 } }),
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByText('88').length).toBeGreaterThan(0);
       });
     });
 
@@ -381,7 +423,7 @@ describe('Dashboard Count Loading Performance (/app)', () => {
 
   // ──────────────────────────────────────────────────────────────────────────
   describe('5. Unmount & Cleanup Safety', () => {
-    it('unmounts cleanly while fetch is in-flight without console errors or leaks', () => {
+    it('unmounts cleanly while fetch is in-flight without console errors or leaks', async () => {
       const abortSpy = vi.fn();
       const mockController = {
         signal: {} as any,
@@ -390,7 +432,17 @@ describe('Dashboard Count Loading Performance (/app)', () => {
       const originalAbortController = global.AbortController;
       global.AbortController = vi.fn().mockImplementation(() => mockController) as any;
 
+      // Keep the remote fetch perpetually pending so AbortController stays alive
+      global.fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
+
       const { unmount } = render(<FieldWorkspacePage />);
+
+      // Flush microtasks: stale-while-revalidate reads getLocalSyncedCount()
+      // (a resolved promise) before creating the AbortController.  We must let
+      // that microtask settle so the controller is instantiated before unmount.
+      await act(async () => {
+        await Promise.resolve();
+      });
 
       unmount();
 
