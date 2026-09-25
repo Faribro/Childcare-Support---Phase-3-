@@ -40,6 +40,8 @@ export function NotebookFooter() {
         {/* Bottom Metadata & Compliance */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[11px] text-[#7A9486]">
           <div className="flex flex-wrap items-center gap-3">
+            <span className="font-mono font-bold text-emerald-400">DOCKET: CNSP-2026-IND</span>
+            <span>•</span>
             <span>Production Field App</span>
             <span>•</span>
             <span className="inline-flex items-center gap-1">
@@ -53,7 +55,7 @@ export function NotebookFooter() {
             </span>
           </div>
 
-          <div>
+          <div className="font-medium">
             Built with care for frontline caseworkers supporting vulnerable children across India.
           </div>
         </div>

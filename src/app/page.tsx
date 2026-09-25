@@ -75,51 +75,62 @@ export default function LandingPage() {
         Skip to main content
       </a>
 
-      {/* ── Editorial Top Navigation Bar ── */}
-      <header className="sticky top-0 z-40 bg-[#FDFCF7]/90 backdrop-blur-md border-b border-[#E8DFD1]/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Brand Logo & Tag */}
+      {/* ── Compact Archival Binder Header Bar (Low Profile) ── */}
+      <header className="sticky top-0 z-40 bg-[#FAF7F0]/95 backdrop-blur-md border-b border-[#E4D8C7] shadow-2xs">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-12 sm:h-13 flex items-center justify-between">
+          {/* Brand Logo & Archival Tag */}
           <Link 
             href="/"
-            className="flex items-center gap-2.5 text-slate-900 hover:opacity-90 transition-opacity"
+            className="flex items-center gap-2 text-slate-900 hover:opacity-90 transition-opacity"
             aria-label="Alliance India Child Nutrition Platform Home"
           >
-            <div className="w-8 h-8 rounded-lg bg-emerald-800 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <div className="w-7 h-7 rounded-md bg-[#0F5132] text-white flex items-center justify-center font-bold text-xs shadow-xs">
               AI
             </div>
-            <div>
-              <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 block leading-none">
+            <div className="flex items-baseline gap-2">
+              <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 block leading-none">
                 Alliance India
               </span>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-medium">
-                Child Support PWA
+              <span className="hidden sm:inline-block text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">
+                CASEFILE #2026
               </span>
             </div>
           </Link>
 
-          {/* Desktop Navigation Links */}
-          <nav aria-label="Main Navigation" className="hidden md:flex items-center gap-6 text-xs font-semibold text-slate-600">
-            <a href="#how-it-works" className="hover:text-emerald-800 transition-colors">
-              How It Works
+          {/* Desktop Chapter Index Navigation Links */}
+          <nav aria-label="Notebook Chapters" className="hidden lg:flex items-center gap-4 text-xs font-mono font-medium text-slate-600">
+            <a href="#opening-note" className="hover:text-emerald-800 transition-colors">
+              I. Note
             </a>
-            <a href="#snapshot-heading" className="hover:text-emerald-800 transition-colors">
-              Whole-Child Scope
+            <span className="text-slate-300">•</span>
+            <a href="#whole-child" className="hover:text-emerald-800 transition-colors">
+              II. Whole-Child
             </a>
+            <span className="text-slate-300">•</span>
+            <a href="#field-rhythm" className="hover:text-emerald-800 transition-colors">
+              III. Field Rhythm
+            </a>
+            <span className="text-slate-300">•</span>
+            <a href="#field-readiness" className="hover:text-emerald-800 transition-colors">
+              IV. Reality
+            </a>
+            <span className="text-slate-300">•</span>
             <a href="#preview-heading" className="hover:text-emerald-800 transition-colors">
-              Form Preview
+              V. Preview
             </a>
+            <span className="text-slate-300">•</span>
             <a href="#faq-heading" className="hover:text-emerald-800 transition-colors">
-              Field FAQ
+              VI. FAQ
             </a>
           </nav>
 
           {/* Action CTAs */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             {canInstall && (
               <button
                 type="button"
                 onClick={handleInstallClick}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-emerald-700" />
                 <span>Install PWA</span>
@@ -128,7 +139,7 @@ export default function LandingPage() {
 
             <Link
               href="/app"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-800 hover:bg-emerald-900 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] transition-all cursor-pointer shadow-xs active:scale-[0.98]"
             >
               <span>Open Field App</span>
               <ArrowRight className="w-3.5 h-3.5 text-emerald-200" />
@@ -138,7 +149,7 @@ export default function LandingPage() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              className="lg:hidden p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               aria-label={mobileMenuOpen ? 'Close Menu' : 'Open Menu'}
               aria-expanded={mobileMenuOpen}
             >
@@ -149,35 +160,49 @@ export default function LandingPage() {
 
         {/* Mobile Dropdown Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-b border-[#E8DFD1] bg-[#F9F6F0] px-4 py-4 space-y-3">
-            <nav className="flex flex-col space-y-2 text-sm font-semibold text-slate-700">
+          <div className="lg:hidden border-b border-[#E4D8C7] bg-[#F7F3E9] px-4 py-3 space-y-2">
+            <nav className="flex flex-col space-y-1.5 text-xs font-mono font-semibold text-slate-700">
               <a
-                href="#how-it-works"
+                href="#opening-note"
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-2 rounded-lg hover:bg-[#EFEAE0]"
+                className="p-2 rounded-lg hover:bg-[#EDE5D5]"
               >
-                How It Works
+                I. Opening Note
               </a>
               <a
-                href="#snapshot-heading"
+                href="#whole-child"
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-2 rounded-lg hover:bg-[#EFEAE0]"
+                className="p-2 rounded-lg hover:bg-[#EDE5D5]"
               >
-                Whole-Child Scope
+                II. Whole-Child Scope
+              </a>
+              <a
+                href="#field-rhythm"
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-2 rounded-lg hover:bg-[#EDE5D5]"
+              >
+                III. 3-Step Field Rhythm
+              </a>
+              <a
+                href="#field-readiness"
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-2 rounded-lg hover:bg-[#EDE5D5]"
+              >
+                IV. Field Environmental Reality
               </a>
               <a
                 href="#preview-heading"
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-2 rounded-lg hover:bg-[#EFEAE0]"
+                className="p-2 rounded-lg hover:bg-[#EDE5D5]"
               >
-                Form Preview
+                V. Form Preview
               </a>
               <a
                 href="#faq-heading"
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-2 rounded-lg hover:bg-[#EFEAE0]"
+                className="p-2 rounded-lg hover:bg-[#EDE5D5]"
               >
-                Field FAQ
+                VI. Frontline Casework FAQ
               </a>
               {canInstall && (
                 <button
@@ -200,7 +225,9 @@ export default function LandingPage() {
       {/* ── Main Editorial Story Flow ── */}
       <main id="main-content">
         {/* Section 1: Hero */}
-        <NotebookHero canInstall={canInstall} onInstallClick={handleInstallClick} />
+        <div id="opening-note">
+          <NotebookHero canInstall={canInstall} onInstallClick={handleInstallClick} />
+        </div>
 
         {/* Section 2: Why it matters - Whole-child snapshot */}
         <WholeChildSnapshot />

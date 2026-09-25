@@ -40,11 +40,12 @@ export function DesignPrinciples() {
   ];
 
   return (
-    <section aria-labelledby="principles-heading" className="py-16 md:py-24 border-b border-[#E8DFD1] bg-[#FAF7F2]">
+    <section id="principles" aria-labelledby="principles-heading" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#F7F3E9]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="max-w-2xl mb-12">
-          <div className="inline-block px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#F3ECE2] text-[#6B5A45] border border-[#DECDBB] mb-3">
-            Core Philosophy
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA] mb-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
+            Core Philosophy • Ethical Governance
           </div>
           <h2
             id="principles-heading"
@@ -65,14 +66,14 @@ export function DesignPrinciples() {
             return (
               <div
                 key={idx}
-                className="p-6 sm:p-7 rounded-2xl bg-white border border-[#E8DFD1] shadow-xs hover:border-[#DECDBB] transition-colors flex flex-col justify-between"
+                className="relative p-6 sm:p-7 rounded-2xl bg-[#FCFAF6] border border-[#D5C2AA] shadow-xs hover:border-[#C4B097] transition-all flex flex-col justify-between notebook-paper-sheet"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-[#F4F1EA] border border-[#E5DDD2] flex items-center justify-center text-emerald-800">
+                    <div className="w-10 h-10 rounded-xl bg-[#F4F1EA] border border-[#E5DDD2] flex items-center justify-center text-emerald-800 shadow-2xs">
                       <Icon className="w-5 h-5" />
                     </div>
-                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold uppercase tracking-wider bg-[#F5EFE6] text-[#7A6854] border border-[#E2D6C6]">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-[#F5EFE6] text-[#6E5945] border border-[#DECDBB]">
                       {item.tag}
                     </span>
                   </div>
@@ -81,12 +82,12 @@ export function DesignPrinciples() {
                     {item.title}
                   </h3>
 
-                  <p className="text-sm text-slate-700 leading-relaxed font-normal mb-4">
+                  <p className="text-sm text-slate-700 leading-relaxed font-normal mb-5">
                     {item.description}
                   </p>
                 </div>
 
-                <div className="pt-3 border-t border-[#F0EBE1] flex items-start gap-2 text-xs font-medium text-emerald-900">
+                <div className="pt-3.5 border-t border-[#E8DFD1] flex items-start gap-2.5 text-xs font-semibold text-emerald-950 bg-emerald-50/70 p-3 rounded-xl border border-emerald-200/80">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
                   <span>{item.implication}</span>
                 </div>
