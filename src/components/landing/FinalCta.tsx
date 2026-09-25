@@ -7,9 +7,10 @@ import { ArrowRight, Download, ShieldCheck, WifiOff, Smartphone } from 'lucide-r
 interface FinalCtaProps {
   canInstall: boolean;
   onInstallClick: () => void;
+  isStandalone?: boolean;
 }
 
-export function FinalCta({ canInstall, onInstallClick }: FinalCtaProps) {
+export function FinalCta({ canInstall, onInstallClick, isStandalone = false }: FinalCtaProps) {
   return (
     <section aria-labelledby="cta-heading" className="bg-[#0F261B] text-white relative overflow-hidden">
       {/* Torn paper edge transition from light notebook paper into dark leather dossier back cover */}
@@ -50,23 +51,35 @@ export function FinalCta({ canInstall, onInstallClick }: FinalCtaProps) {
 
         {/* Primary CTA Buttons */}
         <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link
-            href="/app"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl text-sm font-bold text-slate-900 bg-white hover:bg-emerald-50 transition-all cursor-pointer shadow-lg hover:shadow-xl transform active:scale-[0.98] min-h-[48px]"
-          >
-            <span>Open Field App</span>
-            <ArrowRight className="w-4 h-4 text-emerald-800" />
-          </Link>
-
-          {canInstall && (
+          {isStandalone ? (
+            <Link
+              href="/app"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl text-sm font-bold text-slate-900 bg-white hover:bg-emerald-50 transition-all cursor-pointer shadow-lg hover:shadow-xl transform active:scale-[0.98] min-h-[48px]"
+              aria-label="Open in App"
+            >
+              <span>Open in App</span>
+              <ArrowRight className="w-4 h-4 text-emerald-800" />
+            </Link>
+          ) : (
             <button
               type="button"
               onClick={onInstallClick}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl text-sm font-bold text-slate-900 bg-white hover:bg-emerald-50 transition-all cursor-pointer shadow-lg hover:shadow-xl transform active:scale-[0.98] min-h-[48px]"
+              aria-label="Download the App"
+            >
+              <Download className="w-4 h-4 text-emerald-800" />
+              <span>Download the App</span>
+            </button>
+          )}
+
+          {!isStandalone && (
+            <Link
+              href="/app"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-sm font-bold text-white bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 transition-colors cursor-pointer min-h-[48px]"
             >
-              <Download className="w-4 h-4 text-emerald-300" />
-              <span>Install PWA to Device</span>
-            </button>
+              <span>Launch in Browser</span>
+              <ArrowRight className="w-4 h-4 text-emerald-300" />
+            </Link>
           )}
         </div>
 

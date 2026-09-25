@@ -16,9 +16,10 @@ import {
 interface NotebookHeroProps {
   canInstall: boolean;
   onInstallClick: () => void;
+  isStandalone?: boolean;
 }
 
-export function NotebookHero({ canInstall, onInstallClick }: NotebookHeroProps) {
+export function NotebookHero({ canInstall, onInstallClick, isStandalone = false }: NotebookHeroProps) {
   return (
     <section
       aria-labelledby="hero-heading"
@@ -28,41 +29,41 @@ export function NotebookHero({ canInstall, onInstallClick }: NotebookHeroProps) 
         {/* ── THE PHYSICAL MANILA CASE FOLDER SPREAD (Layer 1) ── */}
         <div className="notebook-folder rounded-3xl p-3 sm:p-6 lg:p-8 relative">
           
-          {/* Die-Cut Folder Right Index Tabs (Desktop / Tablet) */}
+          {/* Die-Cut Folder Left Index Tabs (Desktop / Tablet) */}
           <div 
-            className="hidden xl:flex flex-col absolute -right-9 top-12 space-y-2 z-20"
+            className="hidden xl:flex flex-col absolute -left-9 top-12 space-y-2 z-20"
             aria-label="Notebook Chapter Index"
           >
-            <span className="px-3 py-1.5 rounded-r-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#0F5132] text-white shadow-sm border border-emerald-900 border-l-0">
+            <span className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#0F5132] text-white shadow-sm border border-emerald-900 border-r-0 text-right">
               I. Note
             </span>
             <a 
               href="#whole-child"
-              className="px-3 py-1.5 rounded-r-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-l-0 transition-colors"
+              className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               II. Scope
             </a>
             <a 
               href="#field-rhythm"
-              className="px-3 py-1.5 rounded-r-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-l-0 transition-colors"
+              className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               III. Rhythm
             </a>
             <a 
               href="#field-readiness"
-              className="px-3 py-1.5 rounded-r-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-l-0 transition-colors"
+              className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               IV. Reality
             </a>
             <a 
               href="#preview-heading"
-              className="px-3 py-1.5 rounded-r-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-l-0 transition-colors"
+              className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               V. Preview
             </a>
             <a 
               href="#faq-heading"
-              className="px-3 py-1.5 rounded-r-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-l-0 transition-colors"
+              className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               VI. FAQ
             </a>
@@ -136,14 +137,26 @@ export function NotebookHero({ canInstall, onInstallClick }: NotebookHeroProps) 
 
                 {/* Primary & Secondary Action Button Bar */}
                 <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
-                  <Link
-                    href="/app"
-                    className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
-                    aria-label="Open Field App workspace"
-                  >
-                    <span>Open Field App</span>
-                    <ArrowRight className="w-4 h-4 text-emerald-200" />
-                  </Link>
+                  {isStandalone ? (
+                    <Link
+                      href="/app"
+                      className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
+                      aria-label="Open in App"
+                    >
+                      <span>Open in App</span>
+                      <ArrowRight className="w-4 h-4 text-emerald-200" />
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onInstallClick}
+                      className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
+                      aria-label="Download the App"
+                    >
+                      <Download className="w-5 h-5 text-emerald-200" />
+                      <span>Download the App</span>
+                    </button>
+                  )}
 
                   <a
                     href="#whole-child"
@@ -153,16 +166,15 @@ export function NotebookHero({ canInstall, onInstallClick }: NotebookHeroProps) 
                     <ArrowDown className="w-4 h-4 text-slate-600" />
                   </a>
 
-                  {canInstall && (
-                    <button
-                      type="button"
-                      onClick={onInstallClick}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-4 rounded-xl text-sm font-bold text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 transition-all min-h-[48px] cursor-pointer"
-                      aria-label="Install Field App on this device"
+                  {!isStandalone && (
+                    <Link
+                      href="/app"
+                      className="inline-flex items-center justify-center gap-1 px-2 py-2 text-xs font-mono font-bold text-emerald-800 hover:text-emerald-950 underline underline-offset-4 transition-colors"
+                      aria-label="Launch directly in web browser"
                     >
-                      <Download className="w-4 h-4 text-emerald-800" />
-                      <span>Install App</span>
-                    </button>
+                      <span>or launch in browser</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </Link>
                   )}
                 </div>
 

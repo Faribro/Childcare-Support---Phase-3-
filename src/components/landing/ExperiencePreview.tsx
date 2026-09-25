@@ -171,6 +171,7 @@ export function ExperiencePreview() {
   ];
 
   const [activeTabId, setActiveTabId] = useState<string>('demographics');
+  const [tilt, setTilt] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
   const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
@@ -340,7 +341,17 @@ export function ExperiencePreview() {
               <div className="lg:col-span-4 flex justify-center items-center">
                 <div 
                   key={`polaroid-${activeTab.id}`}
-                  className={`relative p-3.5 pb-5 rounded-xl bg-white border border-slate-300 shadow-xl max-w-[240px] w-full transform ${activeTab.polaroid.rotation} transition-all duration-300 ease-out motion-safe:animate-polaroid-drop hover:scale-105 hover:-rotate-1 hover:shadow-2xl cursor-pointer`}
+                  onMouseMove={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = (e.clientX - rect.left) / rect.width - 0.5;
+                    const y = (e.clientY - rect.top) / rect.height - 0.5;
+                    setTilt({ x: y * -10, y: x * 10 });
+                  }}
+                  onMouseLeave={() => setTilt({ x: 0, y: 0 })}
+                  style={{
+                    transform: `perspective(600px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+                  }}
+                  className={`relative p-3.5 pb-5 rounded-xl bg-white border border-slate-300 shadow-xl max-w-[240px] w-full ${activeTab.polaroid.rotation} transition-transform duration-150 ease-out motion-safe:animate-polaroid-drop hover:scale-105 hover:shadow-2xl cursor-pointer`}
                 >
                   {/* Silver Paperclip SVG pinning the Polaroid */}
                   <div className="absolute -top-3.5 right-6 w-5 h-10 z-20 pointer-events-none" aria-hidden="true">

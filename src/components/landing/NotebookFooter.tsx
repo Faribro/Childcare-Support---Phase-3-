@@ -32,7 +32,7 @@ export function NotebookFooter() {
           {/* Quick Navigation Links */}
           <nav aria-label="Footer Navigation" className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
             <Link href="/app" className="text-white hover:text-emerald-300 font-semibold transition-colors">
-              Open Field App
+              Open Field Workspace
             </Link>
             <a href="#how-it-works" className="hover:text-white transition-colors">
               How It Works

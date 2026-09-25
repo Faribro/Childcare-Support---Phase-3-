@@ -59,7 +59,10 @@ export function WholeChildSnapshot() {
           STATION 1: NUTRITION & WELLBEING (Terracotta Earth Horizon)
       ══════════════════════════════════════════════════════════════════ */}
       {/* Horizon 1 Transition: Torn Paper & Gentle Hills from Sky to Terracotta */}
-      <div className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#F7F3E9]">
+      <div 
+        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#F7F3E9] transition-transform duration-100 ease-out"
+        style={{ transform: `translateY(${scrollProgress * -30}px)` }}
+      >
         <svg
           className="relative block w-full h-12 sm:h-20 text-[#B8553A]"
           viewBox="0 0 1440 90"
@@ -89,7 +92,10 @@ export function WholeChildSnapshot() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
             {/* Illustrated Artwork: Caseworker, Child, Measuring Pole & Nutrition Basket */}
             <div className="lg:col-span-6 flex justify-center order-2 lg:order-1">
-              <div className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden">
+              <div 
+                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden transition-transform duration-150 ease-out"
+                style={{ transform: `translateY(${scrollProgress * 15}px)` }}
+              >
                 {/* Continuous Dotted Journey Trail */}
                 <div className="absolute top-4 left-6 text-white/60 font-mono text-[11px] font-bold tracking-widest uppercase flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-300 animate-pulse" />
@@ -200,7 +206,7 @@ export function WholeChildSnapshot() {
                     stroke="#FEF3C7"
                     strokeWidth="3"
                     strokeDasharray="10 6"
-                    strokeDashoffset={350 * (1 - Math.min(scrollProgress * 3, 1))}
+                    strokeDashoffset={350 * Math.max(0, 1 - Math.min(scrollProgress * 2.8, 1))}
                     fill="none"
                     className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
                   />
@@ -266,7 +272,10 @@ export function WholeChildSnapshot() {
           STATION 2: EDUCATION CONTINUITY (Lush Meadow Green Horizon)
       ══════════════════════════════════════════════════════════════════ */}
       {/* Horizon 2 Transition: Undulating Layered Meadow Hills from Terracotta to Green */}
-      <div className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#B8553A]">
+      <div 
+        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#B8553A] transition-transform duration-100 ease-out"
+        style={{ transform: `translateY(${(scrollProgress - 0.25) * -35}px)` }}
+      >
         <svg
           className="relative block w-full h-14 sm:h-24 text-[#235339]"
           viewBox="0 0 1440 90"
@@ -295,7 +304,10 @@ export function WholeChildSnapshot() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
             {/* Pinned Schooling Grant Ledger Slip */}
             <div className="lg:col-span-6 order-1">
-              <div className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet">
+              <div 
+                className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet transition-transform duration-150 ease-out"
+                style={{ transform: `translateY(${(scrollProgress - 0.25) * 15}px)` }}
+              >
                 {/* Official Circular Stamp: DISTRICT AID MATCHED */}
                 <div className="absolute -top-3.5 right-8 px-3 py-1 rounded-md notebook-stamp text-[10px] font-bold">
                   ★ DISTRICT AID MATCHED ★
@@ -339,7 +351,10 @@ export function WholeChildSnapshot() {
 
             {/* Illustrated Artwork: Stepping Stones (Class 1–12+), School Satchel, Soaring Kite */}
             <div className="lg:col-span-6 flex justify-center order-2">
-              <div className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden">
+              <div 
+                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden transition-transform duration-150 ease-out"
+                style={{ transform: `translateY(${(scrollProgress - 0.25) * 15}px)` }}
+              >
                 <div className="absolute top-4 left-6 text-emerald-200 font-mono text-[11px] font-bold tracking-widest uppercase flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-300 animate-pulse" />
                   Station 02 • Education Pathway
@@ -394,8 +409,11 @@ export function WholeChildSnapshot() {
                     <rect x="32" y="-2" width="4" height="16" rx="1" fill="#10B981" />
                   </g>
 
-                  {/* Flying Saffron & Teal Kite Soaring into the Sky */}
-                  <g className="motion-safe:animate-kite-soar origin-center" transform="translate(230, 20)">
+                  {/* Flying Saffron & Teal Kite Soaring into the Sky Traversing Meadow */}
+                  <g 
+                    className="motion-safe:animate-kite-soar origin-center transition-transform duration-100 ease-out" 
+                    style={{ transform: `translate(${210 + (scrollProgress - 0.25) * 80}px, ${20 - (scrollProgress - 0.25) * 45}px)` }}
+                  >
                     {/* Diamond Kite Body */}
                     <polygon points="40,0 80,40 40,80 0,40" fill="#F97316" stroke="#EA580C" strokeWidth="1.5" />
                     <polygon points="40,0 40,80 0,40" fill="#0D9488" />
@@ -415,7 +433,7 @@ export function WholeChildSnapshot() {
                     stroke="#86EFAC"
                     strokeWidth="2.5"
                     strokeDasharray="10 6"
-                    strokeDashoffset={350 * (1 - Math.min(Math.max((scrollProgress - 0.2) * 3, 0), 1))}
+                    strokeDashoffset={350 * Math.max(0, 1 - Math.min(Math.max((scrollProgress - 0.25) * 2.8, 0), 1))}
                     fill="none"
                     className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
                   />
@@ -430,7 +448,10 @@ export function WholeChildSnapshot() {
           STATION 3: FAMILY CARE & OFFLINE SYNC (Sunny Marigold Horizon)
       ══════════════════════════════════════════════════════════════════ */}
       {/* Horizon 3 Transition: Rolling Ridge from Meadow Green to Marigold */}
-      <div className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#235339]">
+      <div 
+        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#235339] transition-transform duration-100 ease-out"
+        style={{ transform: `translateY(${(scrollProgress - 0.5) * -35}px)` }}
+      >
         <svg
           className="relative block w-full h-14 sm:h-24 text-[#C67E20]"
           viewBox="0 0 1440 90"
@@ -459,7 +480,10 @@ export function WholeChildSnapshot() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
             {/* Illustrated Artwork: Village Home, Protective Shield & Offline-to-Cloud Sync Waves */}
             <div className="lg:col-span-6 flex justify-center order-2 lg:order-1">
-              <div className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden">
+              <div 
+                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden transition-transform duration-150 ease-out"
+                style={{ transform: `translateY(${(scrollProgress - 0.5) * 15}px)` }}
+              >
                 <div className="absolute top-4 left-6 text-amber-100 font-mono text-[11px] font-bold tracking-widest uppercase flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
                   Station 03 • Family Care &amp; Sync
@@ -535,7 +559,7 @@ export function WholeChildSnapshot() {
                     stroke="#FEF3C7"
                     strokeWidth="3"
                     strokeDasharray="10 6"
-                    strokeDashoffset={350 * (1 - Math.min(Math.max((scrollProgress - 0.5) * 3, 0), 1))}
+                    strokeDashoffset={350 * Math.max(0, 1 - Math.min(Math.max((scrollProgress - 0.5) * 2.8, 0), 1))}
                     fill="none"
                     className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
                   />
@@ -545,7 +569,10 @@ export function WholeChildSnapshot() {
 
             {/* Pinned Family Accord Slip */}
             <div className="lg:col-span-6 order-1 lg:order-2">
-              <div className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet">
+              <div 
+                className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet transition-transform duration-150 ease-out"
+                style={{ transform: `translateY(${(scrollProgress - 0.5) * 15}px)` }}
+              >
                 {/* Washi Tape Accent */}
                 <div
                   className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 notebook-tape rounded-xs pointer-events-none"

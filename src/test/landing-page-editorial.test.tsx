@@ -77,13 +77,13 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(skipLink.getAttribute('href')).toBe('#main-content');
     });
 
-    it('contains header, main landmark with id="main-content", and footer', () => {
+    it('contains main landmark with id="main-content" and footer (header removed per layout direction)', () => {
       const { container } = render(<LandingPage />);
       const header = container.querySelector('header');
       const main = container.querySelector('main#main-content');
       const footer = container.querySelector('footer');
 
-      expect(header).toBeDefined();
+      expect(header).toBeNull();
       expect(main).toBeDefined();
       expect(footer).toBeDefined();
     });
@@ -97,9 +97,22 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
   });
 
   describe('Primary Navigation & CTAs', () => {
-    it('renders "Open Field App" links pointing to /app', () => {
+    it('renders "Download the App" action buttons for non-standalone visitors', () => {
       render(<LandingPage />);
-      const openAppLinks = screen.getAllByRole('link', { name: /open field app/i });
+      const downloadButtons = screen.getAllByRole('button', { name: /download the app/i });
+      expect(downloadButtons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('renders "Open in App" links pointing to /app when in standalone mode', () => {
+      mockUsePwaInstall.mockReturnValue({
+        canInstall: false,
+        isStandalone: true,
+        isIos: false,
+        promptInstall: vi.fn(),
+      });
+
+      render(<LandingPage />);
+      const openAppLinks = screen.getAllByRole('link', { name: /open in app/i });
       expect(openAppLinks.length).toBeGreaterThanOrEqual(1);
 
       openAppLinks.forEach((link) => {
@@ -114,29 +127,23 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(howItWorksLinks[0].getAttribute('href')).toBe('#how-it-works');
     });
 
-    it('auto-redirects to /app when launched in standalone PWA mode', () => {
-      // Mock window.matchMedia for standalone display-mode
-      const originalMatchMedia = window.matchMedia;
-      window.matchMedia = vi.fn().mockImplementation((query) => ({
-        matches: query === '(display-mode: standalone)',
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }));
+    it('preserves landing page on / and shows "Open in App" when in standalone mode without forced auto-redirect', () => {
+      mockUsePwaInstall.mockReturnValue({
+        canInstall: false,
+        isStandalone: true,
+        isIos: false,
+        promptInstall: vi.fn(),
+      });
 
       render(<LandingPage />);
-      expect(mockReplace).toHaveBeenCalledWith('/app');
-
-      window.matchMedia = originalMatchMedia;
+      expect(mockReplace).not.toHaveBeenCalled();
+      const openAppLinks = screen.getAllByRole('link', { name: /open in app/i });
+      expect(openAppLinks.length).toBeGreaterThanOrEqual(1);
     });
   });
 
   describe('PWA Install Interactions', () => {
-    it('renders install buttons when canInstall is true', () => {
+    it('renders Download the App buttons when canInstall is true', () => {
       mockUsePwaInstall.mockReturnValue({
         canInstall: true,
         isStandalone: false,
@@ -145,11 +152,11 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       });
 
       render(<LandingPage />);
-      const installButtons = screen.getAllByRole('button', { name: /install pwa/i });
-      expect(installButtons.length).toBeGreaterThanOrEqual(1);
+      const downloadButtons = screen.getAllByRole('button', { name: /download the app/i });
+      expect(downloadButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('opens iOS modal when install is clicked on iOS devices', async () => {
+    it('opens iOS modal when download is clicked on iOS devices', async () => {
       mockUsePwaInstall.mockReturnValue({
         canInstall: true,
         isStandalone: false,
@@ -158,8 +165,8 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       });
 
       render(<LandingPage />);
-      const installButtons = screen.getAllByRole('button', { name: /install pwa/i });
-      fireEvent.click(installButtons[0]);
+      const downloadButtons = screen.getAllByRole('button', { name: /download the app/i });
+      fireEvent.click(downloadButtons[0]);
 
       await waitFor(() => {
         expect(screen.getByRole('dialog', { name: /install on iphone \/ ipad/i })).toBeDefined();
