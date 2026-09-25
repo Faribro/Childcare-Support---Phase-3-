@@ -84,10 +84,60 @@ const config: Config = {
           'box-shadow':
             '0 4px 20px -2px rgba(44, 39, 33, 0.06), 0 2px 6px -1px rgba(44, 39, 33, 0.04)',
         },
+        '.notebook-folder': {
+          'background-color': '#F3EDE2',
+          'background-image':
+            'linear-gradient(135deg, rgba(255,255,255,0.45) 0%, transparent 60%), radial-gradient(#DECDBB 0.5px, transparent 0.5px)',
+          'background-size': '100% 100%, 16px 16px',
+          border: '1px solid #D8C7B0',
+          'box-shadow': '0 20px 45px -15px rgba(55, 42, 25, 0.18), 0 0 0 1px rgba(255,255,255,0.8) inset',
+        },
+        '.notebook-paper-sheet': {
+          'background-color': '#FCFAF6',
+          'background-image':
+            'repeating-linear-gradient(transparent, transparent 27px, rgba(218, 208, 194, 0.35) 28px)',
+          border: '1px solid #E4D8C7',
+          'box-shadow': '0 10px 35px -5px rgba(40, 30, 20, 0.09), 0 1px 3px rgba(40, 30, 20, 0.04)',
+        },
+        '.notebook-stamp': {
+          border: '2px dashed #991B1B',
+          color: '#991B1B',
+          'font-family': "'DM Mono', monospace",
+          'letter-spacing': '0.14em',
+          'text-transform': 'uppercase',
+          'transform': 'rotate(-2.5deg)',
+          'background-color': 'rgba(254, 242, 242, 0.88)',
+          'box-shadow': '0 0 0 2px rgba(153, 27, 27, 0.08)',
+        },
+        '.notebook-tape': {
+          'background-color': 'rgba(245, 235, 215, 0.8)',
+          'box-shadow': '0 1px 3px rgba(0,0,0,0.08)',
+          'backdrop-filter': 'blur(1px)',
+          border: '1px solid rgba(220, 205, 180, 0.5)',
+        },
+        '.notebook-punch-hole': {
+          width: '14px',
+          height: '14px',
+          'border-radius': '9999px',
+          'background-color': '#E5DACB',
+          'box-shadow': 'inset 0 2px 3px rgba(50, 40, 30, 0.3), 0 1px 0 rgba(255, 255, 255, 0.8)',
+          border: '1px solid #D0C2AF',
+        },
         '.archival-tag': {
-          'font-family': "'Anonymous Pro', monospace",
+          'font-family': "'DM Mono', monospace",
           'letter-spacing': '0.12em',
           'text-transform': 'uppercase',
+        },
+        '@media (prefers-reduced-motion: reduce)': {
+          '.motion-safe-animate': {
+            animation: 'none !important',
+            transition: 'none !important',
+            transform: 'none !important',
+          },
+          '.support-path-draw': {
+            'stroke-dashoffset': '0 !important',
+            animation: 'none !important',
+          },
         },
       });
     }),

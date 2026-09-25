@@ -44,14 +44,15 @@ export function FieldFaq() {
   };
 
   return (
-    <section aria-labelledby="faq-heading" className="py-16 md:py-24 border-b border-[#E8DFD1] bg-[#FAF7F2]">
+    <section id="faq-heading" aria-labelledby="faq-heading" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#F7F3E9]">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-12">
-          <div className="inline-block px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#F3ECE2] text-[#6B5A45] border border-[#DECDBB] mb-3">
-            Frontline Help &amp; FAQs
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA] mb-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
+            Chapter VI • Frontline Protocol FAQ
           </div>
           <h2
-            id="faq-heading"
+            id="faq-heading-title"
             className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight"
           >
             Frequently asked field questions.
@@ -61,14 +62,14 @@ export function FieldFaq() {
           </p>
         </div>
 
-        {/* Accessible Accordion */}
-        <div className="space-y-3">
+        {/* Accessible Accordion with Archival Query Sleeves */}
+        <div className="space-y-3.5">
           {faqs.map((faq, idx) => {
             const isOpen = openIndex === idx;
             return (
               <div
                 key={idx}
-                className="rounded-2xl bg-white border border-[#E8DFD1] overflow-hidden transition-all shadow-2xs hover:border-[#DECDBB]"
+                className="rounded-2xl bg-[#FCFAF6] border border-[#D5C2AA] overflow-hidden transition-all shadow-xs hover:border-[#C4B097] notebook-paper-sheet"
               >
                 <h3>
                   <button
@@ -79,11 +80,16 @@ export function FieldFaq() {
                     onClick={() => toggleIndex(idx)}
                     className="w-full p-5 sm:p-6 text-left flex items-center justify-between gap-4 cursor-pointer focus-visible:outline-2 focus-visible:outline-emerald-700"
                   >
-                    <span className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
-                      {faq.question}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-xs font-bold text-slate-500 bg-[#EFE7DC] px-2 py-0.5 rounded border border-[#DECDBB] shrink-0">
+                        Q.{idx + 1}
+                      </span>
+                      <span className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
+                        {faq.question}
+                      </span>
+                    </div>
                     <span
-                      className={`w-8 h-8 rounded-full bg-[#F4F1EA] border border-[#E5DDD2] flex items-center justify-center shrink-0 text-slate-700 transition-transform duration-200 ${
+                      className={`w-8 h-8 rounded-full bg-[#F4F1EA] border border-[#E5DDD2] flex items-center justify-center shrink-0 text-slate-700 transition-transform duration-200 shadow-2xs ${
                         isOpen ? 'rotate-180 bg-emerald-100 text-emerald-900 border-emerald-300' : ''
                       }`}
                     >
@@ -96,7 +102,7 @@ export function FieldFaq() {
                     id={`faq-answer-${idx}`}
                     role="region"
                     aria-labelledby={`faq-question-${idx}`}
-                    className="px-5 pb-6 sm:px-6 sm:pb-7 text-sm text-slate-700 leading-relaxed font-normal border-t border-[#F4EFE6] pt-4"
+                    className="px-5 pb-6 sm:px-6 sm:pb-7 text-sm text-slate-700 leading-relaxed font-normal border-t border-[#EDE4D6] pt-4 pl-12"
                   >
                     {faq.answer}
                   </div>

@@ -87,14 +87,15 @@ export function ExperiencePreview() {
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
 
   return (
-    <section aria-labelledby="preview-heading" className="py-16 md:py-24 border-b border-[#E8DFD1] bg-[#FAF8F5]">
+    <section id="preview-heading" aria-labelledby="preview-heading" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#FAF8F5]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="max-w-2xl mb-12">
-          <div className="inline-block px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EFE7DC] text-[#6B5A45] border border-[#DECDBB] mb-3">
-            Interface Preview
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA] mb-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
+            Chapter V • Interaction Preview
           </div>
           <h2
-            id="preview-heading"
+            id="preview-heading-title"
             className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight"
           >
             A dignified, transparent field intake.
@@ -105,13 +106,13 @@ export function ExperiencePreview() {
           </p>
         </div>
 
-        {/* Interactive Notebook Preview Container */}
-        <div className="rounded-3xl bg-white border border-[#E0D7C8] shadow-md overflow-hidden notebook-paper-bg">
-          {/* Notebook Tab Strip */}
+        {/* Interactive Notebook Preview Container with Tabbed Ledger Binder */}
+        <div className="rounded-3xl bg-[#F4EDE2] border border-[#D5C2AA] shadow-lg p-2 sm:p-4">
+          {/* Physical Ledger Divider Tabs */}
           <div
             role="tablist"
             aria-label="Assessment Section Previews"
-            className="flex items-center gap-1 p-2 sm:p-3 bg-[#F0EBE1] border-b border-[#E0D7C8] overflow-x-auto"
+            className="flex items-end gap-1.5 px-2 overflow-x-auto pb-0"
           >
             {tabs.map((tab) => {
               const isActive = tab.id === activeTabId;
@@ -123,28 +124,34 @@ export function ExperiencePreview() {
                   id={`tab-${tab.id}`}
                   aria-controls={`panel-${tab.id}`}
                   onClick={() => setActiveTabId(tab.id)}
-                  className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                  className={`flex items-center gap-2 px-3.5 sm:px-5 py-3 rounded-t-xl text-xs font-mono font-bold transition-all shrink-0 cursor-pointer border-t border-x ${
                     isActive
-                      ? 'bg-white text-emerald-900 shadow-xs border border-[#DECDBB]'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-[#EAE4D8]'
+                      ? 'bg-[#FCFAF6] text-emerald-950 border-[#D5C2AA] shadow-xs z-10 translate-y-0.5'
+                      : 'bg-[#EAE1D1] text-slate-600 hover:text-slate-900 border-[#D8C7B0] hover:bg-[#E2D8C7]'
                   }`}
                 >
-                  <span className="font-mono text-[10px] text-slate-400">/{tab.number}</span>
+                  <span className="text-[10px] text-slate-400">/{tab.number}</span>
                   <span>{tab.name}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Active Tab Panel */}
+          {/* Active Tab Panel — Tactile Ruled Ledger Sheet */}
           <div
             id={`panel-${activeTab.id}`}
             role="tabpanel"
             aria-labelledby={`tab-${activeTab.id}`}
-            className="p-6 sm:p-8 space-y-6"
+            className="relative rounded-2xl p-6 sm:p-8 space-y-6 notebook-paper-sheet border border-[#D5C2AA] shadow-xs overflow-hidden"
           >
+            {/* Red left ledger vertical margin line */}
+            <div 
+              className="absolute top-0 bottom-0 left-6 sm:left-8 w-px bg-red-400/40 pointer-events-none hidden sm:block" 
+              aria-hidden="true" 
+            />
+
             {/* Panel Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-[#F0EBE1]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-[#E8DFD1] sm:pl-6">
               <div>
                 <span className="inline-block px-2.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300 mb-1">
                   {activeTab.badge} — Form Preview
@@ -153,23 +160,23 @@ export function ExperiencePreview() {
                   {activeTab.name}
                 </h3>
               </div>
-              <div className="text-xs font-mono text-slate-500 bg-[#FAF7F2] px-3 py-1.5 rounded-lg border border-[#E8DFD1] self-start sm:self-auto">
-                SYNTHETIC SAMPLE RECORD
+              <div className="text-[11px] font-mono font-bold text-slate-600 bg-[#F4EFE6] px-3 py-1.5 rounded-lg border border-[#D8C7B0] self-start sm:self-auto shadow-2xs">
+                ★ SYNTHETIC SAMPLE RECORD
               </div>
             </div>
 
-            <p className="text-sm text-slate-700 max-w-2xl">
+            <p className="text-sm text-slate-700 max-w-2xl sm:pl-6 font-normal">
               {activeTab.summary}
             </p>
 
             {/* Sanitized Fields Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:pl-6">
               {activeTab.sanitizedFields.map((field, idx) => (
                 <div
                   key={idx}
-                  className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E8DFD1] space-y-1"
+                  className="p-4 rounded-xl bg-white border border-[#E2D8C7] space-y-1 shadow-2xs"
                 >
-                  <div className="text-[11px] font-mono font-bold text-slate-500 uppercase tracking-wider">
+                  <div className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">
                     {field.label}
                   </div>
                   <div className="text-sm font-bold text-slate-900 flex items-center justify-between">
@@ -186,10 +193,10 @@ export function ExperiencePreview() {
             </div>
 
             {/* Key Field Assurance Highlight */}
-            <div className="p-4 rounded-xl bg-[#F4F1EA] border border-[#E5DDD2] flex items-start gap-3">
+            <div className="p-4 rounded-xl bg-[#F0EAE0] border border-[#D5C2AA] flex items-start gap-3 sm:ml-6 shadow-2xs">
               <Sparkles className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
               <p className="text-xs text-slate-700 font-medium">
-                <strong className="text-slate-900">Field Highlight: </strong>
+                <strong className="text-slate-900 font-bold">Field Highlight: </strong>
                 {activeTab.highlight}
               </p>
             </div>

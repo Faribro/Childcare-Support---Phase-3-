@@ -41,11 +41,13 @@ export function WholeChildSnapshot() {
   ];
 
   return (
-    <section aria-labelledby="snapshot-heading" className="py-16 md:py-24 border-b border-[#E8DFD1]">
+    <section id="whole-child" aria-labelledby="snapshot-heading" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#F7F3E9] relative">
+      {/* Subtle background texture */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="max-w-2xl mb-12">
-          <div className="inline-block px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#F3ECE2] text-[#6B5A45] border border-[#DECDBB] mb-3">
-            Holistic Perspective
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA] mb-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
+            Chapter II • Comprehensive Scope
           </div>
           <h2
             id="snapshot-heading"
@@ -65,14 +67,20 @@ export function WholeChildSnapshot() {
             return (
               <div
                 key={panel.title}
-                className="flex flex-col justify-between p-6 sm:p-7 rounded-2xl bg-[#FCFAF6] border border-[#DECDBB] shadow-sm hover:shadow-md transition-shadow notebook-border"
+                className="relative flex flex-col justify-between p-6 sm:p-7 rounded-2xl bg-[#FCFAF6] border border-[#D8C7B2] shadow-sm hover:shadow-md transition-shadow notebook-paper-sheet"
               >
+                {/* Washi tape accent on top center */}
+                <div 
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 notebook-tape rounded-xs pointer-events-none" 
+                  aria-hidden="true"
+                />
+
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-5">
-                    <div className={`p-3 rounded-xl ${panel.accentBg} border ${panel.accentBorder}`}>
-                      <Icon className="w-6 h-6 text-slate-800" />
+                  <div className="flex items-center justify-between gap-2 mb-5 pt-1">
+                    <div className={`p-2.5 rounded-xl ${panel.accentBg} border ${panel.accentBorder}`}>
+                      <Icon className="w-5 h-5 text-slate-800" />
                     </div>
-                    <span className={`text-[11px] font-mono font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${panel.tagColor}`}>
+                    <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${panel.tagColor}`}>
                       {panel.tag}
                     </span>
                   </div>
@@ -81,19 +89,22 @@ export function WholeChildSnapshot() {
                     {panel.title}
                   </h3>
 
-                  <p className="text-sm text-slate-700 leading-relaxed font-medium mb-6">
+                  <p className="text-sm text-slate-700 leading-relaxed font-normal mb-6">
                     {panel.summary}
                   </p>
                 </div>
 
                 <div className="pt-4 border-t border-[#E8DFD1]">
-                  <h4 className="text-xs font-mono font-bold uppercase text-slate-500 mb-2.5 tracking-wider">
+                  <h4 className="text-[11px] font-mono font-bold uppercase text-slate-500 mb-2.5 tracking-wider flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-700" />
                     Key Observables
                   </h4>
-                  <ul className="space-y-1.5 text-xs font-semibold text-slate-800">
+                  <ul className="space-y-2 text-xs font-medium text-slate-800">
                     {panel.keyAspects.map((aspect) => (
-                      <li key={aspect} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-700 shrink-0" />
+                      <li key={aspect} className="flex items-start gap-2">
+                        <span className="w-3.5 h-3.5 rounded-xs border border-emerald-700/60 bg-emerald-50 text-emerald-800 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">
+                          ✓
+                        </span>
                         <span>{aspect}</span>
                       </li>
                     ))}
@@ -105,10 +116,10 @@ export function WholeChildSnapshot() {
         </div>
 
         {/* Responsible Stewardship Note */}
-        <div className="mt-10 p-4 sm:p-5 rounded-xl bg-[#F4EFE6] border border-[#DECDBB] flex items-start gap-3.5 text-xs text-slate-700 font-medium">
+        <div className="mt-10 p-5 rounded-2xl bg-[#F0EBE0] border border-[#D5C2AA] flex items-start gap-3.5 text-xs text-slate-700 font-medium shadow-2xs">
           <HeartHandshake className="w-5 h-5 text-emerald-800 shrink-0 mt-0.5" />
           <p>
-            <strong>Field Dignity Note:</strong> The Child Nutrition & Support PWA serves as a structured intake tool to assist
+            <strong className="text-slate-900">Field Dignity Directive:</strong> The Child Nutrition & Support PWA serves as a structured intake tool to assist
             trained case managers. The platform does not make automated medical decisions or replace clinical judgment; it ensures 
             information is preserved accurately and made available for thoughtful human follow-up.
           </p>
