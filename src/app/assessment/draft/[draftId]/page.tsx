@@ -19,6 +19,7 @@ import { t } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure, type FormValidationError } from '@/lib/validations/submissionValidationGuard';
+import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
 import { getResolvableSectionErrors, navigateToValidationError } from '@/lib/validations/formValidationRegistry';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
@@ -88,6 +89,29 @@ export default function ResumeDraftSinglePage() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+
+  const errorsByField = useMemo(() => {
+    const map: Record<string, FormValidationError> = {};
+    for (const err of validationErrors) {
+      if (err.elementId) {
+        map[err.elementId] = err;
+      }
+      if (err.fieldKey) {
+        map[err.fieldKey] = err;
+      }
+    }
+    return map;
+  }, [validationErrors]);
+
+  const clearFieldError = (elementId?: string, fieldKey?: string) => {
+    setValidationErrors((prev) =>
+      prev.filter((err) => {
+        if (elementId && err.elementId === elementId) return false;
+        if (fieldKey && (err.fieldKey === fieldKey || err.fieldKey.endsWith(`.${fieldKey}`))) return false;
+        return true;
+      })
+    );
+  };
 
   const errorsBySection = useMemo(() => {
     return getResolvableSectionErrors(validationErrors);
@@ -177,6 +201,7 @@ export default function ResumeDraftSinglePage() {
     schoolSessionStartDate: '',
     schoolType: '' as SchoolType,
     currentClass: '',
+    currentClassSpecify: '',
     attendance: '' as AttendanceType,
 
     // Section 8: Current Expenses & Documents
@@ -293,7 +318,8 @@ export default function ResumeDraftSinglePage() {
             schoolName: ed.schoolName || '',
             schoolSessionStartDate: ed.schoolSessionStartDate || '',
             schoolType: (ed.schoolType as SchoolType) || 'Government school',
-            currentClass: ed.currentClass || 'Class 2',
+            currentClass: ed.currentClass !== undefined ? ed.currentClass : ((ed as any).schoolGrade || ''),
+            currentClassSpecify: ed.currentClassSpecify || '',
             attendance: (ed.attendance as AttendanceType) || 'Regular',
 
             schoolFees: Number(exp.schoolFees) || 0,
@@ -504,6 +530,7 @@ export default function ResumeDraftSinglePage() {
         schoolSessionStartDate: formData.schoolSessionStartDate,
         schoolType: formData.schoolType,
         currentClass: formData.currentClass,
+        currentClassSpecify: formData.currentClassSpecify,
         attendance: formData.attendance,
       },
       educationExpenses: {
@@ -770,6 +797,7 @@ export default function ResumeDraftSinglePage() {
           schoolSessionStartDate: formData.schoolSessionStartDate,
           schoolType: formData.schoolType,
           currentClass: formData.currentClass,
+          currentClassSpecify: formData.currentClassSpecify,
           attendance: formData.attendance,
         },
         educationExpenses: {
@@ -1959,12 +1987,72 @@ export default function ResumeDraftSinglePage() {
                   </select>
                 </div>
 
-                <Input
-                  label={t('class_grade', currentLanguage)}
-                  value={formData.currentClass}
-                  onChange={(e) => setFormData({ ...formData, currentClass: e.target.value })}
-                  placeholder="e.g. Class 7"
-                />
+                <div id="q-edu-class" className={`flex flex-col space-y-1.5 ${getHighlightClass('q-edu-class')}`}>
+                  <label
+                    htmlFor="education-currentClass"
+                    className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block"
+                  >
+                    {t('current_class', currentLanguage)}
+                  </label>
+                  <select
+                    id="education-currentClass"
+                    name="currentClass"
+                    value={formData.currentClass}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val !== OTHER_SPECIFY_CLASS) {
+                        setFormData({ ...formData, currentClass: val, currentClassSpecify: '' });
+                        clearFieldError('education-currentClassSpecify', 'currentClassSpecify');
+                      } else {
+                        setFormData({ ...formData, currentClass: val });
+                      }
+                      if (val.trim()) {
+                        clearFieldError('education-currentClass', 'currentClass');
+                      }
+                    }}
+                    aria-describedby={errorsByField['education-currentClass'] ? 'education-currentClass-error' : undefined}
+                    className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                      errorsByField['education-currentClass']
+                        ? 'border-rose-400 bg-rose-50/20 focus:border-rose-500 focus:ring-2 focus:ring-rose-200'
+                        : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                    }`}
+                  >
+                    <option value="">Select current class</option>
+                    {!isCanonicalCurrentClass(formData.currentClass) && formData.currentClass !== OTHER_SPECIFY_CLASS && formData.currentClass.trim().length > 0 && (
+                      <option value={formData.currentClass}>{`Other (${formData.currentClass})`}</option>
+                    )}
+                    {CURRENT_CLASS_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                  {errorsByField['education-currentClass'] && (
+                    <p id="education-currentClass-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-currentClass'].message}
+                    </p>
+                  )}
+                </div>
+
+                {formData.currentClass === OTHER_SPECIFY_CLASS && (
+                  <div id="q-edu-class-specify" className={`sm:col-span-2 ${getHighlightClass('q-edu-class-specify')}`}>
+                    <Input
+                      id="education-currentClassSpecify"
+                      label="Please specify current class/course"
+                      value={formData.currentClassSpecify}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, currentClassSpecify: val });
+                        if (val.trim()) {
+                          clearFieldError('education-currentClassSpecify', 'currentClassSpecify');
+                        }
+                      }}
+                      error={errorsByField['education-currentClassSpecify']?.message}
+                      placeholder="e.g. Diploma in Mechanical Engineering"
+                      required
+                    />
+                  </div>
+                )}
 
                 <div className="sm:col-span-3 space-y-1.5">
                   <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">

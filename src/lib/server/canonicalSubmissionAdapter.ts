@@ -120,6 +120,7 @@ export interface SupervisorListDTO {
   educationStatus: string;
   schoolName: string;
   currentClass: string;
+  currentClassSpecify?: string;
   attendanceStatus: string;
   totalAnnualEducationCost: number;
   hasFeeReceipt: boolean;
@@ -268,7 +269,7 @@ function sanitizeValue(val: any): any {
   return val;
 }
 
-function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion: number = 1): any {
+export function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion: number = 1): any {
   if (!raw) return null;
   const id = raw['1\nUnique ID'] || raw.uniqueId || raw.client_submission_id || raw.remote_submission_id || submissionId;
   const passbookPhotoUrl = sanitizeValue(raw['25\nPassbook Front Page Link'] || raw['25\\nPassbook Front Page Link'] || raw['Passbook Front Page Link'] || raw.passbook_photo_url || raw.passbookPhotoUrl || raw.bankingAndKyc?.passbookPhotoUrl || '');
@@ -333,6 +334,7 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
     school_enrolled: raw['49\nEducation Status'] ? (raw['49\nEducation Status'] !== 'Not In School') : (raw.school_enrolled ?? raw.schoolEnrolled ?? true),
     school_type: raw['53\nSchool Type'] || raw.school_type || raw.schoolType || '',
     school_grade: raw['54\nCurrent Class'] || raw.school_grade || raw.schoolGrade || raw.currentClass || '',
+    school_grade_specify: raw['Current Class Specify'] || raw.school_grade_specify || raw.currentClassSpecify || '',
     attendance_percentage: raw['55\nAttendance Status'] === 'Regular' ? 90 : (Number(raw.attendance_percentage || raw.attendancePercentage || 75)),
     school_fees: Number(raw['56\nSchool Fees'] || raw.school_fees || raw.schoolFees || 0),
     tuition_fees: Number(raw['57\nPrivate Tuition Fee'] || raw.tuition_fees || raw.tuitionFees || 0),
@@ -375,6 +377,17 @@ function normalizeSubmissionData(raw: any, submissionId: string, fallbackVersion
       passbookPhotoUrl,
       aadhaarCardPhotoUrl,
       childPhotoUrl,
+    },
+    educationStatus: {
+      ...(raw.educationStatus || {}),
+      educationStatus: raw['49\nEducation Status'] || raw.educationStatus?.educationStatus || '',
+      educationStatusSpecify: raw['50\nEducation Status Specify'] || raw.educationStatus?.educationStatusSpecify || '',
+      schoolName: raw['51\nSchool Name'] || raw.educationStatus?.schoolName || '',
+      schoolSessionStartDate: raw['52\nSchool Session Start Date'] || raw.educationStatus?.schoolSessionStartDate || '',
+      schoolType: raw['53\nSchool Type'] || raw.educationStatus?.schoolType || '',
+      currentClass: raw['54\nCurrent Class'] || raw.school_grade || raw.schoolGrade || raw.currentClass || raw.educationStatus?.currentClass || '',
+      currentClassSpecify: raw['Current Class Specify'] || raw.school_grade_specify || raw.currentClassSpecify || raw.educationStatus?.currentClassSpecify || '',
+      attendance: raw['55\nAttendance Status'] || raw.educationStatus?.attendance || '',
     },
     educationExpenses: {
       schoolFees: Number(raw['56\nSchool Fees'] || raw.school_fees || raw.schoolFees || raw.educationExpenses?.schoolFees || 0),

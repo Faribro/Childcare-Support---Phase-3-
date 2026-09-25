@@ -575,6 +575,13 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     defaultMessage: 'Current class / grade is required.',
     order: 93,
   },
+  'educationStatus.currentClassSpecify': {
+    sectionKey: 'education',
+    elementId: 'education-currentClassSpecify',
+    label: 'Please specify current class/course',
+    defaultMessage: 'Please specify current class/course.',
+    order: 93.5,
+  },
   'educationStatus.attendance': {
     sectionKey: 'education',
     elementId: 'education-attendance',
@@ -601,6 +608,13 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     label: 'Current class / grade',
     defaultMessage: 'Current class / grade is required.',
     order: 93,
+  },
+  currentClassSpecify: {
+    sectionKey: 'education',
+    elementId: 'education-currentClassSpecify',
+    label: 'Please specify current class/course',
+    defaultMessage: 'Please specify current class/course.',
+    order: 93.5,
   },
   attendance: {
     sectionKey: 'education',

@@ -22,6 +22,7 @@ import { getAllDrafts } from '@/lib/db/draftRepository';
 import { getCaregiverSignatureBlob, saveCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
+import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
 import {
   type FormValidationError,
   normalizeValidationErrors,
@@ -199,7 +200,8 @@ export default function EditRecordPage() {
     schoolName: '',
     schoolSessionStartDate: '',
     schoolType: 'Government school' as SchoolType,
-    currentClass: 'Class 2',
+    currentClass: '',
+    currentClassSpecify: '',
     attendance: 'Regular' as AttendanceType,
 
     // Section 8: Current Expenses & Documents
@@ -602,7 +604,8 @@ export default function EditRecordPage() {
           schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
           schoolSessionStartDate: ed.schoolSessionStartDate || foundRecord['52\nSchool Session Start Date'] || '',
           schoolType: (ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school') as SchoolType,
-          currentClass: ed.currentClass || ed.schoolGrade || foundRecord['54\nCurrent Class'] || 'Class 2',
+          currentClass: (ed.currentClass !== undefined ? ed.currentClass : (ed.schoolGrade || foundRecord['54\nCurrent Class'] || '')) || '',
+          currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',
           attendance: (ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular') as AttendanceType,
 
           schoolFees: Number(exp.schoolFees || foundRecord.schoolFees || foundRecord.school_fees || foundRecord['56\nSchool Fees'] || 0),
@@ -645,7 +648,8 @@ export default function EditRecordPage() {
           educationStatus: ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school',
           schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
           schoolType: ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school',
-          currentClass: ed.currentClass || ed.schoolGrade || foundRecord['54\nCurrent Class'] || 'Class 2',
+          currentClass: (ed.currentClass !== undefined ? ed.currentClass : (ed.schoolGrade || foundRecord['54\nCurrent Class'] || '')) || '',
+          currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',
           attendance: ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular',
           schoolFees: Number(exp.schoolFees || foundRecord['56\nSchool Fees'] || 0),
           tuitionFees: Number(exp.tuitionFees || foundRecord['57\nPrivate Tuition Fee'] || 0),
@@ -839,6 +843,32 @@ export default function EditRecordPage() {
       return;
     }
 
+    if (formData.currentClass === OTHER_SPECIFY_CLASS && (!formData.currentClassSpecify || formData.currentClassSpecify.trim().length === 0)) {
+      const msg = 'Please specify current class/course.';
+      setFormError(msg);
+      setValidationErrors((prev) =>
+        normalizeValidationErrors({
+          customErrors: [
+            ...prev.filter((e) => e.elementId !== 'education-currentClassSpecify'),
+            {
+              path: ['educationStatus', 'currentClassSpecify'],
+              fieldKey: 'educationStatus.currentClassSpecify',
+              elementId: 'education-currentClassSpecify',
+              message: msg,
+              sectionKey: 'education',
+              label: 'Please specify current class/course',
+            },
+          ],
+        })
+      );
+      const el = document.getElementById('education-currentClassSpecify');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        (el as HTMLElement).focus?.();
+      }
+      return;
+    }
+
     const note = amendmentReason.trim() || 'Assessment information updated during clinical review';
     setIsSaving(true);
     setConflictError(null);
@@ -997,6 +1027,7 @@ export default function EditRecordPage() {
             schoolSessionStartDate: formData.schoolSessionStartDate,
             schoolType: formData.schoolType,
             currentClass: formData.currentClass,
+            currentClassSpecify: formData.currentClass === OTHER_SPECIFY_CLASS ? formData.currentClassSpecify : undefined,
             attendance: formData.attendance,
           },
           educationExpenses: {
@@ -1144,7 +1175,7 @@ export default function EditRecordPage() {
             'weightKg', 'heightCm', 'haemoglobinGdl',
             'monthlyIncomeRs', 'totalFamilyMembers', 'numberOfChildrenUnder18', 'mainSourceOfIncome',
             'appetite', 'mealsPerDay',
-            'educationStatus', 'schoolName', 'schoolType', 'currentClass', 'attendance',
+            'educationStatus', 'schoolName', 'schoolType', 'currentClass', 'currentClassSpecify', 'attendance',
             'schoolFees', 'tuitionFees', 'books', 'stationery', 'uniform', 'transport', 'otherExpenses',
             'requiredSchoolFees', 'requiredTuitionFees', 'requiredBooks', 'requiredStationery',
             'requiredUniform', 'requiredTransport', 'requiredOtherSupport',
@@ -2395,20 +2426,72 @@ export default function EditRecordPage() {
                       </p>
                     )}
                   </div>
-                  <Input
-                    id="education-currentClass"
-                    label="CURRENT CLASS"
-                    value={formData.currentClass}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({ ...formData, currentClass: val });
-                      if (val.trim()) {
-                        clearFieldError('education-currentClass', 'currentClass');
-                      }
-                    }}
-                    error={errorsByField['education-currentClass']?.message}
-                    placeholder="e.g. Class 2"
-                  />
+                  <div id="q-edu-class" className="flex flex-col space-y-1.5">
+                    <label
+                      htmlFor="education-currentClass"
+                      className="text-xs font-bold text-slate-800 block mb-1"
+                    >
+                      CURRENT CLASS
+                    </label>
+                    <select
+                      id="education-currentClass"
+                      name="currentClass"
+                      value={formData.currentClass}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== OTHER_SPECIFY_CLASS) {
+                          setFormData({ ...formData, currentClass: val, currentClassSpecify: '' });
+                          clearFieldError('education-currentClassSpecify', 'currentClassSpecify');
+                        } else {
+                          setFormData({ ...formData, currentClass: val });
+                        }
+                        if (val.trim()) {
+                          clearFieldError('education-currentClass', 'currentClass');
+                        }
+                      }}
+                      aria-describedby={errorsByField['education-currentClass'] ? 'education-currentClass-error' : undefined}
+                      className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                        errorsByField['education-currentClass']
+                          ? 'border-rose-400 bg-rose-50/20 focus:border-rose-500 focus:ring-2 focus:ring-rose-200'
+                          : 'border-slate-300 hover:border-slate-400 focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                      }`}
+                    >
+                      <option value="">Select current class</option>
+                      {!isCanonicalCurrentClass(formData.currentClass) && formData.currentClass !== OTHER_SPECIFY_CLASS && formData.currentClass.trim().length > 0 && (
+                        <option value={formData.currentClass}>{`Other (${formData.currentClass})`}</option>
+                      )}
+                      {CURRENT_CLASS_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                    {errorsByField['education-currentClass'] && (
+                      <p id="education-currentClass-error" role="alert" className="text-xs font-semibold text-rose-600">
+                        {errorsByField['education-currentClass'].message}
+                      </p>
+                    )}
+                  </div>
+
+                  {formData.currentClass === OTHER_SPECIFY_CLASS && (
+                    <div id="q-edu-class-specify" className="sm:col-span-2">
+                      <Input
+                        id="education-currentClassSpecify"
+                        label="Please specify current class/course"
+                        value={formData.currentClassSpecify}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData({ ...formData, currentClassSpecify: val });
+                          if (val.trim()) {
+                            clearFieldError('education-currentClassSpecify', 'currentClassSpecify');
+                          }
+                        }}
+                        error={errorsByField['education-currentClassSpecify']?.message}
+                        placeholder="e.g. Diploma in Mechanical Engineering"
+                        required
+                      />
+                    </div>
+                  )}
                   <div
                     id="education-attendance"
                     tabIndex={-1}

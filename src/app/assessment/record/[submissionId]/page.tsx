@@ -22,6 +22,7 @@ import {
 
 import { db } from '@/lib/db/dexieDb';
 import { isValidUuidV4 } from '@/features/submission/submissionTypes';
+import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
 
 export default function RecordDetailPage() {
   const params = useParams();
@@ -459,7 +460,10 @@ export default function RecordDetailPage() {
               <div className="flex justify-between">
                 <dt className="text-slate-500">School Name & Grade:</dt>
                 <dd className="font-semibold text-slate-800">
-                  {record["School Name"] || record.raw_payload?.educationStatus?.schoolName || '—'} • {record["Current Class"] || record.school_grade || 'Class 2'} ({record["School Type"] || record.school_type || 'Government'})
+                  {record["School Name"] || record.raw_payload?.educationStatus?.schoolName || '—'} • {formatCurrentClassDisplay(
+                    record["Current Class"] || record.current_class || record.raw_payload?.educationStatus?.currentClass || record.school_grade,
+                    record["Current Class Specify"] || record.current_class_specify || record.raw_payload?.educationStatus?.currentClassSpecify
+                  ) || '—'} ({record["School Type"] || record.school_type || 'Government'})
                 </dd>
               </div>
               <div className="flex justify-between">

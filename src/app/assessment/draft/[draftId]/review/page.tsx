@@ -20,6 +20,7 @@ import {
   classifyNutritionStatus,
 } from '@/lib/clinical/nutritionCalculations';
 import type { AssessmentRecord } from '@/types/domain';
+import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
 import {
   User,
   Home,
@@ -657,7 +658,10 @@ export default function DraftReviewPage() {
             <div>
               <span className="text-slate-400 block mb-0.5">Current Class</span>
               <span className="font-medium text-slate-800">
-                {record.educationStatus?.currentClass || record.education?.schoolGrade || '—'}
+                {formatCurrentClassDisplay(
+                  record.educationStatus?.currentClass || record.education?.schoolGrade,
+                  record.educationStatus?.currentClassSpecify
+                ) || '—'}
               </span>
             </div>
             <div>
