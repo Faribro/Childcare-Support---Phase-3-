@@ -7,31 +7,31 @@ export function FieldReadiness() {
   const specs = [
     {
       icon: WifiOff,
-      title: 'Full Offline Autonomy',
-      metric: '0 KB',
-      metricLabel: 'Network needed to record',
-      description: 'The complete survey workflow functions with zero active connectivity. Caseworkers can fill dozens of assessments in remote villages or dense urban bastis without interruption.',
+      title: 'Offline-First Intake',
+      metric: 'Local',
+      metricLabel: 'On-Device Recording',
+      description: 'The survey intake workflow records assessments directly in browser storage, allowing uninterrupted fieldwork in remote or connectivity-deprived communities.',
     },
     {
       icon: BatteryCharging,
-      title: 'Low Power & Battery Gentle',
-      metric: '< 2%',
-      metricLabel: 'Typical battery drain/hour',
-      description: 'Lightweight DOM architecture without heavy canvas polling or background telemetry loops, keeping budget Android smartphones alive through an entire 8-hour field day.',
+      title: 'Efficient Mobile Footprint',
+      metric: 'Fast',
+      metricLabel: 'Resource-Conscious DOM',
+      description: 'Streamlined UI architecture with lightweight rendering, designed to perform reliably on budget Android smartphones throughout long field visits.',
     },
     {
       icon: HardDrive,
-      title: 'IndexedDB Zero-Loss Vault',
-      metric: '500+',
-      metricLabel: 'Local records capacity',
-      description: 'High-reliability client-side storage holds full draft sessions, un-synced submissions, and photo attachments securely until safe synchronization is initiated.',
+      title: 'IndexedDB Draft Cache',
+      metric: 'IndexedDB',
+      metricLabel: 'Browser-Isolated Storage',
+      description: 'Reliable client-side database retains active drafts, queued submissions, and attachments securely until network synchronization is initiated.',
     },
     {
       icon: Zap,
-      title: 'Instant App Resume',
-      metric: '< 100ms',
-      metricLabel: 'Restore draft speed',
-      description: 'If the phone shuts off or the browser is backgrounded, reopening the app instantly restores the active draft without losing form state or entered measurements.',
+      title: 'Resilient Session Resume',
+      metric: 'Auto',
+      metricLabel: 'State Restoration',
+      description: 'If the app is closed or the device powers off, reopening the PWA restores the active draft session without discarding completed sections.',
     },
   ];
 
@@ -168,7 +168,7 @@ export function FieldReadiness() {
                       <span className="text-[10px] font-mono font-bold text-slate-500 uppercase block">Draft Storage</span>
                       <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
                         <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span>Committed to IndexedDB (Zero loss)</span>
+                        <span>Committed to IndexedDB (Local Draft)</span>
                       </div>
                     </div>
 
@@ -191,7 +191,7 @@ export function FieldReadiness() {
               <div className="absolute -bottom-4 -left-4 p-3 rounded-xl bg-white border border-[#DECDBB] shadow-lg flex items-center gap-2.5 text-xs">
                 <Shield className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span className="font-bold text-slate-800 text-[11px]">
-                  Tamper-Evident Local Storage
+                  Local-First Draft Storage
                 </span>
               </div>
             </div>

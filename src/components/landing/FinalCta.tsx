@@ -30,8 +30,8 @@ export function FinalCta({ canInstall, onInstallClick }: FinalCtaProps) {
         </h2>
 
         <p className="text-base sm:text-lg text-emerald-100 max-w-2xl mx-auto leading-relaxed font-normal">
-          Start recording child nutrition, school continuity, and household support with guaranteed offline persistence.
-          No paperwork lost. No connectivity needed.
+          Start recording child nutrition, school continuity, and household support with resilient offline persistence.
+          Minimizing lost paperwork through structured local draft preservation.
         </p>
 
         {/* Primary CTA Buttons */}
@@ -60,7 +60,7 @@ export function FinalCta({ canInstall, onInstallClick }: FinalCtaProps) {
         <div className="pt-8 flex flex-wrap items-center justify-center gap-6 text-xs text-emerald-200/80 font-medium">
           <span className="inline-flex items-center gap-1.5">
             <WifiOff className="w-3.5 h-3.5 text-emerald-400" />
-            Zero-network recording
+            Offline-ready recording
           </span>
           <span>•</span>
           <span className="inline-flex items-center gap-1.5">

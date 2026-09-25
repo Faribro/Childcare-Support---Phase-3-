@@ -40,16 +40,16 @@ export function NotebookFooter() {
         {/* Bottom Metadata & Compliance */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[11px] text-[#7A9486]">
           <div className="flex flex-wrap items-center gap-3">
-            <span>Version 3.0.0 (Phase 3 Production)</span>
+            <span>Production Field App</span>
             <span>•</span>
             <span className="inline-flex items-center gap-1">
               <WifiOff className="w-3 h-3 text-emerald-400" />
-              100% Offline-Capable PWA
+              Offline-First Architecture
             </span>
             <span>•</span>
             <span className="inline-flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              Encrypted Local Storage
+              Protected Local Storage
             </span>
           </div>
 

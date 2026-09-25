@@ -18,7 +18,7 @@ export function FieldFaq() {
     {
       question: 'What happens if my phone battery dies or the browser closes during an intake?',
       answer:
-        'Zero data is lost. Every field update, measurement, and note is immediately saved to your phone’s internal IndexedDB database. When you turn your phone back on and open the app, your active draft restores instantly with all previous answers intact.',
+        'Draft progress is saved locally. Every field update, measurement, and note is committed to your phone’s internal IndexedDB database. When you turn your phone back on and open the app, your active draft restores with previously entered answers intact.',
     },
     {
       question: 'How do I install the app on an Android or iPhone device?',
@@ -28,7 +28,7 @@ export function FieldFaq() {
     {
       question: 'How is child and family privacy protected in the field?',
       answer:
-        'Alliance India adheres to strict data dignity standards. The PWA contains zero external tracking scripts, advertising SDKs, or third-party pixels. Information is kept locally on your phone in encrypted browser storage until you choose to sync via secure HTTPS channels.',
+        'Alliance India adheres to strict data dignity standards. The PWA contains zero external tracking scripts, advertising SDKs, or third-party pixels. Information is kept locally on your phone in protected browser storage until you choose to sync via secure HTTPS channels.',
     },
     {
       question: 'How does the central Google Sheets synchronization handle conflicts?',

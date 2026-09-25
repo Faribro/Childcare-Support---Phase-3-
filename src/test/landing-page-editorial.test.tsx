@@ -214,10 +214,10 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
   });
 
   describe('Data Dignity & Institutional Attribution', () => {
-    it('renders Alliance India identity and production version', () => {
+    it('renders Alliance India identity and production field app attribution', () => {
       render(<LandingPage />);
       expect(screen.getAllByText(/india hiv\/aids alliance/i).length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText(/version 3.0.0 \(phase 3 production\)/i)).toBeDefined();
+      expect(screen.getByText(/production field app/i)).toBeDefined();
     });
 
     it('contains no real patient identifiers or sensitive clinical record IDs', () => {
@@ -229,6 +229,45 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(pageText).not.toMatch(/HIV\+/);
       expect(pageText).not.toMatch(/CD4 count/);
       expect(pageText).toContain('SYNTHETIC SAMPLE RECORD');
+    });
+  });
+
+  describe('Security Safeguards & Truthful Operational Claims', () => {
+    it('uses safe DOM rendering without dangerouslySetInnerHTML', () => {
+      const { container } = render(<LandingPage />);
+      const dangerousElements = container.querySelectorAll('[dangerouslysetinnerhtml]');
+      expect(dangerousElements.length).toBe(0);
+    });
+
+    it('restricts all interactive anchor links to safe internal routes or page anchors', () => {
+      const { container } = render(<LandingPage />);
+      const links = container.querySelectorAll('a');
+      expect(links.length).toBeGreaterThanOrEqual(5);
+
+      links.forEach((link) => {
+        const href = link.getAttribute('href');
+        expect(href).toBeDefined();
+        // All links must be internal relative routes, hash anchors, or root
+        expect(href).toMatch(/^(\/|#)/);
+        // Disallow javascript: or untrusted external schemes
+        expect(href).not.toMatch(/^javascript:/i);
+        expect(href).not.toMatch(/^data:/i);
+        expect(href).not.toMatch(/^http:\/\//i);
+      });
+    });
+
+    it('does NOT make unevidenced encryption, tamper-evident, or battery claims', () => {
+      const { container } = render(<LandingPage />);
+      const pageText = container.textContent || '';
+
+      // Must not falsely claim IndexedDB is encrypted or tamper-evident
+      expect(pageText).not.toContain('Encrypted Local Storage');
+      expect(pageText).not.toContain('encrypted browser storage');
+      expect(pageText).not.toContain('Tamper-Evident');
+      // Must not claim fixed unmeasured battery percentage
+      expect(pageText).not.toContain('< 2%');
+      // Must not make absolute zero-loss guarantees
+      expect(pageText).not.toContain('(Zero loss)');
     });
   });
 });

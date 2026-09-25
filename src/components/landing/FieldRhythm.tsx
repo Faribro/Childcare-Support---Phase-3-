@@ -14,7 +14,7 @@ export function FieldRhythm() {
       tagColor: 'bg-amber-100 text-amber-900 border-amber-300',
       description:
         'Walk through demographic details, caregiver consent, anthropometry, nutritional appetite, and education costs with standardized Indian dropdowns and non-judgmental questions.',
-      technicalNote: 'Zero network requests required during intake. Instant in-memory validation.',
+      technicalNote: 'Designed for local intake without blocking on remote requests.',
       bulletPoints: [
         'Standardized India class selector (Pre-Nursery to Class 12+)',
         'Built-in WHO Z-score growth reference calculations',
@@ -24,12 +24,12 @@ export function FieldRhythm() {
     {
       number: '02',
       title: 'Save Offline',
-      subtitle: 'Guaranteed Local Persistence',
+      subtitle: 'Resilient Local Persistence',
       icon: Database,
       accent: 'emerald',
       tagColor: 'bg-emerald-100 text-emerald-900 border-emerald-300',
       description:
-        'Every keystroke, tap, and draft state is automatically committed to the device’s local IndexedDB storage. Closing the tab, running out of battery, or moving off-grid never causes lost work.',
+        'Every keystroke, tap, and draft state is automatically committed to the device’s local IndexedDB storage. Closing the tab, running out of battery, or moving off-grid preserves entered data.',
       technicalNote: 'Full Dexie.js ACID-compliant client storage with versioned schemas.',
       bulletPoints: [
         'Instant background auto-saving on every field change',
@@ -141,15 +141,15 @@ export function FieldRhythm() {
             </div>
             <div>
               <p className="text-xs sm:text-sm font-bold text-slate-900">
-                100% Tested Field Cycle
+                Thoroughly Verified Field Workflow
               </p>
               <p className="text-xs text-slate-600">
-                Over 540 automated tests guarantee that draft preservation, normalization, and sync conflict resolution function reliably in offline state.
+                Automated regression suites verify that draft preservation, normalization, and sync conflict resolution function reliably in offline state.
               </p>
             </div>
           </div>
           <span className="font-mono text-xs font-semibold text-slate-600 self-end sm:self-center shrink-0">
-            TEST-STATUS: PASSING (542/542)
+            TEST-SUITE: CI-VERIFIED
           </span>
         </div>
       </div>
