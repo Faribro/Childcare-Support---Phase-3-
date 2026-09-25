@@ -143,17 +143,46 @@ export default function RecordDetailPage() {
   }, [submissionId]);
 
   const expenses = useMemo(() => {
+    // Primary path: local record still has the full raw_payload (e.g. IndexedDB
+    // draft or local queue record). Fall through to flat fields for server-
+    // normalized DTOs which do not include raw_payload.
     if (record?.raw_payload?.educationExpenses) {
-      return record.raw_payload.educationExpenses;
+      const ee = record.raw_payload.educationExpenses;
+      return {
+        ...ee,
+        // Merge server-level flat attachment URLs when raw_payload sub-object
+        // doesn't include them (older records, or normalized DTO merge path).
+        feeReceiptPhotoUrl:
+          ee.feeReceiptPhotoUrl ||
+          record.feeReceiptPhotoUrl ||
+          record.fee_receipt_photo_url ||
+          undefined,
+        marksheetPhotoUrl:
+          ee.marksheetPhotoUrl ||
+          record.marksheetPhotoUrl ||
+          record.marksheet_photo_url ||
+          undefined,
+      };
     }
+    // Fallback: server-normalised DTO (flat snake_case + camelCase aliases).
+    // Use ?? 0 so that genuine zero-fee records display ₹0 rather than a
+    // fabricated non-zero fallback amount.
     return {
-      schoolFees: Number(record?.school_fees ?? 1200),
-      tuitionFees: Number(record?.tuition_fees ?? 500),
-      books: Number(record?.books ?? 600),
-      stationery: Number(record?.stationery ?? 300),
-      uniform: Number(record?.uniform ?? 800),
-      transport: Number(record?.transport ?? 400),
+      schoolFees: Number(record?.school_fees ?? 0),
+      tuitionFees: Number(record?.tuition_fees ?? 0),
+      books: Number(record?.books ?? 0),
+      stationery: Number(record?.stationery ?? 0),
+      uniform: Number(record?.uniform ?? 0),
+      transport: Number(record?.transport ?? 0),
       otherExpenses: Number(record?.other_expenses ?? 0),
+      feeReceiptPhotoUrl:
+        record?.feeReceiptPhotoUrl ||
+        record?.fee_receipt_photo_url ||
+        undefined,
+      marksheetPhotoUrl:
+        record?.marksheetPhotoUrl ||
+        record?.marksheet_photo_url ||
+        undefined,
     };
   }, [record]);
 

@@ -551,7 +551,73 @@ export function ExpensesAndApprovalGrid({
       </div>
 
       {/* Document Verification & Photo Uploads */}
-      {!isReadOnly && (
+      {isReadOnly ? (
+        /* ── Read-only attachment viewer (issue #42) ─────────────────────── */
+        /* Render if at least one document URL or remark is present. If none
+           were uploaded, omit the section to keep the read-only view clean. */
+        Boolean(currentExpenses.feeReceiptPhotoUrl || currentExpenses.marksheetPhotoUrl || currentExpenses.remarks) && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-xs">
+            <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm pb-2 border-b border-slate-100">
+              <FileText className="h-4 w-4 text-purple-700" />
+              <span>Document Verification Proofs</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Fee Receipt */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                  School Fee Receipt
+                </p>
+                {currentExpenses.feeReceiptPhotoUrl ? (
+                  <a
+                    href={currentExpenses.feeReceiptPhotoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center space-x-2 text-xs font-semibold text-purple-700 hover:text-purple-900 underline underline-offset-2"
+                    aria-label="Open school fee receipt document"
+                  >
+                    <FileText className="h-4 w-4 flex-shrink-0" />
+                    <span>View Fee Receipt</span>
+                  </a>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Not uploaded</p>
+                )}
+              </div>
+
+              {/* Marksheet */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                  Previous Year Marksheet
+                </p>
+                {currentExpenses.marksheetPhotoUrl ? (
+                  <a
+                    href={currentExpenses.marksheetPhotoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center space-x-2 text-xs font-semibold text-purple-700 hover:text-purple-900 underline underline-offset-2"
+                    aria-label="Open previous year marksheet document"
+                  >
+                    <FileText className="h-4 w-4 flex-shrink-0" />
+                    <span>View Marksheet</span>
+                  </a>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Not uploaded</p>
+                )}
+              </div>
+            </div>
+
+            {currentExpenses.remarks && (
+              <div className="pt-2 border-t border-slate-100">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Remarks
+                </p>
+                <p className="text-xs text-slate-700">{currentExpenses.remarks}</p>
+              </div>
+            )}
+          </div>
+        )
+      ) : (
+        /* ── Write mode: full PhotoUpload inputs ────────────────────────── */
         <div className="bg-white rounded-2xl border border-black p-5 space-y-4 shadow-xs">
           <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm pb-2 border-b border-slate-100">
             <FileText className="h-4 w-4 text-purple-700" />
@@ -591,6 +657,7 @@ export function ExpensesAndApprovalGrid({
           />
         </div>
       )}
+
     </div>
   );
 }
