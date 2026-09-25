@@ -4,6 +4,8 @@
  * Adheres strictly to approved programme linelists and non-negotiable data-minimisation rules.
  */
 
+export * from '@/lib/constants/educationClasses';
+
 export type Gender = 'Male' | 'Female' | 'Other';
 
 export type OrphanStatus =
@@ -253,6 +255,7 @@ export interface EducationStatusData {
   schoolSessionStartDate?: string;
   schoolType?: SchoolType;
   currentClass?: string;
+  currentClassSpecify?: string;
   attendance?: AttendanceType;
   // Backward compatibility
   schoolEnrolled?: boolean;
@@ -451,6 +454,7 @@ export interface AllowlistedEditableFields {
   educationStatus?: EducationStatus;
   schoolName?: string;
   currentClass?: string;
+  currentClassSpecify?: string;
   attendance?: AttendanceType;
   totalAnnualCost?: number;
   totalRequiredSupport?: number;

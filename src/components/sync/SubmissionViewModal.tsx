@@ -17,6 +17,7 @@ import {
   X,
   Edit3,
 } from 'lucide-react';
+import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
 
 export interface SubmissionViewModalProps {
   item: any;
@@ -105,7 +106,9 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
   const schoolName = e.schoolName || data['51\nSchool Name'] || '—';
   const sessionStartDate = e.schoolSessionStartDate || data['52\nSchool Session Start Date'] || '—';
   const schoolType = e.schoolType || data['53\nSchool Type'] || 'Government school';
-  const currentClass = e.currentClass || data['54\nCurrent Class'] || data.school_grade || 'Class 2';
+  const rawClass = e.currentClass || data['54\nCurrent Class'] || data.school_grade;
+  const rawSpecify = e.currentClassSpecify || data['Current Class Specify'] || data['54\nCurrent Class Specify'] || data.school_grade_specify || data.currentClassSpecify;
+  const currentClass = formatCurrentClassDisplay(rawClass, rawSpecify) || '—';
   const attendance = e.attendance || data['55\nAttendance Status'] || 'Regular';
 
   // Section 8: Expenses & Aid Breakdown

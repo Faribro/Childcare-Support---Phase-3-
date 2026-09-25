@@ -192,12 +192,21 @@ export const educationStatusSchema = z.object({
   schoolSessionStartDate: z.string().optional(),
   schoolType: permissiveSchoolType,
   currentClass: z.string().optional(),
+  currentClassSpecify: z.string().optional(),
   attendance: permissiveAttendance,
   // Legacy
   schoolEnrolled: z.boolean().optional(),
   schoolGrade: z.string().optional(),
   attendancePercentage: z.number().optional(),
   supportMaterialsNeeded: z.array(z.string()).optional(),
+}).superRefine((data, ctx) => {
+  if (data.currentClass === 'Other (specify)' && (!data.currentClassSpecify || data.currentClassSpecify.trim().length === 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Please specify current class/course.',
+      path: ['currentClassSpecify'],
+    });
+  }
 });
 
 // Step 7: Education Current Expenses
@@ -356,6 +365,7 @@ export function flattenPatchBody(body: any): any {
     if (flat.schoolSessionStartDate === undefined) flat.schoolSessionStartDate = ed.schoolSessionStartDate;
     if (flat.schoolType === undefined) flat.schoolType = ed.schoolType;
     if (flat.currentClass === undefined) flat.currentClass = ed.currentClass;
+    if (flat.currentClassSpecify === undefined) flat.currentClassSpecify = ed.currentClassSpecify;
     if (flat.attendance === undefined) flat.attendance = ed.attendance;
     flat.educationStatus = ed.educationStatus || 'Currently going to school';
   }
@@ -445,6 +455,7 @@ export const allowlistedPatchChangesSchema = z.object({
   schoolSessionStartDate: z.string().optional(),
   schoolType: z.string().optional(),
   currentClass: z.string().optional(),
+  currentClassSpecify: z.string().optional(),
   attendance: z.string().optional(),
   schoolFees: optionalNumber,
   tuitionFees: optionalNumber,

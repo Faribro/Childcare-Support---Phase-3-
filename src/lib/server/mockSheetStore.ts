@@ -50,6 +50,7 @@ export interface StoredSheetRecord {
   school_enrolled: boolean;
   school_type?: string;
   school_grade?: string;
+  school_grade_specify?: string;
   attendance_percentage?: number;
   grant_recommended: boolean;
   recommended_grant_amount: number;
@@ -274,7 +275,8 @@ export const MockSheetStore = {
       clinical_notes: payload.health?.clinicalNotes || payload.nutrition?.clinicalNotes,
       school_enrolled: schoolEnrolled,
       school_type: payload.educationStatus?.schoolType || payload.education?.schoolType,
-      school_grade: payload.educationStatus?.currentClass || payload.education?.schoolGrade || 'Class 2',
+      school_grade: payload.educationStatus?.currentClass !== undefined ? payload.educationStatus.currentClass : (payload.education?.schoolGrade !== undefined ? payload.education.schoolGrade : 'Class 2'),
+      school_grade_specify: payload.educationStatus?.currentClassSpecify || (payload.education as any)?.schoolGradeSpecify || '',
       attendance_percentage: attendancePercentage,
       grant_recommended: grant.grantRecommended,
       recommended_grant_amount: payload.educationSupportRequired?.totalRequiredSupport || grant.recommendedGrantAmount,
@@ -799,9 +801,15 @@ export const MockSheetStore = {
       existing.school_type = patch.schoolType;
       changedFields.push('schoolType');
     }
-    if (patch.schoolGrade !== undefined && patch.schoolGrade !== existing.school_grade) {
-      existing.school_grade = patch.schoolGrade;
+    const newGrade = patch.currentClass !== undefined ? patch.currentClass : patch.schoolGrade;
+    if (newGrade !== undefined && newGrade !== existing.school_grade) {
+      existing.school_grade = newGrade;
       changedFields.push('schoolGrade');
+    }
+    const newGradeSpecify = patch.currentClassSpecify !== undefined ? patch.currentClassSpecify : (patch as any).schoolGradeSpecify;
+    if (newGradeSpecify !== undefined && newGradeSpecify !== existing.school_grade_specify) {
+      existing.school_grade_specify = newGradeSpecify;
+      changedFields.push('currentClassSpecify');
     }
     if (patch.attendancePercentage !== undefined && patch.attendancePercentage !== existing.attendance_percentage) {
       existing.attendance_percentage = patch.attendancePercentage;
