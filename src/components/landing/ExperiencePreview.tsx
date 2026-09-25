@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   FileCheck2, 
   UserCheck, 
@@ -9,6 +9,7 @@ import {
   Receipt, 
   Check, 
   ShieldCheck,
+  ChevronLeft,
   ChevronRight,
   Sparkles,
   Database,
@@ -52,7 +53,7 @@ export function ExperiencePreview() {
       highlight: 'Standardized Pre-Nursery to Class 12+ India standard with optional Other specification.',
       polaroid: {
         title: 'CLASS ENROLMENT',
-        caption: 'DOCKET: STD-CLASS-4 • GOVT PRIMARY',
+        caption: 'REF: STD-CLASS-4 • GOVT PRIMARY',
         rotation: '-rotate-1',
         badge: 'CONFIRMED',
       },
@@ -170,7 +171,29 @@ export function ExperiencePreview() {
   ];
 
   const [activeTabId, setActiveTabId] = useState<string>('demographics');
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+  const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
+
+  const handlePrevTab = () => {
+    const newIndex = activeIndex > 0 ? activeIndex - 1 : tabs.length - 1;
+    const targetTab = tabs[newIndex];
+    setActiveTabId(targetTab.id);
+    const el = document.getElementById(`tab-${targetTab.id}`);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  };
+
+  const handleNextTab = () => {
+    const newIndex = activeIndex < tabs.length - 1 ? activeIndex + 1 : 0;
+    const targetTab = tabs[newIndex];
+    setActiveTabId(targetTab.id);
+    const el = document.getElementById(`tab-${targetTab.id}`);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  };
 
   return (
     <section id="preview-heading" aria-labelledby="preview-heading-title" className="py-16 md:py-24 border-b border-[#E4D8C7] bg-[#FAF8F5]">
@@ -194,41 +217,74 @@ export function ExperiencePreview() {
 
         {/* ── Mosby's Files Interactive Folder Filing System ── */}
         <div className="rounded-3xl bg-[#F0E6D6] border-2 border-[#CBB89F] shadow-2xl p-2 sm:p-5">
-          {/* Staggered Colorful Folder Tabs */}
-          <div
-            role="tablist"
-            aria-label="Assessment Section Previews"
-            className="flex items-end gap-1 sm:gap-2 px-1 sm:px-2 overflow-x-auto pb-0"
-          >
-            {tabs.map((tab) => {
-              const isActive = tab.id === activeTabId;
-              return (
-                <button
-                  key={tab.id}
-                  role="tab"
-                  aria-selected={isActive}
-                  id={`tab-${tab.id}`}
-                  aria-controls={`panel-${tab.id}`}
-                  onClick={() => setActiveTabId(tab.id)}
-                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-t-xl sm:rounded-t-2xl text-[11px] sm:text-xs font-mono font-bold transition-all shrink-0 cursor-pointer border-t-2 border-x-2 ${
-                    isActive
-                      ? `${tab.activeColor} shadow-md z-20 translate-y-1`
-                      : `${tab.tabColor} hover:brightness-95 opacity-85 hover:opacity-100 z-10`
-                  }`}
-                >
-                  <span className="text-[10px] opacity-60">/{tab.number}</span>
-                  <span className="whitespace-nowrap">{tab.name}</span>
-                </button>
-              );
-            })}
+          {/* Staggered Colorful Folder Tabs with Slider Buttons */}
+          <div className="relative flex items-center mb-0">
+            {/* Left Slider Button */}
+            <button
+              type="button"
+              onClick={handlePrevTab}
+              aria-label="Previous section"
+              title="Previous section"
+              className="absolute -left-1 sm:-left-2 z-30 flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#FCFAF6] hover:bg-white text-slate-800 shadow-md border border-[#C5B396] transition-all hover:scale-110 active:scale-95 cursor-pointer shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5 text-slate-700" />
+            </button>
+
+            {/* Staggered Folder Tabs - No native scrollbar */}
+            <div
+              ref={tabsContainerRef}
+              role="tablist"
+              aria-label="Assessment Section Previews"
+              className="flex items-end gap-1 sm:gap-2 px-8 sm:px-10 overflow-x-auto pb-0 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden w-full"
+            >
+              {tabs.map((tab) => {
+                const isActive = tab.id === activeTabId;
+                return (
+                  <button
+                    key={tab.id}
+                    role="tab"
+                    aria-selected={isActive}
+                    id={`tab-${tab.id}`}
+                    aria-controls={`panel-${tab.id}`}
+                    onClick={() => {
+                      setActiveTabId(tab.id);
+                      const el = document.getElementById(`tab-${tab.id}`);
+                      if (el && typeof el.scrollIntoView === 'function') {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-t-xl sm:rounded-t-2xl text-[11px] sm:text-xs font-mono font-bold transition-all shrink-0 cursor-pointer border-t-2 border-x-2 ${
+                      isActive
+                        ? `${tab.activeColor} shadow-md z-20 translate-y-1`
+                        : `${tab.tabColor} hover:brightness-95 opacity-85 hover:opacity-100 z-10`
+                    }`}
+                  >
+                    <span className="text-[10px] opacity-60">/{tab.number}</span>
+                    <span className="whitespace-nowrap">{tab.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Right Slider Button */}
+            <button
+              type="button"
+              onClick={handleNextTab}
+              aria-label="Next section"
+              title="Next section"
+              className="absolute -right-1 sm:-right-2 z-30 flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#FCFAF6] hover:bg-white text-slate-800 shadow-md border border-[#C5B396] transition-all hover:scale-110 active:scale-95 cursor-pointer shrink-0"
+            >
+              <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-slate-700" />
+            </button>
           </div>
 
-          {/* Active Folder Interior: Layered Cotton Ruled Sheet & Polaroid Specimen */}
+          {/* Active Folder Interior: Layered Cotton Ruled Sheet & Polaroid Specimen with Folder Flap Animation */}
           <div
+            key={activeTab.id}
             id={`panel-${activeTab.id}`}
             role="tabpanel"
             aria-labelledby={`tab-${activeTab.id}`}
-            className="relative rounded-2xl p-6 sm:p-8 space-y-6 notebook-paper-sheet border-2 border-[#CBB89F] shadow-lg overflow-hidden bg-[#FCFAF6]"
+            className="relative rounded-2xl p-6 sm:p-8 space-y-6 notebook-paper-sheet border-2 border-[#CBB89F] shadow-lg overflow-hidden bg-[#FCFAF6] motion-safe:animate-folder-unfold origin-top-left"
           >
             {/* Red left ledger vertical margin line */}
             <div 
@@ -280,9 +336,12 @@ export function ExperiencePreview() {
                 ))}
               </div>
 
-              {/* Tilted Specimen Polaroid Card with Paperclip */}
+              {/* Tilted Specimen Polaroid Card with Paperclip & Drop-In Bounce */}
               <div className="lg:col-span-4 flex justify-center items-center">
-                <div className={`relative p-3.5 pb-5 rounded-xl bg-white border border-slate-300 shadow-xl max-w-[240px] w-full transform ${activeTab.polaroid.rotation} transition-transform`}>
+                <div 
+                  key={`polaroid-${activeTab.id}`}
+                  className={`relative p-3.5 pb-5 rounded-xl bg-white border border-slate-300 shadow-xl max-w-[240px] w-full transform ${activeTab.polaroid.rotation} transition-all duration-300 ease-out motion-safe:animate-polaroid-drop hover:scale-105 hover:-rotate-1 hover:shadow-2xl cursor-pointer`}
+                >
                   {/* Silver Paperclip SVG pinning the Polaroid */}
                   <div className="absolute -top-3.5 right-6 w-5 h-10 z-20 pointer-events-none" aria-hidden="true">
                     <svg viewBox="0 0 24 48" fill="none" className="w-full h-full drop-shadow-sm">

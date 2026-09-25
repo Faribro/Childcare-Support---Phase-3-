@@ -1,11 +1,38 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Apple, GraduationCap, Users2, HeartHandshake, Check, Sparkles } from 'lucide-react';
 
 export function WholeChildSnapshot() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    let ticking = false;
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          if (sectionRef.current) {
+            const rect = sectionRef.current.getBoundingClientRect();
+            const windowHeight = window.innerHeight;
+            const totalDist = rect.height + windowHeight;
+            const currentDist = windowHeight - rect.top;
+            const progress = Math.min(Math.max(currentDist / totalDist, 0), 1);
+            setScrollProgress(progress);
+          }
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
-    <section id="whole-child" aria-labelledby="snapshot-heading" className="relative overflow-hidden">
+    <section ref={sectionRef} id="whole-child" aria-labelledby="snapshot-heading" className="relative overflow-hidden">
       {/* ── Section Header (on light warm paper) ── */}
       <div className="py-12 sm:py-16 bg-[#F7F3E9] border-b border-[#E4D8C7]/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -76,9 +103,17 @@ export function WholeChildSnapshot() {
                   xmlns="http://www.w3.org/2000/svg"
                   aria-hidden="true"
                 >
-                  {/* Gentle warm sun */}
-                  <circle cx="340" cy="50" r="32" fill="#FDE047" fillOpacity="0.8" />
-                  <circle cx="340" cy="50" r="42" fill="#FEF08A" fillOpacity="0.3" />
+                  {/* Gentle warm pulsing & floating sun */}
+                  <g className="motion-safe:animate-sun-pulse origin-center">
+                    <circle cx="340" cy="50" r="32" fill="#FDE047" fillOpacity="0.8" />
+                    <circle cx="340" cy="50" r="42" fill="#FEF08A" fillOpacity="0.3" />
+                  </g>
+
+                  {/* Ambient drifting cloud */}
+                  <g className="motion-safe:animate-cloud-drift opacity-75">
+                    <ellipse cx="270" cy="45" rx="20" ry="8" fill="#FFFFFF" fillOpacity="0.5" />
+                    <ellipse cx="285" cy="42" rx="14" ry="10" fill="#FFFFFF" fillOpacity="0.6" />
+                  </g>
 
                   {/* Undulating Ground Mound */}
                   <path d="M-20,260 Q120,210 260,240 T420,230 L420,300 L-20,300 Z" fill="#9C442D" />
@@ -144,8 +179,8 @@ export function WholeChildSnapshot() {
                     <ellipse cx="240" cy="250" rx="9" ry="4" fill="#334155" />
                   </g>
 
-                  {/* Nutrition Basket in Foreground (Papaya, Banana, Dal bowl) */}
-                  <g transform="translate(290, 190)">
+                  {/* Nutrition Basket in Foreground (Papaya, Banana, Dal bowl) with gentle float */}
+                  <g transform="translate(290, 190)" className="motion-safe:animate-float-slow origin-bottom">
                     {/* Woven Basket Base */}
                     <ellipse cx="40" cy="40" rx="36" ry="16" fill="#78350F" />
                     <path d="M6,40 Q40,75 74,40 Z" fill="#92400E" />
@@ -159,13 +194,15 @@ export function WholeChildSnapshot() {
                     <ellipse cx="14" cy="45" rx="11" ry="5" fill="#D97706" />
                   </g>
 
-                  {/* Continuous Journey Dotted Connector Path */}
+                  {/* Continuous Journey Dotted Connector Path - Scroll Animated */}
                   <path
                     d="M30,220 Q120,250 200,230 T380,260"
                     stroke="#FEF3C7"
                     strokeWidth="3"
-                    strokeDasharray="6 6"
+                    strokeDasharray="10 6"
+                    strokeDashoffset={350 * (1 - Math.min(scrollProgress * 3, 1))}
                     fill="none"
+                    className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
                   />
                 </svg>
               </div>
@@ -341,8 +378,8 @@ export function WholeChildSnapshot() {
                     <text x="312" y="133" fill="#7C2D12" fontSize="8" fontWeight="extrabold" fontFamily="monospace">Class 12+ ★</text>
                   </g>
 
-                  {/* School Satchel / Backpack on Grass */}
-                  <g transform="translate(45, 130)">
+                  {/* School Satchel / Backpack on Grass with subtle breathing float */}
+                  <g transform="translate(45, 130)" className="motion-safe:animate-float origin-bottom">
                     {/* Bag body */}
                     <rect x="0" y="10" width="45" height="48" rx="8" fill="#DC2626" stroke="#991B1B" strokeWidth="1.5" />
                     {/* Flap */}
@@ -358,7 +395,7 @@ export function WholeChildSnapshot() {
                   </g>
 
                   {/* Flying Saffron & Teal Kite Soaring into the Sky */}
-                  <g className="motion-safe:animate-[pulse_3s_ease-in-out_infinite]" transform="translate(230, 20)">
+                  <g className="motion-safe:animate-kite-soar origin-center" transform="translate(230, 20)">
                     {/* Diamond Kite Body */}
                     <polygon points="40,0 80,40 40,80 0,40" fill="#F97316" stroke="#EA580C" strokeWidth="1.5" />
                     <polygon points="40,0 40,80 0,40" fill="#0D9488" />
@@ -372,13 +409,15 @@ export function WholeChildSnapshot() {
                     <polygon points="38,150 32,145 32,155" fill="#10B981" />
                   </g>
 
-                  {/* Connecting Dotted Trail */}
+                  {/* Connecting Dotted Trail - Scroll Animated */}
                   <path
                     d="M10,250 Q120,240 200,210 T380,170"
                     stroke="#86EFAC"
                     strokeWidth="2.5"
-                    strokeDasharray="6 6"
+                    strokeDasharray="10 6"
+                    strokeDashoffset={350 * (1 - Math.min(Math.max((scrollProgress - 0.2) * 3, 0), 1))}
                     fill="none"
+                    className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
                   />
                 </svg>
               </div>
@@ -449,8 +488,8 @@ export function WholeChildSnapshot() {
                     <line x1="36" y1="60" x2="36" y2="76" stroke="#78350F" strokeWidth="1.5" />
                   </g>
 
-                  {/* Protective Care Shield Emblem (Dignity & Protection) */}
-                  <g transform="translate(180, 75)">
+                  {/* Protective Care Shield Emblem (Dignity & Protection) with subtle float */}
+                  <g transform="translate(180, 75)" className="motion-safe:animate-float origin-center">
                     <path
                       d="M30,0 L60,12 C60,45 30,68 30,68 C30,68 0,45 0,12 Z"
                       fill="#15803D"
@@ -478,8 +517,8 @@ export function WholeChildSnapshot() {
                       <circle cx="30" cy="20" r="24" stroke="#FEF08A" strokeWidth="1.5" fill="none" opacity="0.5" />
                     </g>
 
-                    {/* Central Sync Cloud Destination */}
-                    <g transform="translate(10, -50)">
+                    {/* Central Sync Cloud Destination with gentle drift */}
+                    <g transform="translate(10, -50)" className="motion-safe:animate-float-slow">
                       <path
                         d="M20,20 C14,20 10,25 10,30 C6,30 4,34 4,38 C4,42 7,45 12,45 L40,45 C45,45 48,41 48,37 C48,33 45,30 41,30 C41,24 35,20 30,20 C27,20 23,22 20,25 Z"
                         fill="#FFFFFF"
@@ -490,13 +529,15 @@ export function WholeChildSnapshot() {
                     </g>
                   </g>
 
-                  {/* Completed Continuous Journey Dotted Trail */}
+                  {/* Completed Continuous Journey Dotted Trail - Scroll Animated */}
                   <path
                     d="M10,240 Q100,220 200,230 T390,220"
                     stroke="#FEF3C7"
                     strokeWidth="3"
-                    strokeDasharray="6 6"
+                    strokeDasharray="10 6"
+                    strokeDashoffset={350 * (1 - Math.min(Math.max((scrollProgress - 0.5) * 3, 0), 1))}
                     fill="none"
+                    className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
                   />
                 </svg>
               </div>

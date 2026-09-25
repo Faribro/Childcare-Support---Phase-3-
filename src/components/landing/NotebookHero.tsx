@@ -86,22 +86,10 @@ export function NotebookHero({ canInstall, onInstallClick }: NotebookHeroProps) 
             {/* Archival Metadata Strip & Rubber Stamp */}
             <div className="flex flex-wrap items-center justify-between gap-3 pb-5 mb-6 border-b border-[#E6DBCA] relative z-10">
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                {/* Handcrafted Rubber Stamp */}
-                <div className="notebook-stamp px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold rounded-xs shadow-xs">
+                {/* Handcrafted Rubber Stamp with tactile impact animation */}
+                <div className="notebook-stamp px-2.5 py-0.5 text-[10px] sm:text-[11px] font-bold rounded-xs shadow-xs motion-safe:animate-stamp-impact origin-center">
                   ★ ALLIANCE INDIA • OFFLINE FIELD CASEFILE ★
                 </div>
-                <span className="text-[11px] font-mono font-medium text-slate-500 uppercase tracking-wider">
-                  DOCKET: CNSP-2026-IND
-                </span>
-              </div>
-
-              <div className="flex items-center gap-3 text-xs font-mono text-slate-600">
-                <span className="inline-flex items-center gap-1.5 text-emerald-800 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
-                  LOCAL-FIRST ACTIVE
-                </span>
-                <span className="hidden sm:inline text-slate-300">•</span>
-                <span className="hidden sm:inline text-slate-500">PHASE 3 PWA</span>
               </div>
             </div>
 
