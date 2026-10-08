@@ -892,32 +892,15 @@ export default function NewSinglePageAssessment() {
       const refId = finalRecord.demographics.artNumber || finalRecord.uuid;
       const targetClientId = finalRecord.clientSubmissionId || finalRecord.uuid;
 
-      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
-      setSubmitStatus('saving');
+      // ── NON-BLOCKING LOCAL PERSISTENCE (Issue #52) ──
+      // Record is now durably stored in Dexie IndexedDB. Immediately transition
+      // the UI so caseworkers never wait 90 seconds for upstream roundtrips.
+      setSubmitStatus('success');
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        setSubmitStatus('sending');
-
-        const outcomePromise = waitForSubmissionOutcome(targetClientId, {
-          timeoutMs: 90_000, // 90s: covers Apps Script cold-start (may take 25–60s) + 45s gateway abort
-          onSending: () => setSubmitStatus('sending'),
-          onRetrying: () => setSubmitStatus('retrying'),
-        });
-
-        // Start worker AFTER listeners are registered synchronously
-        processQueue('form_submit').catch(() => {/* worker handles its own errors */});
-
-        const outcome = await outcomePromise;
-        if (outcome.status === 'success') {
-          setSubmitStatus('success');
-          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-        } else if (outcome.status === 'failed') {
-          setSubmitStatus('failed');
-          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
-        } else {
-          // Timeout -> non-success tracking state
-          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
-        }
+        // Trigger background worker non-blockingly
+        processQueue('form_submit').catch(() => {/* worker manages its own retries */});
+        router.push(`/assessment/sync?status=saved_queued&ref=${encodeURIComponent(refId)}`);
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }
