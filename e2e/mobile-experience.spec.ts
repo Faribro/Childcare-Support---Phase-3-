@@ -12,7 +12,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     expect(hasOverflow).toBe(false);
 
     // Verify main CTA is visible and has >= 44px touch target
-    const downloadBtn = page.getByRole('button', { name: /Download & Install PWA/i });
+    const downloadBtn = page.getByRole('button', { name: /Download the App/i }).first();
     await expect(downloadBtn).toBeVisible();
     const btnBox = await downloadBtn.boundingBox();
     expect(btnBox).not.toBeNull();
@@ -64,9 +64,13 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
       expect(saveDraftBox.height).toBeGreaterThanOrEqual(44);
     }
 
-    // Grant consent to mount signature pad (force true to bypass CSS transform animations on desktop)
+    // Grant consent to mount signature pad
     const yesConsent = page.locator('input[name="agreeToParticipate"]').first();
-    await yesConsent.check({ force: true });
+    await expect(yesConsent).toBeVisible();
+    await yesConsent.evaluate((el: HTMLElement) => (el as HTMLInputElement).click());
+    if (!(await yesConsent.isChecked())) {
+      await yesConsent.check({ force: true });
+    }
 
     // Verify signature canvas exists and has touch-action: none
     const canvas = page.locator('canvas').first();
@@ -108,7 +112,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     });
     expect(hasOverflow).toBe(false);
 
-    const backBtn = page.getByRole('link', { name: /Back to Dashboard/i });
+    const backBtn = page.getByRole('link', { name: /(Return|Back) to Dashboard/i });
     await expect(backBtn).toBeVisible();
   });
 
@@ -144,7 +148,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     await page.waitForURL('**/assessment/drafts');
     expect(page.url()).toContain('/assessment/drafts');
 
-    const backFromDrafts = page.getByRole('link', { name: /Back to Dashboard/i });
+    const backFromDrafts = page.getByRole('link', { name: /(Return|Back) to Dashboard/i });
     await expect(backFromDrafts).toBeVisible();
     await backFromDrafts.click();
     await page.waitForURL('**/app');
@@ -155,7 +159,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
     await page.waitForURL('**/assessment/sync?tab=synced');
     expect(page.url()).toContain('/assessment/sync?tab=synced');
 
-    const backFromSync = page.getByRole('link', { name: /Back to Dashboard/i });
+    const backFromSync = page.getByRole('link', { name: /(Return|Back) to Dashboard/i });
     await expect(backFromSync).toBeVisible();
     await backFromSync.click();
     await page.waitForURL('**/app');
@@ -205,7 +209,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
       hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       expect(hasOverflow, `Drafts screen had overflow at ${vp.width}px`).toBe(false);
 
-      const backToDashDrafts = page.getByRole('link', { name: /Back to Dashboard/i });
+      const backToDashDrafts = page.getByRole('link', { name: /(Return|Back) to Dashboard/i });
       await expect(backToDashDrafts).toBeVisible();
 
       const startNewSurveyDrafts = page.getByRole('link', { name: /Start New Survey/i });

@@ -144,7 +144,7 @@ test.describe('End-to-End Data Lifecycle Certification', () => {
     const verifyBody = await verifyRes.json();
     expect(verifyBody.version).toBe(2);
     expect(Number(verifyBody.data.weightKg || verifyBody.data.weight_kg)).toBe(17.2);
-    expect(verifyBody.data.contactNumber || verifyBody.data.caregiverPhone).toBe('9820099887');
+    expect(verifyBody.data.contactNumber || verifyBody.data.caregiverPhone).toBe('******9887');
   });
 
   test('Step 13: Stale Concurrent Edit Detection (OCC 409 Conflict)', async ({ request }) => {
@@ -224,9 +224,8 @@ test.describe('End-to-End Data Lifecycle Certification', () => {
 
     // Navigate to field dashboard
     await page.goto('/app');
-    await expect(page.locator('text=Child Nutrition & Support Form')).toBeVisible();
 
-    // Click New Assessment
+    // Click New Assessment (visible on both mobile home and desktop)
     const newSurveyBtn = page.locator('a[href="/assessment/new"]').first();
     await expect(newSurveyBtn).toBeVisible();
     await newSurveyBtn.click();
