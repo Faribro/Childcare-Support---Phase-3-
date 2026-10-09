@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
+import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
 export default function SupervisorDashboardPage() {
@@ -34,6 +35,8 @@ export default function SupervisorDashboardPage() {
     isError,
     isEmpty,
     isOfflineCache,
+    networkStatus,
+    formattedStatus,
     error,
     refresh,
     retry,
@@ -162,18 +165,30 @@ export default function SupervisorDashboardPage() {
 
         {/* Offline Cache Indicator Banner */}
         {isOfflineCache && !isError && (
-          <div className="mb-6 bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs">
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-6 bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs"
+          >
             <div className="flex items-center space-x-2.5 text-xs">
               <Cloud className="w-5 h-5 text-amber-600 shrink-0" />
               <span>
-                <strong>Showing Offline Cached Snapshot:</strong> Upstream network is currently offline or unreachable. Cached surveillance metrics are displayed.
+                {networkStatus === 'offline' ? (
+                  <>
+                    <strong>Offline · Local Cached Snapshot:</strong> Your device is offline. Cached surveillance metrics are displayed.
+                  </>
+                ) : (
+                  <>
+                    <strong>Online · Cached Snapshot:</strong> Live central bridge sync is pending or unreachable. Cached surveillance metrics are displayed.
+                  </>
+                )}
               </span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={refresh}
-              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl"
+              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl cursor-pointer"
             >
               Reconnect
             </Button>
@@ -293,6 +308,13 @@ export default function SupervisorDashboardPage() {
             </p>
           </div>
         </div>
+
+        {/* Case Status & Document Verification Readiness Dashboard (Issue #54) */}
+        {!isError && records.length > 0 && (
+          <div className="mb-8">
+            <CaseStatusSummaryDashboard records={records} />
+          </div>
+        )}
 
         {/* Clinical Health & Surveillance Visualizations */}
         {isError && totalEvaluated === 0 ? (

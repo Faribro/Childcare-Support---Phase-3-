@@ -158,7 +158,9 @@ export default function FieldWorkspacePage() {
       if (res.ok) {
         const json = await res.json();
         let count: number | null = null;
-        if (typeof json.pagination?.totalCount === 'number') {
+        if (typeof json.data?.serverConfirmed === 'number') {
+          count = json.data.serverConfirmed;
+        } else if (typeof json.pagination?.totalCount === 'number') {
           count = json.pagination.totalCount;
         } else if (typeof json.data?.total === 'number') {
           count = json.data.total;
@@ -317,7 +319,7 @@ export default function FieldWorkspacePage() {
   return (
     <AppShell
       pendingSyncCount={waitingCount ?? 0}
-      submittedCount={submittedCount !== null ? submittedCount : undefined}
+      submittedCount={submittedCount ?? 0}
     >
       {/* Mobile KoboCollect-Style Home View (<768px) */}
       <MobileKoboHomeScreen

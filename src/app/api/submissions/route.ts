@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import {
+  resolveUserAccessScope,
+  isStateAuthorized,
+  isDistrictAuthorized,
+  filterRecordsByScope,
+  logSecurityEvent,
+} from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,6 +72,44 @@ export async function GET(req: NextRequest) {
     const cursor = searchParams.get('cursor') || undefined;
     const status = searchParams.get('status') || undefined;
     const updatedAfter = searchParams.get('updatedAfter') || undefined;
+    const stateParam = searchParams.get('state') || undefined;
+    const districtParam = searchParams.get('district') || undefined;
+
+    // Resolve caller scope (Issue #57)
+    const scope = resolveUserAccessScope(req);
+
+    // Validate state & district authorization
+    if (stateParam && !isStateAuthorized(scope, stateParam)) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'SCOPE_VIOLATION',
+        outcome: 'DENY',
+        scope: `state=${stateParam}`,
+        details: `Access to state '${stateParam}' forbidden for scope [${scope.allowedStates.join(',')}]`,
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN_SCOPE',
+          message: `Access denied to records for state "${stateParam}".`,
+          requestId,
+        },
+        { status: 403 }
+      );
+    }
+
+    if (districtParam && !isDistrictAuthorized(scope, stateParam, districtParam)) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN_SCOPE',
+          message: `Access denied to records for district "${districtParam}".`,
+          requestId,
+        },
+        { status: 403 }
+      );
+    }
 
     const rawLimit = searchParams.get('limit');
     let limit = 50;
@@ -98,6 +143,8 @@ export async function GET(req: NextRequest) {
       limit,
       status,
       updatedAfter,
+      state: stateParam,
+      district: districtParam,
     });
 
     if (result.status === 'error') {
@@ -121,8 +168,26 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const records = result.data?.records || (Array.isArray(result.data) ? result.data : []);
-    const total = result.data?.total ?? result.pagination?.totalCount ?? records.length;
+    const rawRecords = result.data?.records || (Array.isArray(result.data) ? result.data : []);
+
+    // Apply server-authoritative scope boundary (Issue #57)
+    let records = filterRecordsByScope(scope, rawRecords);
+
+    // Apply explicit query filters (Issue #53)
+    if (stateParam && stateParam.toUpperCase() !== 'ALL') {
+      records = records.filter(
+        (r: any) => (r.state || 'Maharashtra').toLowerCase() === stateParam.toLowerCase()
+      );
+    }
+    if (districtParam && districtParam.toUpperCase() !== 'ALL') {
+      records = records.filter(
+        (r: any) => (r.district || '').toLowerCase() === districtParam.toLowerCase()
+      );
+    }
+
+    const total = (stateParam || districtParam)
+      ? records.length
+      : (result.data?.total ?? result.pagination?.totalCount ?? records.length);
     const nextCursor = result.data?.nextCursor ?? result.pagination?.nextCursor ?? null;
     const sourceUpdatedAt = result.data?.sourceUpdatedAt ?? new Date().toISOString();
 
