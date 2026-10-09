@@ -661,7 +661,7 @@ export const MockSheetStore = {
   /**
    * List records with pagination
    */
-  listRecords(options: { cursor?: string; limit?: number; status?: string; updatedAfter?: string }) {
+  listRecords(options: { cursor?: string; limit?: number; status?: string; updatedAfter?: string; state?: string; district?: string }) {
     const limit = Math.min(Math.max(options.limit || 20, 1), 100);
     const all = Array.from(recordsByRemoteId.values());
 
@@ -671,6 +671,12 @@ export const MockSheetStore = {
     }
     if (options.updatedAfter) {
       filtered = filtered.filter((r) => r.updated_at > options.updatedAfter!);
+    }
+    if (options.state && options.state.toUpperCase() !== 'ALL') {
+      filtered = filtered.filter((r) => ((r.state || (r as any)['18\nState'] || 'Maharashtra').toLowerCase() === options.state!.toLowerCase()));
+    }
+    if (options.district && options.district.toUpperCase() !== 'ALL') {
+      filtered = filtered.filter((r) => ((r.district || (r as any)['19\nDistrict'] || '').toLowerCase() === options.district!.toLowerCase()));
     }
 
     filtered.sort((a, b) => b.updated_at.localeCompare(a.updated_at));

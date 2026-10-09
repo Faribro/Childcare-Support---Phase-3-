@@ -31,6 +31,7 @@
     "@hookform/resolvers": "^3.9.0",
     "@serwist/next": "^9.0.12",
     "@types/topojson-client": "^3.1.5",
+    "argon2": "^0.45.1",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
     "dexie": "^4.0.11",

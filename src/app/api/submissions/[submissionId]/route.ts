@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
-import { resolveServerVerifiedRole } from '@/lib/server/authorisation';
+import {
+  resolveServerVerifiedRole,
+  resolveUserAccessScope,
+  isStateAuthorized,
+  logSecurityEvent,
+  validateCsrfOrigin,
+} from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +63,14 @@ export async function PATCH(
 ) {
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
+    const csrf = validateCsrfOrigin(req);
+    if (!csrf.isValid) {
+      return NextResponse.json(
+        { status: 'error', code: 'CSRF_VIOLATION', message: csrf.reason || 'Forbidden request origin.' },
+        { status: 403 }
+      );
+    }
+
     const submissionId = params.submissionId;
     if (!submissionId) {
       return NextResponse.json(
@@ -246,12 +260,71 @@ export async function DELETE(
   { params }: { params: { submissionId: string } }
 ) {
   try {
+    const csrf = validateCsrfOrigin(req);
+    if (!csrf.isValid) {
+      return NextResponse.json(
+        { status: 'error', code: 'CSRF_VIOLATION', message: csrf.reason || 'Forbidden request origin.' },
+        { status: 403 }
+      );
+    }
+
     const submissionId = params.submissionId;
     if (!submissionId) {
       return NextResponse.json(
         { status: 'error', message: 'Missing submissionId parameter' },
         { status: 400 }
       );
+    }
+
+    const scope = resolveUserAccessScope(req);
+
+    // Enforce role authorization (Issue #57)
+    if (!scope.isVerified || (scope.role !== 'ADMIN' && scope.role !== 'STATE_REVIEWER')) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: `Caller role '${scope.role}' (isVerified: ${scope.isVerified}) forbidden to execute DELETE on submission`,
+      });
+
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN',
+          message: 'Deletion requires verified Administrator or State Reviewer role.',
+        },
+        { status: 403 }
+      );
+    }
+
+    // If STATE_REVIEWER, verify the record belongs to the authorized state scope
+    if (scope.role === 'STATE_REVIEWER') {
+      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+      if (existing.status === 'success' && existing.data) {
+        const recordState = existing.data.state || existing.data['18\nState'] || 'Maharashtra';
+        if (!isStateAuthorized(scope, recordState)) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: 'SCOPE_VIOLATION',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            scope: `state=${recordState}`,
+            details: `State Reviewer not authorized to delete record in state '${recordState}'`,
+          });
+
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: 'FORBIDDEN_SCOPE',
+              message: `You are not authorized to delete records in state "${recordState}".`,
+            },
+            { status: 403 }
+          );
+        }
+      }
     }
 
     const result = await canonicalSubmissionAdapter.deleteSubmission(submissionId);
@@ -262,6 +335,15 @@ export async function DELETE(
         { status: result.statusCode || 500 }
       );
     }
+
+    logSecurityEvent({
+      actor: scope.userId,
+      actorRole: scope.role,
+      eventType: 'RECORD_DELETED',
+      outcome: 'ALLOW',
+      targetResource: submissionId,
+      details: `Record ${submissionId} deleted by ${scope.name}`,
+    });
 
     return NextResponse.json(
       { status: 'success', message: `Record ${submissionId} deleted successfully` },
