@@ -53,5 +53,12 @@ export default defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: true,
     timeout: 120 * 1000,
+    env: {
+      SESSION_SECRET: 'test-playwright-session-secret-at-least-32-chars-long!',
+      E2E_ALLOW_LOCAL_MOCK: 'true',
+      INITIAL_REV_MH_PWD: 'test-suite-fixture-reviewer-secret',
+      INITIAL_LEADERSHIP_PWD: 'test-suite-fixture-leadership-secret',
+      INITIAL_ADMIN_PWD: 'test-suite-fixture-admin-secret',
+    },
   },
 });
