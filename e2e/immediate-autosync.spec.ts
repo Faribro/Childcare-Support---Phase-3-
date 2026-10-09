@@ -112,10 +112,10 @@ test.describe('Immediate Submit & Autosync PWA Certification', () => {
     await page.waitForLoadState('domcontentloaded');
 
     // Verify terminal failure banner
-    const failBanner = page.locator('text=Assessment saved locally. Requires attention.');
+    const failBanner = page.locator('text=Assessment saved locally. Needs correction before sending.');
     await expect(failBanner).toBeVisible();
 
-    await expect(page.locator('text=Server rejected the submission format')).toBeVisible();
+    await expect(page.locator('text=One item needs correction before it can be submitted.')).toBeVisible();
     await expect(page.locator('text=Details: Caregiver consent signature missing')).toBeVisible();
   });
 
@@ -125,14 +125,14 @@ test.describe('Immediate Submit & Autosync PWA Certification', () => {
 
     // Verify all 3 tabs are present
     const allTab = page.locator('button:has-text("All Records")');
-    const outboxTab = page.locator('button:has-text("Waiting to Send")');
+    const outboxTab = page.locator('button:has-text("On Device")');
     const syncedTab = page.locator('button:has-text("Submitted Records")');
 
     await expect(allTab).toBeVisible();
     await expect(outboxTab).toBeVisible();
     await expect(syncedTab).toBeVisible();
 
-    // Switch to Waiting to Send tab
+    // Switch to On Device tab
     await outboxTab.click();
     await expect(outboxTab).toHaveClass(/bg-amber-100/);
 

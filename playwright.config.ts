@@ -53,5 +53,8 @@ export default defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: true,
     timeout: 120 * 1000,
+    env: {
+      E2E_ALLOW_LOCAL_MOCK: 'true',
+    },
   },
 });
