@@ -436,7 +436,10 @@ function SyncCentreContent() {
     loadLocalData().then(() => {
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         processQueue('sync_page_mount')
-          .then(() => loadLocalData())
+          .then(() => {
+            loadLocalData();
+            refreshServer();
+          })
           .catch(() => {});
       }
     });
@@ -445,7 +448,10 @@ function SyncCentreContent() {
       setIsOnline(true);
       loadLocalData().then(() => {
         processQueue('online_event')
-          .then(() => loadLocalData())
+          .then(() => {
+            loadLocalData();
+            refreshServer();
+          })
           .catch(() => {});
       });
     };
@@ -455,17 +461,22 @@ function SyncCentreContent() {
       loadLocalData();
     };
 
+    const handleServerSyncComplete = () => {
+      loadLocalData();
+      refreshServer();
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const unsubSuccess = submissionEvents.on('submission:success', handleSyncUpdate);
+    const unsubSuccess = submissionEvents.on('submission:success', handleServerSyncComplete);
     const unsubFailed = submissionEvents.on('submission:failed', handleSyncUpdate);
     const unsubRetrying = submissionEvents.on('submission:retrying', handleSyncUpdate);
     const unsubConflict = submissionEvents.on('submission:conflict', handleSyncUpdate);
     const unsubSending = submissionEvents.on('submission:sending', handleSyncUpdate);
 
-    window.addEventListener('child_nutrition:sync_completed', handleSyncUpdate);
-    window.addEventListener('child_nutrition:record_synced', handleSyncUpdate);
+    window.addEventListener('child_nutrition:sync_completed', handleServerSyncComplete);
+    window.addEventListener('child_nutrition:record_synced', handleServerSyncComplete);
     window.addEventListener('child_nutrition:record_queued', handleSyncUpdate);
 
     // Periodic autosync check every 30 seconds
@@ -486,11 +497,11 @@ function SyncCentreContent() {
       unsubRetrying();
       unsubConflict();
       unsubSending();
-      window.removeEventListener('child_nutrition:sync_completed', handleSyncUpdate);
-      window.removeEventListener('child_nutrition:record_synced', handleSyncUpdate);
+      window.removeEventListener('child_nutrition:sync_completed', handleServerSyncComplete);
+      window.removeEventListener('child_nutrition:record_synced', handleServerSyncComplete);
       window.removeEventListener('child_nutrition:record_queued', handleSyncUpdate);
     };
-  }, [loadLocalData]);
+  }, [loadLocalData, refreshServer]);
 
   const [retryingItemId, setRetryingItemId] = useState<number | null>(null);
   const [noEligibleWarning, setNoEligibleWarning] = useState<string | null>(null);

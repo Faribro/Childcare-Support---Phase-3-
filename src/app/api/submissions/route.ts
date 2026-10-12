@@ -10,6 +10,8 @@ import {
 } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || `req-list-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
@@ -95,7 +97,13 @@ export async function GET(req: NextRequest) {
           message: `Access denied to records for state "${stateParam}".`,
           requestId,
         },
-        { status: 403 }
+        {
+          status: 403,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'X-Request-Id': requestId,
+          },
+        }
       );
     }
 
@@ -107,7 +115,13 @@ export async function GET(req: NextRequest) {
           message: `Access denied to records for district "${districtParam}".`,
           requestId,
         },
-        { status: 403 }
+        {
+          status: 403,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'X-Request-Id': requestId,
+          },
+        }
       );
     }
 
@@ -185,7 +199,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const total = (stateParam || districtParam)
+    const hasWildcardScope = scope.allowedStates.includes('*') || scope.role === 'LEADERSHIP' || scope.role === 'ADMIN';
+    const isFilteredByLocation =
+      Boolean(stateParam && stateParam.toUpperCase() !== 'ALL') ||
+      Boolean(districtParam && districtParam.toUpperCase() !== 'ALL');
+    const total = (isFilteredByLocation || !hasWildcardScope)
       ? records.length
       : (result.data?.total ?? result.pagination?.totalCount ?? records.length);
     const nextCursor = result.data?.nextCursor ?? result.pagination?.nextCursor ?? null;

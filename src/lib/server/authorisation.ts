@@ -195,12 +195,13 @@ export function resolveUserAccessScope(req: NextRequest): UserAccessScope {
     };
   }
 
-  // 4. Fallback for unauthenticated access: restricted to Maharashtra default scope
+  // 4. Fallback for unauthenticated field access: allow reading PII-masked records across operational states
+  // while keeping isVerified: false and role: 'FIELD_USER' so DELETE and PDF export remain strictly forbidden.
   return {
     userId: 'anonymous-field',
     name: 'Field Worker (Unauthenticated)',
     role: 'FIELD_USER',
-    allowedStates: ['Maharashtra'],
+    allowedStates: ['*'],
     allowedDistricts: ['*'],
     isVerified: false,
     reason: 'untrusted_fallback',

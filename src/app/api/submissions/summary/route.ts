@@ -9,6 +9,8 @@ import {
 } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || `req-sum-${Date.now().toString(36)}`;
@@ -36,7 +38,13 @@ export async function GET(req: NextRequest) {
         message: `You do not have permission to access summary records for state "${stateParam}".`,
         requestId,
       },
-      { status: 403 }
+      {
+        status: 403,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'X-Request-Id': requestId,
+        },
+      }
     );
   }
 
@@ -48,7 +56,13 @@ export async function GET(req: NextRequest) {
         message: `You do not have permission to access summary records for district "${districtParam}".`,
         requestId,
       },
-      { status: 403 }
+      {
+        status: 403,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'X-Request-Id': requestId,
+        },
+      }
     );
   }
 
@@ -68,7 +82,13 @@ export async function GET(req: NextRequest) {
           message: listResult.message || 'Unable to retrieve submissions summary',
           requestId,
         },
-        { status: listResult.statusCode || 502 }
+        {
+          status: listResult.statusCode || 502,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'X-Request-Id': requestId,
+          },
+        }
       );
     }
 
@@ -90,10 +110,14 @@ export async function GET(req: NextRequest) {
     }
 
     // Determine un-truncated total count
+    const isFilteredByLocation =
+      Boolean(stateParam && stateParam.toUpperCase() !== 'ALL') ||
+      Boolean(districtParam && districtParam.toUpperCase() !== 'ALL');
     const hasWildcardScope = scope.allowedStates.includes('*') || scope.role === 'LEADERSHIP' || scope.role === 'ADMIN';
     const upstreamTotal = listResult.pagination?.totalCount ?? listResult.data?.total;
-    const totalCount =
-      typeof upstreamTotal === 'number' && (hasWildcardScope || Boolean(stateParam))
+    const totalCount = isFilteredByLocation
+      ? scoped.length
+      : typeof upstreamTotal === 'number' && hasWildcardScope
         ? upstreamTotal
         : scoped.length;
     const now = new Date().toISOString();
@@ -119,7 +143,7 @@ export async function GET(req: NextRequest) {
       {
         status: 200,
         headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
           'X-Request-Id': requestId,
         },
       }
@@ -133,7 +157,13 @@ export async function GET(req: NextRequest) {
         message: 'Failed to compute submission summary.',
         requestId,
       },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'X-Request-Id': requestId,
+        },
+      }
     );
   }
 }

@@ -150,13 +150,21 @@ export default function FieldWorkspacePage() {
 
     try {
       let res = await fetch('/api/submissions/summary', {
+        cache: 'no-store',
         signal: controller.signal,
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+        },
       });
       if (!res.ok) {
         res = await fetch('/api/submissions?limit=1', {
+          cache: 'no-store',
           signal: controller.signal,
-          headers: { Accept: 'application/json' },
+          headers: {
+            Accept: 'application/json',
+            'Cache-Control': 'no-cache, no-store',
+          },
         });
       }
       clearTimeout(timeoutId);
