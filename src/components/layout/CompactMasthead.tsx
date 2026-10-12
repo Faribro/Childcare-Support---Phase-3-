@@ -17,18 +17,21 @@ import {
   Unlock,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
-import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { ConnectionStatus } from '@/components/ConnectionStatus';
+import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
+import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
 
 interface CompactMastheadProps {
   pendingSyncCount?: number;
   submittedCount?: number;
 }
 
-export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: CompactMastheadProps) {
+export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMastheadProps) {
   const [isOnline, setIsOnline] = useState(true);
-  const [internalSubmittedCount, setInternalSubmittedCount] = useState<number>(submittedCount ?? 0);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const pathname = usePathname();
   const { isUnlocked } = useEvaluationAccess();
+  const summary = useSubmissionSummary({ enabled: submittedCount === undefined });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -46,52 +49,12 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
     }
   }, []);
 
-  // Sync count of submitted surveys dynamically across pages
-  useEffect(() => {
-    if (submittedCount !== undefined) {
-      setInternalSubmittedCount(submittedCount);
-      return;
-    }
-
-    let active = true;
-    async function loadCounts() {
-      try {
-        const queue = await getAllQueueItems();
-        let total = queue.filter((q) => q.status === 'synced').length;
-        try {
-          const res = await fetch('/api/submissions?limit=1');
-          if (res.ok) {
-            const json = await res.json();
-            if (json.pagination?.totalCount !== undefined) {
-              total = json.pagination.totalCount;
-            } else if (json.total !== undefined) {
-              total = json.total;
-            } else if (json.count !== undefined) {
-              total = json.count;
-            }
-          }
-        } catch (_) {}
-
-        if (active) {
-          setInternalSubmittedCount(total);
-        }
-      } catch (_) {}
-    }
-
-    loadCounts();
-    const handleSync = () => loadCounts();
-    window.addEventListener('child_nutrition:sync_completed', handleSync);
-    return () => {
-      active = false;
-      window.removeEventListener('child_nutrition:sync_completed', handleSync);
-    };
-  }, [submittedCount]);
-
-  const displayCount = submittedCount !== undefined ? submittedCount : internalSubmittedCount;
+  const displayCount = submittedCount !== undefined ? submittedCount : summary.submittedCount;
+  const effectivePending = pendingSyncCount !== undefined ? pendingSyncCount : summary.localPendingSyncCount;
 
   const navLinks = [
     { href: '/app', label: 'Forms', icon: Home },
-    { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: pendingSyncCount },
+    { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: effectivePending },
   ];
 
   return (
@@ -179,47 +142,41 @@ export function CompactMasthead({ pendingSyncCount = 0, submittedCount }: Compac
             ) : (
               <button
                 type="button"
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 bg-slate-50/70 border border-dashed border-slate-200/80 cursor-not-allowed transition-all opacity-70"
-                title="Evaluation"
-                disabled
+                onClick={() => setIsLoginModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-teal-900 bg-slate-50 hover:bg-teal-50/60 border border-slate-200/80 hover:border-teal-300 cursor-pointer transition-all"
+                title="Sign in to unlock Evaluation Portal"
               >
-                <Lock className="h-3 w-3 text-slate-400 shrink-0" />
+                <Lock className="h-3 w-3 text-slate-500 shrink-0" />
                 <span>Evaluation</span>
               </button>
             )}
+            <EvaluationLoginModal
+              isOpen={isLoginModalOpen}
+              onClose={() => setIsLoginModalOpen(false)}
+            />
           </nav>
 
           {/* Status & Mobile Actions */}
           <div className="flex items-center space-x-2">
-            {/* Connectivity Pill - Wifi Icon Only (No Text) */}
-            <div
-              role="status"
-              aria-live="polite"
-              className={`flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
-                isOnline
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                  : 'bg-amber-50 border-amber-200 text-amber-800'
-              }`}
-              title={isOnline ? 'Online' : 'Offline'}
-            >
-              {isOnline ? (
-                <Wifi className="h-4 w-4 text-emerald-600" />
-              ) : (
-                <WifiOff className="h-4 w-4 text-amber-600" />
-              )}
-            </div>
+            {/* Truthful Connection & Sync Status Indicator */}
+            <ConnectionStatus
+              networkStatus={isOnline ? 'online' : 'offline'}
+              syncStatus={effectivePending > 0 ? 'pending' : 'synced'}
+              showText={false}
+              className="w-8 h-8 p-0 justify-center rounded-full"
+            />
 
             {/* Mobile Sync Centre Shortcut */}
             <Link
               href="/assessment/sync"
               className="md:hidden relative p-2 rounded-lg text-slate-600 hover:bg-slate-100 active:bg-slate-200 min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"
               title="Open Sync Centre"
-              aria-label={`Open Sync Centre, ${pendingSyncCount} pending`}
+              aria-label={`Open Sync Centre, ${effectivePending} pending`}
             >
               <RefreshCw className="h-4 w-4 text-slate-700" />
-              {pendingSyncCount > 0 && (
+              {effectivePending > 0 && (
                 <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold h-5 w-5 rounded-full flex items-center justify-center border-2 border-white">
-                  {pendingSyncCount > 9 ? '9+' : pendingSyncCount}
+                  {effectivePending > 9 ? '9+' : effectivePending}
                 </span>
               )}
             </Link>

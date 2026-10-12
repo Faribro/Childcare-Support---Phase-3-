@@ -1,4 +1,22 @@
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
+import {
+  NetworkStatus,
+  DataSource,
+  SyncStatus,
+  SystemStatus,
+  FormattedStatus,
+  formatSystemStatus,
+  getBrowserNetworkHint,
+} from '@/lib/status/statusModel';
+
+export type {
+  NetworkStatus,
+  DataSource,
+  SyncStatus,
+  SystemStatus,
+  FormattedStatus,
+};
+export { formatSystemStatus, getBrowserNetworkHint };
 
 export interface BeneficiaryDocumentStatus {
   isComplete: boolean;
@@ -53,6 +71,9 @@ export interface SupervisorReadModelState {
   error: SupervisorDataError | null;
   isOnline: boolean;
   consecutiveFailures: number;
+  networkStatus: NetworkStatus;
+  dataSource: DataSource;
+  syncStatus: SyncStatus;
 }
 
 const CACHE_STORAGE_KEY = 'child_nutrition:supervisor_cache_v1';
@@ -298,12 +319,16 @@ class SupervisorReadModelService {
     error: null,
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     consecutiveFailures: 0,
+    networkStatus: getBrowserNetworkHint(),
+    dataSource: 'live',
+    syncStatus: 'synced',
   };
 
   private listeners: Set<() => void> = new Set();
   private inFlightPromise: Promise<void> | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private isInitialized = false;
+  private activeFilters: { state?: string; district?: string } = {};
 
   constructor() {
     this.restoreCache();
@@ -322,6 +347,10 @@ class SupervisorReadModelService {
     return this.state;
   }
 
+  public getActiveFilters(): { state?: string; district?: string } {
+    return { ...this.activeFilters };
+  }
+
   public resetForTesting(initial?: Partial<SupervisorReadModelState>) {
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
@@ -329,6 +358,7 @@ class SupervisorReadModelService {
     }
     this.inFlightPromise = null;
     this.isInitialized = false;
+    this.activeFilters = {};
     this.state = {
       status: 'idle',
       records: [],
@@ -338,6 +368,9 @@ class SupervisorReadModelService {
       error: null,
       isOnline: true,
       consecutiveFailures: 0,
+      networkStatus: 'online',
+      dataSource: 'live',
+      syncStatus: 'synced',
       ...initial,
     };
     this.notify();
@@ -393,6 +426,9 @@ class SupervisorReadModelService {
             lastRefreshed: parsed.lastSuccessAt ? new Date(parsed.lastSuccessAt) : null,
             lastSuccessAt: parsed.lastSuccessAt ? new Date(parsed.lastSuccessAt) : null,
             status: 'offline_cache',
+            dataSource: 'cache',
+            networkStatus: getBrowserNetworkHint(),
+            syncStatus: 'synced',
           };
         }
       }
@@ -431,6 +467,7 @@ class SupervisorReadModelService {
 
     window.addEventListener('online', () => {
       this.state.isOnline = true;
+      this.state.networkStatus = 'online';
       this.state.consecutiveFailures = 0;
       this.notify();
       this.fetchSubmissions({ force: true }).catch(() => {});
@@ -438,13 +475,18 @@ class SupervisorReadModelService {
 
     window.addEventListener('offline', () => {
       this.state.isOnline = false;
+      this.state.networkStatus = 'offline';
       if (this.pollTimer) {
         clearTimeout(this.pollTimer);
         this.pollTimer = null;
       }
       if (this.state.records.length > 0) {
         this.state.status = 'offline_cache';
+        this.state.dataSource = 'cache';
+      } else {
+        this.state.dataSource = 'local-only';
       }
+      this.state.syncStatus = 'pending';
       this.notify();
     });
 
@@ -487,15 +529,27 @@ class SupervisorReadModelService {
     }, Math.max(1000, delayMs));
   }
 
-  public async fetchSubmissions(options?: { force?: boolean }): Promise<void> {
+  public async fetchSubmissions(options?: { force?: boolean; state?: string; district?: string }): Promise<void> {
     if (this.inFlightPromise) {
       return this.inFlightPromise;
     }
 
+    if (options?.state !== undefined) {
+      this.activeFilters.state = options.state === 'ALL' || !options.state ? undefined : options.state;
+    }
+    if (options?.district !== undefined) {
+      this.activeFilters.district = options.district === 'ALL' || !options.district ? undefined : options.district;
+    }
+
     if (!this.state.isOnline) {
+      this.state.networkStatus = 'offline';
       if (this.state.records.length > 0) {
         this.state.status = 'offline_cache';
+        this.state.dataSource = 'cache';
+      } else {
+        this.state.dataSource = 'local-only';
       }
+      this.state.syncStatus = 'pending';
       this.notify();
       return;
     }
@@ -516,7 +570,15 @@ class SupervisorReadModelService {
       const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
       try {
-        const res = await fetch('/api/submissions?limit=100', {
+        let url = '/api/submissions?limit=100';
+        if (this.activeFilters.state) {
+          url += `&state=${encodeURIComponent(this.activeFilters.state)}`;
+        }
+        if (this.activeFilters.district) {
+          url += `&district=${encodeURIComponent(this.activeFilters.district)}`;
+        }
+
+        const res = await fetch(url, {
           method: 'GET',
           cache: 'no-store',
           headers: {
@@ -547,6 +609,8 @@ class SupervisorReadModelService {
           }
 
           this.state.consecutiveFailures += 1;
+          this.state.networkStatus = getBrowserNetworkHint() === 'offline' ? 'offline' : 'online';
+          this.state.syncStatus = retryable ? 'retrying' : 'failed';
           this.state.error = {
             code: errCode,
             message: errMsg,
@@ -565,6 +629,7 @@ class SupervisorReadModelService {
           // Retryable error: retain cached records if available, otherwise show error
           if (this.state.records.length > 0) {
             this.state.status = 'offline_cache';
+            this.state.dataSource = 'cache';
           } else {
             this.state.status = 'error';
           }
@@ -606,6 +671,9 @@ class SupervisorReadModelService {
           error: null,
           isOnline: true,
           consecutiveFailures: 0,
+          networkStatus: 'online',
+          dataSource: 'live',
+          syncStatus: 'synced',
         };
 
         if (mapped.length > 0) {
@@ -620,6 +688,8 @@ class SupervisorReadModelService {
         clearTimeout(timeoutId);
         const isAbort = err?.name === 'AbortError';
         this.state.consecutiveFailures += 1;
+        this.state.networkStatus = getBrowserNetworkHint() === 'offline' ? 'offline' : 'online';
+        this.state.syncStatus = 'retrying';
         this.state.error = {
           code: isAbort ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR',
           message: isAbort
@@ -630,6 +700,7 @@ class SupervisorReadModelService {
 
         if (this.state.records.length > 0) {
           this.state.status = 'offline_cache';
+          this.state.dataSource = 'cache';
         } else {
           this.state.status = 'error';
         }

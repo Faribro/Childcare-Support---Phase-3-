@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
+// Explicitly inject test-only session secret and account passwords for automated test suites
+process.env.SESSION_SECRET = 'test-suite-session-secret-at-least-32-chars-long!';
+process.env.INITIAL_REV_MH_PWD = 'test-suite-fixture-reviewer-secret';
+process.env.INITIAL_LEADERSHIP_PWD = 'test-suite-fixture-leadership-secret';
+process.env.INITIAL_ADMIN_PWD = 'test-suite-fixture-admin-secret';
+
 if (typeof window !== 'undefined' && typeof HTMLCanvasElement !== 'undefined') {
   const dummyGradient = {
     addColorStop: vi.fn(),

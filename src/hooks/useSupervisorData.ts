@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   supervisorReadModel,
   SupervisorReadModelState,
@@ -8,6 +8,11 @@ import {
   SupervisorDataStatus,
   SupervisorDataError,
   BeneficiaryDocumentStatus,
+  NetworkStatus,
+  DataSource,
+  SyncStatus,
+  FormattedStatus,
+  formatSystemStatus,
   evaluateDocuments,
   parseBeneficiaryRecord,
 } from '@/lib/read-model/supervisorReadModel';
@@ -17,6 +22,10 @@ export type {
   SupervisorBeneficiaryRow,
   SupervisorDataStatus,
   SupervisorDataError,
+  NetworkStatus,
+  DataSource,
+  SyncStatus,
+  FormattedStatus,
 };
 
 export { evaluateDocuments, parseBeneficiaryRecord };
@@ -28,12 +37,18 @@ export interface SupervisorDataHook {
   lastRefreshed: Date | null;
   error: SupervisorDataError | null;
   refresh: () => Promise<void>;
+  fetchWithFilters: (filters: { state?: string; district?: string }) => Promise<void>;
   retry: () => Promise<void>;
   setRecords: (updater: React.SetStateAction<SupervisorBeneficiaryRow[]>) => void;
+  activeFilters: { state?: string; district?: string };
   isLoading: boolean;
   isError: boolean;
   isEmpty: boolean;
   isOfflineCache: boolean;
+  networkStatus: NetworkStatus;
+  dataSource: DataSource;
+  syncStatus: SyncStatus;
+  formattedStatus: FormattedStatus;
 }
 
 export function useSupervisorData(options?: { autoFetch?: boolean }): SupervisorDataHook {
@@ -53,6 +68,10 @@ export function useSupervisorData(options?: { autoFetch?: boolean }): Supervisor
     await supervisorReadModel.fetchSubmissions({ force: true });
   }, []);
 
+  const fetchWithFilters = useCallback(async (filters: { state?: string; district?: string }) => {
+    await supervisorReadModel.fetchSubmissions({ force: true, ...filters });
+  }, []);
+
   const retry = useCallback(async () => {
     await supervisorReadModel.fetchSubmissions({ force: true });
   }, []);
@@ -61,6 +80,16 @@ export function useSupervisorData(options?: { autoFetch?: boolean }): Supervisor
     supervisorReadModel.setRecords(updater);
   }, []);
 
+  const formattedStatus = useMemo(
+    () =>
+      formatSystemStatus({
+        networkStatus: modelState.networkStatus,
+        dataSource: modelState.dataSource,
+        syncStatus: modelState.syncStatus,
+      }),
+    [modelState.networkStatus, modelState.dataSource, modelState.syncStatus]
+  );
+
   return {
     status: modelState.status,
     records: modelState.records,
@@ -68,11 +97,17 @@ export function useSupervisorData(options?: { autoFetch?: boolean }): Supervisor
     lastRefreshed: modelState.lastRefreshed,
     error: modelState.error,
     refresh,
+    fetchWithFilters,
     retry,
     setRecords,
+    activeFilters: supervisorReadModel.getActiveFilters(),
     isLoading: modelState.status === 'loading',
     isError: modelState.status === 'error',
     isEmpty: modelState.status === 'empty',
     isOfflineCache: modelState.status === 'offline_cache',
+    networkStatus: modelState.networkStatus,
+    dataSource: modelState.dataSource,
+    syncStatus: modelState.syncStatus,
+    formattedStatus,
   };
 }

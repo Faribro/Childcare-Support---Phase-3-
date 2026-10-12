@@ -38,12 +38,15 @@ import {
   type SupervisorBeneficiaryRow,
   type BeneficiaryDocumentStatus,
 } from '@/hooks/useSupervisorData';
+import { StateDistrictFilterBar } from '@/components/supervisor/StateDistrictFilterBar';
+import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
+import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
 
 type BeneficiaryRow = SupervisorBeneficiaryRow;
 
 export default function SupervisorAssessmentsPage() {
-  const { isUnlocked, isLoaded } = useEvaluationAccess();
+  const { isUnlocked, isLoaded, user } = useEvaluationAccess();
   const {
     records: data,
     total,
@@ -52,8 +55,10 @@ export default function SupervisorAssessmentsPage() {
     isError,
     isEmpty,
     isOfflineCache,
+    networkStatus,
     error,
     refresh,
+    fetchWithFilters,
     retry,
     setRecords: setData,
     lastRefreshed,
@@ -62,6 +67,7 @@ export default function SupervisorAssessmentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [schoolTypeFilter, setSchoolTypeFilter] = useState('ALL');
   const [orphanStatusFilter, setOrphanStatusFilter] = useState('ALL');
+  const [stateFilter, setStateFilter] = useState('ALL');
   const [districtFilter, setDistrictFilter] = useState('ALL');
   const [deleteConfirmId, setDeleteConfirmId] = useState<{ id: string; name: string } | null>(null);
   const [activeDocModal, setActiveDocModal] = useState<{
@@ -72,6 +78,27 @@ export default function SupervisorAssessmentsPage() {
   } | null>(null);
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync state filter when user has restricted scope
+  useEffect(() => {
+    if (user?.allowedStates && !user.allowedStates.includes('*') && user.allowedStates.length === 1) {
+      setStateFilter(user.allowedStates[0]);
+    }
+  }, [user]);
+
+  const handleStateChange = (nextState: string) => {
+    setStateFilter(nextState);
+    setDistrictFilter('ALL');
+    fetchWithFilters({ state: nextState === 'ALL' ? undefined : nextState, district: undefined });
+  };
+
+  const handleDistrictChange = (nextDistrict: string) => {
+    setDistrictFilter(nextDistrict);
+    fetchWithFilters({
+      state: stateFilter === 'ALL' ? undefined : stateFilter,
+      district: nextDistrict === 'ALL' ? undefined : nextDistrict,
+    });
+  };
 
   const handleToggleApproval = async (row: BeneficiaryRow) => {
     setUpdatingApprovalId(row.id);
@@ -180,7 +207,7 @@ export default function SupervisorAssessmentsPage() {
     }
   };
 
-  // Filtered dataset using School Type, Orphan Status, Viral Load, District, and Search
+  // Filtered dataset using School Type, Orphan Status, State, District, and Search
   const filteredData = useMemo(() => {
     return data.filter((row) => {
       const term = searchTerm.toLowerCase();
@@ -198,24 +225,38 @@ export default function SupervisorAssessmentsPage() {
         orphanStatusFilter === 'ALL' ||
         row.orphanStatus.toLowerCase().includes(orphanStatusFilter.toLowerCase());
 
+      const matchesState =
+        stateFilter === 'ALL' ||
+        (row.state || 'Maharashtra').toLowerCase() === stateFilter.toLowerCase();
+
       const matchesDistrict =
         districtFilter === 'ALL' || row.district.toLowerCase() === districtFilter.toLowerCase();
 
-      return matchesSearch && matchesSchoolType && matchesOrphanStatus && matchesDistrict;
+      return matchesSearch && matchesState && matchesSchoolType && matchesOrphanStatus && matchesDistrict;
     });
-  }, [data, searchTerm, schoolTypeFilter, orphanStatusFilter, districtFilter]);
+  }, [data, searchTerm, schoolTypeFilter, orphanStatusFilter, stateFilter, districtFilter]);
 
   const hasActiveFilters =
     searchTerm !== '' ||
     schoolTypeFilter !== 'ALL' ||
     orphanStatusFilter !== 'ALL' ||
+    stateFilter !== 'ALL' ||
     districtFilter !== 'ALL';
 
   const resetFilters = () => {
     setSearchTerm('');
     setSchoolTypeFilter('ALL');
     setOrphanStatusFilter('ALL');
+    const defaultState =
+      user?.allowedStates && !user.allowedStates.includes('*') && user.allowedStates.length === 1
+        ? user.allowedStates[0]
+        : 'ALL';
+    setStateFilter(defaultState);
     setDistrictFilter('ALL');
+    fetchWithFilters({
+      state: defaultState === 'ALL' ? undefined : defaultState,
+      district: undefined,
+    });
   };
 
   const handleExportCSV = () => {
@@ -371,21 +412,40 @@ export default function SupervisorAssessmentsPage() {
 
         {/* Offline Cache Indicator Banner */}
         {isOfflineCache && !isError && (
-          <div className="mb-5 bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs">
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-5 bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-amber-900 shadow-xs"
+          >
             <div className="flex items-center space-x-2.5 text-xs">
               <Cloud className="w-5 h-5 text-amber-600 shrink-0" />
               <span>
-                <strong>Showing Offline Cached Snapshot:</strong> Network connection to central bridge is offline or unavailable. Cached linelist records are preserved.
+                {networkStatus === 'offline' ? (
+                  <>
+                    <strong>Offline · Cached Linelist:</strong> Network connection is offline. Cached linelist records are preserved.
+                  </>
+                ) : (
+                  <>
+                    <strong>Online · Cached Linelist:</strong> Live central bridge sync is pending or unreachable. Cached linelist records are preserved.
+                  </>
+                )}
               </span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={refresh}
-              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl"
+              className="text-xs text-amber-900 hover:bg-amber-100/80 border border-amber-300/80 rounded-xl cursor-pointer"
             >
               Reconnect
             </Button>
+          </div>
+        )}
+
+        {/* Case Status & Document Verification Readiness Dashboard (Issue #54) */}
+        {!isError && data.length > 0 && (
+          <div className="mb-5">
+            <CaseStatusSummaryDashboard records={data} />
           </div>
         )}
 
@@ -465,31 +525,15 @@ export default function SupervisorAssessmentsPage() {
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
               </div>
 
-              {/* District Filter Pill */}
-              <div className="relative min-w-[130px] sm:min-w-[150px] flex-1 sm:flex-initial">
-                <Building2
-                  className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors ${
-                    districtFilter !== 'ALL' ? 'text-teal-600' : 'text-slate-400'
-                  }`}
-                />
-                <select
-                  className={`w-full h-10 pl-9 pr-8 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/30 font-medium transition-all appearance-none cursor-pointer ${
-                    districtFilter !== 'ALL'
-                      ? 'bg-teal-50/80 border-teal-300 text-teal-900 font-semibold shadow-xs'
-                      : 'bg-slate-50 hover:bg-slate-100/60 border-slate-200 text-slate-700'
-                  }`}
-                  value={districtFilter}
-                  onChange={(e) => setDistrictFilter(e.target.value)}
-                >
-                  <option value="ALL">All Districts</option>
-                  <option value="Pune">Pune</option>
-                  <option value="Mumbai Suburban">Mumbai Suburban</option>
-                  <option value="Thane">Thane</option>
-                  <option value="Solapur">Solapur</option>
-                  <option value="Nashik">Nashik</option>
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-              </div>
+              {/* Dependent State & District Filter Suite (Issue #53) */}
+              <StateDistrictFilterBar
+                selectedState={stateFilter}
+                selectedDistrict={districtFilter}
+                onStateChange={handleStateChange}
+                onDistrictChange={handleDistrictChange}
+                availableStates={Array.from(new Set(data.map((r) => r.state).filter(Boolean)))}
+                availableDistricts={Array.from(new Set(data.map((r) => r.district).filter(Boolean)))}
+              />
             </div>
 
             {/* Right Suite: Action Buttons (Open GIS & Export CSV) */}
@@ -789,29 +833,12 @@ export default function SupervisorAssessmentsPage() {
                         </button>
                       </td>
 
-                      {/* Unified Action: View / Edit, Delete */}
+                      {/* Accessible Record Action Menu (Issue #55) */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end space-x-1.5">
-                          {/* Unified View / Edit Survey */}
-                          <Link
-                            href={`/assessment/record/${row.id}/edit`}
-                            title="View / Edit Survey"
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-900 rounded-lg transition-colors border border-purple-200/80 shadow-2xs"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            <span>View / Edit</span>
-                          </Link>
-
-                          {/* Delete Survey */}
-                          <button
-                            type="button"
-                            onClick={() => setDeleteConfirmId({ id: row.id, name: row.childName })}
-                            title="Delete Survey"
-                            className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 hover:text-rose-800 rounded-lg transition-colors border border-rose-200/60 shadow-2xs cursor-pointer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                        <RecordActionMenu
+                          row={row}
+                          onDeleteRequest={(r) => setDeleteConfirmId({ id: r.id, name: r.childName })}
+                        />
                       </td>
                     </tr>
                   ))
@@ -966,25 +993,11 @@ export default function SupervisorAssessmentsPage() {
                     )}
                   </div>
 
-                  {/* Actions: Unified View / Edit + Delete */}
-                  <div className="flex items-center space-x-2">
-                    <Link
-                      href={`/assessment/record/${row.id}/edit`}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 shadow-2xs"
-                      title="View / Edit"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      <span>View / Edit</span>
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirmId({ id: row.id, name: row.childName })}
-                      className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-slate-200"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {/* Actions: Accessible Record Action Menu (Issue #55) */}
+                  <RecordActionMenu
+                    row={row}
+                    onDeleteRequest={(r) => setDeleteConfirmId({ id: r.id, name: r.childName })}
+                  />
                 </div>
               </div>
             ))

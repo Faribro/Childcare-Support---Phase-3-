@@ -372,6 +372,7 @@ function SyncCentreContent() {
     records: serverSubmissions,
     status: serverStatus,
     error: serverError,
+    total: serverTotal,
     refresh: refreshServer,
     retry: retryServer,
     isLoading: isServerLoading,
@@ -805,7 +806,7 @@ function SyncCentreContent() {
   const attentionCount = attentionItems.length;
   /** Legacy alias: pendingCount now tracks ONLY actionable items. */
   const pendingCount = actionableCount;
-  const submittedCount = syncedItems.length;
+  const submittedCount = Math.max(syncedItems.length, serverTotal ?? 0);
 
   // Filter with Tab + Search Query + From/To Date
   const filteredItems = useMemo(() => {

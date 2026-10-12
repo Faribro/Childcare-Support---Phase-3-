@@ -35,6 +35,8 @@ export interface CanonicalListParams {
   limit?: number;
   status?: string;
   updatedAfter?: string;
+  state?: string;
+  district?: string;
 }
 
 export interface CanonicalSubmissionResult {
@@ -839,6 +841,8 @@ class CanonicalSubmissionAdapterService {
             limit: params.limit,
             status: params.status,
             updatedAfter: params.updatedAfter,
+            state: params.state,
+            district: params.district,
             secret: webhookSecret,
           }),
         });
