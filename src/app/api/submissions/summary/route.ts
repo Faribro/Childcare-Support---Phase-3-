@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
     }
 
     const rawRecords = listResult.data?.records || (Array.isArray(listResult.data) ? listResult.data : []);
-    
+
     // 3. Apply server-authoritative scope filtering
     let scoped = filterRecordsByScope(scope, rawRecords);
 
