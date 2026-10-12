@@ -149,10 +149,16 @@ export default function FieldWorkspacePage() {
     const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     try {
-      const res = await fetch('/api/submissions?limit=1', {
+      let res = await fetch('/api/submissions/summary', {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       });
+      if (!res.ok) {
+        res = await fetch('/api/submissions?limit=1', {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+      }
       clearTimeout(timeoutId);
 
       if (res.ok) {

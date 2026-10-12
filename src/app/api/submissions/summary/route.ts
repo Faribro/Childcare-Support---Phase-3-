@@ -89,7 +89,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const totalCount = scoped.length;
+    // Determine un-truncated total count
+    const hasWildcardScope = scope.allowedStates.includes('*') || scope.role === 'LEADERSHIP' || scope.role === 'ADMIN';
+    const upstreamTotal = listResult.pagination?.totalCount ?? listResult.data?.total;
+    const totalCount =
+      typeof upstreamTotal === 'number' && (hasWildcardScope || Boolean(stateParam))
+        ? upstreamTotal
+        : scoped.length;
     const now = new Date().toISOString();
 
     return NextResponse.json(
