@@ -145,6 +145,8 @@ test.describe('End-to-End Data Lifecycle Certification', () => {
     expect(verifyBody.version).toBe(2);
     expect(Number(verifyBody.data.weightKg || verifyBody.data.weight_kg)).toBe(17.2);
     expect(verifyBody.data.contactNumber || verifyBody.data.caregiverPhone).toBe('******9887');
+    // Ensure raw synthetic phone is absent from the serialized response body
+    expect(JSON.stringify(verifyBody)).not.toContain('9820099887');
   });
 
   test('Step 13: Stale Concurrent Edit Detection (OCC 409 Conflict)', async ({ request }) => {

@@ -87,9 +87,15 @@ test.describe('Sync Centre Outbox & Terminal State Actions', () => {
 
   // 1. Synthetic queued item shows "Saved on this device" and automatic sending
   test('1. Synthetic queued item shows Send now', async ({ page }) => {
-    // Intercept /api/submissions to delay completion so we can observe the queued outbox card
+    // Intercept /api/submissions with a deferred hold so the queued outbox card
+    // remains deterministically in the pending "Saved on this device" state during assertion
+    let fulfillSubmission: () => void;
+    const submissionHold = new Promise<void>((resolve) => {
+      fulfillSubmission = resolve;
+    });
+
     await page.route('**/api/submissions', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await submissionHold;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -133,14 +139,14 @@ test.describe('Sync Centre Outbox & Terminal State Actions', () => {
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
 
-    // Should render card for Queued Child with status chip indicating saved locally on device or submitted
-    const queuedCard = page.locator('div').filter({ hasText: 'Queued Child' }).first();
-    await expect(queuedCard).toBeVisible();
-    await expect(
-      queuedCard.getByText('Saved on this device', { exact: true })
-        .or(queuedCard.getByText('Submitted', { exact: true }))
-        .first()
-    ).toBeVisible();
+    try {
+      // Should render card for Queued Child with exact status chip indicating saved locally on device
+      const queuedCard = page.locator('div').filter({ hasText: 'Queued Child' }).first();
+      await expect(queuedCard).toBeVisible();
+      await expect(queuedCard.getByText('Saved on this device', { exact: true }).first()).toBeVisible();
+    } finally {
+      fulfillSubmission!();
+    }
   });
 
   // 2. Terminal invalid item shows Review/Correction and NOT retry action
@@ -192,13 +198,36 @@ test.describe('Sync Centre Outbox & Terminal State Actions', () => {
 
     // Inject retryable failed item
     await insertSyncQueueItem(page, {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      identityMigrationVersion: 1,
+      canonicalIdentityMigratedAt: new Date().toISOString(),
       submissionUuid: '00000000-0000-4000-8000-000000000003',
       idempotencyKey: 'test-retryable-key-3',
       operationType: 'CREATE',
-      payload: { demographics: { childName: 'Child Three', artNumber: 'DL-003' } },
+      payload: {
+        uuid: '00000000-0000-4000-8000-000000000003',
+        clientSubmissionId: '00000000-0000-4000-8000-000000000003',
+        demographics: {
+          childName: 'Child Three',
+          artNumber: 'DL-003',
+          caregiverName: 'Caregiver Three',
+        },
+        caregiverConsent: {
+          consentProvided: true,
+          consentVersion: 'v1.0-2026',
+          caregiverName: 'Caregiver Three',
+          caregiverRelationship: 'Mother',
+          consentCapturedAt: new Date().toISOString(),
+          signatureRequired: false,
+          signatureStatus: 'NOT_REQUIRED',
+        },
+        consent: {
+          agreeToParticipate: true,
+        },
+      },
       retryCount: 1,
       lastErrorCode: 503,
+      errorCategory: 'upstream_unavailable',
       lastAttempt: new Date().toISOString(),
       nextRetryTimestamp: Date.now() + 60000,
       errorMessage: 'Service Unavailable (503)',
@@ -219,13 +248,12 @@ test.describe('Sync Centre Outbox & Terminal State Actions', () => {
       });
     });
 
-    // The retry action should be available
+    // The retry action must be visible and functional
     const retryBtn = page.getByRole('button', { name: /Try again now/i }).first();
-    if (await retryBtn.isVisible()) {
-      await retryBtn.click();
-      // Should observe Sending... transition
-      await expect(page.locator('text=Sending…').first()).toBeVisible();
-    }
+    await expect(retryBtn).toBeVisible();
+    await retryBtn.click();
+    // Must observe Sending… transition
+    await expect(page.locator('text=Sending…').first()).toBeVisible();
   });
 
   // 4. Simulate success and observe Submitted status
@@ -339,13 +367,15 @@ test.describe('Sync Centre Outbox & Terminal State Actions', () => {
     });
     expect(hasOverflow).toBe(false);
 
-    // Check touch target heights >= 36px
-    const buttons = await page.locator('button').all();
-    for (const btn of buttons) {
+    // Check primary actionable touch target heights >= 44px, excluding narrow dismiss controls
+    const actionableButtons = await page
+      .locator('button:not([aria-label*="Dismiss"]):not([aria-label*="dismiss"])')
+      .all();
+    for (const btn of actionableButtons) {
       if (await btn.isVisible()) {
         const box = await btn.boundingBox();
         if (box && box.height > 0 && box.width > 30) {
-          expect(box.height).toBeGreaterThanOrEqual(36); // standard touch-target
+          expect(box.height).toBeGreaterThanOrEqual(44);
         }
       }
     }
