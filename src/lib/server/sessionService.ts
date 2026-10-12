@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import * as argon2 from 'argon2';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthPolicyRole } from './authorisation';
 
@@ -56,24 +55,97 @@ const loginAttemptsMap = new Map<string, RateLimitRecord>();
  * - Time Cost: 3 iterations
  * - Parallelism: 4 threads
  *
- * Library-generated salts: argon2 automatically generates a cryptographically secure,
- * unique 16-byte random salt per hash. No static salts are used.
+ * Cryptographically secure 16-byte random salt per hash.
  */
-export const ARGON2_CONFIG: argon2.HashOptions = {
-  type: argon2.argon2id,
+export interface Argon2ConfigOptions {
+  type?: number;
+  memoryCost: number;
+  timeCost: number;
+  parallelism: number;
+}
+
+export const ARGON2_CONFIG: Argon2ConfigOptions = {
+  type: 2, // argon2id
   memoryCost: 65536,
   timeCost: 3,
   parallelism: 4,
 };
 
+// Cached reference to native argon2 module (null = unattempted, false = unavailable)
+let nativeArgon2Module: typeof import('argon2') | null | false = null;
+
+async function getNativeArgon2(): Promise<typeof import('argon2') | null> {
+  if (nativeArgon2Module === false) return null;
+  if (nativeArgon2Module !== null) return nativeArgon2Module;
+  try {
+    const mod = await import('argon2');
+    // Test if bindings are resolvable before committing
+    if (typeof mod.hash === 'function') {
+      nativeArgon2Module = mod;
+      return mod;
+    }
+    nativeArgon2Module = false;
+    return null;
+  } catch {
+    nativeArgon2Module = false;
+    return null;
+  }
+}
+
 export async function hashPassword(plainText: string): Promise<string> {
-  const result = await argon2.hash(plainText, ARGON2_CONFIG);
+  // Tier 1: Try native N-API argon2
+  const native = await getNativeArgon2();
+  if (native) {
+    try {
+      const result = await native.hash(plainText, {
+        type: native.argon2id,
+        memoryCost: ARGON2_CONFIG.memoryCost,
+        timeCost: ARGON2_CONFIG.timeCost,
+        parallelism: ARGON2_CONFIG.parallelism,
+      });
+      return String(result);
+    } catch {
+      // Fall through to pure-WASM provider if native execution fails
+    }
+  }
+
+  // Tier 2: Pure WebAssembly fallback with identical OWASP parameters & RFC 9106 PHC string format
+  const { argon2id } = await import('hash-wasm');
+  const salt = crypto.randomBytes(16);
+  const result = await argon2id({
+    password: plainText,
+    salt,
+    parallelism: ARGON2_CONFIG.parallelism,
+    iterations: ARGON2_CONFIG.timeCost,
+    memorySize: ARGON2_CONFIG.memoryCost,
+    hashLength: 32,
+    outputType: 'encoded',
+  });
   return String(result);
 }
 
 export async function verifyPassword(hash: string, plainText: string): Promise<boolean> {
+  if (!hash || typeof hash !== 'string' || !plainText || typeof plainText !== 'string') {
+    return false;
+  }
+
+  // Tier 1: Try native N-API argon2
+  const native = await getNativeArgon2();
+  if (native) {
+    try {
+      return await native.verify(hash, plainText);
+    } catch {
+      // Fall through to pure-WASM provider if native verification fails
+    }
+  }
+
+  // Tier 2: Pure WebAssembly fallback
   try {
-    return await argon2.verify(hash, plainText);
+    const { argon2Verify } = await import('hash-wasm');
+    return await argon2Verify({
+      password: plainText,
+      hash,
+    });
   } catch {
     return false;
   }
