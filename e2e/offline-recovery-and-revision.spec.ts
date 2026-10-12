@@ -47,7 +47,15 @@ test.describe('Offline Recovery, Outbox Replay & Fault Matrix', () => {
 
     // Check Dashboard In-Progress Drafts section
     await page.goto('/app');
-    await expect(page.locator('text=My In-Progress Drafts')).toBeVisible();
+    const isMobile = (page.viewportSize()?.width || 0) < 768;
+    if (isMobile) {
+      const draftsLink = page.getByRole('link', { name: /Drafts/i });
+      await expect(draftsLink).toBeVisible();
+      await draftsLink.click();
+      await page.waitForURL('**/assessment/drafts');
+    } else {
+      await expect(page.locator('text=Local In-Progress Drafts')).toBeVisible();
+    }
 
     // Verify draft item is listed without false synced acknowledgment
     const draftCard = page.locator(`text=${testChildName}`).first();
