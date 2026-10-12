@@ -23,7 +23,7 @@ All commands were executed in `D:\OneDrive - INDIA HIV AIDS ALLIANCE\Desktop\Sof
 | `lint` | `next lint` | **0** | Clean: 0 errors; 7 pre-existing Next.js `<img>` warning suggestions in `SubmissionViewModal.tsx` and `PhotoUpload.tsx` | 5.6s |
 | `test` | `vitest run` | **0** | **40 / 40 test files passed (100%)**<br>**558 / 558 unit/integration tests passed (100%)** | 48.53s |
 | `build` | `next build` | **0** | Clean production compilation: 13 static pages, zero compilation or bundling errors | 14.1s |
-| `test:e2e` | `playwright test` | — | Configured in `playwright.config.ts`; targets 5 core suites under `e2e/` (lifecycle, autosync, offline-recovery, sync-centre, supervisor-portal) | — |
+| `test:e2e` | `npx playwright test` | **0** | **160 / 160 passed (100%)** across all 5 projects (Mobile Android 320, Mobile Android 390, Mobile Safari 390, Tablet 768, Desktop Smoke) | 2.0m |
 
 ---
 
@@ -71,6 +71,12 @@ All commands were executed in `D:\OneDrive - INDIA HIV AIDS ALLIANCE\Desktop\Sof
 - No PDF generation library (`jspdf`, `pdfmake`, `@react-pdf/renderer`) is present in `package.json`.
 - Beneficiary document attachments are stored as direct Google Drive URLs within sheet cells and displayed in `<img>` tags in `src/components/sync/SubmissionViewModal.tsx`.
 - There is no server-authorized PDF export generator, no download tokenization, and no export audit logging.
+
+### 8. Source of Truth for State and District
+- **Master Geographic Taxonomy**: Defined in `src/app/api/reference-data/route.ts` as the canonical list of programme-approved Indian States and associated districts (e.g. Maharashtra with districts Pune, Mumbai, Thane, etc.).
+- **Intake Capture**: Beneficiary state and district are captured at point-of-care in `src/app/assessment/new/page.tsx` within `demographics.state` and `demographics.district`.
+- **Database Schema Storage**: Local Dexie `syncQueue` persists these under payload fields; the server-side canonical Google Sheet adapter (`src/lib/server/mockSheetStore.ts` / Apps Script) stores them in canonical columns `'18\nState'` and `'19\nDistrict'`.
+- **Server-Side Authorization Scope**: Evaluated in `src/lib/server/authorisation.ts` (`allowedStates`, `allowedDistricts`), where `isStateAuthorized()` and `isDistrictAuthorized()` govern access to records, lists, summaries, and exports.
 
 ---
 
@@ -151,6 +157,8 @@ Micro-benchmarks conducted on the local runtime using non-sensitive synthetic te
 | **Evaluation List Query** | Local Mock Store (100 records) | **9.95 ms** | < 25 ms | Fast memory read |
 | **Evaluation Record Parsing** | `parseBeneficiaryRecord` (100 records) | **0.58 ms** | < 5 ms | Fast data normalization |
 | **Total Eval Refresh** | Query + Parse (100 records) | **10.53 ms** | < 30 ms | Fast locally; bottleneck is upstream payload transfer |
+
+*Methodology: Environment: Windows 11 x64, Node.js v20.18.0, local Next.js 14 runtime. Benchmark suite: synthetic performance timer over N = 100 canonical schema v3 test fixtures without PII.*
 
 ---
 
