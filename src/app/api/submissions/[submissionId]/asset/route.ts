@@ -3,6 +3,8 @@ import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdap
 import { resolveServerVerifiedRole } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 export async function POST(
   req: NextRequest,

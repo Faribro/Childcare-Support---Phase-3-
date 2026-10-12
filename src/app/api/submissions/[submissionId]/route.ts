@@ -10,6 +10,13 @@ import {
 } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  Pragma: 'no-cache',
+};
 
 export async function GET(
   req: NextRequest,
@@ -20,7 +27,7 @@ export async function GET(
     if (!submissionId) {
       return NextResponse.json(
         { status: 'error', code: 'INVALID_ID', message: 'Missing submissionId parameter' },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -35,7 +42,7 @@ export async function GET(
           code: result.code || 'NOT_FOUND',
           message: result.message || `Submission ${submissionId} not found`,
         },
-        { status: result.statusCode || 404 }
+        { status: result.statusCode || 404, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -46,13 +53,13 @@ export async function GET(
         remoteSubmissionId: result.remoteSubmissionId,
         version: result.version,
       },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (err: any) {
     console.error('GET /api/submissions/[submissionId] error:', err);
     return NextResponse.json(
       { status: 'error', code: 'INTERNAL_ERROR', message: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

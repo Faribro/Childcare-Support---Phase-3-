@@ -551,7 +551,17 @@ export default function EditRecordPage() {
         setOriginalConsentSnapshot(consentSnap);
         setFullOriginalRecord(foundRecord);
 
-        setFormData({
+        const pickNum = (candidates: any[], fallback: number): number => {
+          for (const val of candidates) {
+            if (val !== undefined && val !== null && val !== '') {
+              const num = Number(val);
+              if (!Number.isNaN(num)) return num;
+            }
+          }
+          return fallback;
+        };
+
+        const loadedFormData = {
           artNumber: d.artNumber || foundRecord['1\nUnique ID'] || foundRecord.uniqueId || submissionId,
           koboId: foundRecord.koboId || d.artNumber || '',
           dateOfFilling: d.dateOfFilling || foundRecord['7\nVisit Date'] || new Date().toISOString().split('T')[0],
@@ -579,13 +589,16 @@ export default function EditRecordPage() {
           aadhaarCardPhotoUrl: aadhaarPhoto,
           childPhotoUrl: childPhoto,
 
-          totalFamilyMembers: Number(hf.totalFamilyMembers || foundRecord['28\nHousehold Members'] || 4),
-          numberOfChildrenUnder18: Number(hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children'] || 2),
-          monthlyIncomeRs: Number(hf.monthlyIncomeRs || foundRecord['30\nMonthly Income'] || 5000),
+          totalFamilyMembers: pickNum([hf.totalFamilyMembers, foundRecord['28\nHousehold Members']], 4),
+          numberOfChildrenUnder18: pickNum([hf.numberOfChildrenUnder18, foundRecord['29\nNo of Children']], 2),
+          monthlyIncomeRs: pickNum(
+            [hf.monthlyIncomeRs, hf.monthlyHouseholdIncome, foundRecord.monthly_household_income, foundRecord['30\nMonthly Income']],
+            5000
+          ),
           mainSourceOfIncome: (hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || 'Daily wage labour') as MainSourceOfIncome,
 
-          weightKg: Number(h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg || 14.5),
-          heightCm: Number(h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm || 100),
+          weightKg: pickNum([h.weightKg, n.weightKg, foundRecord['32\nCurrent Weight (kg)'], foundRecord.weight_kg], 14.5),
+          heightCm: pickNum([h.heightCm, n.heightCm, foundRecord['33\nCurrent Height (cm)'], foundRecord.height_cm], 100),
           haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || '12.0'),
           otherHealthConditions: h.otherHealthConditions || [],
           otherHealthConditionSpecify: h.otherHealthConditionSpecify || '',
@@ -597,7 +610,7 @@ export default function EditRecordPage() {
           viralLoad: String(h.viralLoad || foundRecord['45\nViral Load'] || '< 50'),
 
           appetite: (n.appetite || foundRecord['47\nAppetite'] || 'Good') as AppetiteLevel,
-          mealsPerDay: Number(n.mealsPerDay || foundRecord['48\nMeals per Day'] || 3),
+          mealsPerDay: pickNum([n.mealsPerDay, foundRecord['48\nMeals per Day']], 3),
 
           educationStatus: (ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school') as EducationStatus,
           educationStatusSpecify: ed.educationStatusSpecify || '',
@@ -608,65 +621,67 @@ export default function EditRecordPage() {
           currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',
           attendance: (ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular') as AttendanceType,
 
-          schoolFees: Number(exp.schoolFees || foundRecord.schoolFees || foundRecord.school_fees || foundRecord['56\nSchool Fees'] || 0),
-          tuitionFees: Number(exp.tuitionFees || foundRecord.tuitionFees || foundRecord.tuition_fees || foundRecord['57\nPrivate Tuition Fee'] || 0),
-          books: Number(exp.books || foundRecord.books || foundRecord['58\nSchool Books'] || 0),
-          stationery: Number(exp.stationery || foundRecord.stationery || foundRecord['59\nSchool Stationery'] || 0),
-          uniform: Number(exp.uniform || foundRecord.uniform || foundRecord['60\nSchool Uniform'] || 0),
-          transport: Number(exp.transport || foundRecord.transport || foundRecord['61\nSchool Transport'] || 0),
-          otherExpenses: Number(exp.otherExpenses || foundRecord.otherExpenses || foundRecord.other_expenses || foundRecord['62\nSchool Other Expenses'] || 0),
+          schoolFees: pickNum([exp.schoolFees, foundRecord.schoolFees, foundRecord.school_fees, foundRecord['56\nSchool Fees']], 0),
+          tuitionFees: pickNum([exp.tuitionFees, foundRecord.tuitionFees, foundRecord.tuition_fees, foundRecord['57\nPrivate Tuition Fee']], 0),
+          books: pickNum([exp.books, foundRecord.books, foundRecord['58\nSchool Books']], 0),
+          stationery: pickNum([exp.stationery, foundRecord.stationery, foundRecord['59\nSchool Stationery']], 0),
+          uniform: pickNum([exp.uniform, foundRecord.uniform, foundRecord['60\nSchool Uniform']], 0),
+          transport: pickNum([exp.transport, foundRecord.transport, foundRecord['61\nSchool Transport']], 0),
+          otherExpenses: pickNum([exp.otherExpenses, foundRecord.otherExpenses, foundRecord.other_expenses, foundRecord['62\nSchool Other Expenses']], 0),
           feeReceiptPhotoUrl: feeReceiptPhoto,
           marksheetPhotoUrl: marksheetPhoto,
           remarks: exp.remarks || foundRecord.remarks || foundRecord['66\nRemarks (If Any)'] || '',
 
-          requiredSchoolFees: Number(req.requiredSchoolFees || 0),
-          requiredTuitionFees: Number(req.requiredTuitionFees || 0),
-          requiredBooks: Number(req.requiredBooks || 0),
-          requiredStationery: Number(req.requiredStationery || 0),
-          requiredUniform: Number(req.requiredUniform || 0),
-          requiredTransport: Number(req.requiredTransport || 0),
-          requiredOtherSupport: Number(req.requiredOtherSupport || 0),
+          requiredSchoolFees: pickNum([req.requiredSchoolFees, foundRecord.requiredSchoolFees, foundRecord.required_school_fees], 0),
+          requiredTuitionFees: pickNum([req.requiredTuitionFees, foundRecord.requiredTuitionFees, foundRecord.required_tuition_fees], 0),
+          requiredBooks: pickNum([req.requiredBooks, foundRecord.requiredBooks, foundRecord.required_books], 0),
+          requiredStationery: pickNum([req.requiredStationery, foundRecord.requiredStationery, foundRecord.required_stationery], 0),
+          requiredUniform: pickNum([req.requiredUniform, foundRecord.requiredUniform, foundRecord.required_uniform], 0),
+          requiredTransport: pickNum([req.requiredTransport, foundRecord.requiredTransport, foundRecord.required_transport], 0),
+          requiredOtherSupport: pickNum([req.requiredOtherSupport, foundRecord.requiredOtherSupport, foundRecord.required_other_support], 0),
 
           approvedAllianceIndia: (foundRecord.approvedAllianceIndia || fr.approvedAllianceIndia || foundRecord['67\nApproved Alliance India'] || 'Approved') as ApprovedAllianceStatus,
           allInfoCorrect: true,
           organizationName: fr.organizationName || foundRecord['69\nOrganization Name'] || 'India HIV/AIDS Alliance',
           formSubmittedBy: fr.formSubmittedBy || foundRecord.interviewerName || foundRecord['70\nForm Submitted By'] || 'Caseworker',
           organizationEmail: fr.organizationEmail || foundRecord['71\nOrganization Email'] || 'fieldworker@allianceindia.org',
-        });
+        };
 
-        // Capture the values at load time so we can diff edits in handleSaveRevision.
+        setFormData(loadedFormData);
+
+        // Capture the values at load time directly from loadedFormData so diffing in handleSaveRevision is 100% consistent.
         setOriginalSnapshot({
-          weightKg: Number(h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg || 14.5),
-          heightCm: Number(h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm || 100),
-          haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || '12.0'),
-          monthlyIncomeRs: Number(hf.monthlyIncomeRs || foundRecord['30\nMonthly Income'] || 0),
-          totalFamilyMembers: Number(hf.totalFamilyMembers || foundRecord['28\nHousehold Members'] || 4),
-          numberOfChildrenUnder18: Number(hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children'] || 2),
-          mainSourceOfIncome: hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || 'Daily wage labour',
-          appetite: n.appetite || foundRecord['47\nAppetite'] || 'Good',
-          mealsPerDay: Number(n.mealsPerDay || foundRecord['48\nMeals per Day'] || 3),
-          educationStatus: ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school',
-          schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
-          schoolType: ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school',
-          currentClass: (ed.currentClass !== undefined ? ed.currentClass : (ed.schoolGrade || foundRecord['54\nCurrent Class'] || '')) || '',
-          currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',
-          attendance: ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular',
-          schoolFees: Number(exp.schoolFees || foundRecord['56\nSchool Fees'] || 0),
-          tuitionFees: Number(exp.tuitionFees || foundRecord['57\nPrivate Tuition Fee'] || 0),
-          books: Number(exp.books || foundRecord['58\nSchool Books'] || 0),
-          stationery: Number(exp.stationery || foundRecord['59\nSchool Stationery'] || 0),
-          uniform: Number(exp.uniform || foundRecord['60\nSchool Uniform'] || 0),
-          transport: Number(exp.transport || foundRecord['61\nSchool Transport'] || 0),
-          otherExpenses: Number(exp.otherExpenses || foundRecord['62\nSchool Other Expenses'] || 0),
-          requiredSchoolFees: Number(req.requiredSchoolFees || 0),
-          requiredTuitionFees: Number(req.requiredTuitionFees || 0),
-          requiredBooks: Number(req.requiredBooks || 0),
-          requiredStationery: Number(req.requiredStationery || 0),
-          requiredUniform: Number(req.requiredUniform || 0),
-          requiredTransport: Number(req.requiredTransport || 0),
-          requiredOtherSupport: Number(req.requiredOtherSupport || 0),
-          approvedAllianceIndia: foundRecord.approvedAllianceIndia || fr.approvedAllianceIndia || 'Approved',
-          remarks: exp.remarks || foundRecord['66\nRemarks (If Any)'] || '',
+          weightKg: loadedFormData.weightKg,
+          heightCm: loadedFormData.heightCm,
+          haemoglobinGdl: loadedFormData.haemoglobinGdl,
+          monthlyIncomeRs: loadedFormData.monthlyIncomeRs,
+          totalFamilyMembers: loadedFormData.totalFamilyMembers,
+          numberOfChildrenUnder18: loadedFormData.numberOfChildrenUnder18,
+          mainSourceOfIncome: loadedFormData.mainSourceOfIncome,
+          appetite: loadedFormData.appetite,
+          mealsPerDay: loadedFormData.mealsPerDay,
+          educationStatus: loadedFormData.educationStatus,
+          schoolName: loadedFormData.schoolName,
+          schoolType: loadedFormData.schoolType,
+          currentClass: loadedFormData.currentClass,
+          currentClassSpecify: loadedFormData.currentClassSpecify,
+          attendance: loadedFormData.attendance,
+          schoolFees: loadedFormData.schoolFees,
+          tuitionFees: loadedFormData.tuitionFees,
+          books: loadedFormData.books,
+          stationery: loadedFormData.stationery,
+          uniform: loadedFormData.uniform,
+          transport: loadedFormData.transport,
+          otherExpenses: loadedFormData.otherExpenses,
+          requiredSchoolFees: loadedFormData.requiredSchoolFees,
+          requiredTuitionFees: loadedFormData.requiredTuitionFees,
+          requiredBooks: loadedFormData.requiredBooks,
+          requiredStationery: loadedFormData.requiredStationery,
+          requiredUniform: loadedFormData.requiredUniform,
+          requiredTransport: loadedFormData.requiredTransport,
+          requiredOtherSupport: loadedFormData.requiredOtherSupport,
+          approvedAllianceIndia: loadedFormData.approvedAllianceIndia,
+          remarks: loadedFormData.remarks,
         });
 
         // Check local signature
