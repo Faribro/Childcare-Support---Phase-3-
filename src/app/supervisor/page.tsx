@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -24,15 +24,20 @@ import {
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
 import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
+import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
 import type { BMICategory, VLCategory, HbCategory } from '@/types/domain';
 
 export default function SupervisorDashboardPage() {
-  const { isUnlocked, isLoaded } = useEvaluationAccess();
+  const { isUnlocked, isLoaded, user } = useEvaluationAccess();
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
   const {
     records,
     status,
     isLoading,
     isError,
+    isUnauthorized,
+    isForbidden,
     isEmpty,
     isOfflineCache,
     networkStatus,
@@ -41,9 +46,7 @@ export default function SupervisorDashboardPage() {
     refresh,
     retry,
     lastRefreshed,
-  } = useSupervisorData();
-
-
+  } = useSupervisorData({ enabled: isLoaded && isUnlocked });
 
   // Clinical Metrics Calculations (Authentic Phase 2 indicators)
   const totalEvaluated = records.length;
@@ -74,27 +77,54 @@ export default function SupervisorDashboardPage() {
   const enrolledRate = totalEvaluated > 0 ? Math.round((enrolledCount / totalEvaluated) * 100) : 0;
   const outOfSchoolRate = totalEvaluated > 0 ? Math.round((outOfSchoolCount / totalEvaluated) * 100) : 0;
 
-  if (isLoaded && !isUnlocked) {
+  if (!isLoaded) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-20 text-center">
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
+            <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto" />
+            <h2 className="text-sm font-semibold text-slate-800">Verifying Authorization…</h2>
+            <p className="text-xs text-slate-500">Checking credentials and scope clearance.</p>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (isLoaded && !isUnlocked && !isUnauthorized) {
     return (
       <AppShell>
         <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
-            <h2 className="text-base font-bold text-slate-900">Evaluation Portal Restricted</h2>
+            <h2 className="text-base font-bold text-slate-900">Authentication Required</h2>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Clinical evaluation and surveillance records are restricted to authorized personnel.
+              Clinical evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.
             </p>
-            <div className="pt-2">
-              <Link href="/">
-                <Button variant="primary" size="sm">
-                  Return to Dashboard
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="w-full sm:w-auto text-xs bg-teal-800 hover:bg-teal-900 text-white"
+              >
+                <Lock className="w-3.5 h-3.5 mr-1.5" />
+                Sign In to Access
+              </Button>
+              <Link href="/app" className="w-full sm:w-auto">
+                <Button variant="secondary" size="sm" className="w-full text-xs">
+                  Return to Forms
                 </Button>
               </Link>
             </div>
           </div>
         </div>
+        <EvaluationLoginModal
+          isOpen={isLoginModalOpen}
+          onClose={() => setIsLoginModalOpen(false)}
+        />
       </AppShell>
     );
   }
@@ -124,8 +154,49 @@ export default function SupervisorDashboardPage() {
           }
         />
 
-        {/* Error State Banner */}
-        {isError && (
+        {/* Unauthorized State Banner */}
+        {isUnauthorized && (
+          <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <Lock className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Session Authentication Required</h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Your session has expired or requires authentication. Please sign in to read beneficiary surveillance records.
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="text-xs bg-teal-800 hover:bg-teal-900 text-white"
+              >
+                <Lock className="w-3.5 h-3.5 mr-1" />
+                Sign In Again
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Forbidden Scope Banner */}
+        {isForbidden && (
+          <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Geographic Scope Restricted</h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  {error?.message || 'Your account does not have clearance for this state or district selection.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Genuine Network / Upstream Error State Banner */}
+        {isError && !isUnauthorized && !isForbidden && (
           <div className="mb-6 bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
             <div className="flex items-start space-x-3">
               <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
@@ -216,6 +287,8 @@ export default function SupervisorDashboardPage() {
             <div className="text-2xl sm:text-3xl font-bold text-slate-900">
               {isLoading && totalEvaluated === 0 ? (
                 <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isUnauthorized || isForbidden ? (
+                <span className="text-slate-400 font-normal">—</span>
               ) : isError && totalEvaluated === 0 ? (
                 <span className="text-slate-400 font-normal">—</span>
               ) : (
@@ -225,7 +298,13 @@ export default function SupervisorDashboardPage() {
             <p className="text-[11px] text-teal-700 font-medium mt-1 flex items-center">
               <TrendingUp className="h-3 w-3 mr-1" />
               <span>
-                {isError && totalEvaluated === 0 ? 'Data Unavailable' : 'Active Linelist Beneficiaries'}
+                {isUnauthorized
+                  ? 'Authentication Required'
+                  : isForbidden
+                  ? 'Scope Restricted'
+                  : isError && totalEvaluated === 0
+                  ? 'Data Unavailable'
+                  : 'Active Linelist Beneficiaries'}
               </span>
             </p>
           </div>
@@ -239,6 +318,8 @@ export default function SupervisorDashboardPage() {
             <div className="text-2xl sm:text-3xl font-bold text-emerald-700">
               {isLoading && totalEvaluated === 0 ? (
                 <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isUnauthorized || isForbidden ? (
+                <span className="text-slate-400 font-normal">—</span>
               ) : isError && totalEvaluated === 0 ? (
                 <span className="text-slate-400 font-normal">—</span>
               ) : (
@@ -246,7 +327,11 @@ export default function SupervisorDashboardPage() {
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-              {isError && totalEvaluated === 0 ? (
+              {isUnauthorized ? (
+                <span className="text-amber-700 font-medium">Auth required</span>
+              ) : isForbidden ? (
+                <span className="text-amber-700 font-medium">Scope restricted</span>
+              ) : isError && totalEvaluated === 0 ? (
                 <span className="text-rose-600">Connection error</span>
               ) : (
                 <>
@@ -266,6 +351,8 @@ export default function SupervisorDashboardPage() {
             <div className="text-2xl sm:text-3xl font-bold text-amber-600">
               {isLoading && totalEvaluated === 0 ? (
                 <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isUnauthorized || isForbidden ? (
+                <span className="text-slate-400 font-normal">—</span>
               ) : isError && totalEvaluated === 0 ? (
                 <span className="text-slate-400 font-normal">—</span>
               ) : (
@@ -273,7 +360,11 @@ export default function SupervisorDashboardPage() {
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              {isError && totalEvaluated === 0 ? (
+              {isUnauthorized ? (
+                <span className="text-amber-700 font-medium">Auth required</span>
+              ) : isForbidden ? (
+                <span className="text-amber-700 font-medium">Scope restricted</span>
+              ) : isError && totalEvaluated === 0 ? (
                 <span className="text-rose-600">Connection error</span>
               ) : (
                 `${severeUnderweightCount} Severe • ${moderateUnderweightCount} Moderate Underweight`
@@ -290,6 +381,8 @@ export default function SupervisorDashboardPage() {
             <div className="text-2xl sm:text-3xl font-bold text-teal-900">
               {isLoading && totalEvaluated === 0 ? (
                 <span className="text-slate-300 text-xl font-normal">Loading...</span>
+              ) : isUnauthorized || isForbidden ? (
+                <span className="text-slate-400 font-normal">—</span>
               ) : isError && totalEvaluated === 0 ? (
                 <span className="text-slate-400 font-normal">—</span>
               ) : (
@@ -297,7 +390,11 @@ export default function SupervisorDashboardPage() {
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-              {isError && totalEvaluated === 0 ? (
+              {isUnauthorized ? (
+                <span className="text-amber-700 font-medium">Auth required</span>
+              ) : isForbidden ? (
+                <span className="text-amber-700 font-medium">Scope restricted</span>
+              ) : isError && totalEvaluated === 0 ? (
                 <span className="text-rose-600">Connection error</span>
               ) : (
                 <>
@@ -317,7 +414,33 @@ export default function SupervisorDashboardPage() {
         )}
 
         {/* Clinical Health & Surveillance Visualizations */}
-        {isError && totalEvaluated === 0 ? (
+        {isUnauthorized ? (
+          <div className="bg-white rounded-2xl border border-amber-200 p-8 text-center space-y-3 mb-8 shadow-xs">
+            <Lock className="w-8 h-8 text-amber-500 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-800">Authentication Required</h4>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Nutritional risk distributions, HIV viral load cascades, and education indicators require a verified evaluation session.
+            </p>
+            <div className="pt-1">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="text-xs bg-teal-800 hover:bg-teal-900 text-white"
+              >
+                Sign In to View Visualizations
+              </Button>
+            </div>
+          </div>
+        ) : isForbidden ? (
+          <div className="bg-white rounded-2xl border border-amber-200 p-8 text-center space-y-3 mb-8 shadow-xs">
+            <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-800">Scope Clearance Restricted</h4>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Your account does not have access to view records outside your authorized state/district jurisdiction.
+            </p>
+          </div>
+        ) : isError && totalEvaluated === 0 ? (
           <div className="bg-white rounded-2xl border border-rose-200 p-8 text-center space-y-3 mb-8 shadow-xs">
             <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
             <h4 className="text-sm font-bold text-slate-800">Clinical Surveillance Visualizations Unavailable</h4>
@@ -334,121 +457,126 @@ export default function SupervisorDashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
             {/* Growth & BMI Breakdown */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Paediatric BMI & Growth</h3>
-              <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">WHO Standard</span>
-            </div>
-            <div className="text-xs text-slate-500 mb-4">Underweight vs Normal BMI distribution</div>
-
-            {/* Segmented bar */}
-            <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
-              <div
-                style={{ width: `${totalEvaluated > 0 ? (normalBMICount / totalEvaluated) * 100 : 0}%` }}
-                className="bg-emerald-500 h-full transition-all"
-                title="Normal BMI"
-              />
-              <div
-                style={{ width: `${totalEvaluated > 0 ? (moderateUnderweightCount / totalEvaluated) * 100 : 0}%` }}
-                className="bg-amber-400 h-full transition-all"
-                title="Moderate Underweight"
-              />
-              <div
-                style={{ width: `${totalEvaluated > 0 ? (severeUnderweightCount / totalEvaluated) * 100 : 0}%` }}
-                className="bg-rose-500 h-full transition-all"
-                title="Severe Underweight"
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                <span className="block text-[10px] text-slate-500 font-medium">Normal</span>
-                <span className="text-sm font-bold text-emerald-700">{normalBMICount}</span>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Paediatric BMI & Growth</h3>
+                <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">WHO Standard</span>
               </div>
-              <div className="p-2 rounded-xl bg-amber-50/70 border border-amber-200">
-                <span className="block text-[10px] text-slate-500 font-medium">Moderate</span>
-                <span className="text-sm font-bold text-amber-700">{moderateUnderweightCount}</span>
+              <div className="text-xs text-slate-500 mb-4">Underweight vs Normal BMI distribution</div>
+
+              {/* Segmented bar */}
+              <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? (normalBMICount / totalEvaluated) * 100 : 0}%` }}
+                  className="bg-emerald-500 h-full transition-all"
+                  title="Normal BMI"
+                />
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? (moderateUnderweightCount / totalEvaluated) * 100 : 0}%` }}
+                  className="bg-amber-400 h-full transition-all"
+                  title="Moderate Underweight"
+                />
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? (severeUnderweightCount / totalEvaluated) * 100 : 0}%` }}
+                  className="bg-rose-500 h-full transition-all"
+                  title="Severe Underweight"
+                />
               </div>
-              <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200">
-                <span className="block text-[10px] text-slate-500 font-medium">Severe</span>
-                <span className="text-sm font-bold text-rose-700">{severeUnderweightCount}</span>
+
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">Normal</span>
+                  <span className="text-sm font-bold text-emerald-700">{normalBMICount}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-amber-50/70 border border-amber-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">Moderate</span>
+                  <span className="text-sm font-bold text-amber-700">{moderateUnderweightCount}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">Severe</span>
+                  <span className="text-sm font-bold text-rose-700">{severeUnderweightCount}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Viral Load Suppression Cascade */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">HIV Viral Load Cascade</h3>
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">NACO 95-95-95</span>
+              </div>
+              <div className="text-xs text-slate-500 mb-4">Suppressed (&lt;1000) vs High Viral Load</div>
+
+              {/* Segmented bar */}
+              <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? (suppressedCount / totalEvaluated) * 100 : 0}%` }}
+                  className="bg-teal-600 h-full transition-all"
+                  title="Suppressed (<1000 copies/mL)"
+                />
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? (unsuppressedCount / totalEvaluated) * 100 : 0}%` }}
+                  className="bg-rose-500 h-full transition-all"
+                  title="Unsuppressed (≥1000 copies/mL)"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="p-2 rounded-xl bg-teal-50/70 border border-teal-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">Suppressed (&lt;1000)</span>
+                  <span className="text-sm font-bold text-teal-900">{suppressedCount} ({suppressionRate}%)</span>
+                </div>
+                <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">High VL (≥1000)</span>
+                  <span className="text-sm font-bold text-rose-700">{unsuppressedCount}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Education & Attendance Status */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Education & Attendance</h3>
+                <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full">Grant Linked</span>
+              </div>
+              <div className="text-xs text-slate-500 mb-4">School enrollment & attendance status</div>
+
+              {/* Segmented bar */}
+              <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? enrolledRate : 0}%` }}
+                  className="bg-sky-600 h-full transition-all"
+                  title={`School Enrolled (${enrolledRate}%)`}
+                />
+                <div
+                  style={{ width: `${totalEvaluated > 0 ? outOfSchoolRate : 0}%` }}
+                  className="bg-slate-300 h-full transition-all"
+                  title={`Out of School (${outOfSchoolRate}%)`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="p-2 rounded-xl bg-sky-50/70 border border-sky-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">Enrolled in School</span>
+                  <span className="text-sm font-bold text-sky-900">
+                    {totalEvaluated > 0 ? `${enrolledCount} (${enrolledRate}%)` : '0 (0%)'}
+                  </span>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="block text-[10px] text-slate-500 font-medium">Out of School</span>
+                  <span className="text-sm font-bold text-slate-700">
+                    {totalEvaluated > 0 ? `${outOfSchoolCount} (${outOfSchoolRate}%)` : '0 (0%)'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
-
-          {/* Viral Load Suppression Cascade */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">HIV Viral Load Cascade</h3>
-              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">NACO 95-95-95</span>
-            </div>
-            <div className="text-xs text-slate-500 mb-4">Suppressed (&lt;1000) vs High Viral Load</div>
-
-            {/* Segmented bar */}
-            <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
-              <div
-                style={{ width: `${totalEvaluated > 0 ? (suppressedCount / totalEvaluated) * 100 : 0}%` }}
-                className="bg-teal-600 h-full transition-all"
-                title="Suppressed (<1000 copies/mL)"
-              />
-              <div
-                style={{ width: `${totalEvaluated > 0 ? (unsuppressedCount / totalEvaluated) * 100 : 0}%` }}
-                className="bg-rose-500 h-full transition-all"
-                title="Unsuppressed (≥1000 copies/mL)"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-center text-xs">
-              <div className="p-2 rounded-xl bg-teal-50/70 border border-teal-200">
-                <span className="block text-[10px] text-slate-500 font-medium">Suppressed (&lt;1000)</span>
-                <span className="text-sm font-bold text-teal-900">{suppressedCount} ({suppressionRate}%)</span>
-              </div>
-              <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200">
-                <span className="block text-[10px] text-slate-500 font-medium">High VL (≥1000)</span>
-                <span className="text-sm font-bold text-rose-700">{unsuppressedCount}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Education & Attendance Status */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Education & Attendance</h3>
-              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full">Grant Linked</span>
-            </div>
-            <div className="text-xs text-slate-500 mb-4">School enrollment & attendance status</div>
-
-            {/* Segmented bar */}
-            <div className="h-4 w-full rounded-full overflow-hidden flex bg-slate-100 shadow-inner mb-3">
-              <div
-                style={{ width: `${totalEvaluated > 0 ? enrolledRate : 0}%` }}
-                className="bg-sky-600 h-full transition-all"
-                title={`School Enrolled (${enrolledRate}%)`}
-              />
-              <div
-                style={{ width: `${totalEvaluated > 0 ? outOfSchoolRate : 0}%` }}
-                className="bg-slate-300 h-full transition-all"
-                title={`Out of School (${outOfSchoolRate}%)`}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-center text-xs">
-              <div className="p-2 rounded-xl bg-sky-50/70 border border-sky-200">
-                <span className="block text-[10px] text-slate-500 font-medium">Enrolled in School</span>
-                <span className="text-sm font-bold text-sky-900">
-                  {totalEvaluated > 0 ? `${enrolledCount} (${enrolledRate}%)` : '0 (0%)'}
-                </span>
-              </div>
-              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="block text-[10px] text-slate-500 font-medium">Out of School</span>
-                <span className="text-sm font-bold text-slate-700">
-                  {totalEvaluated > 0 ? `${outOfSchoolCount} (${outOfSchoolRate}%)` : '0 (0%)'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
       </div>
+
+      <EvaluationLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
     </AppShell>
   );
 }

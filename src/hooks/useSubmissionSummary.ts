@@ -119,10 +119,20 @@ export function useSubmissionSummary(filters?: SubmissionSummaryFilters): Submis
           } else if (typeof json.pagination?.totalCount === 'number') {
             confirmed = json.pagination.totalCount;
           }
+        } else if (res.status === 401 || res.status === 403) {
+          // Unauthenticated or out-of-scope caller: do NOT attempt fallback endpoint!
+          // Fall back gracefully to local counts without error state.
+          clearTimeout(timeoutId);
+          if (isMountedRef.current) {
+            setSource('local');
+            setIsLoading(false);
+            setIsError(false);
+          }
+          return;
         }
       } catch (_) {}
 
-      // Fallback: /api/submissions?limit=1 if summary failed
+      // Fallback: /api/submissions?limit=1 if summary failed with non-auth error
       if (confirmed === null && !controller.signal.aborted) {
         const fallbackRes = await fetch(`/api/submissions?limit=1${queryString ? '&' + queryString.slice(1) : ''}`, {
           signal: controller.signal,
@@ -137,6 +147,14 @@ export function useSubmissionSummary(filters?: SubmissionSummaryFilters): Submis
           } else if (typeof json.total === 'number') {
             confirmed = json.total;
           }
+        } else if (fallbackRes.status === 401 || fallbackRes.status === 403) {
+          clearTimeout(timeoutId);
+          if (isMountedRef.current) {
+            setSource('local');
+            setIsLoading(false);
+            setIsError(false);
+          }
+          return;
         }
       }
 

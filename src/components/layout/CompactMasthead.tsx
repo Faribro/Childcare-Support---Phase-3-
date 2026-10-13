@@ -39,10 +39,13 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
       const handleOnline = () => setIsOnline(true);
       const handleOffline = () => setIsOnline(false);
 
+      const handleOpenLogin = () => setIsLoginModalOpen(true);
+      window.addEventListener('child_nutrition:open_login_modal', handleOpenLogin);
       window.addEventListener('online', handleOnline);
       window.addEventListener('offline', handleOffline);
 
       return () => {
+        window.removeEventListener('child_nutrition:open_login_modal', handleOpenLogin);
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('offline', handleOffline);
       };

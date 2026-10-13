@@ -60,7 +60,15 @@ export interface SupervisorBeneficiaryRow {
   approvedStatus: string;
 }
 
-export type SupervisorDataStatus = 'idle' | 'loading' | 'success' | 'empty' | 'error' | 'offline_cache';
+export type SupervisorDataStatus =
+  | 'idle'
+  | 'loading'
+  | 'success'
+  | 'empty'
+  | 'error'
+  | 'offline_cache'
+  | 'unauthorized'
+  | 'forbidden';
 
 export interface SupervisorDataError {
   code: string;
@@ -432,9 +440,40 @@ class SupervisorReadModelService {
     }
   }
 
-  public subscribe(listener: () => void): () => void {
+  public isInitializedState(): boolean {
+    return this.isInitialized;
+  }
+
+  public initiateFetch(force: boolean = false) {
+    this.isInitialized = true;
+    return this.fetchSubmissions({ force });
+  }
+
+  public purgeSession() {
+    this.stopPolling();
+    this.inFlightPromise = null;
+    this.isInitialized = false;
+    this.activeFilters = {};
+    this.clearCache();
+    this.state = {
+      status: 'idle',
+      records: [],
+      total: 0,
+      lastRefreshed: null,
+      lastSuccessAt: null,
+      error: null,
+      isOnline: true,
+      consecutiveFailures: 0,
+      networkStatus: getBrowserNetworkHint(),
+      dataSource: 'local-only',
+      syncStatus: 'synced',
+    };
+    this.notify();
+  }
+
+  public subscribe(listener: () => void, options?: { enabled?: boolean }): () => void {
     this.listeners.add(listener);
-    if (!this.isInitialized) {
+    if (options?.enabled !== false && !this.isInitialized) {
       this.isInitialized = true;
       this.fetchSubmissions({ force: false }).catch(() => {});
     }
@@ -607,7 +646,10 @@ class SupervisorReadModelService {
 
       // Do not enter loading screen if we already have records (silent background refresh)
       if (this.state.records.length === 0) {
-        this.state.status = 'loading';
+        this.state = {
+          ...this.state,
+          status: 'loading',
+        };
         this.notify();
       }
 
@@ -653,10 +695,8 @@ class SupervisorReadModelService {
             errMsg = `Gateway returned HTTP ${res.status}: ${res.statusText}`;
           }
 
-          this.state.consecutiveFailures += 1;
-          this.state.networkStatus = getBrowserNetworkHint() === 'offline' ? 'offline' : 'online';
-          this.state.syncStatus = retryable ? 'retrying' : 'failed';
-          this.state.error = {
+          const nextFailures = this.state.consecutiveFailures + 1;
+          const errorObj = {
             code: errCode,
             message: errMsg,
             retryable,
@@ -664,37 +704,80 @@ class SupervisorReadModelService {
             requestId: reqId,
           };
 
-          // Non-retryable error (terminal 4xx): halt polling completely!
-          // On 401/403 auth or scope failure, purge cached records so data never leaks across users/scopes.
-          if (!retryable || [400, 401, 403].includes(res.status)) {
-            if (res.status === 401 || res.status === 403) {
-              this.state.records = [];
-              this.state.total = 0;
-              this.state.dataSource = 'local-only';
-              this.clearCache();
+          // Auth or scope failure: halt polling immediately and purge records
+          if (res.status === 401) {
+            this.clearCache();
+            this.stopPolling();
+            this.state = {
+              ...this.state,
+              records: [],
+              total: 0,
+              dataSource: 'local-only',
+              status: 'unauthorized',
+              consecutiveFailures: nextFailures,
+              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+              syncStatus: 'failed',
+              error: errorObj,
+            };
+            this.notify();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('child_nutrition:session_unauthorized'));
             }
-            this.state.status = 'error';
+            return;
+          }
+
+          if (res.status === 403) {
+            this.clearCache();
+            this.stopPolling();
+            this.state = {
+              ...this.state,
+              records: [],
+              total: 0,
+              dataSource: 'local-only',
+              status: 'forbidden',
+              consecutiveFailures: nextFailures,
+              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+              syncStatus: 'failed',
+              error: errorObj,
+            };
+            this.notify();
+            return;
+          }
+
+          // Non-retryable error (terminal 4xx): halt polling completely!
+          if (!retryable || res.status === 400) {
+            this.stopPolling();
+            this.state = {
+              ...this.state,
+              status: 'error',
+              consecutiveFailures: nextFailures,
+              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+              syncStatus: 'failed',
+              error: errorObj,
+            };
             this.notify();
             return;
           }
 
           // Retryable error: retain cached records if available, otherwise show error
-          if (this.state.records.length > 0) {
-            this.state.status = 'offline_cache';
-            this.state.dataSource = 'cache';
-          } else {
-            this.state.status = 'error';
-          }
-
+          this.state = {
+            ...this.state,
+            status: this.state.records.length > 0 ? 'offline_cache' : 'error',
+            dataSource: this.state.records.length > 0 ? 'cache' : 'local-only',
+            consecutiveFailures: nextFailures,
+            networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+            syncStatus: retryable ? 'retrying' : 'failed',
+            error: errorObj,
+          };
           this.notify();
 
           // Exponential backoff with jitter
           const backoff = Math.min(
-            10000 * Math.pow(1.5, Math.min(this.state.consecutiveFailures, 5)),
+            10000 * Math.pow(1.5, Math.min(nextFailures, 5)),
             MAX_BACKOFF_MS
           ) + Math.random() * 2000;
 
-          if (this.state.consecutiveFailures < 6) {
+          if (nextFailures < 6) {
             this.schedulePoll(backoff);
           }
           return;
@@ -739,24 +822,22 @@ class SupervisorReadModelService {
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isAbort = err?.name === 'AbortError';
-        this.state.consecutiveFailures += 1;
-        this.state.networkStatus = getBrowserNetworkHint() === 'offline' ? 'offline' : 'online';
-        this.state.syncStatus = 'retrying';
-        this.state.error = {
-          code: isAbort ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR',
-          message: isAbort
-            ? 'Request to central bridge timed out after 15 seconds.'
-            : 'Unable to connect to records server. Check your connection.',
-          retryable: true,
+        const nextFailures = this.state.consecutiveFailures + 1;
+        this.state = {
+          ...this.state,
+          consecutiveFailures: nextFailures,
+          networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+          syncStatus: 'retrying',
+          status: this.state.records.length > 0 ? 'offline_cache' : 'error',
+          dataSource: this.state.records.length > 0 ? 'cache' : 'local-only',
+          error: {
+            code: isAbort ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR',
+            message: isAbort
+              ? 'Request to central bridge timed out after 15 seconds.'
+              : 'Unable to connect to records server. Check your connection.',
+            retryable: true,
+          },
         };
-
-        if (this.state.records.length > 0) {
-          this.state.status = 'offline_cache';
-          this.state.dataSource = 'cache';
-        } else {
-          this.state.status = 'error';
-        }
-
         this.notify();
 
         const backoff = Math.min(

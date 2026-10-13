@@ -43,6 +43,8 @@ export interface SupervisorDataHook {
   activeFilters: { state?: string; district?: string };
   isLoading: boolean;
   isError: boolean;
+  isUnauthorized: boolean;
+  isForbidden: boolean;
   isEmpty: boolean;
   isOfflineCache: boolean;
   networkStatus: NetworkStatus;
@@ -51,18 +53,28 @@ export interface SupervisorDataHook {
   formattedStatus: FormattedStatus;
 }
 
-export function useSupervisorData(options?: { autoFetch?: boolean }): SupervisorDataHook {
+export function useSupervisorData(options?: { enabled?: boolean; autoFetch?: boolean }): SupervisorDataHook {
+  const enabled = options?.enabled !== false;
   const [modelState, setModelState] = useState<SupervisorReadModelState>(() =>
     supervisorReadModel.getSnapshot()
   );
 
   useEffect(() => {
-    const unsubscribe = supervisorReadModel.subscribe(() => {
-      setModelState(supervisorReadModel.getSnapshot());
-    });
-    setModelState(supervisorReadModel.getSnapshot());
+    const unsubscribe = supervisorReadModel.subscribe(
+      () => {
+        setModelState({ ...supervisorReadModel.getSnapshot() });
+      },
+      { enabled }
+    );
+    setModelState({ ...supervisorReadModel.getSnapshot() });
     return unsubscribe;
-  }, []);
+  }, [enabled]);
+
+  useEffect(() => {
+    if (enabled && !supervisorReadModel.isInitializedState()) {
+      supervisorReadModel.initiateFetch().catch(() => {});
+    }
+  }, [enabled]);
 
   const refresh = useCallback(async () => {
     await supervisorReadModel.fetchSubmissions({ force: true });
@@ -101,8 +113,10 @@ export function useSupervisorData(options?: { autoFetch?: boolean }): Supervisor
     retry,
     setRecords,
     activeFilters: supervisorReadModel.getActiveFilters(),
-    isLoading: modelState.status === 'loading',
-    isError: modelState.status === 'error',
+    isLoading: enabled ? modelState.status === 'loading' : false,
+    isError: modelState.status === 'error' || modelState.status === 'unauthorized' || modelState.status === 'forbidden',
+    isUnauthorized: modelState.status === 'unauthorized',
+    isForbidden: modelState.status === 'forbidden',
     isEmpty: modelState.status === 'empty',
     isOfflineCache: modelState.status === 'offline_cache',
     networkStatus: modelState.networkStatus,
