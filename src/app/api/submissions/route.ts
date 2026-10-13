@@ -3,13 +3,23 @@ import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import {
   resolveUserAccessScope,
+  isSyntheticDemoModeAllowed,
   isStateAuthorized,
   isDistrictAuthorized,
   filterRecordsByScope,
   logSecurityEvent,
+  UserAccessScope,
 } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
+const AUTH_SCOPED_NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  Pragma: 'no-cache',
+  Vary: 'Cookie, Authorization',
+};
 
 export async function GET(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || `req-list-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
@@ -17,11 +27,81 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const clientSubmissionId = searchParams.get('clientSubmissionId');
 
+    // Resolve caller scope (Issue #57)
+    const scope = resolveUserAccessScope(req);
+    const syntheticDemoAllowed = !scope.isVerified && isSyntheticDemoModeAllowed(req);
+
+    if (!scope.isVerified && !syntheticDemoAllowed) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'AUTH_FAILURE',
+        outcome: 'DENY',
+        details: 'Unauthenticated request denied on GET /api/submissions',
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required to read beneficiary submissions.',
+          requestId,
+          retryable: false,
+        },
+        {
+          status: 401,
+          headers: {
+            ...AUTH_SCOPED_NO_STORE_HEADERS,
+            'X-Request-Id': requestId,
+          },
+        }
+      );
+    }
+
+    const effectiveScope: UserAccessScope = syntheticDemoAllowed
+      ? {
+          ...scope,
+          isVerified: true,
+          allowedStates: ['*'],
+          allowedDistricts: ['*'],
+          reason: 'synthetic_demo_mode',
+        }
+      : scope;
+
     // Single-record reconciliation lookup by clientSubmissionId
     if (clientSubmissionId) {
       const trimmedId = clientSubmissionId.trim();
       const record = await canonicalSubmissionAdapter.getSubmission(trimmedId, 'supervisor');
       if (record.status === 'success' && record.data) {
+        const recordState = record.data.state || record.data['18\nState'] || record.data.demographics?.state || 'Maharashtra';
+        const recordDistrict = record.data.district || record.data['19\nDistrict'] || record.data.demographics?.district || undefined;
+        if (!isStateAuthorized(effectiveScope, recordState) || (recordDistrict && !isDistrictAuthorized(effectiveScope, recordState, recordDistrict))) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: 'SCOPE_VIOLATION',
+            outcome: 'DENY',
+            targetResource: trimmedId,
+            scope: `state=${recordState},district=${recordDistrict || ''}`,
+            details: 'Caller attempted reconciliation lookup outside authorized geographic scope',
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: 'FORBIDDEN_SCOPE',
+              message: 'Access denied to submission outside your assigned geographic scope.',
+              requestId,
+              retryable: false,
+            },
+            {
+              status: 403,
+              headers: {
+                ...AUTH_SCOPED_NO_STORE_HEADERS,
+                'X-Request-Id': requestId,
+              },
+            }
+          );
+        }
+
         const remoteSubmissionId = record.remoteSubmissionId || record.data.remoteSubmissionId || record.data.uniqueId;
         const version = record.version || record.data.version || record.data.revisionNumber || 1;
         return NextResponse.json(
@@ -44,7 +124,7 @@ export async function GET(req: NextRequest) {
           {
             status: 200,
             headers: {
-              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+              ...AUTH_SCOPED_NO_STORE_HEADERS,
               'X-Request-Id': requestId,
             },
           }
@@ -61,7 +141,7 @@ export async function GET(req: NextRequest) {
           {
             status: 404,
             headers: {
-              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+              ...AUTH_SCOPED_NO_STORE_HEADERS,
               'X-Request-Id': requestId,
             },
           }
@@ -75,18 +155,15 @@ export async function GET(req: NextRequest) {
     const stateParam = searchParams.get('state') || undefined;
     const districtParam = searchParams.get('district') || undefined;
 
-    // Resolve caller scope (Issue #57)
-    const scope = resolveUserAccessScope(req);
-
     // Validate state & district authorization
-    if (stateParam && !isStateAuthorized(scope, stateParam)) {
+    if (stateParam && !isStateAuthorized(effectiveScope, stateParam)) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'SCOPE_VIOLATION',
         outcome: 'DENY',
         scope: `state=${stateParam}`,
-        details: `Access to state '${stateParam}' forbidden for scope [${scope.allowedStates.join(',')}]`,
+        details: `Access to state '${stateParam}' forbidden for scope [${effectiveScope.allowedStates.join(',')}]`,
       });
       return NextResponse.json(
         {
@@ -95,11 +172,25 @@ export async function GET(req: NextRequest) {
           message: `Access denied to records for state "${stateParam}".`,
           requestId,
         },
-        { status: 403 }
+        {
+          status: 403,
+          headers: {
+            ...AUTH_SCOPED_NO_STORE_HEADERS,
+            'X-Request-Id': requestId,
+          },
+        }
       );
     }
 
-    if (districtParam && !isDistrictAuthorized(scope, stateParam, districtParam)) {
+    if (districtParam && !isDistrictAuthorized(effectiveScope, stateParam, districtParam)) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'SCOPE_VIOLATION',
+        outcome: 'DENY',
+        scope: `district=${districtParam}`,
+        details: `Access to district '${districtParam}' forbidden for scope [${effectiveScope.allowedDistricts.join(',')}]`,
+      });
       return NextResponse.json(
         {
           status: 'error',
@@ -107,7 +198,13 @@ export async function GET(req: NextRequest) {
           message: `Access denied to records for district "${districtParam}".`,
           requestId,
         },
-        { status: 403 }
+        {
+          status: 403,
+          headers: {
+            ...AUTH_SCOPED_NO_STORE_HEADERS,
+            'X-Request-Id': requestId,
+          },
+        }
       );
     }
 
@@ -129,7 +226,7 @@ export async function GET(req: NextRequest) {
           {
             status: 400,
             headers: {
-              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+              ...AUTH_SCOPED_NO_STORE_HEADERS,
               'X-Request-Id': requestId,
             },
           }
@@ -138,13 +235,28 @@ export async function GET(req: NextRequest) {
       limit = Math.min(parsed, 100);
     }
 
+    // Enforce scope in upstream Google Apps Script / repository query parameters
+    const effectiveStateFilter =
+      stateParam && stateParam.toUpperCase() !== 'ALL'
+        ? stateParam
+        : !effectiveScope.allowedStates.includes('*') && effectiveScope.allowedStates.length === 1
+          ? effectiveScope.allowedStates[0]
+          : stateParam;
+
+    const effectiveDistrictFilter =
+      districtParam && districtParam.toUpperCase() !== 'ALL'
+        ? districtParam
+        : !effectiveScope.allowedDistricts.includes('*') && effectiveScope.allowedDistricts.length === 1
+          ? effectiveScope.allowedDistricts[0]
+          : districtParam;
+
     const result = await canonicalSubmissionAdapter.listSubmissions({
       cursor,
       limit,
       status,
       updatedAfter,
-      state: stateParam,
-      district: districtParam,
+      state: effectiveStateFilter,
+      district: effectiveDistrictFilter,
     });
 
     if (result.status === 'error') {
@@ -161,7 +273,7 @@ export async function GET(req: NextRequest) {
         {
           status: statusCode,
           headers: {
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            ...AUTH_SCOPED_NO_STORE_HEADERS,
             'X-Request-Id': requestId,
           },
         }
@@ -171,21 +283,28 @@ export async function GET(req: NextRequest) {
     const rawRecords = result.data?.records || (Array.isArray(result.data) ? result.data : []);
 
     // Apply server-authoritative scope boundary (Issue #57)
-    let records = filterRecordsByScope(scope, rawRecords);
+    let records = filterRecordsByScope(effectiveScope, rawRecords);
 
     // Apply explicit query filters (Issue #53)
     if (stateParam && stateParam.toUpperCase() !== 'ALL') {
       records = records.filter(
-        (r: any) => (r.state || 'Maharashtra').toLowerCase() === stateParam.toLowerCase()
+        (r: any) => (r.state || r['18\nState'] || 'Maharashtra').toLowerCase() === stateParam.toLowerCase()
       );
     }
     if (districtParam && districtParam.toUpperCase() !== 'ALL') {
       records = records.filter(
-        (r: any) => (r.district || '').toLowerCase() === districtParam.toLowerCase()
+        (r: any) => (r.district || r['19\nDistrict'] || '').toLowerCase() === districtParam.toLowerCase()
       );
     }
 
-    const total = (stateParam || districtParam)
+    const hasWildcardScope =
+      (effectiveScope.allowedStates.includes('*') && effectiveScope.allowedDistricts.includes('*')) ||
+      effectiveScope.role === 'LEADERSHIP' ||
+      effectiveScope.role === 'ADMIN';
+    const isFilteredByLocation =
+      Boolean(stateParam && stateParam.toUpperCase() !== 'ALL') ||
+      Boolean(districtParam && districtParam.toUpperCase() !== 'ALL');
+    const total = (isFilteredByLocation || !hasWildcardScope)
       ? records.length
       : (result.data?.total ?? result.pagination?.totalCount ?? records.length);
     const nextCursor = result.data?.nextCursor ?? result.pagination?.nextCursor ?? null;
@@ -217,7 +336,7 @@ export async function GET(req: NextRequest) {
       {
         status: 200,
         headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          ...AUTH_SCOPED_NO_STORE_HEADERS,
           'X-Request-Id': requestId,
         },
       }

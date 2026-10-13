@@ -4,12 +4,22 @@ import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdap
 import {
   resolveServerVerifiedRole,
   resolveUserAccessScope,
+  isSyntheticDemoModeAllowed,
   isStateAuthorized,
+  isDistrictAuthorized,
   logSecurityEvent,
   validateCsrfOrigin,
 } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  Pragma: 'no-cache',
+  Vary: 'Cookie, Authorization',
+};
 
 export async function GET(
   req: NextRequest,
@@ -20,7 +30,29 @@ export async function GET(
     if (!submissionId) {
       return NextResponse.json(
         { status: 'error', code: 'INVALID_ID', message: 'Missing submissionId parameter' },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
+      );
+    }
+
+    const scope = resolveUserAccessScope(req);
+    const syntheticDemoAllowed = !scope.isVerified && isSyntheticDemoModeAllowed(req);
+
+    if (!scope.isVerified && !syntheticDemoAllowed) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'AUTH_FAILURE',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: 'Unauthenticated request denied on GET /api/submissions/[submissionId]',
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required to read beneficiary submission details.',
+        },
+        { status: 401, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -35,8 +67,32 @@ export async function GET(
           code: result.code || 'NOT_FOUND',
           message: result.message || `Submission ${submissionId} not found`,
         },
-        { status: result.statusCode || 404 }
+        { status: result.statusCode || 404, headers: NO_STORE_HEADERS }
       );
+    }
+
+    if (!syntheticDemoAllowed && result.data) {
+      const recordState = result.data.state || result.data['18\nState'] || result.data.demographics?.state || 'Maharashtra';
+      const recordDistrict = result.data.district || result.data['19\nDistrict'] || result.data.demographics?.district || undefined;
+      if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+        logSecurityEvent({
+          actor: scope.userId,
+          actorRole: scope.role,
+          eventType: 'SCOPE_VIOLATION',
+          outcome: 'DENY',
+          targetResource: submissionId,
+          scope: `state=${recordState},district=${recordDistrict || ''}`,
+          details: `Caller forbidden to read record in state '${recordState}' / district '${recordDistrict || ''}'`,
+        });
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'FORBIDDEN_SCOPE',
+            message: `Access denied to record in state "${recordState}".`,
+          },
+          { status: 403, headers: NO_STORE_HEADERS }
+        );
+      }
     }
 
     return NextResponse.json(
@@ -46,13 +102,13 @@ export async function GET(
         remoteSubmissionId: result.remoteSubmissionId,
         version: result.version,
       },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   } catch (err: any) {
     console.error('GET /api/submissions/[submissionId] error:', err);
     return NextResponse.json(
       { status: 'error', code: 'INTERNAL_ERROR', message: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

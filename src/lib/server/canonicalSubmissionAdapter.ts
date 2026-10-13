@@ -533,6 +533,7 @@ class CanonicalSubmissionAdapterService {
       try {
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
             'X-Idempotency-Key': input.idempotencyKey,
@@ -623,6 +624,7 @@ class CanonicalSubmissionAdapterService {
       try {
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
             'X-Idempotency-Key': input.idempotencyKey || `update-${input.submissionId}-${input.expectedVersion || 1}`,
@@ -747,6 +749,7 @@ class CanonicalSubmissionAdapterService {
       try {
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
             ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
@@ -831,6 +834,7 @@ class CanonicalSubmissionAdapterService {
       try {
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
             ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
@@ -969,6 +973,7 @@ class CanonicalSubmissionAdapterService {
       try {
         const res = await fetch(appsScriptUrl, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
             ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
@@ -1126,6 +1131,7 @@ class CanonicalSubmissionAdapterService {
       try {
         await fetch(appsScriptUrl, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
             ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),

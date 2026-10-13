@@ -183,28 +183,28 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     order: 25,
   },
   'demographics.caregiverName': {
-    sectionKey: 'demographics',
-    elementId: 'demographics-caregiverName',
+    sectionKey: 'consent',
+    elementId: 'caregiver-name',
     label: 'Caregiver full name',
     defaultMessage: 'Caregiver full name is required.',
     order: 26,
   },
   'demographics.caregiverRelationship': {
-    sectionKey: 'demographics',
-    elementId: 'demographics-caregiverRelationship',
+    sectionKey: 'consent',
+    elementId: 'caregiver-relationship',
     label: 'Caregiver relationship',
     defaultMessage: 'Caregiver relationship must be selected.',
     order: 27,
   },
   'demographics.contactNumber': {
-    sectionKey: 'demographics',
+    sectionKey: 'consent',
     elementId: 'demographics-contactNumber',
     label: 'Caregiver contact number',
     defaultMessage: 'Must be a valid 10-digit Indian mobile number starting with 6-9.',
     order: 28,
   },
   'demographics.caregiverPhone': {
-    sectionKey: 'demographics',
+    sectionKey: 'consent',
     elementId: 'demographics-contactNumber',
     label: 'Caregiver contact number',
     defaultMessage: 'Must be a valid 10-digit Indian mobile number starting with 6-9.',
@@ -285,19 +285,19 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     order: 40,
   },
   caregiverName: {
-    sectionKey: 'demographics',
-    elementId: 'demographics-caregiverName',
+    sectionKey: 'consent',
+    elementId: 'caregiver-name',
     label: 'Caregiver full name',
     order: 41,
   },
   caregiverRelationship: {
-    sectionKey: 'demographics',
-    elementId: 'demographics-caregiverRelationship',
+    sectionKey: 'consent',
+    elementId: 'caregiver-relationship',
     label: 'Caregiver relationship',
     order: 42,
   },
   contactNumber: {
-    sectionKey: 'demographics',
+    sectionKey: 'consent',
     elementId: 'demographics-contactNumber',
     label: 'Caregiver contact number',
     order: 43,
@@ -937,6 +937,9 @@ export function normalizeValidationErrors(options: {
     fieldKey: string,
     elementId: string
   ): string => {
+    if (elementId && !elementId.startsWith('sec-') && !elementId.startsWith('field-')) {
+      return `el:${elementId}`;
+    }
     if (path && path.length > 0) {
       return path.join('.');
     }

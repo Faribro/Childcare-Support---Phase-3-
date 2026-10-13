@@ -30,6 +30,8 @@ export interface SupervisorBeneficiaryRow {
   id: string;
   artNumber: string;
   childName: string;
+  caregiverName?: string;
+  caregiverPhone?: string;
   age: number;
   gender: string;
   district: string;
@@ -46,6 +48,12 @@ export interface SupervisorBeneficiaryRow {
   grantAmount: number;
   syncState: 'SYNCED' | 'QUEUED';
   lastVisit: string;
+  createdAt?: string;
+  updatedAt?: string;
+  editReason?: string;
+  sheetRow?: number | string;
+  remoteSubmissionId?: string;
+  rawRecord?: any;
   version: number;
   documentStatus: BeneficiaryDocumentStatus;
   isApproved: boolean;
@@ -250,6 +258,21 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
   const id = it['1\nUnique ID'] || it['unique id'] || it.id || it._uuid || it.client_submission_id || it.remote_submission_id || it.clientSubmissionId;
   const artNumber = it['42\nART ID Number'] || it['art id number'] || it['1\nUnique ID'] || it.demographics?.artNumber || it.art_number || id || 'MH-BEN-00';
   const childName = it['9\nChild Name'] || it['child name'] || it.demographics?.childName || it.child_name || 'Beneficiary Child';
+  const caregiverName =
+    it['14\nCaregiver Full Name'] ||
+    it['caregiver full name'] ||
+    it.demographics?.caregiverName ||
+    it.caregiver_name ||
+    it.caregiverName ||
+    'Caregiver';
+  const caregiverPhone =
+    it['16\nCaregiver Contact'] ||
+    it['caregiver contact'] ||
+    it.demographics?.caregiverPhone ||
+    it.demographics?.contactNumber ||
+    it.caregiver_phone ||
+    it.caregiverPhone ||
+    undefined;
   const age = Number(it['11\nAge'] ?? it['age'] ?? it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 0);
   const gender = it['12\nGender'] || it['gender'] || it.demographics?.gender || it.gender || '—';
   const district = it['19\nDistrict'] || it['district'] || it.demographics?.district || it.district || 'General';
@@ -260,8 +283,22 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     : (it.education?.educationStatus?.includes('going') ?? it.school_enrolled ?? true);
   const orphanStatus = it['13\nOrphan Status'] || it['orphan status'] || it.demographics?.orphanStatus || it.orphan_status || 'Both parents alive';
   const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it['total annual education cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? it.educationExpenses?.totalRequiredSupport ?? 0);
+  const createdAt =
+    it['3\nSubmission Time'] ||
+    it.submissionTime ||
+    it.created_at ||
+    it.createdAt ||
+    it['7\nVisit Date'] ||
+    it['visit date'] ||
+    it['73\nLast Updated'] ||
+    it.updatedAt ||
+    new Date().toISOString();
+  const updatedAt = it['73\nLast Updated'] || it.updated_at || it.updatedAt || undefined;
   const lastVisit = (it['7\nVisit Date'] || it['visit date'] || it['73\nLast Updated'] || it['3\nSubmission Time'] || it.updatedAt || it.createdAt || new Date().toISOString()).split('T')[0];
   const version = Number(it['2\nRevision Number'] ?? it['revision number'] ?? it.version ?? 1);
+  const editReason = it['4\nEdit Reason'] || it['48\nEdit Reason'] || it.editReason || it.edit_reason || undefined;
+  const sheetRow = it.sheetRow ?? it.rowNumber ?? undefined;
+  const remoteSubmissionId = it.remote_submission_id || it.remoteSubmissionId || it._uuid || undefined;
   const documentStatus = evaluateDocuments(it, schoolType);
 
   const rawApproved =
@@ -286,6 +323,8 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     id: String(id),
     artNumber: String(artNumber),
     childName: String(childName),
+    caregiverName: String(caregiverName),
+    caregiverPhone: caregiverPhone ? String(caregiverPhone) : undefined,
     age,
     gender: String(gender),
     district: String(district),
@@ -302,6 +341,12 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     grantAmount,
     syncState: 'SYNCED',
     lastVisit,
+    createdAt: String(createdAt),
+    updatedAt: updatedAt ? String(updatedAt) : undefined,
+    editReason: editReason ? String(editReason) : undefined,
+    sheetRow,
+    remoteSubmissionId: remoteSubmissionId ? String(remoteSubmissionId) : undefined,
+    rawRecord: it,
     version,
     documentStatus,
     isApproved,
@@ -620,7 +665,14 @@ class SupervisorReadModelService {
           };
 
           // Non-retryable error (terminal 4xx): halt polling completely!
+          // On 401/403 auth or scope failure, purge cached records so data never leaks across users/scopes.
           if (!retryable || [400, 401, 403].includes(res.status)) {
+            if (res.status === 401 || res.status === 403) {
+              this.state.records = [];
+              this.state.total = 0;
+              this.state.dataSource = 'local-only';
+              this.clearCache();
+            }
             this.state.status = 'error';
             this.notify();
             return;

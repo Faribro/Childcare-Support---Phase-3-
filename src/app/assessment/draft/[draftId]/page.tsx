@@ -152,10 +152,10 @@ export default function ResumeDraftSinglePage() {
     gender: '' as Gender,
     orphanStatus: '' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: '' as CaregiverRelationship,
+    caregiverRelationship: 'Mother' as CaregiverRelationship,
     contactNumber: '',
     fullAddress: '',
-    state: '',
+    state: 'Maharashtra',
     district: '',
     childAadhaarNumber: '',
 
@@ -183,10 +183,10 @@ export default function ResumeDraftSinglePage() {
     haemoglobinGdl: '',
     otherHealthConditions: [] as string[],
     otherHealthConditionSpecify: '',
-    artStatus: '' as ARTStatus,
+    artStatus: 'On ART' as ARTStatus,
     artRegistrationDate: '',
     artIdNumber: '',
-    vlStatus: '' as VLStatus,
+    vlStatus: 'Tested in last 6 months' as VLStatus,
     vlDate: '',
     viralLoad: '',
 
@@ -1021,9 +1021,18 @@ export default function ResumeDraftSinglePage() {
         {formError && (
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 flex items-start space-x-3 text-xs">
             <AlertTriangle className="h-5 w-5 shrink-0 text-rose-600 mt-0.5" />
-            <div>
+            <div className="space-y-1.5">
               <p className="font-bold text-sm">Please correct the following before submitting:</p>
               <p className="mt-1">{formError}</p>
+              {validationErrors.length > 0 && (
+                <ul className="list-disc pl-4 space-y-0.5 text-rose-700 font-medium">
+                  {validationErrors.map((err) => (
+                    <li key={`${err.sectionKey}-${err.fieldKey}`}>
+                      <span className="font-bold">{err.label}:</span> {err.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         )}
@@ -1046,6 +1055,7 @@ export default function ResumeDraftSinglePage() {
                 emphasisColor="text-rose-600"
                 borderColor="border-rose-100/80"
                 eyebrowColor="text-rose-400/90"
+                errorCount={errorsBySection['consent']?.length || 0}
                 action={audioButton}
               />
             )}
@@ -1055,11 +1065,21 @@ export default function ResumeDraftSinglePage() {
 
             {/* Consent Decision */}
             <div
-              id="q-consent-decision"
-              className={`p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2 ${getHighlightClass(
+              id="caregiver-consent"
+              tabIndex={-1}
+              className={`p-3.5 rounded-xl border space-y-2 transition-all ${
+                errorsByField['caregiver-consent']
+                  ? 'bg-rose-50/80 border-rose-400 ring-1 ring-rose-300'
+                  : 'bg-slate-50/80 border-slate-200/80'
+              } ${getHighlightClass(
                 'q-consent-decision'
               )}`}
             >
+              {errorsByField['caregiver-consent'] && (
+                <p id="caregiver-consent-error" role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['caregiver-consent'].message}
+                </p>
+              )}
               <label className="text-[11.5px] font-bold tracking-wider text-slate-900 uppercase block">
                 {t('consent_q', currentLanguage)}
               </label>
@@ -1105,10 +1125,12 @@ export default function ResumeDraftSinglePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-caregiver-name" className={getHighlightClass('q-caregiver-name')}>
                 <Input
+                  id="caregiver-name"
                   label={t('caregiver_name', currentLanguage)}
                   required
                   value={formData.caregiverName}
                   onChange={(e) => setFormData({ ...formData, caregiverName: e.target.value })}
+                  error={errorsByField['caregiver-name']?.message}
                   placeholder="e.g. Meena Sharma"
                 />
               </div>
@@ -1117,10 +1139,11 @@ export default function ResumeDraftSinglePage() {
                 id="q-caregiver-rel"
                 className={`flex flex-col space-y-1.5 ${getHighlightClass('q-caregiver-rel')}`}
               >
-                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                <label htmlFor="caregiver-relationship" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                   {t('caregiver_relationship', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
                 </label>
                 <select
+                  id="caregiver-relationship"
                   value={formData.caregiverRelationship}
                   onChange={(e) =>
                     setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
@@ -1133,10 +1156,16 @@ export default function ResumeDraftSinglePage() {
                     </option>
                   ))}
                 </select>
+                {errorsByField['caregiver-relationship'] && (
+                  <p role="alert" className="text-xs font-semibold text-rose-600">
+                    {errorsByField['caregiver-relationship'].message}
+                  </p>
+                )}
               </div>
 
               <div id="q-caregiver-contact" className={getHighlightClass('q-caregiver-contact')}>
                 <Input
+                  id="demographics-contactNumber"
                   label={t('caregiver_contact', currentLanguage)}
                   type="tel"
                   required
@@ -1145,13 +1174,19 @@ export default function ResumeDraftSinglePage() {
                   onChange={(e) =>
                     setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
                   }
+                  error={errorsByField['demographics-contactNumber']?.message}
                   placeholder="e.g. 9822012345"
                 />
               </div>
             </div>
 
             {/* Signature Pad or Refusal Alert */}
-            <div id="q-caregiver-sig" className={getHighlightClass('q-caregiver-sig')}>
+            <div id="caregiver-signature" tabIndex={-1} className={getHighlightClass('q-caregiver-sig')}>
+              {errorsByField['caregiver-signature'] && (
+                <p id="caregiver-signature-error" role="alert" className="text-xs font-semibold text-rose-600 mb-2">
+                  {errorsByField['caregiver-signature'].message}
+                </p>
+              )}
               {formData.agreeToParticipate ? (
                 <div className="pt-0.5">
                   <CaregiverSignaturePad
@@ -1179,7 +1214,7 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 2: Child Demographics & Residence */}
         <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
-          <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" />
+          <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" errorCount={errorsBySection['demographics']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {/* System Generated Unique ID Display: Unique ID directly in place of NACO REGISTRY */}
@@ -1206,25 +1241,34 @@ export default function ResumeDraftSinglePage() {
 
             <div id="q-child-name" className={getHighlightClass('q-child-name')}>
               <Input
+                id="demographics-childName"
                 label={t('child_name', currentLanguage)}
                 required
                 value={formData.childName}
                 onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                error={errorsByField['demographics-childName']?.message}
                 placeholder="e.g. Aarav Sharma"
               />
             </div>
 
             <div id="q-child-dob">
               <Input
+                id="demographics-dob"
                 label={t('dob', currentLanguage)}
                 type="date"
                 required
                 value={formData.dob}
                 onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                error={errorsByField['demographics-dob']?.message}
               />
             </div>
 
-            <div id="q-child-gender" className={`space-y-1.5 ${getHighlightClass('q-child-gender')}`}>
+            <div id="demographics-gender" tabIndex={-1} className={`space-y-1.5 ${getHighlightClass('q-child-gender')}`}>
+              {errorsByField['demographics-gender'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['demographics-gender'].message}
+                </p>
+              )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('gender', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
@@ -1253,9 +1297,15 @@ export default function ResumeDraftSinglePage() {
             </div>
 
             <div
-              id="q-child-orphan"
+              id="demographics-orphanStatus"
+              tabIndex={-1}
               className={`space-y-1.5 sm:col-span-2 ${getHighlightClass('q-child-orphan')}`}
             >
+              {errorsByField['demographics-orphanStatus'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['demographics-orphanStatus'].message}
+                </p>
+              )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('orphan_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
@@ -1310,18 +1360,21 @@ export default function ResumeDraftSinglePage() {
 
             <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
               <Input
+                id="demographics-fullAddress"
                 label={t('address', currentLanguage)}
                 value={formData.fullAddress}
                 onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                error={errorsByField['demographics-fullAddress']?.message}
                 placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
               />
             </div>
 
             <div className="flex flex-col space-y-1.5">
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+              <label htmlFor="demographics-state" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('state', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
+                id="demographics-state"
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                 className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
@@ -1332,12 +1385,19 @@ export default function ResumeDraftSinglePage() {
                   </option>
                 ))}
               </select>
+              {errorsByField['demographics-state'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['demographics-state'].message}
+                </p>
+              )}
             </div>
 
             <Input
+              id="demographics-district"
               label={t('district', currentLanguage)}
               value={formData.district}
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+              error={errorsByField['demographics-district']?.message}
               placeholder="e.g. Pune"
             />
 
@@ -1426,11 +1486,12 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 4: Household & Financial Details */}
         <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
-          <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" />
+          <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-hh-members" className={getHighlightClass('q-hh-members')}>
               <Input
+                id="household-totalFamilyMembers"
                 label={t('hh_members', currentLanguage)}
                 type="number"
                 min="1"
@@ -1439,12 +1500,14 @@ export default function ResumeDraftSinglePage() {
                 onChange={(e) =>
                   setFormData({ ...formData, totalFamilyMembers: e.target.value === '' ? ('' as any) : Number(e.target.value) })
                 }
+                error={errorsByField['household-totalFamilyMembers']?.message}
                 placeholder="e.g. 4"
               />
             </div>
 
             <div id="q-hh-children" className={getHighlightClass('q-hh-children')}>
               <Input
+                id="household-numberOfChildrenUnder18"
                 label={t('hh_children', currentLanguage)}
                 type="number"
                 min="0"
@@ -1462,12 +1525,14 @@ export default function ResumeDraftSinglePage() {
                     numberOfChildrenUnder18: e.target.value === '' ? ('' as any) : Number(e.target.value),
                   })
                 }
+                error={errorsByField['household-numberOfChildrenUnder18']?.message}
                 placeholder="e.g. 2"
               />
             </div>
 
             <div id="q-hh-income" className={getHighlightClass('q-hh-income')}>
               <Input
+                id="household-monthlyIncomeRs"
                 label={t('hh_income', currentLanguage)}
                 type="number"
                 min="0"
@@ -1476,6 +1541,7 @@ export default function ResumeDraftSinglePage() {
                 onChange={(e) =>
                   setFormData({ ...formData, monthlyIncomeRs: e.target.value === '' ? ('' as any) : Number(e.target.value) })
                 }
+                error={errorsByField['household-monthlyIncomeRs']?.message}
                 placeholder="e.g. 12000"
                 unit="₹"
               />
@@ -1511,7 +1577,7 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
         <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
-          <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" />
+          <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" errorCount={errorsBySection['health']?.length || 0} />
 
           <div className="space-y-4">
             {/* Sub-Card 1: Anthropometry & Growth (WHO Standards) */}
@@ -1533,6 +1599,7 @@ export default function ResumeDraftSinglePage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-stretch">
                 <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
                   <Input
+                    id="health-weightKg"
                     label={t('weight', currentLanguage)}
                     type="number"
                     step="0.1"
@@ -1546,6 +1613,7 @@ export default function ResumeDraftSinglePage() {
                         weightKg: e.target.value === '' ? ('' as any) : Number(e.target.value),
                       })
                     }
+                    error={errorsByField['health-weightKg']?.message}
                     placeholder="e.g. 14.5"
                     unit="kg"
                   />
@@ -1553,6 +1621,7 @@ export default function ResumeDraftSinglePage() {
 
                 <div id="q-cli-height" className={getHighlightClass('q-cli-height')}>
                   <Input
+                    id="health-heightCm"
                     label={t('height', currentLanguage)}
                     type="number"
                     step="0.1"
@@ -1566,6 +1635,7 @@ export default function ResumeDraftSinglePage() {
                         heightCm: e.target.value === '' ? ('' as any) : Number(e.target.value),
                       })
                     }
+                    error={errorsByField['health-heightCm']?.message}
                     placeholder="e.g. 98.0"
                     unit="cm"
                   />
@@ -1648,10 +1718,11 @@ export default function ResumeDraftSinglePage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="flex flex-col space-y-1.5">
-                  <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                  <label htmlFor="health-artStatus" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     ART STATUS <span className="text-rose-500 ml-0.5">*</span>
                   </label>
                   <select
+                    id="health-artStatus"
                     value={formData.artStatus}
                     onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
                     className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
@@ -1666,10 +1737,12 @@ export default function ResumeDraftSinglePage() {
 
                 <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
                   <Input
+                    id="health-artIdNumber"
                     label={t('art_num', currentLanguage)}
                     required
                     value={formData.artIdNumber}
                     onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                    error={errorsByField['health-artIdNumber']?.message}
                     placeholder="e.g. MH-PUN-00123"
                   />
                 </div>
@@ -1722,6 +1795,7 @@ export default function ResumeDraftSinglePage() {
                   </div>
 
                   <Input
+                    id="health-haemoglobinGdl"
                     label="HEMOGLOBIN (G/DL)"
                     type="number"
                     step="0.1"
@@ -1729,6 +1803,7 @@ export default function ResumeDraftSinglePage() {
                     max="25"
                     value={formData.haemoglobinGdl}
                     onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
+                    error={errorsByField['health-haemoglobinGdl']?.message}
                     placeholder="e.g. 11.2"
                     unit="g/dL"
                   />
@@ -1770,10 +1845,11 @@ export default function ResumeDraftSinglePage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div className="flex flex-col space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                      <label htmlFor="health-vlStatus" className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
                         VL STATUS <span className="text-rose-500 ml-0.5">*</span>
                       </label>
                       <select
+                        id="health-vlStatus"
                         value={formData.vlStatus}
                         onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
                         className="w-full h-11 px-2.5 text-xs font-medium text-slate-900 bg-white border border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400"
@@ -1882,7 +1958,7 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 6: Nutrition Habits */}
         <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
-          <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" />
+          <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" errorCount={errorsBySection['nutrition']?.length || 0} />
 
           <div className="pt-1">
             <AnimatedAppetiteSelector
@@ -1903,10 +1979,15 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 7: Education Status */}
         <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
-          <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" />
+          <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" errorCount={errorsBySection['education']?.length || 0} />
 
           <div className="space-y-4">
-            <div id="q-edu-status" className={`space-y-1.5 ${getHighlightClass('q-edu-status')}`}>
+            <div id="education-educationStatus" tabIndex={-1} className={`space-y-1.5 p-2 rounded-xl ${errorsByField['education-educationStatus'] ? 'bg-rose-50/50 border border-rose-400' : ''} ${getHighlightClass('q-edu-status')}`}>
+              {errorsByField['education-educationStatus'] && (
+                <p id="education-educationStatus-error" role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['education-educationStatus'].message}
+                </p>
+              )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('edu_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
@@ -1931,9 +2012,10 @@ export default function ResumeDraftSinglePage() {
                       name="educationStatus"
                       value={st}
                       checked={formData.educationStatus === st}
-                      onChange={() =>
-                        setFormData({ ...formData, educationStatus: st as EducationStatus })
-                      }
+                      onChange={() => {
+                        setFormData({ ...formData, educationStatus: st as EducationStatus });
+                        clearFieldError('education-educationStatus', 'educationStatus');
+                      }}
                       className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span className="text-xs font-semibold break-words leading-tight">{st}</span>
@@ -1944,9 +2026,11 @@ export default function ResumeDraftSinglePage() {
 
             {formData.educationStatus === 'Other' && (
               <Input
+                id="education-educationStatusSpecify"
                 label="EDUCATION STATUS OTHER (PLEASE SPECIFY)"
                 value={formData.educationStatusSpecify}
                 onChange={(e) => setFormData({ ...formData, educationStatusSpecify: e.target.value })}
+                error={errorsByField['education-educationStatusSpecify']?.message}
               />
             )}
 
@@ -1954,27 +2038,32 @@ export default function ResumeDraftSinglePage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
                 <div id="q-edu-school" className={`sm:col-span-2 ${getHighlightClass('q-edu-school')}`}>
                   <Input
+                    id="education-schoolName"
                     label={t('school_name', currentLanguage)}
                     value={formData.schoolName}
                     onChange={(e) => setFormData({ ...formData, schoolName: e.target.value })}
+                    error={errorsByField['education-schoolName']?.message}
                     placeholder="e.g. Pune Zilla Parishad Primary School"
                   />
                 </div>
 
                 <Input
+                  id="education-schoolSessionStartDate"
                   label="SCHOOL SESSION START DATE"
                   type="date"
                   value={formData.schoolSessionStartDate}
                   onChange={(e) =>
                     setFormData({ ...formData, schoolSessionStartDate: e.target.value })
                   }
+                  error={errorsByField['education-schoolSessionStartDate']?.message}
                 />
 
                 <div className="flex flex-col space-y-1.5">
-                  <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                  <label htmlFor="education-schoolType" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     {t('school_type', currentLanguage)}
                   </label>
                   <select
+                    id="education-schoolType"
                     value={formData.schoolType}
                     onChange={(e) => setFormData({ ...formData, schoolType: e.target.value as SchoolType })}
                     className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
@@ -1985,6 +2074,11 @@ export default function ResumeDraftSinglePage() {
                       </option>
                     ))}
                   </select>
+                  {errorsByField['education-schoolType'] && (
+                    <p id="education-schoolType-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-schoolType'].message}
+                    </p>
+                  )}
                 </div>
 
                 <div id="q-edu-class" className={`flex flex-col space-y-1.5 ${getHighlightClass('q-edu-class')}`}>
@@ -2054,7 +2148,18 @@ export default function ResumeDraftSinglePage() {
                   </div>
                 )}
 
-                <div className="sm:col-span-3 space-y-1.5">
+                <div
+                  id="education-attendance"
+                  tabIndex={-1}
+                  className={`sm:col-span-3 space-y-1.5 p-2 rounded-xl ${
+                    errorsByField['education-attendance'] ? 'bg-rose-50/50 border border-rose-400' : ''
+                  }`}
+                >
+                  {errorsByField['education-attendance'] && (
+                    <p id="education-attendance-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-attendance'].message}
+                    </p>
+                  )}
                   <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     {t('attendance', currentLanguage)}
                   </label>
@@ -2089,7 +2194,7 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 8: Expenses & Programme Support */}
         <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
-          <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" />
+          <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" errorCount={errorsBySection['expenses']?.length || 0} />
 
           <ExpensesAndApprovalGrid
             currentExpenses={{
@@ -2128,20 +2233,28 @@ export default function ResumeDraftSinglePage() {
         {/* SECTION 9: Programme Approval & Final Review */}
         <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
-          <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" />
+          <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" errorCount={errorsBySection['review']?.length || 0} />
 
           <div className="space-y-4">
             {/* Caseworker Attestation & Verification Confirmation */}
             <div
-              id="q-rev-confirm"
+              id="review-allInfoCorrect"
+              tabIndex={-1}
               className={`p-4 rounded-xl border transition-all ${
-                formData.allInfoCorrect === true
+                errorsByField['review-allInfoCorrect']
+                  ? 'bg-rose-50/80 border-rose-400 ring-1 ring-rose-300'
+                  : formData.allInfoCorrect === true
                   ? 'bg-emerald-50/70 border-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
                   : formData.allInfoCorrect === false
                   ? 'bg-rose-50/70 border-rose-300'
                   : 'bg-white/80 border-slate-200'
               } ${getHighlightClass('q-rev-confirm')}`}
             >
+              {errorsByField['review-allInfoCorrect'] && (
+                <p id="review-allInfoCorrect-error" role="alert" className="text-xs font-semibold text-rose-600 mb-2">
+                  {errorsByField['review-allInfoCorrect'].message}
+                </p>
+              )}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-800 block">
@@ -2193,12 +2306,13 @@ export default function ResumeDraftSinglePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div id="q-rev-interviewer" className={getHighlightClass('q-rev-interviewer')}>
                 <Input
-                  id="formSubmittedBy"
+                  id="review-formSubmittedBy"
                   name="formSubmittedBy"
                   label={t('interviewer_name', currentLanguage)}
                   required
                   value={formData.formSubmittedBy}
                   onChange={(e) => setFormData({ ...formData, formSubmittedBy: e.target.value })}
+                  error={errorsByField['review-formSubmittedBy']?.message || errorsByField['formSubmittedBy']?.message}
                   placeholder="Your full name"
                 />
               </div>

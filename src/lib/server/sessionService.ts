@@ -158,6 +158,14 @@ export async function verifyPassword(hash: string, plainText: string): Promise<b
  */
 const SYSTEM_ACCOUNTS: StoredUserAccount[] = [
   {
+    id: 'field-mh-01',
+    username: 'field_mh',
+    name: 'Maharashtra Field Caseworker (Pune)',
+    role: 'FIELD_USER',
+    allowedStates: ['Maharashtra'],
+    allowedDistricts: ['Pune'],
+  },
+  {
     id: 'rev-mh-01',
     username: 'reviewer_mh',
     name: 'Maharashtra State Reviewer',
@@ -185,6 +193,8 @@ const SYSTEM_ACCOUNTS: StoredUserAccount[] = [
 
 function getAccountConfiguredPassword(username: string): string | undefined {
   switch (username.toLowerCase()) {
+    case 'field_mh':
+      return process.env.INITIAL_FIELD_MH_PWD;
     case 'reviewer_mh':
       return process.env.INITIAL_REV_MH_PWD;
     case 'leadership_india':

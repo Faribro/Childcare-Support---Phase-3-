@@ -92,10 +92,14 @@ export default function NewSinglePageAssessment() {
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
 
-  const errorsByField = useMemo(
-    () => Object.fromEntries(validationErrors.map((e) => [e.elementId, e])),
-    [validationErrors]
-  );
+  const errorsByField = useMemo(() => {
+    const map: Record<string, FormValidationError> = {};
+    for (const e of validationErrors) {
+      if (e.elementId) map[e.elementId] = e;
+      if (e.fieldKey) map[e.fieldKey] = e;
+    }
+    return map;
+  }, [validationErrors]);
 
   const errorsBySection = useMemo(() => {
     return getResolvableSectionErrors(validationErrors);
@@ -167,10 +171,10 @@ export default function NewSinglePageAssessment() {
     gender: '' as Gender,
     orphanStatus: '' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: '' as CaregiverRelationship,
+    caregiverRelationship: 'Mother' as CaregiverRelationship,
     contactNumber: '',
     fullAddress: '',
-    state: '',
+    state: 'Maharashtra',
     district: '',
     childAadhaarNumber: '',
 
@@ -198,10 +202,10 @@ export default function NewSinglePageAssessment() {
     haemoglobinGdl: '',
     otherHealthConditions: [] as string[],
     otherHealthConditionSpecify: '',
-    artStatus: '' as ARTStatus,
+    artStatus: 'On ART' as ARTStatus,
     artRegistrationDate: '',
     artIdNumber: '',
-    vlStatus: '' as VLStatus,
+    vlStatus: 'Tested in last 6 months' as VLStatus,
     vlDate: '',
     viralLoad: '',
 
@@ -335,6 +339,12 @@ export default function NewSinglePageAssessment() {
             return false;
           }
         }
+        if (err.elementId === 'caregiver-relationship' || err.fieldKey === 'caregiverRelationship') {
+          if (formData.caregiverRelationship && formData.caregiverRelationship.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
         if (err.elementId === 'demographics-contactNumber' || err.fieldKey === 'contactNumber') {
           if (!formData.contactNumber || /^[6-9]\d{9}$/.test(formData.contactNumber)) {
             changed = true;
@@ -351,6 +361,76 @@ export default function NewSinglePageAssessment() {
         }
         if (err.elementId === 'demographics-dob' || err.fieldKey === 'dob') {
           if (formData.dob && new Date(formData.dob) <= new Date()) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-gender' || err.fieldKey === 'gender') {
+          if (formData.gender) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-orphanStatus' || err.fieldKey === 'orphanStatus') {
+          if (formData.orphanStatus) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-state' || err.fieldKey === 'state') {
+          if (formData.state && formData.state.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-district' || err.fieldKey === 'district') {
+          if (formData.district && formData.district.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'demographics-fullAddress' || err.fieldKey === 'fullAddress') {
+          if (!formData.fullAddress || formData.fullAddress.trim().length >= 2) {
+            changed = true;
+            return false;
+          }
+        }
+
+        // Section 4: Household
+        if (err.elementId === 'household-totalFamilyMembers' || err.fieldKey === 'totalFamilyMembers') {
+          if (Number(formData.totalFamilyMembers) >= 1) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'household-numberOfChildrenUnder18' || err.fieldKey === 'numberOfChildrenUnder18') {
+          if (formData.numberOfChildrenUnder18 === '' || Number(formData.numberOfChildrenUnder18) >= 0) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'household-monthlyIncomeRs' || err.fieldKey === 'monthlyIncomeRs') {
+          if (formData.monthlyIncomeRs === '' || Number(formData.monthlyIncomeRs) >= 0) {
+            changed = true;
+            return false;
+          }
+        }
+
+        // Section 5: Clinical / Health
+        if (err.elementId === 'health-weightKg' || err.fieldKey === 'weightKg') {
+          if (formData.weightKg === '' || (Number(formData.weightKg) >= 0 && Number(formData.weightKg) <= 150)) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'health-heightCm' || err.fieldKey === 'heightCm') {
+          if (formData.heightCm === '' || (Number(formData.heightCm) >= 0 && Number(formData.heightCm) <= 220)) {
+            changed = true;
+            return false;
+          }
+        }
+        if (err.elementId === 'health-haemoglobinGdl' || err.fieldKey === 'haemoglobinGdl') {
+          if (!formData.haemoglobinGdl || (Number(formData.haemoglobinGdl) >= 0 && Number(formData.haemoglobinGdl) <= 25)) {
             changed = true;
             return false;
           }
@@ -373,9 +453,21 @@ export default function NewSinglePageAssessment() {
     formData.formSubmittedBy,
     formData.agreeToParticipate,
     formData.caregiverName,
+    formData.caregiverRelationship,
     formData.contactNumber,
     formData.childName,
     formData.dob,
+    formData.gender,
+    formData.orphanStatus,
+    formData.state,
+    formData.district,
+    formData.fullAddress,
+    formData.totalFamilyMembers,
+    formData.numberOfChildrenUnder18,
+    formData.monthlyIncomeRs,
+    formData.weightKg,
+    formData.heightCm,
+    formData.haemoglobinGdl,
     hasSavedSignature,
   ]);
 
@@ -950,9 +1042,18 @@ export default function NewSinglePageAssessment() {
         {formError && (
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 flex items-start space-x-3 text-xs">
             <AlertTriangle className="h-5 w-5 shrink-0 text-rose-600 mt-0.5" />
-            <div>
+            <div className="space-y-1.5">
               <p className="font-bold text-sm">Please correct the following before submitting:</p>
               <p className="mt-1">{formError}</p>
+              {validationErrors.length > 0 && (
+                <ul className="list-disc pl-4 space-y-0.5 text-rose-700 font-medium">
+                  {validationErrors.map((err) => (
+                    <li key={`${err.sectionKey}-${err.fieldKey}`}>
+                      <span className="font-bold">{err.label}:</span> {err.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         )}
@@ -1084,7 +1185,12 @@ export default function NewSinglePageAssessment() {
                     setFormData({ ...formData, caregiverRelationship: val });
                     clearFieldError('caregiver-relationship', 'caregiverRelationship');
                   }}
-                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                  aria-invalid={!!errorsByField['caregiver-relationship']}
+                  className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                    errorsByField['caregiver-relationship']
+                      ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                      : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                  }`}
                 >
                   {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
                     <option key={rel} value={rel}>
@@ -1092,6 +1198,11 @@ export default function NewSinglePageAssessment() {
                     </option>
                   ))}
                 </select>
+                {errorsByField['caregiver-relationship'] && (
+                  <p role="alert" className="text-xs font-semibold text-rose-600">
+                    {errorsByField['caregiver-relationship'].message}
+                  </p>
+                )}
               </div>
 
               <div id="q-caregiver-contact" className={getHighlightClass('q-caregiver-contact')}>
@@ -1257,9 +1368,17 @@ export default function NewSinglePageAssessment() {
             </div>
 
             <div
-              id="q-child-orphan"
-              className={`space-y-1.5 sm:col-span-2 ${getHighlightClass('q-child-orphan')}`}
+              id="demographics-orphanStatus"
+              tabIndex={-1}
+              className={`space-y-1.5 sm:col-span-2 p-2 rounded-xl ${
+                errorsByField['demographics-orphanStatus'] ? 'bg-rose-50/50 border border-rose-400' : ''
+              } ${getHighlightClass('q-child-orphan')}`}
             >
+              {errorsByField['demographics-orphanStatus'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['demographics-orphanStatus'].message}
+                </p>
+              )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('orphan_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
@@ -1314,21 +1433,29 @@ export default function NewSinglePageAssessment() {
 
             <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
               <Input
+                id="demographics-fullAddress"
                 label={t('address', currentLanguage)}
                 value={formData.fullAddress}
                 onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+                error={errorsByField['demographics-fullAddress']?.message}
                 placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
               />
             </div>
 
             <div className="flex flex-col space-y-1.5">
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+              <label htmlFor="demographics-state" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {t('state', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
+                id="demographics-state"
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                aria-invalid={!!errorsByField['demographics-state']}
+                className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                  errorsByField['demographics-state']
+                    ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                    : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                }`}
               >
                 {INDIAN_STATES_AND_UTS.map((st) => (
                   <option key={st} value={st}>
@@ -1336,12 +1463,19 @@ export default function NewSinglePageAssessment() {
                   </option>
                 ))}
               </select>
+              {errorsByField['demographics-state'] && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['demographics-state'].message}
+                </p>
+              )}
             </div>
 
             <Input
+              id="demographics-district"
               label={t('district', currentLanguage)}
               value={formData.district}
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+              error={errorsByField['demographics-district']?.message}
               placeholder="e.g. Pune"
             />
 
@@ -1435,6 +1569,7 @@ export default function NewSinglePageAssessment() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-hh-members" className={getHighlightClass('q-hh-members')}>
               <Input
+                id="household-totalFamilyMembers"
                 label={t('hh_members', currentLanguage)}
                 type="number"
                 min="1"
@@ -1443,12 +1578,14 @@ export default function NewSinglePageAssessment() {
                 onChange={(e) =>
                   setFormData({ ...formData, totalFamilyMembers: e.target.value === '' ? ('' as any) : Number(e.target.value) })
                 }
+                error={errorsByField['household-totalFamilyMembers']?.message}
                 placeholder="e.g. 4"
               />
             </div>
 
             <div id="q-hh-children" className={getHighlightClass('q-hh-children')}>
               <Input
+                id="household-numberOfChildrenUnder18"
                 label={t('hh_children', currentLanguage)}
                 type="number"
                 min="0"
@@ -1466,12 +1603,14 @@ export default function NewSinglePageAssessment() {
                     numberOfChildrenUnder18: e.target.value === '' ? ('' as any) : Number(e.target.value),
                   })
                 }
+                error={errorsByField['household-numberOfChildrenUnder18']?.message}
                 placeholder="e.g. 2"
               />
             </div>
 
             <div id="q-hh-income" className={getHighlightClass('q-hh-income')}>
               <Input
+                id="household-monthlyIncomeRs"
                 label={t('hh_income', currentLanguage)}
                 type="number"
                 min="0"
@@ -1480,6 +1619,7 @@ export default function NewSinglePageAssessment() {
                 onChange={(e) =>
                   setFormData({ ...formData, monthlyIncomeRs: e.target.value === '' ? ('' as any) : Number(e.target.value) })
                 }
+                error={errorsByField['household-monthlyIncomeRs']?.message}
                 placeholder="e.g. 12000"
                 unit="₹"
               />
@@ -1536,6 +1676,7 @@ export default function NewSinglePageAssessment() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-stretch">
                 <div id="q-cli-weight" className={getHighlightClass('q-cli-weight')}>
                   <Input
+                    id="health-weightKg"
                     label={t('weight', currentLanguage)}
                     type="number"
                     step="0.1"
@@ -1549,6 +1690,7 @@ export default function NewSinglePageAssessment() {
                         weightKg: e.target.value === '' ? ('' as any) : Number(e.target.value),
                       })
                     }
+                    error={errorsByField['health-weightKg']?.message}
                     placeholder="e.g. 14.5"
                     unit="kg"
                   />
@@ -1556,6 +1698,7 @@ export default function NewSinglePageAssessment() {
 
                 <div id="q-cli-height" className={getHighlightClass('q-cli-height')}>
                   <Input
+                    id="health-heightCm"
                     label={t('height', currentLanguage)}
                     type="number"
                     step="0.1"
@@ -1569,6 +1712,7 @@ export default function NewSinglePageAssessment() {
                         heightCm: e.target.value === '' ? ('' as any) : Number(e.target.value),
                       })
                     }
+                    error={errorsByField['health-heightCm']?.message}
                     placeholder="e.g. 98.0"
                     unit="cm"
                   />
@@ -1651,10 +1795,11 @@ export default function NewSinglePageAssessment() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="flex flex-col space-y-1.5">
-                  <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                  <label htmlFor="health-artStatus" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                     ART STATUS <span className="text-rose-500 ml-0.5">*</span>
                   </label>
                   <select
+                    id="health-artStatus"
                     value={formData.artStatus}
                     onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
                     className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
@@ -1669,10 +1814,12 @@ export default function NewSinglePageAssessment() {
 
                 <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
                   <Input
+                    id="health-artIdNumber"
                     label={t('art_num', currentLanguage)}
                     required
                     value={formData.artIdNumber}
                     onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                    error={errorsByField['health-artIdNumber']?.message}
                     placeholder="e.g. MH-PUN-00123"
                   />
                 </div>
@@ -1725,6 +1872,7 @@ export default function NewSinglePageAssessment() {
                   </div>
 
                   <Input
+                    id="health-haemoglobinGdl"
                     label="HEMOGLOBIN (G/DL)"
                     type="number"
                     step="0.1"
@@ -1732,6 +1880,7 @@ export default function NewSinglePageAssessment() {
                     max="25"
                     value={formData.haemoglobinGdl}
                     onChange={(e) => setFormData({ ...formData, haemoglobinGdl: e.target.value })}
+                    error={errorsByField['health-haemoglobinGdl']?.message}
                     placeholder="e.g. 11.2"
                     unit="g/dL"
                   />
@@ -1773,10 +1922,11 @@ export default function NewSinglePageAssessment() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div className="flex flex-col space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                      <label htmlFor="health-vlStatus" className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
                         VL STATUS <span className="text-rose-500 ml-0.5">*</span>
                       </label>
                       <select
+                        id="health-vlStatus"
                         value={formData.vlStatus}
                         onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
                         className="w-full h-11 px-2.5 text-xs font-medium text-slate-900 bg-white border border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400"

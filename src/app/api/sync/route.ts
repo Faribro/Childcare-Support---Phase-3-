@@ -3,6 +3,8 @@ import { completeSubmissionSchema, patchSubmissionSchema, flattenPatchBody } fro
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 interface SyncBatchItem {
   id?: number;

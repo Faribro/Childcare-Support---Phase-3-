@@ -436,7 +436,10 @@ function SyncCentreContent() {
     loadLocalData().then(() => {
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         processQueue('sync_page_mount')
-          .then(() => loadLocalData())
+          .then(() => {
+            loadLocalData();
+            refreshServer();
+          })
           .catch(() => {});
       }
     });
@@ -445,7 +448,10 @@ function SyncCentreContent() {
       setIsOnline(true);
       loadLocalData().then(() => {
         processQueue('online_event')
-          .then(() => loadLocalData())
+          .then(() => {
+            loadLocalData();
+            refreshServer();
+          })
           .catch(() => {});
       });
     };
@@ -455,17 +461,22 @@ function SyncCentreContent() {
       loadLocalData();
     };
 
+    const handleServerSyncComplete = () => {
+      loadLocalData();
+      refreshServer();
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const unsubSuccess = submissionEvents.on('submission:success', handleSyncUpdate);
+    const unsubSuccess = submissionEvents.on('submission:success', handleServerSyncComplete);
     const unsubFailed = submissionEvents.on('submission:failed', handleSyncUpdate);
     const unsubRetrying = submissionEvents.on('submission:retrying', handleSyncUpdate);
     const unsubConflict = submissionEvents.on('submission:conflict', handleSyncUpdate);
     const unsubSending = submissionEvents.on('submission:sending', handleSyncUpdate);
 
-    window.addEventListener('child_nutrition:sync_completed', handleSyncUpdate);
-    window.addEventListener('child_nutrition:record_synced', handleSyncUpdate);
+    window.addEventListener('child_nutrition:sync_completed', handleServerSyncComplete);
+    window.addEventListener('child_nutrition:record_synced', handleServerSyncComplete);
     window.addEventListener('child_nutrition:record_queued', handleSyncUpdate);
 
     // Periodic autosync check every 30 seconds
@@ -486,11 +497,11 @@ function SyncCentreContent() {
       unsubRetrying();
       unsubConflict();
       unsubSending();
-      window.removeEventListener('child_nutrition:sync_completed', handleSyncUpdate);
-      window.removeEventListener('child_nutrition:record_synced', handleSyncUpdate);
+      window.removeEventListener('child_nutrition:sync_completed', handleServerSyncComplete);
+      window.removeEventListener('child_nutrition:record_synced', handleServerSyncComplete);
       window.removeEventListener('child_nutrition:record_queued', handleSyncUpdate);
     };
-  }, [loadLocalData]);
+  }, [loadLocalData, refreshServer]);
 
   const [retryingItemId, setRetryingItemId] = useState<number | null>(null);
   const [noEligibleWarning, setNoEligibleWarning] = useState<string | null>(null);
@@ -568,26 +579,57 @@ function SyncCentreContent() {
 
     // 1. Process server submissions (e.g. from Google Sheets / central database)
     serverSubmissions.forEach((r: any, idx: number) => {
+      const raw = r.rawRecord || r;
       const id =
-        r['1\nUnique ID'] ||
-        r.uniqueId ||
-        r.art_number ||
+        raw['1\nUnique ID'] ||
+        raw.uniqueId ||
+        raw.art_number ||
+        raw.artNumber ||
+        r.id ||
         r.artNumber ||
-        r.client_submission_id ||
-        r._uuid ||
+        raw.client_submission_id ||
+        raw._uuid ||
         `BENEFICIARY-${idx + 1}`;
 
-      const submissionId = r._uuid || r.remote_submission_id || r.client_submission_id || id;
-      const childName = r['9\nChild Name'] || r.child_name || r.childName || 'Child Beneficiary';
-      const caregiverName = r['14\nCaregiver Full Name'] || r.caregiver_name || r.caregiverName || 'Caregiver';
-      const caregiverPhone = r['16\nCaregiver Contact'] || r.caregiver_phone || r.caregiverPhone;
-      const district = r['19\nDistrict'] || r.district || '';
-      const state = r['18\nState'] || r.state || '';
-      const revisionNumber = Number(r['2\nRevision Number'] || r.revision || r.version || 1);
-      const createdAt = r['3\nSubmission Time'] || r.submissionTime || r.created_at || r.updated_at || new Date().toISOString();
-      const lastEditedAt = r.lastEditedAt || r.updated_at || (revisionNumber > 1 ? createdAt : undefined);
-      const editReason = r['48\nEdit Reason'] || r.editReason || r.edit_reason;
-      const sheetRow = r.sheetRow || r.rowNumber || idx + 2;
+      const submissionId =
+        r.remoteSubmissionId ||
+        raw._uuid ||
+        raw.remote_submission_id ||
+        raw.client_submission_id ||
+        id;
+      const childName = raw['9\nChild Name'] || raw.child_name || r.childName || 'Child Beneficiary';
+      const caregiverName =
+        raw['14\nCaregiver Full Name'] ||
+        raw.caregiver_name ||
+        r.caregiverName ||
+        'Caregiver';
+      const caregiverPhone =
+        raw['16\nCaregiver Contact'] ||
+        raw.caregiver_phone ||
+        r.caregiverPhone;
+      const district = raw['19\nDistrict'] || raw.district || r.district || '';
+      const state = raw['18\nState'] || raw.state || r.state || '';
+      const revisionNumber = Number(raw['2\nRevision Number'] || raw.revision || r.version || 1);
+      const createdAt =
+        r.createdAt ||
+        raw['3\nSubmission Time'] ||
+        raw.submissionTime ||
+        raw.created_at ||
+        raw.updated_at ||
+        r.lastVisit ||
+        new Date().toISOString();
+      const lastEditedAt =
+        r.updatedAt ||
+        raw.lastEditedAt ||
+        raw.updated_at ||
+        (revisionNumber > 1 ? createdAt : undefined);
+      const editReason =
+        r.editReason ||
+        raw['4\nEdit Reason'] ||
+        raw['48\nEdit Reason'] ||
+        raw.editReason ||
+        raw.edit_reason;
+      const sheetRow = r.sheetRow || raw.sheetRow || raw.rowNumber || idx + 2;
 
       map.set(id, {
         id,
@@ -607,7 +649,7 @@ function SyncCentreContent() {
         lastEditedAt,
         editReason,
         sheetRow,
-        rawRecord: r,
+        rawRecord: raw,
         isOutbox: false,
       });
     });
@@ -1122,18 +1164,6 @@ function SyncCentreContent() {
             <span>Back to Dashboard</span>
           </Link>
         </div>
-        {/* Read-only Submission View Modal */}
-        {viewingItem && (
-          <SubmissionViewModal
-            item={viewingItem}
-            onClose={() => setViewingItem(null)}
-            onEdit={() => {
-              const target = viewingItem;
-              setViewingItem(null);
-              handleEditSubmission(target);
-            }}
-          />
-        )}
 
         {/* Truthful Submission Status Banner */}
         {justSubmitted && !bannerDismissed && (
