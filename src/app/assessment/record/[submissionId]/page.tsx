@@ -23,10 +23,12 @@ import {
 import { db } from '@/lib/db/dexieDb';
 import { isValidUuidV4 } from '@/features/submission/submissionTypes';
 import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 export default function RecordDetailPage() {
   const params = useParams();
   const submissionId = params?.submissionId as string;
+  const { user } = useEvaluationAccess();
 
   const [record, setRecord] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -271,12 +273,14 @@ export default function RecordDetailPage() {
               </Button>
             </Link>
 
-            <Link href={`/assessment/record/${submissionId}/edit`}>
-              <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 shadow-2xs">
-                <Edit className="h-4 w-4 mr-1.5" />
-                <span>Edit Approved Fields</span>
-              </Button>
-            </Link>
+            {user?.role === 'ADMIN' && (
+              <Link href={`/assessment/record/${submissionId}/edit`}>
+                <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 shadow-2xs">
+                  <Edit className="h-4 w-4 mr-1.5" />
+                  <span>Edit Approved Fields</span>
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 

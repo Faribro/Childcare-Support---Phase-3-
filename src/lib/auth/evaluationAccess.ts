@@ -187,16 +187,23 @@ export function useEvaluationAccess() {
   }, []);
 
   const login = useCallback(
-    async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    async (identifierOrUsername: string, password: string): Promise<{ success: boolean; error?: string }> => {
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({
+            accessIdentifier: identifierOrUsername,
+            username: identifierOrUsername,
+            password,
+          }),
         });
 
         const json = await res.json();
         if (res.ok && json.status === 'success' && json.data?.user) {
+          // Purge any previously scoped session data before hydrating new credentials
+          supervisorReadModel.purgeSession();
+
           const authedUser: EvaluationUser = {
             userId: json.data.user.userId,
             name: json.data.user.name,

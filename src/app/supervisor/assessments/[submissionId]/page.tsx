@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import type { AssessmentRecord, AuditEvent } from '@/types/domain';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import {
   ShieldCheck,
   ArrowLeft,
@@ -25,6 +26,7 @@ import {
 export default function SupervisorAssessmentDetailPage() {
   const params = useParams();
   const submissionId = params?.submissionId as string;
+  const { user } = useEvaluationAccess();
 
   const [isLoading, setIsLoading] = useState(true);
   const [record, setRecord] = useState<AssessmentRecord | null>(null);
@@ -122,12 +124,14 @@ export default function SupervisorAssessmentDetailPage() {
                 <span>Line-List</span>
               </Button>
             </Link>
-            <Link href={`/assessment/record/${submissionId}/edit`}>
-              <Button variant="secondary" size="sm">
-                <Edit3 className="h-4 w-4 mr-1.5" />
-                <span>Edit Record</span>
-              </Button>
-            </Link>
+            {user?.role === 'ADMIN' && (
+              <Link href={`/assessment/record/${submissionId}/edit`}>
+                <Button variant="secondary" size="sm">
+                  <Edit3 className="h-4 w-4 mr-1.5" />
+                  <span>Edit Record</span>
+                </Button>
+              </Link>
+            )}
             <Link href={`/assessment/record/${submissionId}`}>
               <Button variant="ghost" size="sm" className="text-teal-700">
                 <ExternalLink className="h-4 w-4 mr-1.5" />
