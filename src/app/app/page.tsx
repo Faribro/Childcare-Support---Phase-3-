@@ -157,6 +157,16 @@ export default function FieldWorkspacePage() {
           'Cache-Control': 'no-cache, no-store',
         },
       });
+      if (res.status === 401 || res.status === 403) {
+        clearTimeout(timeoutId);
+        const localCount = await getLocalSyncedCount();
+        if (isMountedRef.current) {
+          setSubmittedCount(localCount);
+          setSubmittedStatus('success');
+          setIsSubmittedLoading(false);
+        }
+        return;
+      }
       if (!res.ok) {
         res = await fetch('/api/submissions?limit=1', {
           cache: 'no-store',

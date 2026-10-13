@@ -112,10 +112,25 @@ export function resolveServerVerifiedRole(req: NextRequest): VerifiedRoleResult 
     };
   }
 
-  // 4. Check verified session cookie (structured session payload)
-  if (sessionCookie && validSecrets.length > 0) {
-    try {
-      if (sessionCookie.startsWith('{')) {
+  // 4. Check verified session cookie (cryptographically signed token or test-only structured payload)
+  if (sessionCookie) {
+    const verifiedSession = verifySessionToken(sessionCookie);
+    if (verifiedSession) {
+      const mappedRole: UserRole =
+        verifiedSession.role === 'FIELD_USER'
+          ? 'caseworker'
+          : verifiedSession.role === 'AUDITOR'
+            ? 'auditor'
+            : 'supervisor';
+      return {
+        role: mappedRole,
+        isVerified: true,
+        reason: 'verified_session_cookie',
+      };
+    }
+
+    if (process.env.NODE_ENV === 'test' && validSecrets.length > 0 && sessionCookie.startsWith('{')) {
+      try {
         const parsed = JSON.parse(sessionCookie);
         if (parsed.role === 'caseworker' || parsed.role === 'supervisor' || parsed.role === 'auditor') {
           return {
@@ -124,9 +139,9 @@ export function resolveServerVerifiedRole(req: NextRequest): VerifiedRoleResult 
             reason: 'verified_session_cookie',
           };
         }
+      } catch {
+        // Ignore unparseable cookie
       }
-    } catch {
-      // Ignore unparseable cookie
     }
   }
 
@@ -140,6 +155,25 @@ export function resolveServerVerifiedRole(req: NextRequest): VerifiedRoleResult 
     isVerified: false,
     reason: 'untrusted_fallback',
   };
+}
+
+/**
+ * Determines whether an unauthenticated request is allowed to receive synthetic local mock fixtures.
+ *
+ * SECURITY MANDATE:
+ * - Never true in live/production environments or when live staging/Supabase bridges are active.
+ * - Never true when a test explicitly probes unauthenticated behavior via `x-test-unauthenticated: true`.
+ * - Never used as a production authorization bypass.
+ */
+export function isSyntheticDemoModeAllowed(req: NextRequest): boolean {
+  if (req.headers.get('x-test-unauthenticated') === 'true') {
+    return false;
+  }
+  return (
+    process.env.E2E_ALLOW_LOCAL_MOCK === 'true' &&
+    process.env.E2E_STAGING_ENABLED !== 'true' &&
+    process.env.SUPABASE_LIVE_TEST !== 'true'
+  );
 }
 
 /**
@@ -184,25 +218,26 @@ export function resolveUserAccessScope(req: NextRequest): UserAccessScope {
   // 3. In test environment, unless explicitly marked as unverified or scoped test, provide test actor scope
   if (process.env.NODE_ENV === 'test' && req.headers.get('x-test-unauthenticated') !== 'true') {
     const requestedState = req.headers.get('x-test-scope-state');
+    const requestedDistrict = req.headers.get('x-test-scope-district');
     return {
       userId: 'test-runner',
       name: 'Automated Test Runner',
       role: 'ADMIN',
       allowedStates: requestedState ? [requestedState] : ['*'],
-      allowedDistricts: ['*'],
+      allowedDistricts: requestedDistrict ? [requestedDistrict] : ['*'],
       isVerified: true,
       reason: 'test_environment',
     };
   }
 
-  // 4. Fallback for unauthenticated field access: allow reading PII-masked records across operational states
-  // while keeping isVerified: false and role: 'FIELD_USER' so DELETE and PDF export remain strictly forbidden.
+  // 4. Fallback for unauthenticated callers: zero geographic scope and isVerified: false.
+  // Unauthenticated callers must never receive real beneficiary records.
   return {
     userId: 'anonymous-field',
     name: 'Field Worker (Unauthenticated)',
     role: 'FIELD_USER',
-    allowedStates: ['*'],
-    allowedDistricts: ['*'],
+    allowedStates: [],
+    allowedDistricts: [],
     isVerified: false,
     reason: 'untrusted_fallback',
   };
@@ -212,6 +247,10 @@ export function resolveUserAccessScope(req: NextRequest): UserAccessScope {
  * Checks if a requested state is within caller's authorized scope.
  */
 export function isStateAuthorized(scope: UserAccessScope, state?: string | null): boolean {
+  if (!scope.isVerified || scope.allowedStates.length === 0) {
+    return false;
+  }
+
   if (!state || state.trim() === '' || state.toUpperCase() === 'ALL' || state === '*') {
     // Cross-state wildcard access is permitted ONLY for LEADERSHIP, ADMIN, or wildcard scopes
     return scope.allowedStates.includes('*') || scope.role === 'LEADERSHIP' || scope.role === 'ADMIN';
@@ -229,10 +268,21 @@ export function isDistrictAuthorized(
   state?: string | null,
   district?: string | null
 ): boolean {
-  if (!isStateAuthorized(scope, state)) return false;
+  if (!scope.isVerified || scope.allowedStates.length === 0 || scope.allowedDistricts.length === 0) {
+    return false;
+  }
+
+  if (state && state.trim() !== '' && !isStateAuthorized(scope, state)) {
+    return false;
+  }
 
   if (!district || district.trim() === '' || district.toUpperCase() === 'ALL' || district === '*') {
-    return true;
+    return (
+      scope.allowedDistricts.includes('*') ||
+      scope.role === 'LEADERSHIP' ||
+      scope.role === 'ADMIN' ||
+      scope.role === 'STATE_REVIEWER'
+    );
   }
 
   if (scope.allowedDistricts.includes('*')) return true;
@@ -246,17 +296,19 @@ export function filterRecordsByScope<T extends { state?: string; district?: stri
   scope: UserAccessScope,
   records: T[]
 ): T[] {
-  if (scope.allowedStates.includes('*')) {
-    return records;
+  if (!scope.isVerified || scope.allowedStates.length === 0 || scope.allowedDistricts.length === 0) {
+    return [];
   }
 
-  return records.filter((r) => {
-    const rState = (r.state || 'Maharashtra').toLowerCase();
-    const stateMatch = scope.allowedStates.some((s) => s.toLowerCase() === rState);
+  return records.filter((r: any) => {
+    const rState = (r.state || r['18\nState'] || r.demographics?.state || 'Maharashtra').toString().trim().toLowerCase();
+    const stateMatch =
+      scope.allowedStates.includes('*') ||
+      scope.allowedStates.some((s) => s.toLowerCase() === rState);
     if (!stateMatch) return false;
 
     if (scope.allowedDistricts.includes('*')) return true;
-    const rDistrict = (r.district || '').toLowerCase();
+    const rDistrict = (r.district || r['19\nDistrict'] || r.demographics?.district || '').toString().trim().toLowerCase();
     return scope.allowedDistricts.some((d) => d.toLowerCase() === rDistrict);
   });
 }

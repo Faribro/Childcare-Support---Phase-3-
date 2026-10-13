@@ -3,6 +3,7 @@ import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdap
 import {
   resolveUserAccessScope,
   isStateAuthorized,
+  isDistrictAuthorized,
   logSecurityEvent,
 } from '@/lib/server/authorisation';
 import { generateBeneficiaryPdfBuffer } from '@/lib/server/pdfExportService';
@@ -10,6 +11,12 @@ import { generateBeneficiaryPdfBuffer } from '@/lib/server/pdfExportService';
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const revalidate = 0;
+
+const EXPORT_NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  Pragma: 'no-cache',
+  Vary: 'Cookie, Authorization',
+};
 
 export async function GET(
   req: NextRequest,
@@ -21,15 +28,15 @@ export async function GET(
     if (!submissionId) {
       return NextResponse.json(
         { status: 'error', code: 'INVALID_ID', message: 'Missing submissionId parameter' },
-        { status: 400 }
+        { status: 400, headers: EXPORT_NO_STORE_HEADERS }
       );
     }
 
     // Resolve caller scope (Issue #57)
     const scope = resolveUserAccessScope(req);
 
-    // Unverified anonymous callers or unauthorized field callers cannot export full evaluation PDF
-    if (!scope.isVerified && process.env.NODE_ENV !== 'test') {
+    // Unverified anonymous callers cannot export full evaluation PDF under any environment
+    if (!scope.isVerified) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
@@ -44,7 +51,7 @@ export async function GET(
           code: 'UNAUTHORIZED',
           message: 'Authentication required to export official evaluation dossier.',
         },
-        { status: 401 }
+        { status: 401, headers: EXPORT_NO_STORE_HEADERS }
       );
     }
 
@@ -59,23 +66,24 @@ export async function GET(
           code: result.code || 'NOT_FOUND',
           message: result.message || `Submission ${submissionId} not found`,
         },
-        { status: result.statusCode || 404 }
+        { status: result.statusCode || 404, headers: EXPORT_NO_STORE_HEADERS }
       );
     }
 
     const record = result.data;
     const recordState = record.state || record['18\nState'] || record.demographics?.state || 'Maharashtra';
+    const recordDistrict = record.district || record['19\nDistrict'] || record.demographics?.district || undefined;
 
-    // Verify state authorization
-    if (!isStateAuthorized(scope, recordState)) {
+    // Verify state & district authorization
+    if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'SCOPE_VIOLATION',
         outcome: 'DENY',
         targetResource: submissionId,
-        scope: `state=${recordState}`,
-        details: `Caller with scope [${scope.allowedStates.join(',')}] forbidden to export record for state '${recordState}'`,
+        scope: `state=${recordState},district=${recordDistrict || ''}`,
+        details: `Caller with scope [${scope.allowedStates.join(',')}/${scope.allowedDistricts.join(',')}] forbidden to export record for state '${recordState}'`,
       });
       return NextResponse.json(
         {
@@ -83,7 +91,7 @@ export async function GET(
           code: 'FORBIDDEN_SCOPE',
           message: `Access denied to records for state "${recordState}".`,
         },
-        { status: 403 }
+        { status: 403, headers: EXPORT_NO_STORE_HEADERS }
       );
     }
 
@@ -104,7 +112,7 @@ export async function GET(
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="Alliance_Record_${encodeURIComponent(submissionId)}.pdf"`,
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        ...EXPORT_NO_STORE_HEADERS,
         'X-Request-Id': requestId,
       },
     });

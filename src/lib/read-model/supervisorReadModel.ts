@@ -665,7 +665,14 @@ class SupervisorReadModelService {
           };
 
           // Non-retryable error (terminal 4xx): halt polling completely!
+          // On 401/403 auth or scope failure, purge cached records so data never leaks across users/scopes.
           if (!retryable || [400, 401, 403].includes(res.status)) {
+            if (res.status === 401 || res.status === 403) {
+              this.state.records = [];
+              this.state.total = 0;
+              this.state.dataSource = 'local-only';
+              this.clearCache();
+            }
             this.state.status = 'error';
             this.notify();
             return;
