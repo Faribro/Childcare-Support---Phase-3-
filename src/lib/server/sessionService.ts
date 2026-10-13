@@ -1,6 +1,12 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthPolicyRole } from './authorisation';
+import {
+  getCredentialByIdentifier,
+  checkRateLimit,
+  recordAuthAttempt,
+  isCredentialActiveSync,
+} from './credentialRegistry';
 
 export interface StoredUserAccount {
   id: string;
@@ -18,6 +24,8 @@ export interface SessionPayload {
   role: AuthPolicyRole;
   allowedStates: string[];
   allowedDistricts: string[];
+  credentialVersion?: number;
+  credentialKind?: 'STATE_EVALUATION' | 'LEADERSHIP_EVALUATION' | 'ADMIN';
   createdAt: number;
   expiresAt: number;
 }
@@ -258,7 +266,7 @@ export function createSessionToken(
 }
 
 /**
- * Verifies and parses a signed session token. Returns null if invalid, expired, or unconfigured secret.
+ * Verifies and parses a signed session token. Returns null if invalid, expired, unconfigured secret, or revoked credential version.
  */
 export function verifySessionToken(token: string): SessionPayload | null {
   if (!token || typeof token !== 'string') return null;
@@ -288,6 +296,15 @@ export function verifySessionToken(token: string): SessionPayload | null {
     if (!payload.expiresAt || Date.now() > payload.expiresAt) {
       return null;
     }
+
+    // Version check against credential registry (invalidates sessions upon rotation or deactivation)
+    if (payload.credentialVersion !== undefined && payload.username) {
+      const isActive = isCredentialActiveSync(payload.username, payload.credentialVersion);
+      if (!isActive) {
+        return null;
+      }
+    }
+
     return payload;
   } catch {
     return null;
@@ -296,71 +313,114 @@ export function verifySessionToken(token: string): SessionPayload | null {
 
 /**
  * Authenticates user credentials with lockout protection and returns a session token.
- * Uses Argon2id memory-hard password verification.
+ * Uses Argon2id memory-hard password verification against the credential registry.
  */
 export async function authenticateUser(
-  username: string,
+  identifierOrUsername: string,
   plainPassword: string,
   clientIp: string = 'unknown'
 ): Promise<{ success: true; token: string; user: SessionPayload } | { success: false; error: string; statusCode: number }> {
   const now = Date.now();
-  const rateKey = `${username.toLowerCase()}_${clientIp}`;
-  const rateRecord = loginAttemptsMap.get(rateKey) || { attempts: 0, lockoutUntil: null };
+  if (
+    !identifierOrUsername ||
+    typeof identifierOrUsername !== 'string' ||
+    !plainPassword ||
+    typeof plainPassword !== 'string'
+  ) {
+    return { success: false, error: 'Invalid access identifier or password.', statusCode: 400 };
+  }
 
-  if (rateRecord.lockoutUntil && now < rateRecord.lockoutUntil) {
-    const minutesLeft = Math.ceil((rateRecord.lockoutUntil - now) / 60000);
+  const cleanIdentifier = identifierOrUsername.trim();
+  if (cleanIdentifier.length === 0 || cleanIdentifier.length > 64 || plainPassword.length > 128) {
+    return { success: false, error: 'Access identifier or password exceeds maximum allowed length.', statusCode: 400 };
+  }
+
+  // Rate limiting check
+  const rateCheck = checkRateLimit(cleanIdentifier, clientIp);
+  if (!rateCheck.allowed) {
     return {
       success: false,
-      error: `Account temporarily locked due to excessive failed attempts. Please retry in ${minutesLeft} minute(s).`,
+      error: rateCheck.reason || 'Account temporarily locked due to excessive failed attempts. Please retry later.',
       statusCode: 429,
     };
   }
 
-  const account = SYSTEM_ACCOUNTS.find(
-    (a) => a.username.toLowerCase() === username.trim().toLowerCase()
+  // 1. Look up credential in the registry
+  const credential = await getCredentialByIdentifier(cleanIdentifier);
+
+  if (credential && credential.isActive) {
+    const isValid = await verifyPassword(credential.passwordHash, plainPassword);
+    if (!isValid) {
+      recordAuthAttempt(cleanIdentifier, clientIp, false);
+      return { success: false, error: 'Invalid username or password.', statusCode: 401 };
+    }
+
+    recordAuthAttempt(cleanIdentifier, clientIp, true);
+
+    let role: AuthPolicyRole = 'STATE_REVIEWER';
+    let allowedStates: string[] = [];
+
+    if (credential.credentialKind === 'STATE_EVALUATION') {
+      role = 'STATE_REVIEWER';
+      allowedStates = credential.stateCode ? [credential.stateCode] : [];
+    } else if (credential.credentialKind === 'LEADERSHIP_EVALUATION') {
+      role = 'LEADERSHIP';
+      allowedStates = ['*'];
+    } else if (credential.credentialKind === 'ADMIN') {
+      role = 'ADMIN';
+      allowedStates = ['*'];
+    }
+
+    const sessionPayload: SessionPayload = {
+      userId: credential.id,
+      username: credential.accessIdentifier,
+      name: credential.displayName,
+      role,
+      allowedStates,
+      allowedDistricts: ['*'],
+      credentialVersion: credential.credentialVersion,
+      credentialKind: credential.credentialKind,
+      createdAt: now,
+      expiresAt: now + SESSION_TTL_MS,
+    };
+
+    const token = signSessionToken(sessionPayload);
+    return { success: true, token, user: sessionPayload };
+  }
+
+  // 2. Legacy fallback for pre-existing tests if not registered in registry:
+  const legacyAccount = SYSTEM_ACCOUNTS.find(
+    (a) => a.username.toLowerCase() === cleanIdentifier.toLowerCase()
   );
-
-  if (!account) {
-    recordFailedAttempt(rateKey, rateRecord, now);
-    return { success: false, error: 'Invalid username or password.', statusCode: 401 };
+  if (legacyAccount) {
+    const configuredPassword = getAccountConfiguredPassword(legacyAccount.username);
+    if (configuredPassword && configuredPassword.trim() !== '') {
+      let passwordHash = passwordHashCache.get(legacyAccount.username);
+      if (!passwordHash) {
+        passwordHash = await hashPassword(configuredPassword.trim());
+        passwordHashCache.set(legacyAccount.username, passwordHash);
+      }
+      const isValid = await verifyPassword(passwordHash, plainPassword);
+      if (isValid) {
+        recordAuthAttempt(cleanIdentifier, clientIp, true);
+        const sessionPayload: SessionPayload = {
+          userId: legacyAccount.id,
+          username: legacyAccount.username,
+          name: legacyAccount.name,
+          role: legacyAccount.role,
+          allowedStates: legacyAccount.allowedStates,
+          allowedDistricts: legacyAccount.allowedDistricts,
+          createdAt: now,
+          expiresAt: now + SESSION_TTL_MS,
+        };
+        const token = signSessionToken(sessionPayload);
+        return { success: true, token, user: sessionPayload };
+      }
+    }
   }
 
-  const configuredPassword = getAccountConfiguredPassword(account.username);
-  if (!configuredPassword || configuredPassword.trim() === '') {
-    console.warn(`[Security Alert] Authentication attempt for '${account.username}' rejected: password is not configured in server environment.`);
-    recordFailedAttempt(rateKey, rateRecord, now);
-    return { success: false, error: 'Account is not configured on this server.', statusCode: 401 };
-  }
-
-  let passwordHash = passwordHashCache.get(account.username);
-  if (!passwordHash) {
-    passwordHash = await hashPassword(configuredPassword.trim());
-    passwordHashCache.set(account.username, passwordHash);
-  }
-
-  const isValid = await verifyPassword(passwordHash, plainPassword);
-
-  if (!isValid) {
-    recordFailedAttempt(rateKey, rateRecord, now);
-    return { success: false, error: 'Invalid username or password.', statusCode: 401 };
-  }
-
-  // Clear rate limits on successful authentication
-  loginAttemptsMap.delete(rateKey);
-
-  const sessionPayload: SessionPayload = {
-    userId: account.id,
-    username: account.username,
-    name: account.name,
-    role: account.role,
-    allowedStates: account.allowedStates,
-    allowedDistricts: account.allowedDistricts,
-    createdAt: now,
-    expiresAt: now + SESSION_TTL_MS,
-  };
-
-  const token = signSessionToken(sessionPayload);
-  return { success: true, token, user: sessionPayload };
+  recordAuthAttempt(cleanIdentifier, clientIp, false);
+  return { success: false, error: 'Invalid username or password.', statusCode: 401 };
 }
 
 function recordFailedAttempt(key: string, record: RateLimitRecord, now: number) {

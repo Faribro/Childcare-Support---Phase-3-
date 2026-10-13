@@ -74,12 +74,14 @@ import {
   Microscope,
   Activity,
 } from 'lucide-react';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 export default function EditRecordPage() {
   const params = useParams();
   const router = useRouter();
   const rawId = (params?.submissionId as string) || '';
   const submissionId = decodeURIComponent(rawId);
+  const { user } = useEvaluationAccess();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1306,6 +1308,42 @@ export default function EditRecordPage() {
         <div className="max-w-md mx-auto py-24 text-center space-y-3">
           <div className="w-8 h-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-xs text-slate-500 font-medium">Loading full assessment for editing...</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  // Model A Enforcement: Evaluation sessions (State Reviewer and Leadership) are read-only.
+  // Editing submitted records is strictly restricted to verified Administrator.
+  if (user?.isVerified && user.role !== 'ADMIN') {
+    return (
+      <AppShell>
+        <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 sm:p-8 shadow-xs text-center space-y-4">
+            <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                Read-Only Evaluation Session
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 mt-2 max-w-md mx-auto leading-relaxed">
+                State Evaluation and Leadership sessions operate under read-only policy. Existing beneficiary records cannot be edited or modified.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
+              <Link href={`/assessment/record/${encodeURIComponent(submissionId)}`}>
+                <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 text-xs">
+                  View Record Details
+                </Button>
+              </Link>
+              <Link href="/supervisor/assessments">
+                <Button variant="secondary" size="sm" className="text-xs">
+                  Return to Assessments Line-List
+                </Button>
+              </Link>
+            </div>
+          </div>
         </div>
       </AppShell>
     );

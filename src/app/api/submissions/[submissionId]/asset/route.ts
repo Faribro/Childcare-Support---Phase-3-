@@ -53,6 +53,26 @@ export async function POST(
       );
     }
 
+    if (scope.role !== 'ADMIN') {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: `Caller role '${scope.role}' forbidden to upload assets under Model A read-only evaluation policy`,
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN',
+          message: 'Asset upload is restricted to verified Administrator role. State Evaluation and Leadership users have read-only evaluation access.',
+          requestId,
+        },
+        { status: 403, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
     let rawBody: any;
     try {
       rawBody = await req.json();

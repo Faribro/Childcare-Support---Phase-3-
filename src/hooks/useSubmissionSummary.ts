@@ -21,6 +21,7 @@ export interface SubmissionSummaryState {
   isError: boolean;
   isOffline: boolean;
   source: 'server' | 'cache' | 'local';
+  isLocalOnlyCount: boolean;
   lastUpdated: Date | null;
   refresh: () => Promise<void>;
 }
@@ -238,6 +239,7 @@ export function useSubmissionSummary(filters?: SubmissionSummaryFilters): Submis
     isError,
     isOffline,
     source,
+    isLocalOnlyCount: source === 'local',
     lastUpdated,
     refresh: loadCounts,
   };

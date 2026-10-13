@@ -58,20 +58,20 @@ export function RecordActionMenu({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Authorization check for deletion
+  // Under Model A: State Evaluation and Leadership users are read-only.
+  // Editing and Deletion controls are suppressed for evaluation sessions.
+  const isEvaluationReadOnly = Boolean(
+    user?.isVerified && (user.role === 'STATE_REVIEWER' || user.role === 'LEADERSHIP')
+  );
+
+  const canEdit = !isEvaluationReadOnly;
+
+  // Authorization check for deletion: strictly disabled for evaluation sessions
   const canDelete = React.useMemo(() => {
-    if (!user) return true; // Default fallback to allow trigger (server enforces security)
-    if (user.role === 'ADMIN') return true;
-    if (user.role === 'STATE_REVIEWER') {
-      if (user.allowedStates?.includes('*')) return true;
-      return (
-        user.allowedStates?.some(
-          (s) => s.toLowerCase() === (row.state || 'Maharashtra').toLowerCase()
-        ) ?? false
-      );
-    }
-    return false;
-  }, [user, row.state]);
+    if (isEvaluationReadOnly) return false;
+    if (user && user.role !== 'ADMIN') return false;
+    return true; // Default fallback in un-mocked component tests (server enforces security)
+  }, [user, isEvaluationReadOnly]);
 
   const handleDownloadPdf = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -157,16 +157,18 @@ export function RecordActionMenu({
             </Link>
           )}
 
-          {/* Edit Record */}
-          <Link
-            href={`/assessment/record/${encodeURIComponent(row.id)}/edit`}
-            role="menuitem"
-            onClick={() => setIsOpen(false)}
-            className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
-          >
-            <Pencil className="h-3.5 w-3.5 text-purple-600" />
-            <span>Edit Survey</span>
-          </Link>
+          {/* Edit Record: Rendered only for verified ADMIN under Model A */}
+          {canEdit && (
+            <Link
+              href={`/assessment/record/${encodeURIComponent(row.id)}/edit`}
+              role="menuitem"
+              onClick={() => setIsOpen(false)}
+              className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5 text-purple-600" />
+              <span>Edit Survey</span>
+            </Link>
+          )}
 
           {/* Download PDF Dossier */}
           <button
@@ -184,24 +186,22 @@ export function RecordActionMenu({
             <span>{isExporting ? 'Generating PDF...' : 'Download PDF Dossier'}</span>
           </button>
 
-          <div className="my-1 border-t border-slate-100" />
-
-          {/* Delete Record */}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={handleDeleteClick}
-            disabled={!canDelete}
-            title={canDelete ? 'Delete record' : 'Only authorized state reviewers or admins can delete records'}
-            className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-              canDelete
-                ? 'text-rose-600 hover:bg-rose-50 cursor-pointer'
-                : 'text-slate-300 cursor-not-allowed'
-            }`}
-          >
-            <Trash2 className="h-3.5 w-3.5 text-rose-500" />
-            <span>Delete Survey</span>
-          </button>
+          {/* Delete Record: Rendered only for verified ADMIN under Model A */}
+          {canDelete && (
+            <>
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleDeleteClick}
+                title="Delete record"
+                className="w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center gap-2 transition-colors text-rose-600 hover:bg-rose-50 cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                <span>Delete Survey</span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

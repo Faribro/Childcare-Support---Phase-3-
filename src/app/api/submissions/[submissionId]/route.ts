@@ -135,6 +135,47 @@ export async function PATCH(
       );
     }
 
+    const scope = resolveUserAccessScope(req);
+    if (!scope.isVerified) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: 'Unverified caller denied on PATCH /api/submissions/[submissionId]',
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required to edit submissions.',
+          requestId,
+        },
+        { status: 401 }
+      );
+    }
+
+    if (scope.role !== 'ADMIN') {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: `Caller role '${scope.role}' forbidden to execute PATCH on submission under Model A read-only evaluation policy`,
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN',
+          message: 'Record edits are restricted to verified Administrator role. State Evaluation and Leadership users have read-only evaluation access.',
+          requestId,
+        },
+        { status: 403 }
+      );
+    }
+
     let rawBody;
     try {
       rawBody = await req.json();
@@ -334,8 +375,8 @@ export async function DELETE(
 
     const scope = resolveUserAccessScope(req);
 
-    // Enforce role authorization (Issue #57)
-    if (!scope.isVerified || (scope.role !== 'ADMIN' && scope.role !== 'STATE_REVIEWER')) {
+    // Enforce role authorization: Hard deletion is strictly restricted to verified ADMIN
+    if (!scope.isVerified || scope.role !== 'ADMIN') {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
@@ -349,38 +390,10 @@ export async function DELETE(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Deletion requires verified Administrator or State Reviewer role.',
+          message: 'Hard deletion is restricted to verified Administrator role. State Reviewers and Leadership evaluation users cannot delete records.',
         },
         { status: 403 }
       );
-    }
-
-    // If STATE_REVIEWER, verify the record belongs to the authorized state scope
-    if (scope.role === 'STATE_REVIEWER') {
-      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
-      if (existing.status === 'success' && existing.data) {
-        const recordState = existing.data.state || existing.data['18\nState'] || 'Maharashtra';
-        if (!isStateAuthorized(scope, recordState)) {
-          logSecurityEvent({
-            actor: scope.userId,
-            actorRole: scope.role,
-            eventType: 'SCOPE_VIOLATION',
-            outcome: 'DENY',
-            targetResource: submissionId,
-            scope: `state=${recordState}`,
-            details: `State Reviewer not authorized to delete record in state '${recordState}'`,
-          });
-
-          return NextResponse.json(
-            {
-              status: 'error',
-              code: 'FORBIDDEN_SCOPE',
-              message: `You are not authorized to delete records in state "${recordState}".`,
-            },
-            { status: 403 }
-          );
-        }
-      }
     }
 
     const result = await canonicalSubmissionAdapter.deleteSubmission(submissionId);

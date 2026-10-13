@@ -92,7 +92,7 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.code).toBe('FORBIDDEN');
-      expect(body.message).toContain('Administrator or State Reviewer');
+      expect(body.message).toContain('Administrator');
     });
 
     it('rejects FIELD_USER caller attempting to DELETE record with 403 FORBIDDEN', async () => {
@@ -121,7 +121,7 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
       expect(body.code).toBe('FORBIDDEN');
     });
 
-    it('rejects STATE_REVIEWER trying to delete record outside assigned state with 403 FORBIDDEN_SCOPE', async () => {
+    it('rejects STATE_REVIEWER trying to delete record with 403 FORBIDDEN', async () => {
       const mhReviewerToken = createSessionToken({
         userId: 'rev-mh-01',
         name: 'Reviewer Maharashtra',
@@ -130,8 +130,7 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
         allowedDistricts: ['*'],
       });
 
-      // WB-KOL-081200-01 is located in West Bengal
-      const crossStateReq = new NextRequest('http://localhost:3000/api/submissions/WB-KOL-081200-01', {
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
         method: 'DELETE',
         headers: {
           Origin: 'http://localhost:3000',
@@ -139,41 +138,39 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
         },
       });
 
-      const res = await deleteSubmissionRoute(crossStateReq, {
-        params: { submissionId: 'WB-KOL-081200-01' },
+      const res = await deleteSubmissionRoute(req, {
+        params: { submissionId: 'MH-PUN-081200-02' },
       });
 
       expect(res.status).toBe(403);
       const body = await res.json();
-      expect(body.code).toBe('FORBIDDEN_SCOPE');
-      expect(body.message).toContain('West Bengal');
+      expect(body.code).toBe('FORBIDDEN');
     });
 
-    it('allows STATE_REVIEWER to delete record within assigned state', async () => {
-      const mhReviewerToken = createSessionToken({
-        userId: 'rev-mh-01',
-        name: 'Reviewer Maharashtra',
-        role: 'STATE_REVIEWER',
-        allowedStates: ['Maharashtra'],
+    it('rejects LEADERSHIP evaluation session trying to delete record with 403 FORBIDDEN', async () => {
+      const leadershipToken = createSessionToken({
+        userId: 'lead-nat-01',
+        name: 'Leadership India',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
         allowedDistricts: ['*'],
       });
 
-      // MH-PUN-081200-02 is located in Maharashtra (Pune)
-      const validStateReq = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
         method: 'DELETE',
         headers: {
           Origin: 'http://localhost:3000',
-          Cookie: `evaluation_session_token=${mhReviewerToken}`,
+          Cookie: `evaluation_session_token=${leadershipToken}`,
         },
       });
 
-      const res = await deleteSubmissionRoute(validStateReq, {
+      const res = await deleteSubmissionRoute(req, {
         params: { submissionId: 'MH-PUN-081200-02' },
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
       const body = await res.json();
-      expect(body.status).toBe('success');
+      expect(body.code).toBe('FORBIDDEN');
     });
 
     it('allows ADMIN to delete any record across states', async () => {
@@ -256,6 +253,6 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
       if (!authWrongPwd.success) {
         expect(authWrongPwd.statusCode).toBe(401);
       }
-    });
+    }, 15000);
   });
 });

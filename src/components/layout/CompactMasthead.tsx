@@ -103,7 +103,11 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                   <span className="inline-flex items-baseline">
                     <span>{link.label}</span>
                     {link.href === '/assessment/sync' && (
-                      <sup className="text-[10.5px] font-bold ml-0.5 -top-1.5 select-none font-mono tracking-tight">
+                      <sup
+                        className="text-[10.5px] font-bold ml-0.5 -top-1.5 select-none font-mono tracking-tight"
+                        title={summary.isLocalOnlyCount ? 'Submissions saved locally on this device' : 'Authoritative server-confirmed submissions'}
+                        aria-label={summary.isLocalOnlyCount ? `${displayCount} local submissions saved on this device` : `${displayCount} server-confirmed submissions`}
+                      >
                         {displayCount}
                       </sup>
                     )}

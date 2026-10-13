@@ -26,20 +26,21 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { username, password } = body;
+    const identifier = body.accessIdentifier || body.state || body.username;
+    const { password } = body;
 
-    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+    if (!identifier || !password || typeof identifier !== 'string' || typeof password !== 'string') {
       return NextResponse.json(
-        { status: 'error', code: 'INVALID_CREDENTIALS', message: 'Username and password are required.' },
+        { status: 'error', code: 'INVALID_CREDENTIALS', message: 'Access identifier and password are required.' },
         { status: 400 }
       );
     }
 
-    const authResult = await authenticateUser(username, password, clientIp);
+    const authResult = await authenticateUser(identifier, password, clientIp);
 
     if (!authResult.success) {
       logSecurityEvent({
-        actor: username,
+        actor: identifier,
         actorRole: 'UNKNOWN',
         eventType: 'AUTH_FAILURE',
         outcome: 'DENY',
