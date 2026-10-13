@@ -366,7 +366,7 @@ describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolat
 
       await supervisorReadModel.fetchSubmissions({ force: true });
       const afterLogoutState = supervisorReadModel.getState();
-      expect(afterLogoutState.status).toBe('error');
+      expect(['error', 'unauthorized']).toContain(afterLogoutState.status);
       expect(afterLogoutState.records).toEqual([]);
       expect(afterLogoutState.total).toBe(0);
     });

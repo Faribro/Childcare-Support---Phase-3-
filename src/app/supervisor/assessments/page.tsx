@@ -41,18 +41,22 @@ import {
 import { StateDistrictFilterBar } from '@/components/supervisor/StateDistrictFilterBar';
 import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
 import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
+import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
 import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
 
 type BeneficiaryRow = SupervisorBeneficiaryRow;
 
 export default function SupervisorAssessmentsPage() {
   const { isUnlocked, isLoaded, user } = useEvaluationAccess();
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const {
     records: data,
     total,
     status,
     isLoading,
     isError,
+    isUnauthorized,
+    isForbidden,
     isEmpty,
     isOfflineCache,
     networkStatus,
@@ -62,7 +66,7 @@ export default function SupervisorAssessmentsPage() {
     retry,
     setRecords: setData,
     lastRefreshed,
-  } = useSupervisorData();
+  } = useSupervisorData({ enabled: isLoaded && isUnlocked });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [schoolTypeFilter, setSchoolTypeFilter] = useState('ALL');
@@ -311,27 +315,54 @@ export default function SupervisorAssessmentsPage() {
     a.click();
   };
 
-  if (isLoaded && !isUnlocked) {
+  if (!isLoaded) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-20 text-center">
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
+            <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto" />
+            <h2 className="text-sm font-semibold text-slate-800">Verifying Authorization…</h2>
+            <p className="text-xs text-slate-500">Checking credentials and scope clearance.</p>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (isLoaded && !isUnlocked && !isUnauthorized) {
     return (
       <AppShell>
         <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
-            <h2 className="text-base font-bold text-slate-900">Evaluation Linelist Restricted</h2>
+            <h2 className="text-base font-bold text-slate-900">Authentication Required</h2>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Beneficiary evaluation and surveillance records are restricted to authorized personnel.
+              Beneficiary evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.
             </p>
-            <div className="pt-2">
-              <Link href="/">
-                <Button variant="primary" size="sm">
-                  Return to Dashboard
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="w-full sm:w-auto text-xs bg-teal-800 hover:bg-teal-900 text-white"
+              >
+                <Lock className="w-3.5 h-3.5 mr-1.5" />
+                Sign In to Access
+              </Button>
+              <Link href="/app" className="w-full sm:w-auto">
+                <Button variant="secondary" size="sm" className="w-full text-xs">
+                  Return to Forms
                 </Button>
               </Link>
             </div>
           </div>
         </div>
+        <EvaluationLoginModal
+          isOpen={isLoginModalOpen}
+          onClose={() => setIsLoginModalOpen(false)}
+        />
       </AppShell>
     );
   }
@@ -371,8 +402,49 @@ export default function SupervisorAssessmentsPage() {
           }
         />
 
-        {/* Error State Banner */}
-        {isError && (
+        {/* Unauthorized State Banner */}
+        {isUnauthorized && (
+          <div className="mb-5 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <Lock className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Session Authentication Required</h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Your session has expired or requires authentication. Please sign in to read beneficiary records.
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="text-xs bg-teal-800 hover:bg-teal-900 text-white"
+              >
+                <Lock className="w-3.5 h-3.5 mr-1" />
+                Sign In Again
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Forbidden Scope Banner */}
+        {isForbidden && (
+          <div className="mb-5 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-900 shadow-xs">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold">Geographic Scope Restricted</h4>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  {error?.message || 'Your account does not have clearance for this state or district selection.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Genuine Network / Upstream Error State Banner */}
+        {isError && !isUnauthorized && !isForbidden && (
           <div className="mb-5 bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-900 shadow-xs">
             <div className="flex items-start space-x-3">
               <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
@@ -1146,6 +1218,10 @@ export default function SupervisorAssessmentsPage() {
           </div>
         )}
       </div>
+      <EvaluationLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
     </AppShell>
   );
 }
