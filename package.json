@@ -22,7 +22,9 @@
     "e2e:staging:cloud:preflight": "tsx scripts/e2e/verify-staging-cloud-preflight.ts",
     "e2e:staging:reconcile": "tsx scripts/e2e/reconcile-field-mapping.ts",
     "e2e:staging:run": "playwright test e2e/full-data-lifecycle.spec.ts e2e/offline-recovery-and-revision.spec.ts",
-    "e2e:staging:verify": "tsx scripts/e2e/verify-staging-record.ts"
+    "e2e:staging:verify": "tsx scripts/e2e/verify-staging-record.ts",
+    "credentials:dry-run": "tsx scripts/admin/provision-evaluation-credentials.ts --dry-run",
+    "sheet:passwords:dry-run": "tsx scripts/admin/setup-passwords-sheet-tab.ts --dry-run"
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.0",

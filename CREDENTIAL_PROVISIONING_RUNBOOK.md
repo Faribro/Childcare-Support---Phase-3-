@@ -34,7 +34,7 @@ Before executing any provisioning command:
 Execute a dry-run to inspect the planned credentials and verify that the generator operates without exposing secrets:
 
 ```bash
-npx ts-node scripts/admin/provision-evaluation-credentials.ts --dry-run
+npx tsx scripts/admin/provision-evaluation-credentials.ts --dry-run
 ```
 
 **Expected Output**:
@@ -47,7 +47,7 @@ npx ts-node scripts/admin/provision-evaluation-credentials.ts --dry-run
 When approved, run the provisioning utility with the designated secure vault path:
 
 ```bash
-npx ts-node scripts/admin/provision-evaluation-credentials.ts \
+npx tsx scripts/admin/provision-evaluation-credentials.ts \
   --delivery-vault="vault://alliance-pm/childcare-pwa/"
 ```
 
@@ -68,7 +68,7 @@ When a state team changes, a credential reaches its scheduled expiry, or suspect
 To rotate a specific state credential (e.g. Maharashtra):
 
 ```bash
-npx ts-node scripts/admin/provision-evaluation-credentials.ts \
+npx tsx scripts/admin/provision-evaluation-credentials.ts \
   --rotate="STATE-MH" \
   --delivery-vault="vault://alliance-pm/childcare-pwa/"
 ```
@@ -87,7 +87,7 @@ Rotating the credential:
 To immediately revoke access for an inactive state without generating a replacement password:
 
 ```bash
-npx ts-node scripts/admin/provision-evaluation-credentials.ts \
+npx tsx scripts/admin/provision-evaluation-credentials.ts \
   --deactivate="STATE-XX"
 ```
 
@@ -100,7 +100,7 @@ The database updates `is_active = FALSE`. The session service immediately termin
 After provisioning or rotating credentials, update the Google Sheets metadata mirror:
 
 ```bash
-npx ts-node scripts/admin/setup-passwords-sheet-tab.ts --reconcile-mirror
+npx tsx scripts/admin/setup-passwords-sheet-tab.ts --reconcile-mirror
 ```
 
 This updates the `Credential Version`, `Last Rotated At`, and `Provisioning Status` columns on the `passwords` tab **without writing any secrets or hashes**.
