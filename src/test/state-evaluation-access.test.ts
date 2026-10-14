@@ -5,6 +5,7 @@ import {
   verifySessionToken,
   createSessionToken,
   signSessionToken,
+  resetPasswordHashCache,
 } from '@/lib/server/sessionService';
 import {
   initializeTestFixtures,
@@ -648,6 +649,52 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         expect(values[0]).toMatch(/^(STATE-[A-Z]{2}|LEADERSHIP-ALL)$/); // Access ID
         expect(values[6]).toMatch(/^(TRUE|FALSE)$/); // Active
         expect(values[11]).toMatch(/^vault:\/\//); // Delivery Reference
+      }
+    });
+
+    it('authenticates bootstrap environment credentials using evaluation aliases in production mode', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalLeadPwd = process.env.INITIAL_LEADERSHIP_PWD;
+      const originalRevPwd = process.env.INITIAL_REV_MH_PWD;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        clearRegistry();
+        resetPasswordHashCache();
+        resetRateLimits();
+
+        process.env.INITIAL_LEADERSHIP_PWD = 'TestBootstrap123!';
+        process.env.INITIAL_REV_MH_PWD = 'TestBootstrap123!';
+
+        // 1. Leadership login via LEADERSHIP-ALL
+        const leadRes = await authenticateUser('LEADERSHIP-ALL', 'TestBootstrap123!', '127.0.0.1');
+        expect(leadRes.success).toBe(true);
+        if (leadRes.success) {
+          expect(leadRes.user.role).toBe('LEADERSHIP');
+          expect(leadRes.user.allowedStates).toEqual(['*']);
+        }
+
+        // 2. State Evaluation login via Maharashtra
+        const mhNameRes = await authenticateUser('Maharashtra', 'TestBootstrap123!', '127.0.0.1');
+        expect(mhNameRes.success).toBe(true);
+        if (mhNameRes.success) {
+          expect(mhNameRes.user.role).toBe('STATE_REVIEWER');
+          expect(mhNameRes.user.allowedStates).toEqual(['Maharashtra']);
+        }
+
+        // 3. State Evaluation login via STATE-MH
+        const mhCodeRes = await authenticateUser('STATE-MH', 'TestBootstrap123!', '127.0.0.1');
+        expect(mhCodeRes.success).toBe(true);
+        if (mhCodeRes.success) {
+          expect(mhCodeRes.user.role).toBe('STATE_REVIEWER');
+          expect(mhCodeRes.user.allowedStates).toEqual(['Maharashtra']);
+        }
+      } finally {
+        (process.env as any).NODE_ENV = originalNodeEnv;
+        process.env.INITIAL_LEADERSHIP_PWD = originalLeadPwd;
+        process.env.INITIAL_REV_MH_PWD = originalRevPwd;
+        resetPasswordHashCache();
+        resetRateLimits();
+        await initializeTestFixtures();
       }
     });
   });

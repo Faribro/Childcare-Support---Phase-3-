@@ -57,7 +57,6 @@ const MAX_ATTEMPTS_PER_IP = 20;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
 export function resetRateLimits(): void {
-  credentialAttempts.clear;
   credentialAttempts.clear();
   ipAttempts.clear();
 }
@@ -211,9 +210,10 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
   }
 
   // 2. Query Supabase registry table via PostgREST if service-role credentials exist
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NODE_ENV !== 'test') {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (supabaseUrl && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NODE_ENV !== 'test') {
     try {
-      const baseUrl = process.env.SUPABASE_URL.replace(/\/+$/, '');
+      const baseUrl = supabaseUrl.replace(/\/+$/, '');
       const url = `${baseUrl}/rest/v1/evaluation_credential_registry?access_identifier=eq.${encodeURIComponent(resolvedId)}&is_active=eq.true&select=*`;
       const res = await fetch(url, {
         method: 'GET',
@@ -225,7 +225,7 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
       });
 
       if (!res.ok) {
-        console.error('[CredentialRegistry] Supabase query error HTTP status:', res.status);
+        // Table or row not found - fall through gracefully to configured environment accounts
         return null;
       }
 

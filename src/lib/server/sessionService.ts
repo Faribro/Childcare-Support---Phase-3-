@@ -6,6 +6,8 @@ import {
   checkRateLimit,
   recordAuthAttempt,
   isCredentialActiveSync,
+  resolveAccessIdentifier,
+  CANONICAL_EVALUATION_STATES,
 } from './credentialRegistry';
 
 export interface StoredUserAccount {
@@ -200,17 +202,36 @@ const SYSTEM_ACCOUNTS: StoredUserAccount[] = [
 ];
 
 function getAccountConfiguredPassword(username: string): string | undefined {
-  switch (username.toLowerCase()) {
+  const lower = username.toLowerCase();
+  switch (lower) {
     case 'field_mh':
+    case 'field-mh-01':
       return process.env.INITIAL_FIELD_MH_PWD;
     case 'reviewer_mh':
+    case 'state-mh':
+    case 'maharashtra':
+    case 'mh':
       return process.env.INITIAL_REV_MH_PWD;
     case 'leadership_india':
+    case 'leadership-all':
+    case 'leadership':
+    case 'lead-nat-01':
       return process.env.INITIAL_LEADERSHIP_PWD;
     case 'admin':
+    case 'admin-system':
+    case 'admin-01':
       return process.env.INITIAL_ADMIN_PWD;
-    default:
+    default: {
+      if (
+        lower.startsWith('state-') ||
+        CANONICAL_EVALUATION_STATES.some(
+          (s) => s.name.toLowerCase() === lower || s.code.toLowerCase() === lower
+        )
+      ) {
+        return process.env.INITIAL_STATE_PWD || process.env.INITIAL_REV_MH_PWD;
+      }
       return undefined;
+    }
   }
 }
 
@@ -388,12 +409,95 @@ export async function authenticateUser(
     return { success: true, token, user: sessionPayload };
   }
 
-  // 2. Legacy fallback for pre-existing tests if not registered in registry:
-  const legacyAccount = SYSTEM_ACCOUNTS.find(
-    (a) => a.username.toLowerCase() === cleanIdentifier.toLowerCase()
-  );
+  // 2. Legacy fallback for pre-existing tests or bootstrap accounts if not in remote database registry:
+  let legacyAccount: StoredUserAccount | undefined;
+
+  const normalizedId = resolveAccessIdentifier(cleanIdentifier) || cleanIdentifier;
+  const lowerNormalized = normalizedId.toLowerCase();
+  const lowerClean = cleanIdentifier.toLowerCase();
+
+  if (
+    lowerNormalized === 'leadership-all' ||
+    lowerClean === 'leadership_india' ||
+    lowerClean === 'leadership' ||
+    lowerClean === 'lead-nat-01'
+  ) {
+    legacyAccount = {
+      id: 'lead-nat-01',
+      username: 'leadership_india',
+      name: 'National Programme Leadership (All States)',
+      role: 'LEADERSHIP',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+    };
+  } else if (
+    lowerNormalized === 'admin-system' ||
+    lowerClean === 'admin' ||
+    lowerClean === 'admin-01'
+  ) {
+    legacyAccount = {
+      id: 'admin-01',
+      username: 'admin',
+      name: 'System Administrator',
+      role: 'ADMIN',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+    };
+  } else if (
+    lowerNormalized === 'state-mh' ||
+    lowerClean === 'reviewer_mh' ||
+    lowerClean === 'maharashtra' ||
+    lowerClean === 'mh'
+  ) {
+    legacyAccount = {
+      id: 'rev-mh-01',
+      username: 'reviewer_mh',
+      name: 'Maharashtra State Reviewer',
+      role: 'STATE_REVIEWER',
+      allowedStates: ['Maharashtra'],
+      allowedDistricts: ['*'],
+    };
+  } else if (lowerClean === 'field_mh' || lowerClean === 'field-mh-01') {
+    legacyAccount = {
+      id: 'field-mh-01',
+      username: 'field_mh',
+      name: 'Maharashtra Field Caseworker (Pune)',
+      role: 'FIELD_USER',
+      allowedStates: ['Maharashtra'],
+      allowedDistricts: ['Pune'],
+    };
+  } else {
+    const matchedState = CANONICAL_EVALUATION_STATES.find(
+      (s) =>
+        s.accessIdentifier.toLowerCase() === lowerNormalized ||
+        s.name.toLowerCase() === lowerClean ||
+        s.code.toLowerCase() === lowerClean
+    );
+    if (matchedState) {
+      legacyAccount = {
+        id: `eval-${matchedState.code.toLowerCase()}-01`,
+        username: matchedState.accessIdentifier,
+        name: `${matchedState.name} State Evaluation`,
+        role: 'STATE_REVIEWER',
+        allowedStates: [matchedState.name],
+        allowedDistricts: ['*'],
+      };
+    }
+  }
+
+  if (!legacyAccount) {
+    legacyAccount = SYSTEM_ACCOUNTS.find(
+      (a) =>
+        a.username.toLowerCase() === lowerClean ||
+        a.username.toLowerCase() === lowerNormalized
+    );
+  }
+
   if (legacyAccount) {
-    const configuredPassword = getAccountConfiguredPassword(legacyAccount.username);
+    const configuredPassword =
+      getAccountConfiguredPassword(legacyAccount.username) ||
+      getAccountConfiguredPassword(cleanIdentifier) ||
+      getAccountConfiguredPassword(lowerNormalized);
     if (configuredPassword && configuredPassword.trim() !== '') {
       let passwordHash = passwordHashCache.get(legacyAccount.username);
       if (!passwordHash) {
