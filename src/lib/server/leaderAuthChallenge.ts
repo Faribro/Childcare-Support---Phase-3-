@@ -11,6 +11,7 @@
  * - Challenge superseding (new code request invalidates older code)
  * - Invalidation on email dispatch failure
  * - Constant-time generic responses to prevent email enumeration
+ * - Server-only feature flag enforcement (never enabled on NEXT_PUBLIC alone)
  */
 
 import crypto from 'crypto';
@@ -29,21 +30,20 @@ import {
   type LeaderAuthChallengeRecord,
   type LeaderSessionRecord,
 } from './leaderAuthStore';
+
 export {
   CHALLENGE_TTL_MS,
   MAX_VERIFY_ATTEMPTS,
   LEADER_ABSOLUTE_LIFETIME_MS,
 };
 
-
 /**
- * Checks whether Leadership email authentication is enabled via feature flag.
+ * Checks whether Leadership email authentication is enabled.
+ * Enforced strictly via server-side environment variable.
+ * Must never be enabled based solely on a NEXT_PUBLIC flag.
  */
 export function isLeadershipEmailAuthEnabled(): boolean {
-  return (
-    process.env.LEADERSHIP_EMAIL_AUTH_ENABLED === 'true' ||
-    process.env.NEXT_PUBLIC_LEADERSHIP_EMAIL_AUTH_ENABLED === 'true'
-  );
+  return process.env.LEADERSHIP_EMAIL_AUTH_ENABLED === 'true';
 }
 
 /**
@@ -62,17 +62,18 @@ export function hashString(value: string): string {
 }
 
 /**
- * Generates a new 256-bit cryptographically secure device secret for browser binding.
+ * Generates a cryptographically strong 256-bit random device binding secret.
  */
 export function generateDeviceBindingSecret(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+export type RequestCodeResult =
+  | { success: true; statusCode: 200 }
+  | { success: false; error: string; statusCode: number };
+
 /**
- * Requests an individual 128-bit hex authentication code.
- * Supports requesting via email or authorized leaderId.
- * Always dispatches strictly to the server-verified stored email.
- * Always returns a generic success message to prevent user/email enumeration.
+ * Initiates an authentication challenge and dispatches a single-use code to the leader's email.
  */
 export async function requestLeadershipAuthCode({
   email,
@@ -86,7 +87,7 @@ export async function requestLeadershipAuthCode({
   deviceBindingSecret: string;
   userAgent?: string;
   clientIp?: string;
-}): Promise<{ success: boolean; error?: string; statusCode: number }> {
+}): Promise<RequestCodeResult> {
   if (!isLeadershipEmailAuthEnabled()) {
     return {
       success: false,
@@ -102,7 +103,10 @@ export async function requestLeadershipAuthCode({
   let targetEmail = '';
 
   if (leaderId && typeof leaderId === 'string') {
-    leader = findLeaderById(leaderId.trim());
+    leader = await store.getLeaderIdentity(leaderId.trim()).catch(() => null);
+    if (!leader) {
+      leader = findLeaderById(leaderId.trim());
+    }
     if (leader) {
       targetEmail = normalizeEmail(leader.email);
     }
@@ -119,17 +123,26 @@ export async function requestLeadershipAuthCode({
     };
   }
 
-  // Distributed Rate Limiting Checks
-  const emailRateKey = `rate:email:${targetEmail}`;
-  const emailLimit = await store.checkAndRecordRateLimit(emailRateKey, now);
-  if (!emailLimit.allowed) {
-    return { success: false, error: emailLimit.reason, statusCode: 429 };
-  }
+  // Distributed Rate Limiting Checks (fail closed on store errors)
+  try {
+    const emailRateKey = `rate:email:${targetEmail}`;
+    const emailLimit = await store.checkAndRecordRateLimit(emailRateKey, now);
+    if (!emailLimit.allowed) {
+      return { success: false, error: emailLimit.reason || 'Too many requests.', statusCode: 429 };
+    }
 
-  const ipRateKey = `rate:ip:${clientIp}`;
-  const ipLimit = await store.checkAndRecordRateLimit(ipRateKey, now);
-  if (!ipLimit.allowed) {
-    return { success: false, error: ipLimit.reason, statusCode: 429 };
+    const ipRateKey = `rate:ip:${clientIp}`;
+    const ipLimit = await store.checkAndRecordRateLimit(ipRateKey, now);
+    if (!ipLimit.allowed) {
+      return { success: false, error: ipLimit.reason || 'Too many requests.', statusCode: 429 };
+    }
+  } catch (err: any) {
+    console.error('[LEADER_AUTH:RATE_LIMIT_ERROR] Fail-closed on rate limit store failure:', err?.message);
+    return {
+      success: false,
+      error: 'Authentication rate check unavailable. Please retry later.',
+      statusCode: 503,
+    };
   }
 
   // If email is not allowlisted or leader is inactive, return generic success
@@ -138,9 +151,6 @@ export async function requestLeadershipAuthCode({
     await new Promise((r) => setTimeout(r, 15));
     return { success: true, statusCode: 200 };
   }
-
-  // Supersede prior unused challenges for this leader
-  await store.supersedePriorChallenges(targetEmail, leader.id);
 
   // Generate 128-bit hex OTP (16 random bytes = 32 hex chars)
   const plainOtp = crypto.randomBytes(16).toString('hex');
@@ -164,7 +174,16 @@ export async function requestLeadershipAuthCode({
     isLocked: false,
   };
 
-  await store.createChallenge(challenge);
+  try {
+    await store.createChallenge(challenge);
+  } catch (err: any) {
+    console.error('[LEADER_AUTH:CHALLENGE_CREATE_ERROR] Fail-closed on challenge creation failure:', err?.message);
+    return {
+      success: false,
+      error: 'Authentication challenge service unavailable. Please retry later.',
+      statusCode: 503,
+    };
+  }
 
   // Dispatch email directly to server-stored approved email
   const emailResult = await sendLeadershipOtpEmail({
@@ -176,12 +195,10 @@ export async function requestLeadershipAuthCode({
 
   if (!emailResult.success) {
     // Invalidate challenge immediately on transmission failure
-    await store.invalidateChallenge(challengeId);
-    return {
-      success: false,
-      error: 'Unable to deliver verification code. Please check configuration or try again later.',
-      statusCode: 502,
-    };
+    await store.invalidateChallenge(challengeId).catch(() => {});
+    console.error('[LEADER_AUTH:EMAIL_DISPATCH_FAILED] Invalidation triggered. Sanitized reason:', emailResult.error);
+    // Return generic success to external client to prevent leaking allowlist membership through provider errors
+    return { success: true, statusCode: 200 };
   }
 
   return { success: true, statusCode: 200 };
@@ -217,11 +234,15 @@ export async function verifyLeadershipAuthCode({
     };
   }
 
+  const store = getLeaderAuthStore();
   let leader: LeaderIdentity | null = null;
   let norm = '';
 
   if (leaderId && typeof leaderId === 'string') {
-    leader = findLeaderById(leaderId.trim());
+    leader = await store.getLeaderIdentity(leaderId.trim()).catch(() => null);
+    if (!leader) {
+      leader = findLeaderById(leaderId.trim());
+    }
     if (leader) {
       norm = normalizeEmail(leader.email);
     }
@@ -257,8 +278,17 @@ export async function verifyLeadershipAuthCode({
     };
   }
 
-  const store = getLeaderAuthStore();
-  const challenge = await store.getPendingChallenge(norm);
+  let challenge: LeaderAuthChallengeRecord | null = null;
+  try {
+    challenge = await store.getPendingChallenge(norm);
+  } catch (err: any) {
+    console.error('[LEADER_AUTH:GET_CHALLENGE_ERROR] Fail-closed on challenge lookup:', err?.message);
+    return {
+      success: false,
+      error: 'Authentication store unavailable.',
+      statusCode: 503,
+    };
+  }
 
   if (!challenge) {
     return {
@@ -269,10 +299,14 @@ export async function verifyLeadershipAuthCode({
   }
 
   if (!leader) {
-    leader = findLeaderByEmail(norm);
+    leader = await store.getLeaderIdentity(challenge.leaderId).catch(() => null);
+    if (!leader) {
+      leader = findLeaderByEmail(norm);
+    }
   }
+
   if (!leader || !leader.isActive) {
-    await store.invalidateChallenge(challenge.challengeId);
+    await store.invalidateChallenge(challenge.challengeId).catch(() => {});
     return {
       success: false,
       error: 'Leadership account is deactivated or unauthorized.',
@@ -284,28 +318,37 @@ export async function verifyLeadershipAuthCode({
   const deviceBindingHash = hashString(deviceBindingSecret);
   const now = Date.now();
 
-  const outcome = await store.consumeChallengeAndCreateSession({
-    challengeId: challenge.challengeId,
-    submittedCodeHash,
-    deviceBindingHash,
-    leader,
-    now,
-    absoluteLifetimeMs: LEADER_ABSOLUTE_LIFETIME_MS,
-  });
+  try {
+    const outcome = await store.consumeChallengeAndCreateSession({
+      challengeId: challenge.challengeId,
+      submittedCodeHash,
+      deviceBindingHash,
+      leader,
+      now,
+      absoluteLifetimeMs: LEADER_ABSOLUTE_LIFETIME_MS,
+    });
 
-  if (!outcome.success || !outcome.session) {
+    if (!outcome.success || !outcome.session) {
+      return {
+        success: false,
+        error: outcome.error || 'Verification failed.',
+        statusCode: outcome.statusCode || 401,
+      };
+    }
+
+    return {
+      success: true,
+      session: outcome.session,
+      leader,
+    };
+  } catch (err: any) {
+    console.error('[LEADER_AUTH:CONSUME_CHALLENGE_ERROR] Fail-closed on session consumption:', err?.message);
     return {
       success: false,
-      error: outcome.error || 'Verification failed.',
-      statusCode: outcome.statusCode || 401,
+      error: 'Authentication transaction failed on persistent store.',
+      statusCode: 503,
     };
   }
-
-  return {
-    success: true,
-    session: outcome.session,
-    leader,
-  };
 }
 
 /**

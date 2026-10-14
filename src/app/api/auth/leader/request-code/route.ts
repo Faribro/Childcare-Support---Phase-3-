@@ -8,9 +8,14 @@ import {
   extractDeviceBindingSecret,
   attachDeviceBindingCookie,
 } from '@/lib/server/leaderSessionStore';
-import { logSecurityEvent } from '@/lib/server/authorisation';
+import { logSecurityEvent, validateMutationOrigin } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+};
 
 export async function POST(req: NextRequest) {
   if (!isLeadershipEmailAuthEnabled()) {
@@ -20,7 +25,16 @@ export async function POST(req: NextRequest) {
         code: 'FEATURE_DISABLED',
         message: 'Individual Leadership email authentication is not enabled on this environment.',
       },
-      { status: 403 }
+      { status: 403, headers: NO_STORE_HEADERS }
+    );
+  }
+
+  // CSRF / Origin validation for state-changing authentication mutation
+  const originCheck = validateMutationOrigin(req);
+  if (!originCheck.valid) {
+    return NextResponse.json(
+      { status: 'error', code: 'CSRF_REJECTED', message: originCheck.reason || 'Forbidden request origin.' },
+      { status: 403, headers: NO_STORE_HEADERS }
     );
   }
 
@@ -30,7 +44,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json(
       { status: 'error', code: 'MALFORMED_JSON', message: 'Malformed JSON payload.' },
-      { status: 400 }
+      { status: 400, headers: NO_STORE_HEADERS }
     );
   }
 
@@ -38,7 +52,7 @@ export async function POST(req: NextRequest) {
   if ((!email || typeof email !== 'string') && (!leaderId || typeof leaderId !== 'string')) {
     return NextResponse.json(
       { status: 'error', code: 'INVALID_INPUT', message: 'Email address or leader identifier is required.' },
-      { status: 400 }
+      { status: 400, headers: NO_STORE_HEADERS }
     );
   }
 
@@ -50,10 +64,8 @@ export async function POST(req: NextRequest) {
 
   // Extract or establish device binding secret
   let deviceBindingSecret = extractDeviceBindingSecret(req);
-  let shouldSetDeviceCookie = false;
   if (!deviceBindingSecret) {
     deviceBindingSecret = generateDeviceBindingSecret();
-    shouldSetDeviceCookie = true;
   }
 
   const result = await requestLeadershipAuthCode({
@@ -79,9 +91,16 @@ export async function POST(req: NextRequest) {
       userAgent,
     });
 
+    const errorCode =
+      result.statusCode === 429
+        ? 'RATE_LIMITED'
+        : result.statusCode === 503
+          ? 'SERVICE_UNAVAILABLE'
+          : 'REQUEST_FAILED';
+
     return NextResponse.json(
-      { status: 'error', code: result.statusCode === 429 ? 'RATE_LIMITED' : 'REQUEST_FAILED', message: result.error },
-      { status: result.statusCode }
+      { status: 'error', code: errorCode, message: result.error },
+      { status: result.statusCode, headers: NO_STORE_HEADERS }
     );
   }
 
@@ -95,10 +114,13 @@ export async function POST(req: NextRequest) {
     userAgent,
   });
 
-  const response = NextResponse.json({
-    status: 'success',
-    message: 'If this email is an authorized Leadership account, a verification code has been dispatched.',
-  });
+  const response = NextResponse.json(
+    {
+      status: 'success',
+      message: 'If this email is an authorized Leadership account, a verification code has been dispatched.',
+    },
+    { headers: NO_STORE_HEADERS }
+  );
 
   // Attach device binding cookie so verify-code can validate device consistency
   attachDeviceBindingCookie(response, deviceBindingSecret);

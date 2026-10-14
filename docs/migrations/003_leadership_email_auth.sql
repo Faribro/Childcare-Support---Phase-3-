@@ -8,22 +8,25 @@
 -- Security Model & Architecture Guarantees:
 --   1. Zero Client Access:
 --      - Table access is strictly restricted to `service_role` (server-side Next.js API).
---      - `anon` and `authenticated` roles have ZERO SELECT, INSERT, UPDATE, or
---        DELETE privileges.
+--      - `anon` and `authenticated` roles have ZERO privileges on tables and functions.
 --      - Row Level Security (RLS) is ENABLED on all tables and fails closed.
 --   2. Atomic Session & Challenge Consumption:
 --      - Challenges are single-use 128-bit verification codes stored only as SHA-256 hashes.
---      - Stored procedure `consume_leader_challenge_and_create_session` executes atomically:
---        consumes challenge, revokes prior active sessions for that leader, and issues a
---        new session record.
+--      - Explicit challenge identity (UUID) passed to consumption procedure.
+--      - Procedures execute under locked transactions with per-leader serialization.
 --   3. One Active Session per Leader Across Distributed Instances:
 --      - Enforced via partial unique index `uq_active_leader_session` on `(leader_id)`
 --        WHERE `is_revoked = FALSE`.
---      - Any new login atomically revokes existing active sessions.
+--      - Stored procedure atomically revokes prior active sessions before issuing new one.
 --   4. Cryptographic Device Binding:
 --      - Challenges and sessions store SHA-256 hash of a server-issued HttpOnly
---        browser device binding token (`leader_device_binding`), eliminating reliance
---        on spoofable User-Agent strings.
+--        browser device binding token (`leader_device_binding`).
+--   5. Atomic Rate Limiting with Bounded Retention:
+--      - Event-based rate limiting table with automatic pruning of expired windows.
+--   6. Hardened SQL Privileges:
+--      - Functions use fixed search_path (`SET search_path = public, pg_temp`).
+--      - Privileges revoked from PUBLIC, anon, and authenticated.
+--      - Granted exclusively to service_role.
 -- ============================================================================
 
 BEGIN;
@@ -84,8 +87,12 @@ COMMENT ON TABLE public.leader_auth_challenges IS
 'Single-use 128-bit OTP challenges for Leadership login. Stores only SHA-256 verifier hashes.';
 
 CREATE INDEX IF NOT EXISTS idx_leader_challenges_lookup
-    ON public.leader_auth_challenges (email)
+    ON public.leader_auth_challenges (challenge_id)
     WHERE is_used = FALSE AND is_locked = FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_leader_challenges_email
+    ON public.leader_auth_challenges (email)
+    WHERE is_used = FALSE;
 
 -- ============================================================================
 -- 3. TABLE: leader_sessions
@@ -124,18 +131,20 @@ CREATE INDEX IF NOT EXISTS idx_leader_sessions_lookup
     WHERE is_revoked = FALSE;
 
 -- ============================================================================
--- 4. TABLE: leader_rate_limits
+-- 4. TABLE: leader_rate_limit_events
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS public.leader_rate_limits (
-    key TEXT PRIMARY KEY,
-    short_window_timestamps BIGINT[] NOT NULL DEFAULT '{}',
-    long_window_timestamps BIGINT[] NOT NULL DEFAULT '{}',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS public.leader_rate_limit_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rate_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE public.leader_rate_limits IS
-'Sliding-window distributed rate limiting records for OTP requests by email and IP.';
+COMMENT ON TABLE public.leader_rate_limit_events IS
+'Append-only rate limit event log for atomic sliding-window rate checks with bounded cleanup.';
+
+CREATE INDEX IF NOT EXISTS idx_leader_rate_limits_key_created
+    ON public.leader_rate_limit_events (rate_key, created_at DESC);
 
 -- ============================================================================
 -- 5. ROW LEVEL SECURITY (RLS) POLICIES — FAIL CLOSED
@@ -144,63 +153,214 @@ COMMENT ON TABLE public.leader_rate_limits IS
 ALTER TABLE public.leader_identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leader_auth_challenges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leader_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.leader_rate_limits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.leader_rate_limit_events ENABLE ROW LEVEL SECURITY;
 
 -- Revoke all direct privileges from public, anon, and authenticated
 REVOKE ALL ON TABLE public.leader_identities FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON TABLE public.leader_auth_challenges FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON TABLE public.leader_sessions FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.leader_rate_limits FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.leader_rate_limit_events FROM PUBLIC, anon, authenticated;
 
 -- Explicit grants only to service_role (Next.js server backend)
 GRANT ALL ON TABLE public.leader_identities TO service_role;
 GRANT ALL ON TABLE public.leader_auth_challenges TO service_role;
 GRANT ALL ON TABLE public.leader_sessions TO service_role;
-GRANT ALL ON TABLE public.leader_rate_limits TO service_role;
+GRANT ALL ON TABLE public.leader_rate_limit_events TO service_role;
 
 -- ============================================================================
--- 6. ATOMIC TRANSACTION PROCEDURE: consume_leader_challenge_and_create_session
+-- 6. ATOMIC RATE LIMIT RPC: check_and_record_leader_rate_limit
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION public.consume_leader_challenge_and_create_session(
-    p_email TEXT,
-    p_code_hash TEXT,
-    p_device_binding_hash TEXT,
-    p_new_session_id TEXT,
-    p_now_ms BIGINT,
-    p_absolute_lifetime_ms BIGINT
+CREATE OR REPLACE FUNCTION public.check_and_record_leader_rate_limit(
+    p_key TEXT,
+    p_short_limit INT,
+    p_short_window_seconds INT,
+    p_long_limit INT,
+    p_long_window_seconds INT
 )
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_now TIMESTAMPTZ := to_timestamp(p_now_ms / 1000.0);
-    v_abs_expiry TIMESTAMPTZ := to_timestamp((p_now_ms + p_absolute_lifetime_ms) / 1000.0);
+    v_now TIMESTAMPTZ := clock_timestamp();
+    v_short_cutoff TIMESTAMPTZ := v_now - (p_short_window_seconds || ' seconds')::INTERVAL;
+    v_long_cutoff TIMESTAMPTZ := v_now - (p_long_window_seconds || ' seconds')::INTERVAL;
+    v_short_count INT;
+    v_long_count INT;
+    v_oldest_short TIMESTAMPTZ;
+    v_oldest_long TIMESTAMPTZ;
+    v_retry_after INT;
+BEGIN
+    -- Advisory transaction lock per rate limit key to serialize concurrent requests
+    PERFORM pg_advisory_xact_lock(hashtext('rate_limit_' || p_key));
+
+    -- Bounded cleanup of expired events older than the longest window
+    DELETE FROM public.leader_rate_limit_events
+    WHERE rate_key = p_key
+      AND created_at < v_long_cutoff;
+
+    -- Count events in short window
+    SELECT COUNT(*), MIN(created_at)
+    INTO v_short_count, v_oldest_short
+    FROM public.leader_rate_limit_events
+    WHERE rate_key = p_key
+      AND created_at >= v_short_cutoff;
+
+    IF v_short_count >= p_short_limit THEN
+        v_retry_after := GREATEST(1, CEIL(EXTRACT(EPOCH FROM (v_oldest_short + (p_short_window_seconds || ' seconds')::INTERVAL - v_now)))::INT);
+        RETURN jsonb_build_object(
+            'allowed', false,
+            'reason', 'Too many verification code requests in a short time. Please wait before requesting a new code.',
+            'retryAfterSeconds', v_retry_after
+        );
+    END IF;
+
+    -- Count events in long window
+    SELECT COUNT(*), MIN(created_at)
+    INTO v_long_count, v_oldest_long
+    FROM public.leader_rate_limit_events
+    WHERE rate_key = p_key
+      AND created_at >= v_long_cutoff;
+
+    IF v_long_count >= p_long_limit THEN
+        v_retry_after := GREATEST(1, CEIL(EXTRACT(EPOCH FROM (v_oldest_long + (p_long_window_seconds || ' seconds')::INTERVAL - v_now)))::INT);
+        RETURN jsonb_build_object(
+            'allowed', false,
+            'reason', 'Maximum daily verification code requests reached for this account. Please retry tomorrow or contact central administration.',
+            'retryAfterSeconds', v_retry_after
+        );
+    END IF;
+
+    -- Record event
+    INSERT INTO public.leader_rate_limit_events (rate_key, created_at)
+    VALUES (p_key, v_now);
+
+    RETURN jsonb_build_object('allowed', true);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.check_and_record_leader_rate_limit(TEXT, INT, INT, INT, INT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.check_and_record_leader_rate_limit(TEXT, INT, INT, INT, INT) TO service_role;
+
+-- ============================================================================
+-- 7. ATOMIC CHALLENGE ISSUANCE RPC: issue_leader_auth_challenge
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.issue_leader_auth_challenge(
+    p_challenge_id UUID,
+    p_leader_id UUID,
+    p_email TEXT,
+    p_code_hash TEXT,
+    p_device_binding_hash TEXT,
+    p_user_agent_hash TEXT,
+    p_ip TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_now TIMESTAMPTZ := clock_timestamp();
+    v_expires_at TIMESTAMPTZ := v_now + INTERVAL '10 minutes';
+BEGIN
+    -- Advisory transaction lock per leader to serialize concurrent challenge requests
+    PERFORM pg_advisory_xact_lock(hashtext('leader_challenge_' || p_leader_id::text));
+
+    -- Atomically supersede any existing unused challenges for this leader or email
+    UPDATE public.leader_auth_challenges
+    SET is_used = TRUE
+    WHERE (leader_id = p_leader_id OR email = LOWER(TRIM(p_email)))
+      AND is_used = FALSE;
+
+    -- Insert new challenge
+    INSERT INTO public.leader_auth_challenges (
+        challenge_id,
+        leader_id,
+        email,
+        code_hash,
+        device_binding_hash,
+        user_agent_hash,
+        ip,
+        created_at,
+        expires_at,
+        failed_attempts,
+        is_used,
+        is_locked
+    ) VALUES (
+        p_challenge_id,
+        p_leader_id,
+        LOWER(TRIM(p_email)),
+        p_code_hash,
+        p_device_binding_hash,
+        COALESCE(p_user_agent_hash, ''),
+        COALESCE(p_ip, ''),
+        v_now,
+        v_expires_at,
+        0,
+        FALSE,
+        FALSE
+    );
+
+    -- Bounded retention: cleanup challenges older than 7 days
+    DELETE FROM public.leader_auth_challenges
+    WHERE created_at < v_now - INTERVAL '7 days';
+
+    RETURN jsonb_build_object('success', true, 'challengeId', p_challenge_id);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.issue_leader_auth_challenge(UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.issue_leader_auth_challenge(UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;
+
+-- ============================================================================
+-- 8. ATOMIC VERIFICATION & SESSION RPC: consume_leader_challenge_and_create_session
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.consume_leader_challenge_and_create_session(
+    p_challenge_id UUID,
+    p_code_hash TEXT,
+    p_device_binding_hash TEXT,
+    p_new_session_id TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_now TIMESTAMPTZ := clock_timestamp();
+    v_abs_expiry TIMESTAMPTZ := v_now + INTERVAL '8 hours';
     v_challenge RECORD;
     v_leader RECORD;
 BEGIN
-    -- 1. Find and lock active challenge for this email
+    -- 1. Find and lock the specific challenge by explicit UUID
     SELECT * INTO v_challenge
     FROM public.leader_auth_challenges
-    WHERE email = LOWER(TRIM(p_email))
-      AND is_used = FALSE
-      AND is_locked = FALSE
-    ORDER BY created_at DESC
-    LIMIT 1
+    WHERE challenge_id = p_challenge_id
     FOR UPDATE;
 
     IF NOT FOUND THEN
-        RETURN jsonb_build_object('success', false, 'error', 'No active challenge found', 'code', 'CHALLENGE_NOT_FOUND', 'status', 401);
+        RETURN jsonb_build_object('success', false, 'error', 'No active verification code found for this request. Please request a new code.', 'code', 'CHALLENGE_NOT_FOUND', 'status', 401);
     END IF;
 
-    -- 2. Check challenge expiry
+    IF v_challenge.is_used THEN
+        RETURN jsonb_build_object('success', false, 'error', 'This verification code has already been consumed. Please request a new code.', 'code', 'CODE_ALREADY_USED', 'status', 401);
+    END IF;
+
+    IF v_challenge.is_locked OR v_challenge.failed_attempts >= 5 THEN
+        RETURN jsonb_build_object('success', false, 'error', 'This verification challenge has been locked due to excessive failed attempts. Please request a new code.', 'code', 'CHALLENGE_LOCKED', 'status', 429);
+    END IF;
+
+    -- 2. Check challenge expiry (10-minute database-enforced window)
     IF v_challenge.expires_at < v_now THEN
         UPDATE public.leader_auth_challenges
         SET is_used = TRUE
         WHERE challenge_id = v_challenge.challenge_id;
 
-        RETURN jsonb_build_object('success', false, 'error', 'Verification code has expired', 'code', 'EXPIRED_CODE', 'status', 401);
+        RETURN jsonb_build_object('success', false, 'error', 'This verification code has expired (10-minute limit). Please request a new code.', 'code', 'EXPIRED_CODE', 'status', 401);
     END IF;
 
     -- 3. Check device binding hash
@@ -210,7 +370,7 @@ BEGIN
             is_locked = (failed_attempts + 1 >= 5)
         WHERE challenge_id = v_challenge.challenge_id;
 
-        RETURN jsonb_build_object('success', false, 'error', 'Device binding mismatch', 'code', 'DEVICE_MISMATCH', 'status', 401);
+        RETURN jsonb_build_object('success', false, 'error', 'Device binding mismatch. Verification must be completed in the same browser session.', 'code', 'DEVICE_MISMATCH', 'status', 401);
     END IF;
 
     -- 4. Check code hash
@@ -221,19 +381,20 @@ BEGIN
         WHERE challenge_id = v_challenge.challenge_id;
 
         IF v_challenge.failed_attempts + 1 >= 5 THEN
-            RETURN jsonb_build_object('success', false, 'error', 'Verification locked due to excessive failed attempts', 'code', 'LOCKED_OUT', 'status', 429);
+            RETURN jsonb_build_object('success', false, 'error', 'Too many incorrect attempts. This verification challenge has been locked. Please request a new code.', 'code', 'LOCKED_OUT', 'status', 429);
         ELSE
-            RETURN jsonb_build_object('success', false, 'error', 'Invalid verification code', 'code', 'INVALID_CODE', 'status', 401);
+            RETURN jsonb_build_object('success', false, 'error', 'Invalid verification code. Please check and try again.', 'code', 'INVALID_CODE', 'status', 401);
         END IF;
     END IF;
 
-    -- 5. Retrieve leader identity
+    -- 5. Lock and retrieve leader identity
     SELECT * INTO v_leader
     FROM public.leader_identities
-    WHERE id = v_challenge.leader_id;
+    WHERE id = v_challenge.leader_id
+    FOR UPDATE;
 
     IF NOT FOUND OR NOT v_leader.is_active THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Leadership account is deactivated or unauthorized', 'code', 'ACCOUNT_INACTIVE', 'status', 403);
+        RETURN jsonb_build_object('success', false, 'error', 'Leadership account is deactivated or unauthorized.', 'code', 'ACCOUNT_INACTIVE', 'status', 403);
     END IF;
 
     -- 6. Atomically mark challenge as used
@@ -285,7 +446,7 @@ BEGIN
         'success', true,
         'session', jsonb_build_object(
             'sessionId', p_new_session_id,
-            'leaderId', v_leader.id,
+            'leaderId', v_leader.id::text,
             'email', v_leader.email,
             'name', v_leader.full_name,
             'title', v_leader.title,
@@ -293,12 +454,83 @@ BEGIN
             'allowedStates', v_leader.allowed_states,
             'allowedDistricts', v_leader.allowed_districts,
             'authVersion', v_leader.auth_version,
-            'createdAt', p_now_ms,
-            'lastActivityAt', p_now_ms,
-            'absoluteExpiresAt', p_now_ms + p_absolute_lifetime_ms
+            'createdAt', EXTRACT(EPOCH FROM v_now) * 1000,
+            'lastActivityAt', EXTRACT(EPOCH FROM v_now) * 1000,
+            'absoluteExpiresAt', EXTRACT(EPOCH FROM v_abs_expiry) * 1000
         )
     );
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.consume_leader_challenge_and_create_session(UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.consume_leader_challenge_and_create_session(UUID, TEXT, TEXT, TEXT) TO service_role;
+
+-- ============================================================================
+-- 9. IDEMPOTENT PROVISIONING RPC: provision_leader_identity
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.provision_leader_identity(
+    p_id UUID,
+    p_email TEXT,
+    p_full_name TEXT,
+    p_title TEXT,
+    p_allowed_states TEXT[],
+    p_allowed_districts TEXT[],
+    p_is_active BOOLEAN,
+    p_auth_version INT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_norm_email TEXT := LOWER(TRIM(p_email));
+    v_result RECORD;
+BEGIN
+    INSERT INTO public.leader_identities (
+        id,
+        email,
+        full_name,
+        title,
+        role,
+        allowed_states,
+        allowed_districts,
+        is_active,
+        auth_version,
+        updated_at
+    ) VALUES (
+        p_id,
+        v_norm_email,
+        p_full_name,
+        COALESCE(p_title, 'Leadership Reviewer'),
+        'LEADERSHIP',
+        COALESCE(p_allowed_states, ARRAY['*']::text[]),
+        COALESCE(p_allowed_districts, ARRAY['*']::text[]),
+        COALESCE(p_is_active, TRUE),
+        COALESCE(p_auth_version, 1),
+        NOW()
+    )
+    ON CONFLICT (email) DO UPDATE SET
+        full_name = EXCLUDED.full_name,
+        title = EXCLUDED.title,
+        allowed_states = EXCLUDED.allowed_states,
+        allowed_districts = EXCLUDED.allowed_districts,
+        is_active = EXCLUDED.is_active,
+        auth_version = EXCLUDED.auth_version,
+        updated_at = NOW()
+    RETURNING * INTO v_result;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'leaderId', v_result.id::text,
+        'email', v_result.email,
+        'fullName', v_result.full_name
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.provision_leader_identity(UUID, TEXT, TEXT, TEXT, TEXT[], TEXT[], BOOLEAN, INT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.provision_leader_identity(UUID, TEXT, TEXT, TEXT, TEXT[], TEXT[], BOOLEAN, INT) TO service_role;
 
 COMMIT;

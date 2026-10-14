@@ -7,8 +7,8 @@
  * - Cookie attributes: HttpOnly, SameSite=Lax, Secure (prod), Path=/
  * - Absolute session lifetime: 8 hours
  * - Sliding idle timeout: 30 minutes
- * - Non-sliding background polling: requests with X-Poll do NOT extend idle window
- * - Instant mid-session revocation: checks leader.isActive and leader.authVersion against identity store
+ * - Server-derived background-read policy: requests with X-Poll or directed to background polling/telemetry routes do NOT extend idle window
+ * - Instant mid-session revocation: checks persistent leader.isActive and leader.authVersion
  * - Single active session per leader enforced via distributed store
  */
 
@@ -37,10 +37,35 @@ export {
 export type LeaderSession = LeaderSessionRecord;
 
 /**
+ * Derives whether a request is a background-read or polling operation server-side.
+ * Does not depend solely on client-supplied X-Poll header.
+ */
+export function isBackgroundPollRequest(req?: NextRequest, isPollFlag?: boolean): boolean {
+  if (isPollFlag) return true;
+  if (!req) return false;
+
+  const pollHeader = req.headers.get('x-poll');
+  if (pollHeader === 'true' || pollHeader === '1') return true;
+
+  const purpose = req.headers.get('purpose') || req.headers.get('sec-purpose');
+  if (purpose === 'prefetch') return true;
+
+  const pathname = req.nextUrl?.pathname || '';
+  if (
+    pathname.endsWith('/summary') ||
+    pathname.endsWith('/session') ||
+    pathname.endsWith('/diagnostics') ||
+    pathname.endsWith('/health') ||
+    pathname.endsWith('/ready')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Validates a leadership session ID against distributed store and identity rules.
- * 
- * Options:
- * - isPoll: When true (e.g. from X-Poll header), does NOT extend lastActivityAt
  */
 export async function validateLeaderSession(
   sessionId?: string | null,
@@ -56,25 +81,31 @@ export async function validateLeaderSession(
 
   // 1. Check absolute 8-hour expiry
   if (now > session.absoluteExpiresAt) {
-    await store.revokeSession(sessionId);
+    await store.revokeSession(sessionId).catch(() => {});
     return null;
   }
 
   // 2. Check 30-minute sliding idle timeout
   if (now - session.lastActivityAt > LEADER_IDLE_TIMEOUT_MS) {
-    await store.revokeSession(sessionId);
+    await store.revokeSession(sessionId).catch(() => {});
     return null;
   }
 
-  // 3. Mid-session revocation & authVersion check against identity store
-  const leader = findLeaderById(session.leaderId);
+  // 3. Mid-session revocation & authVersion check against persistent store and identity rules
+  let leader = await store.getLeaderIdentity(session.leaderId).catch(() => null);
+  if (!leader) {
+    // Check fallback in memory identity store
+    leader = findLeaderById(session.leaderId);
+  }
+
   if (!leader || !leader.isActive || leader.authVersion !== session.authVersion) {
-    await store.revokeSession(sessionId);
+    await store.revokeSession(sessionId).catch(() => {});
     return null;
   }
 
-  // 4. Slide idle window UNLESS request is a background poll
-  if (!options?.isPoll) {
+  // 4. Derive background-read activity policy server-side
+  const isBackgroundRead = isBackgroundPollRequest(options?.req, options?.isPoll);
+  if (!isBackgroundRead) {
     await store.updateSessionActivity(sessionId, now);
     session.lastActivityAt = now;
   }
@@ -155,12 +186,13 @@ export function clearDeviceBindingCookie(response: NextResponse): void {
 /**
  * Extracts leader session ID from incoming request cookie or header.
  */
-export function extractLeaderSessionId(req: NextRequest): string | null {
-  const cookieVal = req.cookies.get(LEADER_COOKIE_NAME)?.value;
+export function extractLeaderSessionId(req?: NextRequest | null): string | null {
+  if (!req) return null;
+  const cookieVal = req.cookies?.get(LEADER_COOKIE_NAME)?.value;
   if (cookieVal) return cookieVal.trim();
 
   // Header fallback for testing / API clients
-  const headerVal = req.headers.get('x-leader-session-id');
+  const headerVal = req.headers?.get('x-leader-session-id');
   if (headerVal) return headerVal.trim();
 
   return null;
@@ -169,12 +201,13 @@ export function extractLeaderSessionId(req: NextRequest): string | null {
 /**
  * Extracts browser device binding secret from incoming request cookie or header.
  */
-export function extractDeviceBindingSecret(req: NextRequest): string | null {
-  const cookieVal = req.cookies.get(LEADER_DEVICE_COOKIE_NAME)?.value;
+export function extractDeviceBindingSecret(req?: NextRequest | null): string | null {
+  if (!req) return null;
+  const cookieVal = req.cookies?.get(LEADER_DEVICE_COOKIE_NAME)?.value;
   if (cookieVal) return cookieVal.trim();
 
   // Header fallback for testing
-  const headerVal = req.headers.get('x-device-binding');
+  const headerVal = req.headers?.get('x-device-binding');
   if (headerVal) return headerVal.trim();
 
   return null;

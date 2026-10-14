@@ -1,16 +1,19 @@
 /**
  * Distributed Shared Store for Leadership Authentication & Sessions
  * 
- * Provides:
+ * Guarantees:
  * - Distributed persistence (Supabase PostgreSQL / PostgREST adapter)
- * - Isolated In-Memory adapter for deterministic concurrency and unit testing
+ * - Zero in-memory fallback in production or staging (strict fail-closed)
+ * - Atomic challenge issuance and rate-limiting via database RPCs
  * - Atomic challenge consumption with single-active-session per leader enforcement
- * - Atomic lockout and rate-limiting
- * - Strict fail-closed semantics on store/database network errors
+ * - Explicit UUID challenge identity verification
+ * - Complete check on every database response (status and payload)
+ * - Safe unavailable store when credentials/schema are missing
+ * - Isolated in-memory adapter exclusively for explicit unit/multi-instance tests
  */
 
 import crypto from 'crypto';
-import type { LeaderIdentity } from './leaderIdentityStore';
+import { findLeaderById, type LeaderIdentity } from './leaderIdentityStore';
 
 export const LEADER_COOKIE_NAME = 'leader_session_id';
 export const LEADER_DEVICE_COOKIE_NAME = 'leader_device_binding';
@@ -68,6 +71,7 @@ export interface LeaderAuthStore {
   createChallenge(challenge: LeaderAuthChallengeRecord): Promise<void>;
   supersedePriorChallenges(email: string, leaderId: string): Promise<void>;
   getPendingChallenge(email: string): Promise<LeaderAuthChallengeRecord | null>;
+  getPendingChallengeById(challengeId: string): Promise<LeaderAuthChallengeRecord | null>;
   incrementFailedAttempt(
     challengeId: string,
     maxAttempts: number
@@ -94,7 +98,90 @@ export interface LeaderAuthStore {
   updateSessionActivity(sessionId: string, now: number): Promise<void>;
   revokeSession(sessionId: string): Promise<void>;
   revokeAllSessionsForLeader(leaderId: string): Promise<void>;
+
+  // Persistent identity inspection
+  getLeaderIdentity(leaderId: string): Promise<LeaderIdentity | null>;
+
   clearAllForTesting?(): Promise<void>;
+  setLeaderIdentityForTesting?(identity: LeaderIdentity): void;
+}
+
+function sanitizeDatabaseError(raw: string): string {
+  if (!raw || typeof raw !== 'string') return 'Unknown database error';
+  // Strip any API keys, tokens, or bearer headers
+  return raw
+    .replace(/bearer\s+[a-z0-9._-]+/gi, 'Bearer [REDACTED]')
+    .replace(/apikey=[a-z0-9._-]+/gi, 'apikey=[REDACTED]')
+    .substring(0, 300);
+}
+
+// ---------------------------------------------------------------------------
+// Unavailable Store (Fails Closed When Credentials / Schema Missing)
+// ---------------------------------------------------------------------------
+
+export class UnavailableLeaderAuthStore implements LeaderAuthStore {
+  private reason: string;
+
+  constructor(reason: string = 'Distributed authentication store is unconfigured or unavailable.') {
+    this.reason = reason;
+  }
+
+  async checkAndRecordRateLimit(): Promise<RateLimitCheckResult> {
+    throw new Error(this.reason);
+  }
+
+  async createChallenge(): Promise<void> {
+    throw new Error(this.reason);
+  }
+
+  async supersedePriorChallenges(): Promise<void> {
+    throw new Error(this.reason);
+  }
+
+  async getPendingChallenge(): Promise<LeaderAuthChallengeRecord | null> {
+    throw new Error(this.reason);
+  }
+
+  async getPendingChallengeById(): Promise<LeaderAuthChallengeRecord | null> {
+    throw new Error(this.reason);
+  }
+
+  async incrementFailedAttempt(): Promise<{ failedAttempts: number; isLocked: boolean }> {
+    throw new Error(this.reason);
+  }
+
+  async invalidateChallenge(): Promise<void> {
+    throw new Error(this.reason);
+  }
+
+  async consumeChallengeAndCreateSession(): Promise<{
+    success: boolean;
+    session?: LeaderSessionRecord;
+    error?: string;
+    statusCode: number;
+  }> {
+    return { success: false, error: this.reason, statusCode: 503 };
+  }
+
+  async getSession(): Promise<LeaderSessionRecord | null> {
+    return null;
+  }
+
+  async updateSessionActivity(): Promise<void> {
+    // Fail closed: cannot slide activity
+  }
+
+  async revokeSession(): Promise<void> {
+    throw new Error(this.reason);
+  }
+
+  async revokeAllSessionsForLeader(): Promise<void> {
+    throw new Error(this.reason);
+  }
+
+  async getLeaderIdentity(): Promise<LeaderIdentity | null> {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +194,18 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
   private sessions = new Map<string, LeaderSessionRecord>();         // sessionId -> record
   private leaderActiveSession = new Map<string, string>();            // leaderId -> sessionId (enforce 1 active)
   private rateLimits = new Map<string, { short: number[]; long: number[] }>();
+  private identities = new Map<string, LeaderIdentity>();
+
+  setLeaderIdentityForTesting(identity: LeaderIdentity): void {
+    this.identities.set(identity.id, { ...identity });
+  }
+
+  async getLeaderIdentity(leaderId: string): Promise<LeaderIdentity | null> {
+    const fromStore = findLeaderById(leaderId);
+    if (fromStore) return { ...fromStore };
+    const found = this.identities.get(leaderId);
+    return found ? { ...found } : null;
+  }
 
   async checkAndRecordRateLimit(key: string, now: number): Promise<RateLimitCheckResult> {
     const fifteenMinAgo = now - 15 * 60 * 1000;
@@ -147,6 +246,8 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
   }
 
   async createChallenge(challenge: LeaderAuthChallengeRecord): Promise<void> {
+    // Supersede any existing unused challenge for this leader or email atomically
+    await this.supersedePriorChallenges(challenge.email, challenge.leaderId);
     this.challenges.set(challenge.challengeId, { ...challenge });
     this.emailToActiveChallengeId.set(challenge.email.toLowerCase(), challenge.challengeId);
   }
@@ -167,7 +268,13 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
     const challengeId = this.emailToActiveChallengeId.get(norm);
     if (!challengeId) return null;
     const challenge = this.challenges.get(challengeId);
-    if (!challenge || challenge.isUsed) return null;
+    if (!challenge || challenge.isUsed || challenge.isLocked) return null;
+    return { ...challenge };
+  }
+
+  async getPendingChallengeById(challengeId: string): Promise<LeaderAuthChallengeRecord | null> {
+    const challenge = this.challenges.get(challengeId);
+    if (!challenge || challenge.isUsed || challenge.isLocked) return null;
     return { ...challenge };
   }
 
@@ -318,6 +425,9 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
     this.sessions.set(sessionId, newSession);
     this.leaderActiveSession.set(params.leader.id, sessionId);
 
+    // Keep identity map up to date
+    this.identities.set(params.leader.id, { ...params.leader });
+
     return {
       success: true,
       session: { ...newSession },
@@ -365,22 +475,24 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
     this.sessions.clear();
     this.leaderActiveSession.clear();
     this.rateLimits.clear();
+    this.identities.clear();
   }
 }
 
 // ---------------------------------------------------------------------------
-// Supabase PostgREST Adapter (Production Distributed Store)
+// Supabase PostgREST Adapter (Production Distributed Store — ZERO Memory Fallback)
 // ---------------------------------------------------------------------------
 
 export class SupabaseLeaderAuthStore implements LeaderAuthStore {
   private baseUrl: string;
   private apiKey: string;
-  private memoryFallback: MemoryLeaderAuthStore;
 
   constructor(supabaseUrl: string, serviceRoleKey: string) {
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error('SupabaseLeaderAuthStore requires non-empty supabaseUrl and serviceRoleKey.');
+    }
     this.baseUrl = supabaseUrl.replace(/\/+$/, '');
     this.apiKey = serviceRoleKey;
-    this.memoryFallback = new MemoryLeaderAuthStore();
   }
 
   private get headers(): Record<string, string> {
@@ -393,169 +505,83 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
     };
   }
 
-  async checkAndRecordRateLimit(key: string, now: number): Promise<RateLimitCheckResult> {
-    try {
-      const url = `${this.baseUrl}/rest/v1/leader_rate_limits?key=eq.${encodeURIComponent(key)}&select=*`;
-      const res = await fetch(url, { headers: this.headers });
-      if (!res.ok) {
-        return this.memoryFallback.checkAndRecordRateLimit(key, now);
-      }
+  async checkAndRecordRateLimit(key: string, _now: number): Promise<RateLimitCheckResult> {
+    const url = `${this.baseUrl}/rest/v1/rpc/check_and_record_leader_rate_limit`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_key: key,
+        p_short_limit: MAX_REQUESTS_15M,
+        p_short_window_seconds: 15 * 60,
+        p_long_limit: MAX_REQUESTS_24H,
+        p_long_window_seconds: 24 * 60 * 60,
+      }),
+    });
 
-      const rows: any[] = await res.json();
-      let short = rows[0]?.short_window_timestamps || [];
-      let long = rows[0]?.long_window_timestamps || [];
-
-      const fifteenMinAgo = now - 15 * 60 * 1000;
-      const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
-
-      short = short.filter((t: number) => t > fifteenMinAgo);
-      long = long.filter((t: number) => t > twentyFourHoursAgo);
-
-      if (short.length >= MAX_REQUESTS_15M) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((short[0] + 15 * 60 * 1000 - now) / 1000));
-        return {
-          allowed: false,
-          reason: 'Too many verification code requests in a short time. Please wait 15 minutes before requesting a new code.',
-          retryAfterSeconds,
-        };
-      }
-
-      if (long.length >= MAX_REQUESTS_24H) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((long[0] + 24 * 60 * 60 * 1000 - now) / 1000));
-        return {
-          allowed: false,
-          reason: 'Maximum daily verification code requests reached for this account. Please retry tomorrow or contact central administration.',
-          retryAfterSeconds,
-        };
-      }
-
-      short.push(now);
-      long.push(now);
-
-      await fetch(`${this.baseUrl}/rest/v1/leader_rate_limits`, {
-        method: 'POST',
-        headers: { ...this.headers, Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify({
-          key,
-          short_window_timestamps: short,
-          long_window_timestamps: long,
-          updated_at: new Date(now).toISOString(),
-        }),
-      });
-
-      return { allowed: true };
-    } catch {
-      return this.memoryFallback.checkAndRecordRateLimit(key, now);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database rate limit RPC failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
+
+    const data = await res.json();
+    return {
+      allowed: Boolean(data?.allowed),
+      reason: data?.reason,
+      retryAfterSeconds: data?.retryAfterSeconds,
+    };
   }
 
   async createChallenge(challenge: LeaderAuthChallengeRecord): Promise<void> {
-    try {
-      const res = await fetch(`${this.baseUrl}/rest/v1/leader_auth_challenges`, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify({
-          challenge_id: challenge.challengeId,
-          leader_id: challenge.leaderId,
-          email: challenge.email.toLowerCase(),
-          code_hash: challenge.codeHash,
-          device_binding_hash: challenge.deviceBindingHash,
-          user_agent_hash: challenge.userAgentHash,
-          ip: challenge.ip,
-          created_at: new Date(challenge.createdAt).toISOString(),
-          expires_at: new Date(challenge.expiresAt).toISOString(),
-          failed_attempts: challenge.failedAttempts,
-          is_used: challenge.isUsed,
-          is_locked: challenge.isLocked,
-        }),
-      });
+    const url = `${this.baseUrl}/rest/v1/rpc/issue_leader_auth_challenge`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_challenge_id: challenge.challengeId,
+        p_leader_id: challenge.leaderId,
+        p_email: challenge.email.toLowerCase(),
+        p_code_hash: challenge.codeHash,
+        p_device_binding_hash: challenge.deviceBindingHash,
+        p_user_agent_hash: challenge.userAgentHash,
+        p_ip: challenge.ip,
+      }),
+    });
 
-      if (!res.ok) {
-        throw new Error(`Failed to insert challenge: ${res.statusText}`);
-      }
-    } catch {
-      await this.memoryFallback.createChallenge(challenge);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database issue_leader_auth_challenge failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
   }
 
   async supersedePriorChallenges(email: string, leaderId: string): Promise<void> {
-    try {
-      const norm = encodeURIComponent(email.toLowerCase());
-      await fetch(
-        `${this.baseUrl}/rest/v1/leader_auth_challenges?email=eq.${norm}&is_used=eq.false`,
-        {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify({ is_used: true }),
-        }
-      );
-    } catch {
-      // Ignore or fall back
+    const norm = encodeURIComponent(email.toLowerCase());
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/leader_auth_challenges?email=eq.${norm}&is_used=eq.false`,
+      {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({ is_used: true }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database supersedePriorChallenges failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
-    await this.memoryFallback.supersedePriorChallenges(email, leaderId);
   }
 
   async getPendingChallenge(email: string): Promise<LeaderAuthChallengeRecord | null> {
-    try {
-      const norm = encodeURIComponent(email.toLowerCase());
-      const url = `${this.baseUrl}/rest/v1/leader_auth_challenges?email=eq.${norm}&is_used=eq.false&is_locked=eq.false&order=created_at.desc&limit=1`;
-      const res = await fetch(url, { headers: this.headers });
-      if (!res.ok) {
-        return this.memoryFallback.getPendingChallenge(email);
-      }
-      const rows: any[] = await res.json();
-      if (!rows || rows.length === 0) return null;
-      const r = rows[0];
-      return {
-        challengeId: r.challenge_id,
-        leaderId: r.leader_id,
-        email: r.email,
-        codeHash: r.code_hash,
-        deviceBindingHash: r.device_binding_hash,
-        userAgentHash: r.user_agent_hash,
-        ip: r.ip,
-        createdAt: new Date(r.created_at).getTime(),
-        expiresAt: new Date(r.expires_at).getTime(),
-        failedAttempts: r.failed_attempts,
-        isUsed: r.is_used,
-        isLocked: r.is_locked,
-      };
-    } catch {
-      return this.memoryFallback.getPendingChallenge(email);
-    }
-  }
-
-  async incrementFailedAttempt(
-    challengeId: string,
-    maxAttempts: number
-  ): Promise<{ failedAttempts: number; isLocked: boolean }> {
-    try {
-      const current = await this.getPendingChallengeById(challengeId);
-      const nextAttempts = (current?.failedAttempts || 0) + 1;
-      const isLocked = nextAttempts >= maxAttempts;
-
-      await fetch(
-        `${this.baseUrl}/rest/v1/leader_auth_challenges?challenge_id=eq.${encodeURIComponent(challengeId)}`,
-        {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify({
-            failed_attempts: nextAttempts,
-            is_locked: isLocked,
-          }),
-        }
-      );
-      return { failedAttempts: nextAttempts, isLocked };
-    } catch {
-      return this.memoryFallback.incrementFailedAttempt(challengeId, maxAttempts);
-    }
-  }
-
-  private async getPendingChallengeById(challengeId: string): Promise<LeaderAuthChallengeRecord | null> {
-    const url = `${this.baseUrl}/rest/v1/leader_auth_challenges?challenge_id=eq.${encodeURIComponent(challengeId)}&select=*`;
+    const norm = encodeURIComponent(email.toLowerCase());
+    const url = `${this.baseUrl}/rest/v1/leader_auth_challenges?email=eq.${norm}&is_used=eq.false&is_locked=eq.false&order=created_at.desc&limit=1`;
     const res = await fetch(url, { headers: this.headers });
-    if (!res.ok) return null;
-    const rows = await res.json();
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database getPendingChallenge query failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
+    }
+
+    const rows: any[] = await res.json();
     if (!rows || rows.length === 0) return null;
     const r = rows[0];
     return {
@@ -574,20 +600,76 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
     };
   }
 
-  async invalidateChallenge(challengeId: string): Promise<void> {
-    try {
-      await fetch(
-        `${this.baseUrl}/rest/v1/leader_auth_challenges?challenge_id=eq.${encodeURIComponent(challengeId)}`,
-        {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify({ is_used: true }),
-        }
-      );
-    } catch {
-      // fallback
+  async getPendingChallengeById(challengeId: string): Promise<LeaderAuthChallengeRecord | null> {
+    const url = `${this.baseUrl}/rest/v1/leader_auth_challenges?challenge_id=eq.${encodeURIComponent(challengeId)}&is_used=eq.false&is_locked=eq.false&limit=1`;
+    const res = await fetch(url, { headers: this.headers });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database getPendingChallengeById failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
-    await this.memoryFallback.invalidateChallenge(challengeId);
+
+    const rows: any[] = await res.json();
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      challengeId: r.challenge_id,
+      leaderId: r.leader_id,
+      email: r.email,
+      codeHash: r.code_hash,
+      deviceBindingHash: r.device_binding_hash,
+      userAgentHash: r.user_agent_hash,
+      ip: r.ip,
+      createdAt: new Date(r.created_at).getTime(),
+      expiresAt: new Date(r.expires_at).getTime(),
+      failedAttempts: r.failed_attempts,
+      isUsed: r.is_used,
+      isLocked: r.is_locked,
+    };
+  }
+
+  async incrementFailedAttempt(
+    challengeId: string,
+    maxAttempts: number
+  ): Promise<{ failedAttempts: number; isLocked: boolean }> {
+    const current = await this.getPendingChallengeById(challengeId);
+    const nextAttempts = (current?.failedAttempts || 0) + 1;
+    const isLocked = nextAttempts >= maxAttempts;
+
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/leader_auth_challenges?challenge_id=eq.${encodeURIComponent(challengeId)}`,
+      {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({
+          failed_attempts: nextAttempts,
+          is_locked: isLocked,
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database incrementFailedAttempt failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
+    }
+
+    return { failedAttempts: nextAttempts, isLocked };
+  }
+
+  async invalidateChallenge(challengeId: string): Promise<void> {
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/leader_auth_challenges?challenge_id=eq.${encodeURIComponent(challengeId)}`,
+      {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({ is_used: true }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database invalidateChallenge failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
+    }
   }
 
   async consumeChallengeAndCreateSession(params: {
@@ -603,132 +685,150 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
     error?: string;
     statusCode: number;
   }> {
-    // Try atomic RPC procedure if available in Supabase
-    try {
-      const rpcUrl = `${this.baseUrl}/rest/v1/rpc/consume_leader_challenge_and_create_session`;
-      const sessionId = crypto.randomBytes(32).toString('hex');
-      const res = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify({
-          p_email: params.leader.email,
-          p_code_hash: params.submittedCodeHash,
-          p_device_binding_hash: params.deviceBindingHash,
-          p_new_session_id: sessionId,
-          p_now_ms: params.now,
-          p_absolute_lifetime_ms: params.absoluteLifetimeMs,
-        }),
-      });
+    const rpcUrl = `${this.baseUrl}/rest/v1/rpc/consume_leader_challenge_and_create_session`;
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    const res = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_challenge_id: params.challengeId,
+        p_code_hash: params.submittedCodeHash,
+        p_device_binding_hash: params.deviceBindingHash,
+        p_new_session_id: sessionId,
+      }),
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.success) {
-          return {
-            success: true,
-            session: data.session,
-            statusCode: 200,
-          };
-        } else if (data && !data.success) {
-          return {
-            success: false,
-            error: data.error,
-            statusCode: data.status || 401,
-          };
-        }
-      }
-    } catch {
-      // RPC not yet deployed or remote connection error, gracefully fall back to local transactional memory store
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database consume_leader_challenge_and_create_session RPC failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
 
-    return this.memoryFallback.consumeChallengeAndCreateSession(params);
+    const data = await res.json();
+    if (data && data.success) {
+      return {
+        success: true,
+        session: data.session,
+        statusCode: 200,
+      };
+    }
+
+    return {
+      success: false,
+      error: data?.error || 'Verification failed on persistent store.',
+      statusCode: data?.status || 401,
+    };
   }
 
   async getSession(sessionId: string): Promise<LeaderSessionRecord | null> {
-    try {
-      const url = `${this.baseUrl}/rest/v1/leader_sessions?session_id=eq.${encodeURIComponent(sessionId)}&is_revoked=eq.false&select=*`;
-      const res = await fetch(url, { headers: this.headers });
-      if (!res.ok) {
-        return this.memoryFallback.getSession(sessionId);
-      }
-      const rows = await res.json();
-      if (!rows || rows.length === 0) return null;
-      const r = rows[0];
-      return {
-        sessionId: r.session_id,
-        leaderId: r.leader_id,
-        email: r.email,
-        name: r.name,
-        title: r.title,
-        role: r.role,
-        allowedStates: r.allowed_states,
-        allowedDistricts: r.allowed_districts,
-        authVersion: r.auth_version,
-        deviceBindingHash: r.device_binding_hash,
-        createdAt: new Date(r.created_at).getTime(),
-        lastActivityAt: new Date(r.last_activity_at).getTime(),
-        absoluteExpiresAt: new Date(r.absolute_expires_at).getTime(),
-        isRevoked: r.is_revoked,
-        revokedAt: r.revoked_at ? new Date(r.revoked_at).getTime() : null,
-      };
-    } catch {
-      return this.memoryFallback.getSession(sessionId);
+    const url = `${this.baseUrl}/rest/v1/leader_sessions?session_id=eq.${encodeURIComponent(sessionId)}&is_revoked=eq.false&select=*`;
+    const res = await fetch(url, { headers: this.headers });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database getSession failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
+
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      sessionId: r.session_id,
+      leaderId: r.leader_id,
+      email: r.email,
+      name: r.name,
+      title: r.title,
+      role: r.role,
+      allowedStates: r.allowed_states,
+      allowedDistricts: r.allowed_districts,
+      authVersion: r.auth_version,
+      deviceBindingHash: r.device_binding_hash,
+      createdAt: new Date(r.created_at).getTime(),
+      lastActivityAt: new Date(r.last_activity_at).getTime(),
+      absoluteExpiresAt: new Date(r.absolute_expires_at).getTime(),
+      isRevoked: r.is_revoked,
+      revokedAt: r.revoked_at ? new Date(r.revoked_at).getTime() : null,
+    };
   }
 
   async updateSessionActivity(sessionId: string, now: number): Promise<void> {
-    try {
-      await fetch(
-        `${this.baseUrl}/rest/v1/leader_sessions?session_id=eq.${encodeURIComponent(sessionId)}`,
-        {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify({
-            last_activity_at: new Date(now).toISOString(),
-          }),
-        }
-      );
-    } catch {
-      // fallback
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/leader_sessions?session_id=eq.${encodeURIComponent(sessionId)}`,
+      {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({
+          last_activity_at: new Date(now).toISOString(),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database updateSessionActivity failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
-    await this.memoryFallback.updateSessionActivity(sessionId, now);
   }
 
   async revokeSession(sessionId: string): Promise<void> {
-    try {
-      await fetch(
-        `${this.baseUrl}/rest/v1/leader_sessions?session_id=eq.${encodeURIComponent(sessionId)}`,
-        {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify({
-            is_revoked: true,
-            revoked_at: new Date().toISOString(),
-          }),
-        }
-      );
-    } catch {
-      // fallback
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/leader_sessions?session_id=eq.${encodeURIComponent(sessionId)}`,
+      {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({
+          is_revoked: true,
+          revoked_at: new Date().toISOString(),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database revokeSession failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
-    await this.memoryFallback.revokeSession(sessionId);
   }
 
   async revokeAllSessionsForLeader(leaderId: string): Promise<void> {
-    try {
-      await fetch(
-        `${this.baseUrl}/rest/v1/leader_sessions?leader_id=eq.${encodeURIComponent(leaderId)}&is_revoked=eq.false`,
-        {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify({
-            is_revoked: true,
-            revoked_at: new Date().toISOString(),
-          }),
-        }
-      );
-    } catch {
-      // fallback
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/leader_sessions?leader_id=eq.${encodeURIComponent(leaderId)}&is_revoked=eq.false`,
+      {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({
+          is_revoked: true,
+          revoked_at: new Date().toISOString(),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database revokeAllSessionsForLeader failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
     }
-    await this.memoryFallback.revokeAllSessionsForLeader(leaderId);
+  }
+
+  async getLeaderIdentity(leaderId: string): Promise<LeaderIdentity | null> {
+    const url = `${this.baseUrl}/rest/v1/leader_identities?id=eq.${encodeURIComponent(leaderId)}&select=*`;
+    const res = await fetch(url, { headers: this.headers });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database getLeaderIdentity failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
+    }
+
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      email: r.email,
+      name: r.full_name,
+      title: r.title,
+      role: 'LEADERSHIP',
+      allowedStates: r.allowed_states || ['*'],
+      allowedDistricts: r.allowed_districts || ['*'],
+      isActive: Boolean(r.is_active),
+      authVersion: Number(r.auth_version || 1),
+    };
   }
 }
 
@@ -743,21 +843,39 @@ export function getLeaderAuthStore(): LeaderAuthStore {
     return activeStoreInstance;
   }
 
+  const isProductionOrStaging =
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL_ENV === 'production' ||
+    process.env.APP_ENV === 'production' ||
+    (process.env.NODE_ENV as string) === 'staging' ||
+    process.env.APP_ENV === 'staging';
+
+  // Strict rejection of memory forcing in production/staging
+  if (isProductionOrStaging && process.env.FORCE_MEMORY_STORE) {
+    throw new Error('[LEADER_AUTH_STORE:FATAL] FORCE_MEMORY_STORE is strictly forbidden in production and staging environments.');
+  }
+
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (
-    process.env.NODE_ENV !== 'test' &&
-    supabaseUrl &&
-    serviceRoleKey &&
-    !process.env.FORCE_MEMORY_STORE
-  ) {
+  if (supabaseUrl && serviceRoleKey) {
     activeStoreInstance = new SupabaseLeaderAuthStore(supabaseUrl, serviceRoleKey);
-  } else {
-    activeStoreInstance = new MemoryLeaderAuthStore();
+    return activeStoreInstance;
   }
 
-  return activeStoreInstance;
+  if (isProductionOrStaging) {
+    // Fail-closed: missing database credentials in production/staging MUST NOT select in-memory adapter
+    return new UnavailableLeaderAuthStore('Database credentials missing in production/staging. Leadership auth disabled.');
+  }
+
+  // Development environment fallback
+  if (process.env.NODE_ENV === 'development') {
+    activeStoreInstance = new MemoryLeaderAuthStore();
+    return activeStoreInstance;
+  }
+
+  // Unit tests default
+  return new MemoryLeaderAuthStore();
 }
 
 export function setLeaderAuthStoreForTesting(store: LeaderAuthStore | null): void {

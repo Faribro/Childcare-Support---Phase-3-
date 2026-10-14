@@ -35,8 +35,11 @@ import {
 } from '@/lib/server/leaderSessionStore';
 import {
   MemoryLeaderAuthStore,
+  UnavailableLeaderAuthStore,
+  getLeaderAuthStore,
   setLeaderAuthStoreForTesting,
 } from '@/lib/server/leaderAuthStore';
+import { createSessionToken } from '@/lib/server/sessionService';
 import {
   resolveUserAccessScope,
   resolveServerVerifiedRole,
@@ -119,7 +122,10 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     it('returns 403 FEATURE_DISABLED on directory route when flag is disabled', async () => {
       process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'false';
 
-      const res = await directoryRoute();
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/directory', {
+        method: 'GET',
+      });
+      const res = await directoryRoute(req);
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.code).toBe('FEATURE_DISABLED');
@@ -188,9 +194,38 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(emails[0].to).toBe('rajiv.menon@example.org'); // Sent strictly to stored email
     });
 
-    it('exposes only id, name, and title in directory route (zero emails exposed)', async () => {
-      const res = await directoryRoute();
+    it('rejects unauthenticated caller on directory route with 401 AUTH_REQUIRED (prevents public directory enumeration)', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/directory', {
+        method: 'GET',
+        headers: {
+          'x-test-unauthenticated': 'true',
+        },
+      });
+      const res = await directoryRoute(req);
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.code).toBe('AUTH_REQUIRED');
+      expect(res.headers.get('Cache-Control')).toContain('no-store');
+    });
+
+    it('exposes only id, name, and title in directory route to authenticated caller (zero emails exposed)', async () => {
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
+
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/directory', {
+        method: 'GET',
+        headers: {
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
+        },
+      });
+
+      const res = await directoryRoute(req);
       expect(res.status).toBe(200);
+      expect(res.headers.get('Cache-Control')).toContain('no-store');
       const body = await res.json();
       expect(body.status).toBe('success');
       expect(Array.isArray(body.data)).toBe(true);
@@ -794,6 +829,305 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.code).toBe('FORBIDDEN');
+    });
+  });
+
+  describe('8. CSRF Origin Protection on Mutations', () => {
+    it('rejects cross-site origin on POST /api/auth/leader/request-code with 403 CSRF_REJECTED', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'https://attacker-origin.example.com',
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+
+      const res = await requestCodeRoute(req);
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe('CSRF_REJECTED');
+      expect(res.headers.get('Cache-Control')).toContain('no-store');
+    });
+
+    it('rejects cross-site origin on POST /api/auth/leader/verify-code with 403 CSRF_REJECTED', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'https://attacker-origin.example.com',
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '0'.repeat(32) }),
+      });
+
+      const res = await verifyCodeRoute(req);
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe('CSRF_REJECTED');
+    });
+
+    it('rejects Sec-Fetch-Site: cross-site on POST /api/auth/leader/logout with 403 CSRF_REJECTED', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/logout', {
+        method: 'POST',
+        headers: {
+          'sec-fetch-site': 'cross-site',
+        },
+      });
+
+      const res = await logoutRoute(req);
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe('CSRF_REJECTED');
+    });
+
+    it('permits same-origin mutation on POST /api/auth/leader/request-code', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+
+      const res = await requestCodeRoute(req);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe('success');
+    });
+  });
+
+  describe('9. Anti-Caching Header Hardening Across Auth Endpoints', () => {
+    it('ensures auth mutation and inquiry endpoints return private no-store headers and Pragma: no-cache', async () => {
+      const reqReq = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', origin: 'http://localhost:3000' },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+      const resReq = await requestCodeRoute(reqReq);
+      expect(resReq.headers.get('Cache-Control')).toBe('private, no-store, no-cache, max-age=0, must-revalidate');
+      expect(resReq.headers.get('Pragma')).toBe('no-cache');
+
+      const reqVerify = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', origin: 'http://localhost:3000' },
+        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '0'.repeat(32) }),
+      });
+      const resVerify = await verifyCodeRoute(reqVerify);
+      expect(resVerify.headers.get('Cache-Control')).toBe('private, no-store, no-cache, max-age=0, must-revalidate');
+      expect(resVerify.headers.get('Pragma')).toBe('no-cache');
+
+      const reqSession = new NextRequest('http://localhost:3000/api/auth/leader/session', {
+        method: 'GET',
+      });
+      const resSession = await sessionRoute(reqSession);
+      expect(resSession.headers.get('Cache-Control')).toBe('private, no-store, no-cache, max-age=0, must-revalidate');
+      expect(resSession.headers.get('Pragma')).toBe('no-cache');
+
+      const reqLogout = new NextRequest('http://localhost:3000/api/auth/leader/logout', {
+        method: 'POST',
+      });
+      const resLogout = await logoutRoute(reqLogout);
+      expect(resLogout.headers.get('Cache-Control')).toBe('private, no-store, no-cache, max-age=0, must-revalidate');
+      expect(resLogout.headers.get('Pragma')).toBe('no-cache');
+    });
+  });
+
+  describe('10. Legacy Shared Session Cutover & Precedence Dynamics', () => {
+    it('rejects legacy shared Leadership session token when LEADERSHIP_EMAIL_AUTH_MODE=email_only, while preserving STATE_REVIEWER and ADMIN', async () => {
+      process.env.LEADERSHIP_EMAIL_AUTH_MODE = 'email_only';
+
+      // 1. Legacy shared Leadership session token
+      const leaderToken = createSessionToken({
+        userId: 'lead-nat-01',
+        name: 'National Leadership',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const leaderReq = new NextRequest('http://localhost:3000/api/submissions', {
+        method: 'GET',
+        headers: {
+          cookie: `session_token=${leaderToken}`,
+          'x-test-unauthenticated': 'true',
+        },
+      });
+
+      const leaderScope = await resolveUserAccessScope(leaderReq);
+      expect(leaderScope.isVerified).toBe(false);
+      expect(leaderScope.role).toBe('FIELD_USER'); // Defaulted to unauthenticated field user
+
+      // 2. Legacy State Reviewer session token remains valid
+      const reviewerToken = createSessionToken({
+        userId: 'rev-mh-01',
+        name: 'Maharashtra Reviewer',
+        role: 'STATE_REVIEWER',
+        allowedStates: ['Maharashtra'],
+        allowedDistricts: ['*'],
+      });
+
+      const revReq = new NextRequest('http://localhost:3000/api/submissions', {
+        method: 'GET',
+        headers: {
+          cookie: `session_token=${reviewerToken}`,
+        },
+      });
+
+      const revScope = await resolveUserAccessScope(revReq);
+      expect(revScope.isVerified).toBe(true);
+      expect(revScope.role).toBe('STATE_REVIEWER');
+      expect(revScope.allowedStates).toEqual(['Maharashtra']);
+
+      // 3. Admin session token remains valid
+      const adminToken = createSessionToken({
+        userId: 'admin-01',
+        name: 'System Administrator',
+        role: 'ADMIN',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const adminReq = new NextRequest('http://localhost:3000/api/submissions', {
+        method: 'GET',
+        headers: {
+          cookie: `session_token=${adminToken}`,
+        },
+      });
+
+      const adminScope = await resolveUserAccessScope(adminReq);
+      expect(adminScope.isVerified).toBe(true);
+      expect(adminScope.role).toBe('ADMIN');
+    });
+
+    it('prioritizes individual leader session cookie over legacy session token when both are present', async () => {
+      // Create valid individual leader session
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const individualSessionId = (login as any).session.sessionId;
+
+      // Create a conflicting legacy token for a state reviewer
+      const legacyToken = createSessionToken({
+        userId: 'rev-mh-01',
+        name: 'Maharashtra Reviewer',
+        role: 'STATE_REVIEWER',
+        allowedStates: ['Maharashtra'],
+        allowedDistricts: ['*'],
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions', {
+        method: 'GET',
+        headers: {
+          cookie: `${LEADER_COOKIE_NAME}=${individualSessionId}; session_token=${legacyToken}`,
+        },
+      });
+
+      const scope = await resolveUserAccessScope(req);
+      // Individual cookie MUST take precedence
+      expect(scope.isVerified).toBe(true);
+      expect(scope.role).toBe('LEADERSHIP');
+      expect(scope.userId).toBe('lead-ananya-roy');
+      expect(scope.name).toBe('Dr. Ananya Roy');
+    });
+  });
+
+  describe('11. Server-Derived Background Read Activity Policy', () => {
+    it('server-derived background route paths do NOT slide the idle timeout even if x-poll header is omitted', async () => {
+      vi.useFakeTimers();
+      const email = 'rajiv.menon@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
+
+      // Simulated background route requests without explicit x-poll header
+      const backgroundReq = new NextRequest('http://localhost:3000/api/auth/leader/session', {
+        method: 'GET',
+        headers: {
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
+        },
+      });
+
+      // Poll every 10 minutes for 35 minutes
+      vi.advanceTimersByTime(10 * 60 * 1000);
+      expect(await validateLeaderSession(sessionId, { req: backgroundReq })).not.toBeNull();
+
+      vi.advanceTimersByTime(10 * 60 * 1000);
+      expect(await validateLeaderSession(sessionId, { req: backgroundReq })).not.toBeNull();
+
+      vi.advanceTimersByTime(15 * 60 * 1000);
+      // 35 minutes total with ONLY background route requests: must expire because idle window did NOT slide
+      expect(await validateLeaderSession(sessionId, { req: backgroundReq })).toBeNull();
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('12. Distributed Store Failure & Production Guardrails', () => {
+    it('fails closed with HTTP 503 SERVICE_UNAVAILABLE on request-code and verify-code when store is unavailable', async () => {
+      setLeaderAuthStoreForTesting(new UnavailableLeaderAuthStore('Database cluster temporarily unreachable'));
+
+      const reqCode = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+      const resCode = await requestCodeRoute(reqCode);
+      expect(resCode.status).toBe(503);
+      const bodyCode = await resCode.json();
+      expect(bodyCode.code).toBe('SERVICE_UNAVAILABLE');
+
+      const reqVerify = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: `${LEADER_DEVICE_COOKIE_NAME}=test-device-secret`,
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '0'.repeat(32) }),
+      });
+      const resVerify = await verifyCodeRoute(reqVerify);
+      expect(resVerify.status).toBe(503);
+      const bodyVerify = await resVerify.json();
+      expect(bodyVerify.code).toBe('SERVICE_UNAVAILABLE');
+    });
+
+    it('throws fatal error if FORCE_MEMORY_STORE is passed in production/staging environment', () => {
+      setLeaderAuthStoreForTesting(null); // Reset testing override
+      const prevNodeEnv = process.env.NODE_ENV;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        process.env.FORCE_MEMORY_STORE = 'true';
+
+        expect(() => getLeaderAuthStore()).toThrow(
+          /FORCE_MEMORY_STORE is strictly forbidden in production and staging/
+        );
+      } finally {
+        (process.env as any).NODE_ENV = prevNodeEnv;
+        delete process.env.FORCE_MEMORY_STORE;
+      }
+    });
+
+    it('returns UnavailableLeaderAuthStore in production when Supabase credentials are missing (zero memory fallback)', () => {
+      setLeaderAuthStoreForTesting(null); // Reset testing override
+      const prevNodeEnv = process.env.NODE_ENV;
+      const prevUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const prevKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+        delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+        const store = getLeaderAuthStore();
+        expect(store instanceof UnavailableLeaderAuthStore).toBe(true);
+      } finally {
+        (process.env as any).NODE_ENV = prevNodeEnv;
+        if (prevUrl) process.env.NEXT_PUBLIC_SUPABASE_URL = prevUrl;
+        if (prevKey) process.env.SUPABASE_SERVICE_ROLE_KEY = prevKey;
+      }
     });
   });
 });

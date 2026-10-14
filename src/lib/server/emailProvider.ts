@@ -4,9 +4,10 @@
  * Guarantees:
  * - Direct ESM/CJS import of nodemailer without eval/hacks
  * - Strict production safety: FORCE_MOCK_EMAIL is rejected in production
- * - Fail closed if email provider unconfigured in production
+ * - Fail closed if email provider unconfigured in production (zero mock fallback)
  * - Zero OTP exposure in email subjects or logs
  * - Standardized env vars: EMAIL_FROM, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE, RESEND_API_KEY
+ * - Sanitized provider error messages to prevent credential/internal leaks
  */
 
 import nodemailer from 'nodemailer';
@@ -32,6 +33,19 @@ export interface DispatchedEmailRecord extends SendEmailParams {
 
 export interface EmailProvider {
   sendEmail(params: SendEmailParams): Promise<SendEmailResult>;
+}
+
+/**
+ * Sanitizes provider error messages to prevent leakage of credentials, tokens, or raw bodies.
+ */
+function sanitizeEmailProviderError(raw: any): string {
+  if (!raw) return 'Email delivery service failure';
+  const msg = typeof raw === 'string' ? raw : raw?.message || '';
+  return msg
+    .replace(/bearer\s+[a-z0-9._-]+/gi, 'Bearer [REDACTED]')
+    .replace(/re_[a-z0-9_-]+/gi, '[REDACTED_API_KEY]')
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, '[REDACTED_EMAIL]')
+    .substring(0, 180);
 }
 
 // In-memory test store to inspect emails dispatched in tests
@@ -95,10 +109,11 @@ export class FailingEmailProvider implements EmailProvider {
   }
 
   async sendEmail(_params: SendEmailParams): Promise<SendEmailResult> {
-    console.error(`[EMAIL_DISPATCH:ERROR] ${this.reason}`);
+    const sanitized = sanitizeEmailProviderError(this.reason);
+    console.error(`[EMAIL_DISPATCH:ERROR] ${sanitized}`);
     return {
       success: false,
-      error: this.reason,
+      error: sanitized,
       provider: 'mock_logger',
     };
   }
@@ -134,10 +149,11 @@ export class SmtpEmailProvider implements EmailProvider {
         provider: 'smtp',
       };
     } catch (err: any) {
-      console.error('[EMAIL_DISPATCH:SMTP_ERROR]', err?.message);
+      const sanitized = sanitizeEmailProviderError(err);
+      console.error('[EMAIL_DISPATCH:SMTP_ERROR]', sanitized);
       return {
         success: false,
-        error: err?.message || 'SMTP transmission failure',
+        error: sanitized,
         provider: 'smtp',
       };
     }
@@ -173,9 +189,11 @@ export class ResendEmailProvider implements EmailProvider {
 
       if (!res.ok) {
         const body = await res.text();
+        const sanitized = sanitizeEmailProviderError(`Resend HTTP status ${res.status}: ${body}`);
+        console.error('[EMAIL_DISPATCH:RESEND_ERROR]', sanitized);
         return {
           success: false,
-          error: `Resend HTTP error ${res.status}: ${body}`,
+          error: sanitized,
           provider: 'resend',
         };
       }
@@ -187,10 +205,11 @@ export class ResendEmailProvider implements EmailProvider {
         provider: 'resend',
       };
     } catch (err: any) {
-      console.error('[EMAIL_DISPATCH:RESEND_ERROR]', err?.message);
+      const sanitized = sanitizeEmailProviderError(err);
+      console.error('[EMAIL_DISPATCH:RESEND_NETWORK_ERROR]', sanitized);
       return {
         success: false,
-        error: err?.message || 'Resend API network failure',
+        error: sanitized,
         provider: 'resend',
       };
     }
@@ -201,7 +220,7 @@ export class ResendEmailProvider implements EmailProvider {
  * Resolves active email provider.
  * Enforces production security:
  * - Reject FORCE_MOCK_EMAIL in production
- * - Fail closed if no real provider configured in production
+ * - Fail closed if no real provider configured in production (strictly NO mock fallback in production)
  */
 export function getEmailProvider(): EmailProvider {
   const isProduction =

@@ -47,7 +47,7 @@ function LeadershipLoginForm() {
   const safeReturnUrl = sanitizeReturnUrl(searchParams?.get('returnUrl'));
 
   const [step, setStep] = useState<'email' | 'code'>('email');
-  const [authMode, setAuthMode] = useState<'directory' | 'manual'>('directory');
+  const [authMode, setAuthMode] = useState<'directory' | 'manual'>('manual');
   const [directoryLeaders, setDirectoryLeaders] = useState<PublicLeader[]>([]);
   const [selectedLeaderId, setSelectedLeaderId] = useState<string>('');
   const [email, setEmail] = useState('');

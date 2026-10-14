@@ -115,21 +115,50 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
     };
   }
 
-  // 4. Check verified session cookie (cryptographically signed token or test-only structured payload)
+  // 4. Check individual Leadership session cookie FIRST (explicit precedence over shared session)
+  const leaderSessionId = extractLeaderSessionId(req);
+  if (leaderSessionId) {
+    const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
+    try {
+      const leaderSession = await validateLeaderSession(leaderSessionId, { isPoll, req });
+      if (leaderSession) {
+        return {
+          role: 'supervisor',
+          isVerified: true,
+          reason: 'verified_session_cookie',
+        };
+      }
+    } catch (err: any) {
+      console.error('[AUTH:ERROR] validateLeaderSession failed, failing closed:', err?.message);
+    }
+  }
+
+  // 4b. Check verified legacy session cookie (cryptographically signed token or test-only structured payload)
   if (sessionCookie) {
     const verifiedSession = verifySessionToken(sessionCookie);
     if (verifiedSession) {
-      const mappedRole: UserRole =
-        verifiedSession.role === 'FIELD_USER'
-          ? 'caseworker'
-          : verifiedSession.role === 'AUDITOR'
-            ? 'auditor'
-            : 'supervisor';
-      return {
-        role: mappedRole,
-        isVerified: true,
-        reason: 'verified_session_cookie',
-      };
+      // In email_only cutover mode, legacy shared Leadership sessions are rejected
+      if (verifiedSession.role === 'LEADERSHIP' && process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only') {
+        logSecurityEvent({
+          actor: verifiedSession.userId || 'shared-leadership',
+          actorRole: 'LEADERSHIP',
+          eventType: 'AUTH_FAILURE',
+          outcome: 'DENY',
+          details: 'Legacy shared Leadership session rejected in resolveServerVerifiedRole under email_only cutover mode.',
+        });
+      } else {
+        const mappedRole: UserRole =
+          verifiedSession.role === 'FIELD_USER'
+            ? 'caseworker'
+            : verifiedSession.role === 'AUDITOR'
+              ? 'auditor'
+              : 'supervisor';
+        return {
+          role: mappedRole,
+          isVerified: true,
+          reason: 'verified_session_cookie',
+        };
+      }
     }
 
     if (process.env.NODE_ENV === 'test' && validSecrets.length > 0 && sessionCookie.startsWith('{')) {
@@ -148,24 +177,6 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
     }
   }
 
-  // 4b. Check individual Leadership session cookie
-  const leaderSessionId = extractLeaderSessionId(req);
-  if (leaderSessionId) {
-    const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
-    try {
-      const leaderSession = await validateLeaderSession(leaderSessionId, { isPoll, req });
-      if (leaderSession) {
-        return {
-          role: 'supervisor',
-          isVerified: true,
-          reason: 'verified_session_cookie',
-        };
-      }
-    } catch (err: any) {
-      console.error('[AUTH:ERROR] validateLeaderSession failed, failing closed:', err?.message);
-    }
-  }
-
   // 5. Untrusted browser caller fallback:
   if (rawRole && rawRole !== 'supervisor') {
     console.warn(`[Security Warning] Unverified client attempted privilege escalation with x-user-role: "${rawRole}". Enforcing "supervisor" default.`);
@@ -176,6 +187,33 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
     isVerified: false,
     reason: 'untrusted_fallback',
   };
+}
+
+/**
+ * Validates request Origin and Sec-Fetch-Site for state-changing authentication mutations.
+ * Rejects cross-site requests to prevent CSRF attacks.
+ */
+export function validateMutationOrigin(req: NextRequest): { valid: boolean; reason?: string } {
+  // If Sec-Fetch-Site is cross-site, reject
+  const secFetchSite = req.headers.get('sec-fetch-site');
+  if (secFetchSite === 'cross-site') {
+    return { valid: false, reason: 'Cross-site request rejected by Sec-Fetch-Site.' };
+  }
+
+  const origin = req.headers.get('origin');
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      const reqUrl = new URL(req.url);
+      if (originUrl.host !== reqUrl.host) {
+        return { valid: false, reason: `Origin mismatch: ${originUrl.host} vs ${reqUrl.host}.` };
+      }
+    } catch {
+      return { valid: false, reason: 'Malformed origin header.' };
+    }
+  }
+
+  return { valid: true };
 }
 
 /**
@@ -201,24 +239,7 @@ export function isSyntheticDemoModeAllowed(req: NextRequest): boolean {
  * Resolves comprehensive geographic and role scope for Issue #57.
  */
 export async function resolveUserAccessScope(req: NextRequest): Promise<UserAccessScope> {
-  // 1. Check signed cryptographic session token
-  const token = extractSessionToken(req);
-  if (token) {
-    const session = verifySessionToken(token);
-    if (session) {
-      return {
-        userId: session.userId,
-        name: session.name,
-        role: session.role,
-        allowedStates: session.allowedStates,
-        allowedDistricts: session.allowedDistricts,
-        isVerified: true,
-        reason: 'verified_session_token',
-      };
-    }
-  }
-
-  // 1b. Check individual Leadership session cookie / header
+  // 1. Check individual Leadership session cookie / header FIRST (explicit precedence)
   const leaderSessionId = extractLeaderSessionId(req);
   if (leaderSessionId) {
     const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
@@ -240,7 +261,35 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
     }
   }
 
-  // 2. Check server-verified role from backend header/test secret
+  // 2. Check signed cryptographic session token
+  const token = extractSessionToken(req);
+  if (token) {
+    const session = verifySessionToken(token);
+    if (session) {
+      // In email_only cutover mode, legacy shared Leadership sessions are rejected
+      if (session.role === 'LEADERSHIP' && process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only') {
+        logSecurityEvent({
+          actor: session.userId || 'shared-leadership',
+          actorRole: 'LEADERSHIP',
+          eventType: 'AUTH_FAILURE',
+          outcome: 'DENY',
+          details: 'Legacy shared Leadership session rejected in resolveUserAccessScope under email_only cutover mode.',
+        });
+      } else {
+        return {
+          userId: session.userId,
+          name: session.name,
+          role: session.role,
+          allowedStates: session.allowedStates,
+          allowedDistricts: session.allowedDistricts,
+          isVerified: true,
+          reason: 'verified_session_token',
+        };
+      }
+    }
+  }
+
+  // 3. Check server-verified role from backend header/test secret
   const verifiedLegacy = await resolveServerVerifiedRole(req);
   if (verifiedLegacy.isVerified) {
     let role: AuthPolicyRole = 'STATE_REVIEWER';

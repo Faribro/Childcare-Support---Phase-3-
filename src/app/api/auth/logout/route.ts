@@ -10,13 +10,18 @@ import { validateCsrfOrigin } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
 
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+};
+
 export async function POST(req: NextRequest) {
   // Enforce CSRF Origin validation on logout
   const csrf = validateCsrfOrigin(req);
   if (!csrf.isValid) {
     return NextResponse.json(
       { status: 'error', code: 'CSRF_VIOLATION', message: csrf.reason || 'Forbidden request origin.' },
-      { status: 403 }
+      { status: 403, headers: NO_STORE_HEADERS }
     );
   }
 
@@ -26,10 +31,13 @@ export async function POST(req: NextRequest) {
     await revokeLeaderSession(leaderSessionId);
   }
 
-  const response = NextResponse.json({
-    status: 'success',
-    message: 'Signed out successfully.',
-  });
+  const response = NextResponse.json(
+    {
+      status: 'success',
+      message: 'Signed out successfully.',
+    },
+    { headers: NO_STORE_HEADERS }
+  );
 
   clearSessionCookie(response);
   clearLeaderSessionCookie(response);
