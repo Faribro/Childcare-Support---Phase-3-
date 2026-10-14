@@ -30,7 +30,8 @@ export function CaseStatusSummaryDashboard({
     return computeReadinessAggregates(records, totalInScope);
   }, [records, totalInScope]);
 
-  // Requirement: If records is empty, return null or empty state
+  // Zero records returns null so no misleading 0% dashboard is rendered;
+  // page level table empty state handles user messaging.
   if (records.length === 0) {
     return null;
   }

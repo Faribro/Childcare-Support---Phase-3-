@@ -23,6 +23,7 @@ import type { SupervisorBeneficiaryRow } from '@/hooks/useSupervisorData';
 import type { EvaluationUser } from '@/lib/auth/evaluationAccess';
 import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
 import { ColumnFilterPopover } from '@/components/supervisor/ColumnFilterPopover';
+import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
 import { parseBeneficiaryRecord } from '@/lib/read-model/supervisorReadModel';
 
 describe('Beneficiary Linelist Readiness, Actions & Column Filter Architecture', () => {
@@ -1261,6 +1262,289 @@ describe('Beneficiary Linelist Readiness, Actions & Column Filter Architecture',
       // Distinct children count (3) is the surveillance denominator, not raw submissions count (4)
       const totalChildrenInScope = deduplicated.distinctRecords.length;
       expect(totalChildrenInScope).toBe(3);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 15. Private Attachment Readiness & Metadata Handling
+  // ---------------------------------------------------------------------------
+  describe('15. Private Attachment Readiness & Metadata Invariants', () => {
+    it('accepts trusted private attachment metadata objects and URI schemes without requiring public URLs', () => {
+      // 1. Private metadata objects
+      expect(isAttachmentPresent({ assetId: 'passbook-asset-01', status: 'UPLOADED' })).toBe(true);
+      expect(isAttachmentPresent({ storageKey: 'kyc/passbook.enc', status: 'STORED' })).toBe(true);
+      expect(isAttachmentPresent({ fileId: 'doc-123', status: 'CAPTURED' })).toBe(true);
+      expect(isAttachmentPresent({ isPresent: true })).toBe(true);
+      expect(isAttachmentPresent({ uploaded: true })).toBe(true);
+
+      // Negative metadata objects
+      expect(isAttachmentPresent({ assetId: 'none', status: 'PENDING' })).toBe(false);
+      expect(isAttachmentPresent({ status: 'MISSING' })).toBe(false);
+      expect(isAttachmentPresent({ status: 'FAILED' })).toBe(false);
+      expect(isAttachmentPresent({ assetId: '—' })).toBe(false);
+      expect(isAttachmentPresent({ assetId: 'N/A' })).toBe(false);
+
+      // 2. Private URI schemes
+      expect(isAttachmentPresent('asset://vault/kyc-doc-456')).toBe(true);
+      expect(isAttachmentPresent('storage://beneficiaries/passbooks/pb-01.jpg')).toBe(true);
+      expect(isAttachmentPresent('file://secure-storage/signatures/sig-01.png')).toBe(true);
+      expect(isAttachmentPresent('vault://kyc/aadhaar-01')).toBe(true);
+      expect(isAttachmentPresent('urn:asset:c3b879-112')).toBe(true);
+
+      // 3. Opaque asset tokens
+      expect(isAttachmentPresent('sig-asset-9988')).toBe(true);
+      expect(isAttachmentPresent('asset-uuid-1234-abcd')).toBe(true);
+
+      // 4. In Google Sheets formula
+      expect(isAttachmentPresent('=HYPERLINK("asset://vault/kyc-passbook", "Passbook")')).toBe(true);
+    });
+
+    it('strictly separates presence from verification and does not leak rawRef', () => {
+      const recordUploadedUnreviewed = {
+        '1\nUnique ID': 'BEN-PRIV-01',
+        '42\nART ID Number': 'MH-PUN-PRIV-01',
+        '9\nChild Name': 'Priv Child',
+        '11\nAge': 10,
+        '53\nSchool Type': 'Government school',
+        reviewConfirmed: true, // Form-level review checkbox
+        '25\nPassbook Front Page Link': { assetId: 'pass-private-key-123', status: 'UPLOADED' },
+        '26\nAadhaar Card Link': 'asset://private-vault/aadhaar-999?signedToken=SECRET_TOKEN',
+        '27\nPassport Size Photo Link': 'sig-asset-7788',
+        '6\nSignature /\nThumb Impression': { storagePath: '/secure/sig.png', status: 'CAPTURED_LOCAL' },
+        '64\nSchool Fee Receipt Link': 'https://drive.google.com/fee.pdf',
+        '65\nMarksheet Photo Link': 'https://drive.google.com/marksheet.pdf',
+      };
+
+      const readiness = deriveBeneficiaryReadiness(recordUploadedUnreviewed);
+
+      // All documents present
+      expect(readiness.isComplete).toBe(true);
+      expect(readiness.uploadedCount).toBe(6);
+
+      // Because documents were NOT individually verified, state must be 'uploaded', NOT 'verified'
+      // reviewConfirmed: true must NOT mark documents as verified
+      expect(readiness.docDetails['Bank Passbook Front Page'].state).toBe('uploaded');
+      expect(readiness.docDetails['Bank Passbook Front Page'].isVerified).toBe(false);
+      expect(readiness.docDetails['Aadhaar Card'].state).toBe('uploaded');
+      expect(readiness.docDetails['Aadhaar Card'].isVerified).toBe(false);
+
+      // Check that rawRef is completely omitted and does not leak signed tokens or private keys
+      for (const doc of Object.values(readiness.docDetails)) {
+        expect((doc as any).rawRef).toBeUndefined();
+      }
+    });
+
+    it('marks documents as verified only when explicit document verification flags are present', () => {
+      const recordWithExplicitVerification = {
+        '1\nUnique ID': 'BEN-PRIV-02',
+        '42\nART ID Number': 'MH-PUN-PRIV-02',
+        '9\nChild Name': 'Verified Child',
+        '53\nSchool Type': 'Not in school',
+        '25\nPassbook Front Page Link': 'asset://vault/passbook',
+        '26\nAadhaar Card Link': 'asset://vault/aadhaar',
+        '27\nPassport Size Photo Link': 'asset://vault/photo',
+        '6\nSignature /\nThumb Impression': 'asset://vault/sig',
+        isPassbookVerified: true, // Explicit verification
+        documentVerification: {
+          aadhaarVerified: true,
+        },
+        documentStatus: {
+          verifiedDocs: ['Photo'],
+        },
+      };
+
+      const readiness = deriveBeneficiaryReadiness(recordWithExplicitVerification);
+
+      expect(readiness.docDetails['Bank Passbook Front Page'].state).toBe('verified');
+      expect(readiness.docDetails['Bank Passbook Front Page'].isVerified).toBe(true);
+
+      expect(readiness.docDetails['Aadhaar Card'].state).toBe('verified');
+      expect(readiness.docDetails['Aadhaar Card'].isVerified).toBe(true);
+
+      expect(readiness.docDetails['Passport Size Photo'].state).toBe('verified');
+      expect(readiness.docDetails['Passport Size Photo'].isVerified).toBe(true);
+
+      // Signature was uploaded but NOT verified
+      expect(readiness.docDetails['Caregiver Signature'].state).toBe('uploaded');
+      expect(readiness.docDetails['Caregiver Signature'].isVerified).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 16. Child Identity Namespace & Cross-State ART Collision Prevention
+  // ---------------------------------------------------------------------------
+  describe('16. Child Identity Namespace & Cross-State Collision Invariants', () => {
+    it('prevents cross-state and cross-district collisions for identical numeric ART IDs', () => {
+      const assessments = [
+        {
+          id: 'ASSESS-MH-01',
+          artNumber: '101', // Local ART ID 101 in Maharashtra
+          state: 'Maharashtra',
+          district: 'Pune',
+          childName: 'Aarav Patil (MH)',
+          lastVisit: '2026-06-01',
+        },
+        {
+          id: 'ASSESS-DL-01',
+          artNumber: '101', // Same numeric ART ID 101 in Delhi
+          state: 'Delhi',
+          district: 'South Delhi',
+          childName: 'Priya Sharma (DL)',
+          lastVisit: '2026-06-01',
+        },
+        {
+          id: 'ASSESS-TN-01',
+          artNumber: '101', // Same numeric ART ID 101 in Tamil Nadu
+          state: 'Tamil Nadu',
+          district: 'Chennai',
+          childName: 'Karthik Raja (TN)',
+          lastVisit: '2026-06-01',
+        },
+      ];
+
+      const deduplicated = deduplicateRecordsByChild(assessments);
+
+      // All 3 children must be preserved as distinct beneficiaries
+      expect(deduplicated.distinctRecords.length).toBe(3);
+      expect(deduplicated.hasDuplicates).toBe(false);
+      expect(deduplicated.duplicateCount).toBe(0);
+      expect(deduplicated.distinctRecords.map((r) => r.childName)).toEqual([
+        'Aarav Patil (MH)',
+        'Priya Sharma (DL)',
+        'Karthik Raja (TN)',
+      ]);
+    });
+
+    it('preserves distinct records when ART ID is ambiguous or generic without merging by name', () => {
+      const ambiguousAssessments = [
+        {
+          id: 'ASSESS-GEN-01',
+          artNumber: 'MH-BEN-00', // Generic fallback
+          childName: 'Rohan Deshmukh',
+          state: 'Maharashtra',
+          lastVisit: '2026-06-01',
+        },
+        {
+          id: 'ASSESS-GEN-02',
+          artNumber: 'MH-BEN-00', // Generic fallback, same name
+          childName: 'Rohan Deshmukh',
+          state: 'Maharashtra',
+          lastVisit: '2026-06-02',
+        },
+        {
+          id: 'ASSESS-GEN-03',
+          artNumber: '—', // Placeholder
+          childName: 'Rohan Deshmukh',
+          state: 'Maharashtra',
+          lastVisit: '2026-06-03',
+        },
+      ];
+
+      const deduplicated = deduplicateRecordsByChild(ambiguousAssessments);
+
+      // Must NOT guess or merge by name; all 3 records must remain distinct
+      expect(deduplicated.distinctRecords.length).toBe(3);
+      expect(deduplicated.hasDuplicates).toBe(false);
+      expect(deduplicated.hasReliableChildIdentity).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 17. Visit Chronology vs Revision Numbers
+  // ---------------------------------------------------------------------------
+  describe('17. Visit Chronology vs Revision Numbers Invariant', () => {
+    it('prioritizes actual visit chronology over heavily edited older revision numbers', () => {
+      const longitudinalVisits = [
+        {
+          id: 'ASSESS-OLD-HEAVILY-EDITED',
+          artNumber: 'MH-PUN-2024-999',
+          childName: 'Deepak Joshi',
+          state: 'Maharashtra',
+          district: 'Pune',
+          lastVisit: '2024-03-15T00:00:00Z', // Old 2024 visit
+          version: 12, // Heavily edited revision 12
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+        {
+          id: 'ASSESS-NEW-VISIT-INITIAL-REV',
+          artNumber: 'MH-PUN-2024-999', // Same child
+          childName: 'Deepak Joshi',
+          state: 'Maharashtra',
+          district: 'Pune',
+          lastVisit: '2026-08-20T00:00:00Z', // Recent 2026 visit
+          version: 1, // First revision
+          updatedAt: '2026-08-20T00:00:00Z',
+        },
+      ];
+
+      const deduplicated = deduplicateRecordsByChild(longitudinalVisits);
+
+      expect(deduplicated.distinctRecords.length).toBe(1);
+      expect(deduplicated.hasDuplicates).toBe(true);
+      expect(deduplicated.duplicateCount).toBe(1);
+
+      // The 2026 visit must win based on visit chronology, NOT the 2024 visit with version 12
+      const selected = deduplicated.distinctRecords[0];
+      expect(selected.id).toBe('ASSESS-NEW-VISIT-INITIAL-REV');
+      expect(selected.lastVisit).toBe('2026-08-20T00:00:00Z');
+      expect(selected.version).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 18. Case Status Summary Dashboard Empty State & Aggregates Context
+  // ---------------------------------------------------------------------------
+  describe('18. Case Status Summary Dashboard Empty State & Context Labelling', () => {
+    it('returns null when zero records match to avoid displaying a misleading 0% result', () => {
+      const { container } = render(
+        <CaseStatusSummaryDashboard records={[]} totalInScope={10} />
+      );
+
+      // Must return null so no misleading 0% cards are displayed (page-level empty state handles display)
+      expect(container.firstChild).toBeNull();
+      expect(screen.queryByText(/0% Complete/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/0 \/ 0 Complete/i)).not.toBeInTheDocument();
+    });
+
+    it('labels aggregates context as assessment records when child identity is ambiguous', () => {
+      const ambiguousRecords = [
+        {
+          id: 'REC-01',
+          artNumber: 'BEN-UNKNOWN',
+          childName: 'Child 1',
+        },
+        {
+          id: 'REC-02',
+          artNumber: 'BEN-UNKNOWN',
+          childName: 'Child 2',
+        },
+      ];
+
+      const summary = computeReadinessAggregates(ambiguousRecords, 2);
+
+      expect(summary.hasReliableChildIdentity).toBe(false);
+      expect(summary.contextLabel).toBe(
+        '2 assessment records matching filters, from 2 assessment records in your authorized scope.'
+      );
+    });
+
+    it('labels aggregates context as children when valid child identities exist', () => {
+      const validRecords = [
+        {
+          id: 'REC-01',
+          artNumber: 'MH-PUN-001',
+          state: 'Maharashtra',
+          district: 'Pune',
+          childName: 'Child 1',
+        },
+      ];
+
+      const summary = computeReadinessAggregates(validRecords, 1);
+
+      expect(summary.hasReliableChildIdentity).toBe(true);
+      expect(summary.contextLabel).toBe(
+        '1 children matching filters, from 1 children in your authorized scope.'
+      );
     });
   });
 });

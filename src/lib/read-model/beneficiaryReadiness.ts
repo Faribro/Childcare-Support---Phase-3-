@@ -34,7 +34,6 @@ export interface DocumentVerificationDetail {
   isPresent: boolean;
   isVerified: boolean;
   isNotApplicable: boolean;
-  rawRef?: string;
 }
 
 export type CanonicalApprovalStatus = 'Approved' | 'Pending' | 'Rejected' | 'Unknown';
@@ -113,6 +112,56 @@ export function isAttachmentPresent(val: any, confirmedBoolean?: boolean): boole
   if (val === true) return true;
   if (val === false || val === null || val === undefined) return false;
 
+  // Handle trusted private attachment metadata object
+  if (typeof val === 'object') {
+    // Explicit status field (e.g. from storage service / API normalization)
+    if (typeof val.status === 'string') {
+      const s = val.status.trim().toUpperCase();
+      if (['MISSING', 'PENDING', 'FAILED', 'NOT_UPLOADED', 'DELETED', 'REJECTED'].includes(s)) {
+        return false;
+      }
+      if (['UPLOADED', 'STORED', 'CAPTURED', 'VERIFIED', 'PRESENT', 'COMPLETED', 'CAPTURED_LOCAL', 'SYNCED'].includes(s)) {
+        return true;
+      }
+    }
+
+    // Explicit boolean indicator flags in metadata
+    if (typeof val.isPresent === 'boolean') return val.isPresent;
+    if (typeof val.uploaded === 'boolean') return val.uploaded;
+    if (typeof val.hasAttachment === 'boolean') return val.hasAttachment;
+    if (typeof val.captured === 'boolean') return val.captured;
+
+    // Check for trusted private asset identifier or storage reference key
+    const rawAssetId =
+      val.assetId ||
+      val.asset_id ||
+      val.storageId ||
+      val.storageKey ||
+      val.storage_key ||
+      val.fileId ||
+      val.file_id ||
+      val.key ||
+      val.path ||
+      val.id;
+
+    if (typeof rawAssetId === 'string') {
+      const trimmedAsset = rawAssetId.trim();
+      const lowerAsset = trimmedAsset.toLowerCase();
+      const invalidAssetPlaceholders = ['—', '-', 'n/a', 'none', 'null', 'undefined', 'missing', 'pending', 'not uploaded'];
+      if (trimmedAsset && !invalidAssetPlaceholders.includes(lowerAsset)) {
+        return true;
+      }
+    }
+
+    // Check nested URL or URI if present in metadata object
+    const nestedRef = val.url || val.uri || val.link || val.signedUrl;
+    if (nestedRef && typeof nestedRef !== 'object') {
+      return isAttachmentPresent(nestedRef);
+    }
+
+    return false;
+  }
+
   if (typeof val === 'string') {
     const trimmed = val.trim();
     if (!trimmed) return false;
@@ -136,12 +185,18 @@ export function isAttachmentPresent(val: any, confirmedBoolean?: boolean): boole
       return false;
     }
 
-    // Google Sheets HYPERLINK formula with real URL
+    // Google Sheets HYPERLINK formula with real URL or private URI
     if (trimmed.startsWith('=')) {
       const match = trimmed.match(/=HYPERLINK\("([^"]+)"/i);
       if (match && match[1]) {
         const link = match[1].trim();
-        return link.startsWith('http://') || link.startsWith('https://');
+        return (
+          link.startsWith('http://') ||
+          link.startsWith('https://') ||
+          link.startsWith('asset://') ||
+          link.startsWith('storage://') ||
+          link.startsWith('vault://')
+        );
       }
       return false;
     }
@@ -156,7 +211,28 @@ export function isAttachmentPresent(val: any, confirmedBoolean?: boolean): boole
       return true;
     }
 
-    // Bare placeholder strings like "Restricted Doc", "Restricted Document", or generic filenames without URL
+    // Private attachment URI schemes (does not require public HTTP URL)
+    if (
+      lower.startsWith('asset://') ||
+      lower.startsWith('storage://') ||
+      lower.startsWith('file://') ||
+      lower.startsWith('vault://') ||
+      lower.startsWith('urn:asset:')
+    ) {
+      return true;
+    }
+
+    // Trusted opaque asset reference tokens (e.g. "sig-asset-9988", "asset-uuid-1234")
+    if (
+      lower.startsWith('sig-asset-') ||
+      lower.startsWith('asset-') ||
+      lower.startsWith('doc-asset-') ||
+      /^(asset|sig-asset|doc-asset)[-_][a-zA-Z0-9_-]+$/i.test(trimmed)
+    ) {
+      return true;
+    }
+
+    // Bare placeholder strings like "Restricted Doc", "Restricted Document", or generic filenames without URL/protocol
     if (
       lower.startsWith('restricted doc') ||
       lower === 'restricted document' ||
@@ -426,14 +502,44 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     }
   }
 
-  const isPassbookVerified = Boolean(it.isPassbookVerified || it.reviewConfirmed);
-  const isAadhaarVerified = Boolean(it.isAadhaarVerified || it.reviewConfirmed);
-  const isPhotoVerified = Boolean(it.isPhotoVerified || it.reviewConfirmed);
-  const isSignatureVerified = Boolean(it.isSignatureVerified || it.reviewConfirmed);
-  const isFeeReceiptVerified = Boolean(it.isFeeReceiptVerified || it.reviewConfirmed);
-  const isMarksheetVerified = Boolean(it.isMarksheetVerified || it.reviewConfirmed);
+  const isPassbookVerified = Boolean(
+    it.isPassbookVerified ||
+    it.passbookVerified ||
+    it.documentVerification?.passbookVerified ||
+    it.documentStatus?.verifiedDocs?.includes('Passbook')
+  );
+  const isAadhaarVerified = Boolean(
+    it.isAadhaarVerified ||
+    it.aadhaarVerified ||
+    it.documentVerification?.aadhaarVerified ||
+    it.documentStatus?.verifiedDocs?.includes('Aadhaar')
+  );
+  const isPhotoVerified = Boolean(
+    it.isPhotoVerified ||
+    it.photoVerified ||
+    it.documentVerification?.photoVerified ||
+    it.documentStatus?.verifiedDocs?.includes('Photo')
+  );
+  const isSignatureVerified = Boolean(
+    it.isSignatureVerified ||
+    it.signatureVerified ||
+    it.documentVerification?.signatureVerified ||
+    it.documentStatus?.verifiedDocs?.includes('Signature')
+  );
+  const isFeeReceiptVerified = Boolean(
+    it.isFeeReceiptVerified ||
+    it.feeReceiptVerified ||
+    it.documentVerification?.feeReceiptVerified ||
+    it.documentStatus?.verifiedDocs?.includes('Fee Receipt')
+  );
+  const isMarksheetVerified = Boolean(
+    it.isMarksheetVerified ||
+    it.marksheetVerified ||
+    it.documentVerification?.marksheetVerified ||
+    it.documentStatus?.verifiedDocs?.includes('Marksheet')
+  );
 
-  // Assemble document details
+  // Assemble document details without exposing raw references, signed tokens, or object keys
   const docDetails: Record<CanonicalDocumentType, DocumentVerificationDetail> = {
     'Bank Passbook Front Page': {
       docType: 'Bank Passbook Front Page',
@@ -444,7 +550,6 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       isPresent: passbookPresent,
       isVerified: isPassbookVerified,
       isNotApplicable: false,
-      rawRef: typeof passbookVal === 'string' ? passbookVal : undefined,
     },
     'Aadhaar Card': {
       docType: 'Aadhaar Card',
@@ -455,7 +560,6 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       isPresent: aadhaarPresent,
       isVerified: isAadhaarVerified,
       isNotApplicable: false,
-      rawRef: typeof aadhaarVal === 'string' ? aadhaarVal : undefined,
     },
     'Passport Size Photo': {
       docType: 'Passport Size Photo',
@@ -466,7 +570,6 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       isPresent: photoPresent,
       isVerified: isPhotoVerified,
       isNotApplicable: false,
-      rawRef: typeof photoVal === 'string' ? photoVal : undefined,
     },
     'Caregiver Signature': {
       docType: 'Caregiver Signature',
@@ -477,7 +580,6 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       isPresent: sigPresent,
       isVerified: isSignatureVerified,
       isNotApplicable: false,
-      rawRef: typeof sigVal === 'string' ? sigVal : undefined,
     },
     'School Fee Receipt': {
       docType: 'School Fee Receipt',
@@ -488,7 +590,6 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       isPresent: feeReceiptPresent,
       isVerified: isFeeReceiptVerified,
       isNotApplicable: !isEnrolled,
-      rawRef: typeof feeVal === 'string' ? feeVal : undefined,
     },
     'Academic Marksheet': {
       docType: 'Academic Marksheet',
@@ -499,7 +600,6 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       isPresent: marksheetPresent,
       isVerified: isMarksheetVerified,
       isNotApplicable: !isEnrolled,
-      rawRef: typeof marksheetVal === 'string' ? marksheetVal : undefined,
     },
   };
 
@@ -643,15 +743,20 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
  * established NACO/Alliance ART identity rule.
  * 
  * Invariants:
- * - If multiple assessments share the same valid canonical ART ID (not placeholder/empty),
- *   the current assessment is chosen by highest version number, tie-broken by latest
- *   timestamp (updatedAt / createdAt / lastVisit), and lastly by highest ID.
- * - If ART number is missing, generic fallback ('MH-BEN-00'), or empty, records are treated
- *   as distinct assessments to avoid accidental collapsing.
+ * - Namespaces ART IDs by administrative scope (State : District : ART) to prevent
+ *   cross-state, cross-centre, or cross-district collisions of identical local ART IDs.
+ * - If ART number is missing, generic fallback ('MH-BEN-00', 'BEN-00', 'BEN-UNKNOWN'), or empty,
+ *   records are preserved as distinct assessment records using unique record ID (never guess or merge by name).
+ * - Current-assessment selection rule: established visit chronology (lastVisit, visitDate,
+ *   dateOfFilling, createdAt) takes precedence. Per-record edit revision numbers are local
+ *   and NOT compared as global visit chronology.
+ * - When visit dates are identical, tie-broken by latest modification (updatedAt), then version, then ID.
  */
 export function deduplicateRecordsByChild<T extends {
   id: string;
   artNumber: string;
+  state?: string;
+  district?: string;
   version?: number;
   updatedAt?: string;
   createdAt?: string;
@@ -661,21 +766,32 @@ export function deduplicateRecordsByChild<T extends {
   totalAssessments: number;
   hasDuplicates: boolean;
   duplicateCount: number;
+  hasReliableChildIdentity: boolean;
 } {
   const totalAssessments = records.length;
   if (totalAssessments <= 1) {
+    const rawArt = records[0] ? (records[0].artNumber || '').trim().toUpperCase() : '';
+    const isGeneric =
+      !rawArt ||
+      rawArt === 'MH-BEN-00' ||
+      rawArt === 'BEN-00' ||
+      rawArt === 'BEN-UNKNOWN' ||
+      rawArt === '—' ||
+      rawArt === '-';
     return {
       distinctRecords: records,
       totalAssessments,
       hasDuplicates: false,
       duplicateCount: 0,
+      hasReliableChildIdentity: totalAssessments === 1 ? !isGeneric : true,
     };
   }
 
   const childGroups = new Map<string, T[]>();
+  let reliableIdentityFound = false;
 
   for (const record of records) {
-    const rawArt = (record.artNumber || '').trim().toUpperCase();
+    const rawArt = (record.artNumber || (record as any)['42\nART ID Number'] || '').trim().toUpperCase();
     const isGenericArt =
       !rawArt ||
       rawArt === 'MH-BEN-00' ||
@@ -684,7 +800,23 @@ export function deduplicateRecordsByChild<T extends {
       rawArt === '—' ||
       rawArt === '-';
 
-    const childKey = isGenericArt ? `ID:${record.id}` : `ART:${rawArt}`;
+    if (!isGenericArt) {
+      reliableIdentityFound = true;
+    }
+
+    // Namespace child identity by administrative scope (State : District : ART)
+    // to strictly prevent cross-state/centre/programme collisions of identical ART numbers.
+    // If ART is generic, preserve record identity using unique record ID (never guess or merge by name).
+    const stateScope = (
+      (record.state || (record as any)['18\nState'] || (record as any).demographics?.state || '') as string
+    ).trim().toUpperCase();
+    const distScope = (
+      (record.district || (record as any)['19\nDistrict'] || (record as any).demographics?.district || '') as string
+    ).trim().toUpperCase();
+
+    const childKey = isGenericArt
+      ? `ID:${record.id}`
+      : `ART:${stateScope || 'GLOBAL'}:${distScope || 'ALL'}:${rawArt}`;
 
     const existing = childGroups.get(childKey) || [];
     existing.push(record);
@@ -699,16 +831,45 @@ export function deduplicateRecordsByChild<T extends {
       distinctRecords.push(group[0]);
     } else {
       duplicateCount += group.length - 1;
-      // Sort to find the canonical current assessment
+      // Current-assessment selection rule:
+      // Uses established visit chronology first (lastVisit, visitDate, dateOfFilling, createdAt, submissionTime).
+      // Per-record revisions/versions are local edit counters and are NOT compared as global visit chronology.
       const sorted = [...group].sort((a, b) => {
+        const getVisitTime = (item: any): number => {
+          const rawDate =
+            item.lastVisit ||
+            item.visitDate ||
+            item['7\nDate of Assessment'] ||
+            item['Date of Assessment'] ||
+            item.dateOfFilling ||
+            item.submissionTime ||
+            item.createdAt;
+          if (!rawDate) return 0;
+          const parsed = new Date(rawDate).getTime();
+          return isNaN(parsed) ? 0 : parsed;
+        };
+
+        const tA = getVisitTime(a);
+        const tB = getVisitTime(b);
+        if (tA !== tB) return tB - tA; // Later visit date wins
+
+        // Tie-breaker for identical visit dates: latest record modification timestamp
+        const getUpdateTime = (item: any): number => {
+          const rawDate = item.updatedAt || item.createdAt;
+          if (!rawDate) return 0;
+          const parsed = new Date(rawDate).getTime();
+          return isNaN(parsed) ? 0 : parsed;
+        };
+        const uA = getUpdateTime(a);
+        const uB = getUpdateTime(b);
+        if (uA !== uB) return uB - uA;
+
+        // Tie-breaker: revision/version number
         const vA = a.version || 1;
         const vB = b.version || 1;
-        if (vA !== vB) return vB - vA; // Higher version wins
+        if (vA !== vB) return vB - vA;
 
-        const tA = new Date(a.updatedAt || a.createdAt || a.lastVisit || 0).getTime();
-        const tB = new Date(b.updatedAt || b.createdAt || b.lastVisit || 0).getTime();
-        if (tA !== tB) return tB - tA; // Later timestamp wins
-
+        // Stable deterministic tie-breaker
         return String(b.id).localeCompare(String(a.id));
       });
       distinctRecords.push(sorted[0]);
@@ -720,6 +881,7 @@ export function deduplicateRecordsByChild<T extends {
     totalAssessments,
     hasDuplicates: duplicateCount > 0,
     duplicateCount,
+    hasReliableChildIdentity: reliableIdentityFound,
   };
 }
 
@@ -729,6 +891,7 @@ export interface ReadinessSummary {
   totalAssessments: number; // raw assessment count
   totalInScope: number; // distinct children in authorized scope
   hasDuplicates: boolean;
+  hasReliableChildIdentity: boolean;
 
   // Documents
   completeDocsCount: number;
@@ -776,10 +939,11 @@ export function computeReadinessAggregates(
   totalInScopeRecords?: number
 ): ReadinessSummary {
   // 1. Deduplicate by canonical child identity
-  const { distinctRecords, totalAssessments, hasDuplicates } = deduplicateRecordsByChild(records);
+  const { distinctRecords, totalAssessments, hasDuplicates, hasReliableChildIdentity } = deduplicateRecordsByChild(records);
   const total = distinctRecords.length;
 
   const totalInScope = totalInScopeRecords !== undefined ? totalInScopeRecords : total;
+  const noun = hasReliableChildIdentity ? 'children' : 'assessment records';
 
   if (total === 0) {
     return {
@@ -787,6 +951,7 @@ export function computeReadinessAggregates(
       totalAssessments: 0,
       totalInScope,
       hasDuplicates: false,
+      hasReliableChildIdentity,
       completeDocsCount: 0,
       incompleteDocsCount: 0,
       completenessRate: 0,
@@ -805,11 +970,11 @@ export function computeReadinessAggregates(
       rejectedApprovalCount: 0,
       unknownApprovalCount: 0,
       approvalRate: 0,
-      contextLabel: `0 children matching filters, from ${totalInScope} children in your authorized scope.`,
+      contextLabel: `0 ${noun} matching filters, from ${totalInScope} ${noun} in your authorized scope.`,
       metricDocumentation: {
         completenessFormula: 'Numerator: children with all applicable documents present. Denominator: distinct children in matching filter set.',
         approvalFormula: 'Numerator: approved distinct children. Denominator: distinct children in matching filter set.',
-        deduplicationRule: 'Latest assessment per canonical ART ID (highest revision/version, latest timestamp).',
+        deduplicationRule: 'Latest assessment per canonical child identity namespace (visit chronology timestamp, tie-broken by modification date and version).',
       },
     };
   }
@@ -867,13 +1032,14 @@ export function computeReadinessAggregates(
   const incompleteDocsCount = total - completeDocsCount;
   const approvalRate = Math.round((approvedCount / total) * 100);
 
-  const contextLabel = `${total} children matching filters, from ${totalInScope} children in your authorized scope.`;
+  const contextLabel = `${total} ${noun} matching filters, from ${totalInScope} ${noun} in your authorized scope.`;
 
   return {
     total,
     totalAssessments,
     totalInScope,
     hasDuplicates,
+    hasReliableChildIdentity,
     completeDocsCount,
     incompleteDocsCount,
     completenessRate,
@@ -896,7 +1062,7 @@ export function computeReadinessAggregates(
     metricDocumentation: {
       completenessFormula: 'Numerator: children with all applicable documents present. Denominator: distinct children in matching filter set.',
       approvalFormula: 'Numerator: approved distinct children. Denominator: distinct children in matching filter set.',
-      deduplicationRule: 'Latest assessment per canonical ART ID (highest revision/version, latest timestamp).',
+      deduplicationRule: 'Latest assessment per canonical child identity namespace (visit chronology timestamp, tie-broken by modification date and version).',
     },
   };
 }

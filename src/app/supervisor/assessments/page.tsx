@@ -179,15 +179,17 @@ export default function SupervisorAssessmentsPage() {
     });
   }, [data, user]);
 
-  // Distinct children in scope for accurate surveillance denominator
-  const totalChildrenInScope = useMemo(() => {
-    return deduplicateRecordsByChild(authorizedRecords).distinctRecords.length;
+  // 1b. Distinct children in authorized scope under established visit chronology
+  const currentChildRecords = useMemo(() => {
+    return deduplicateRecordsByChild(authorizedRecords).distinctRecords;
   }, [authorizedRecords]);
+
+  const totalChildrenInScope = currentChildRecords.length;
 
   // 2. Filtered dataset combining global search and multi-select column filters
   const filteredData = useMemo(() => {
-    return filterBeneficiaryRows(authorizedRecords, columnFilters, debouncedSearchTerm, user);
-  }, [authorizedRecords, columnFilters, debouncedSearchTerm, user]);
+    return filterBeneficiaryRows(currentChildRecords, columnFilters, debouncedSearchTerm, user);
+  }, [currentChildRecords, columnFilters, debouncedSearchTerm, user]);
 
   // 3. Stable tie-break sorted dataset
   const sortedData = useMemo(() => {
@@ -201,37 +203,37 @@ export default function SupervisorAssessmentsPage() {
     return sortedData.slice(start, start + pageSize);
   }, [sortedData, currentPage, pageSize]);
 
-  // 5. Faceted Option Derivation for Column Headers (memoized per column)
+  // 5. Faceted Option Derivation for Column Headers (memoized per column using current child records)
   const artNumberFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'artNumber',
         (rows) => Array.from(new Set(rows.map((r) => r.artNumber))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const childNameFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'childName',
         (rows) => Array.from(new Set(rows.map((r) => r.childName))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const ageFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'age',
@@ -245,143 +247,143 @@ export default function SupervisorAssessmentsPage() {
           ),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const genderFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'gender',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.gender)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const stateFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'state',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.state)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const districtFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'district',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.district)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const schoolTypeFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'schoolType',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.schoolType)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const orphanStatusFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'orphanStatus',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.orphanStatus)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const bmiFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'bmiCategory',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.bmiCategory)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const vlFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'vlCategory',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.vlCategory)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const hbFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'hbCategory',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.hbCategory)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const grantFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'grantAmount',
         (rows) => Array.from(new Set(rows.map((r) => String(r.grantAmount || 0)))),
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const docFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'documentStatus',
         () => ['Complete', 'Pending'],
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const approvalFacets = useMemo(
     () =>
       computeColumnFacets(
-        authorizedRecords,
+        currentChildRecords,
         columnFilters,
         debouncedSearchTerm,
         'approvalStatus',
@@ -394,7 +396,7 @@ export default function SupervisorAssessmentsPage() {
         },
         user
       ),
-    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   // Filter application & clear handlers
@@ -584,8 +586,9 @@ export default function SupervisorAssessmentsPage() {
         setTimeout(() => setToastMessage(null), 3500);
       } else if (res.status === 409) {
         alert(
-          'Version Conflict (HTTP 409): This assessment was modified concurrently by another user. Please refresh data.'
+          'Version Conflict (HTTP 409): This assessment was modified concurrently by another user. Refreshing latest surveillance data...'
         );
+        await refresh();
       } else if (res.status === 401) {
         alert('Authentication required: Your session has expired. Please sign in again.');
       } else if (res.status === 403) {
