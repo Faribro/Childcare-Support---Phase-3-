@@ -454,7 +454,10 @@ export async function GET(
     }
 
     try {
-      const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+      // Dynamic import to prevent tsc from failing in environments where @aws-sdk/client-s3 is not in package.json
+      const dynamicImport = new Function('specifier', 'return import(specifier)');
+      const s3Pkg = await dynamicImport('@aws-sdk/client-s3');
+      const { S3Client, GetObjectCommand } = s3Pkg;
       const s3 = new S3Client({
         region: process.env.AWS_REGION || 'auto',
         endpoint: process.env.AWS_ENDPOINT_URL_S3,
