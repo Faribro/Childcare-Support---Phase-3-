@@ -47,20 +47,22 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     bmi: 15.2,
     bmiCategory: 'Normal',
     viralLoad: '450',
-    vlCategory: 'Suppressed (<1000)',
+    vlCategory: 'Suppressed (<1000 copies/mL)',
     hemoglobin: '12.5',
     hbCategory: 'Normal',
     grantAmount: 2000,
     isApproved: false,
+    approvedStatus: 'Pending',
     version: 1,
+    schoolEnrolled: true,
+    syncState: 'SYNCED',
+    lastVisit: '2026-03-01',
     documentStatus: {
       isComplete: false,
       uploadedCount: 1,
       totalRequired: 4,
-      missingDocs: ['Bank Passbook', 'Child Photo', 'Signature'],
+      pendingDocs: ['Bank Passbook', 'Child Photo', 'Signature'],
       uploadedDocs: ['Aadhaar Card'],
-      completenessRate: 25,
-      docDetails: {} as any,
     },
   };
 
@@ -150,10 +152,12 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['*'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'Authorized leadership session',
       });
 
       vi.mocked(canonicalSubmissionAdapter.updateSubmission).mockResolvedValue({
         status: 'success',
+        statusCode: 200,
         remoteSubmissionId: 'REC-001',
         version: 2,
         updatedAt: new Date().toISOString(),
@@ -183,6 +187,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['Maharashtra'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'State reviewer session',
       });
 
       const req = new NextRequest('http://localhost:3000/api/submissions/REC-001', {
@@ -208,6 +213,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: [],
         allowedDistricts: [],
         isVerified: false,
+        reason: 'Unauthenticated field user',
       });
 
       const req = new NextRequest('http://localhost:3000/api/submissions/REC-001', {
@@ -230,10 +236,12 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['*'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'Authorized leadership session',
       });
 
       vi.mocked(canonicalSubmissionAdapter.updateSubmission).mockResolvedValue({
         status: 'conflict',
+        statusCode: 409,
         code: 'OCC_VERSION_MISMATCH',
         message: 'Record was modified by another session',
         currentVersion: 3,
@@ -269,6 +277,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: [],
         allowedDistricts: [],
         isVerified: false,
+        reason: 'Unauthenticated field user',
       });
 
       const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=passbookPhoto');
@@ -284,10 +293,12 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['Maharashtra'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'State reviewer session',
       });
 
       vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
         status: 'success',
+        statusCode: 200,
         data: {
           id: 'REC-001',
           state: 'Delhi',
@@ -309,11 +320,13 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['*'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'Authorized leadership session',
       });
 
       const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>';
       vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
         status: 'success',
+        statusCode: 200,
         data: {
           id: 'REC-001',
           state: 'Delhi',
@@ -339,12 +352,14 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['*'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'Administrator session',
       });
 
       // 1x1 transparent PNG base64
       const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
       vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
         status: 'success',
+        statusCode: 200,
         data: {
           id: 'REC-001',
           state: 'Delhi',
@@ -368,10 +383,12 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
         allowedStates: ['*'],
         allowedDistricts: ['*'],
         isVerified: true,
+        reason: 'Authorized leadership session',
       });
 
       vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
         status: 'success',
+        statusCode: 200,
         data: {
           id: 'REC-001',
           state: 'Delhi',
@@ -400,7 +417,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
       const testRow: SupervisorBeneficiaryRow = {
         ...sampleRow,
         bmi: 16.5,
-        bmiCategory: 'Normal Weight',
+        bmiCategory: 'Normal',
       };
 
       const csvHeaders = [
@@ -447,7 +464,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
       ];
 
       expect(csvRowValues[8]).toBe(16.5);
-      expect(csvRowValues[9]).toBe('Normal Weight');
+      expect(csvRowValues[9]).toBe('Normal');
     });
   });
 });

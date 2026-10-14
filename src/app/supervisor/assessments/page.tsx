@@ -326,18 +326,6 @@ export default function SupervisorAssessmentsPage() {
     [currentChildRecords, columnFilters, debouncedSearchTerm, user]
   );
 
-  const bmiFacets = useMemo(
-    () =>
-      computeColumnFacets(
-        currentChildRecords,
-        columnFilters,
-        debouncedSearchTerm,
-        'bmiCategory',
-        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.bmiCategory)))),
-        user
-      ),
-    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
-  );
 
   const vlFacets = useMemo(
     () =>
