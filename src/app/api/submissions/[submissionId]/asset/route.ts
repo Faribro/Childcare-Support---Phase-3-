@@ -341,13 +341,21 @@ export async function GET(
     details: `Document ${rawDocType} served to ${scope.name} (${scope.role})`,
   });
 
-  const stringVal = typeof docValue === 'string' ? docValue : JSON.stringify(docValue);
+  let targetRef = typeof docValue === 'string' ? docValue.trim() : JSON.stringify(docValue);
+
+  // Unwrap formula if stored as =HYPERLINK("...", "...")
+  if (targetRef.startsWith('=')) {
+    const urlMatch = targetRef.match(/=HYPERLINK\(\s*["']([^"']+)["']/i);
+    if (urlMatch && urlMatch[1].trim()) {
+      targetRef = urlMatch[1].trim();
+    }
+  }
 
   // 1. Handle SVG Data URL
-  if (stringVal.startsWith('data:image/svg+xml')) {
-    const commaIndex = stringVal.indexOf(',');
-    const encodedSvg = commaIndex !== -1 ? stringVal.substring(commaIndex + 1) : '';
-    const svgText = stringVal.includes(';base64,')
+  if (targetRef.startsWith('data:image/svg+xml')) {
+    const commaIndex = targetRef.indexOf(',');
+    const encodedSvg = commaIndex !== -1 ? targetRef.substring(commaIndex + 1) : '';
+    const svgText = targetRef.includes(';base64,')
       ? Buffer.from(encodedSvg, 'base64').toString('utf8')
       : decodeURIComponent(encodedSvg);
 
@@ -355,6 +363,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Content-Length': String(Buffer.byteLength(svgText, 'utf8')),
         'Content-Disposition': `inline; filename="${rawDocType}.svg"`,
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
@@ -363,17 +372,20 @@ export async function GET(
     });
   }
 
-  // 2. Handle Binary Image Data URLs (PNG, JPEG, WebP)
-  if (stringVal.startsWith('data:image/')) {
-    const mimeMatch = stringVal.match(/^data:(image\/[a-zA-Z0-9\+\-\.]+);base64,(.+)$/);
+  // 2. Handle Binary Image Data URLs (PNG, JPEG, WebP, GIF)
+  if (targetRef.startsWith('data:image/')) {
+    const mimeMatch = targetRef.match(/^data:(image\/[a-zA-Z0-9\+\-\.]+)(;charset=[^;]+)?(;base64)?,(.+)$/i);
     if (mimeMatch) {
-      const mime = mimeMatch[1];
-      const buffer = Buffer.from(mimeMatch[2], 'base64');
-      const ext = mime.split('/')[1] || 'png';
+      const mime = mimeMatch[1].toLowerCase();
+      const isBase64 = Boolean(mimeMatch[3]);
+      const rawData = mimeMatch[4];
+      const buffer = isBase64 ? Buffer.from(rawData, 'base64') : Buffer.from(decodeURIComponent(rawData), 'utf8');
+      const ext = ALLOWED_MIME_TYPES[mime] || mime.split('/')[1] || 'png';
       return new Response(buffer, {
         status: 200,
         headers: {
           'Content-Type': mime,
+          'Content-Length': String(buffer.length),
           'Content-Disposition': `inline; filename="${rawDocType}.${ext}"`,
           'X-Content-Type-Options': 'nosniff',
           ...ASSET_NO_STORE_HEADERS,
@@ -383,14 +395,16 @@ export async function GET(
   }
 
   // 3. Handle PDF Data URL
-  if (stringVal.startsWith('data:application/pdf')) {
-    const commaIndex = stringVal.indexOf(',');
-    const base64Data = commaIndex !== -1 ? stringVal.substring(commaIndex + 1) : stringVal;
-    const buffer = Buffer.from(base64Data, 'base64');
+  if (targetRef.startsWith('data:application/pdf')) {
+    const commaIndex = targetRef.indexOf(',');
+    const base64Data = commaIndex !== -1 ? targetRef.substring(commaIndex + 1) : targetRef;
+    const isBase64 = targetRef.substring(0, commaIndex !== -1 ? commaIndex : undefined).includes(';base64');
+    const buffer = isBase64 ? Buffer.from(base64Data, 'base64') : Buffer.from(decodeURIComponent(base64Data), 'utf8');
     return new Response(buffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
+        'Content-Length': String(buffer.length),
         'Content-Disposition': `inline; filename="${rawDocType}.pdf"`,
         'X-Content-Type-Options': 'nosniff',
         ...ASSET_NO_STORE_HEADERS,
@@ -399,11 +413,13 @@ export async function GET(
   }
 
   // 4. Handle Raw SVG text starting with <svg
-  if (stringVal.trim().startsWith('<svg')) {
-    return new Response(stringVal, {
+  if (targetRef.trim().startsWith('<svg')) {
+    const svgTrimmed = targetRef.trim();
+    return new Response(svgTrimmed, {
       status: 200,
       headers: {
         'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Content-Length': String(Buffer.byteLength(svgTrimmed, 'utf8')),
         'Content-Disposition': `inline; filename="${rawDocType}.svg"`,
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
@@ -414,10 +430,10 @@ export async function GET(
 
   // 5. Handle Tigris / S3 private protocol URI (e.g. asset://, storage://, s3://, urn:asset:)
   if (
-    stringVal.startsWith('asset://') ||
-    stringVal.startsWith('storage://') ||
-    stringVal.startsWith('s3://') ||
-    stringVal.startsWith('urn:asset:')
+    targetRef.startsWith('asset://') ||
+    targetRef.startsWith('storage://') ||
+    targetRef.startsWith('s3://') ||
+    targetRef.startsWith('urn:asset:')
   ) {
     const hasS3Config = Boolean(
       process.env.AWS_ACCESS_KEY_ID &&
@@ -426,83 +442,366 @@ export async function GET(
     );
 
     if (!hasS3Config) {
-      // In development/test with synthetic fixtures, return a high-fidelity synthetic SVG document preview
-      const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 260" width="100%" height="100%">
-        <rect width="420" height="260" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
-        <rect width="420" height="40" rx="14" fill="#0f766e"/>
-        <text x="20" y="26" fill="#ffffff" font-family="sans-serif" font-size="13" font-weight="bold">VERIFIED PRIVATE DOCUMENT ARCHIVE</text>
-        <g fill="#1e293b" font-family="monospace" font-size="11">
-          <text x="20" y="80">DOCUMENT TYPE : ${rawDocType.toUpperCase()}</text>
-          <text x="20" y="105">BENEFICIARY   : ${record.child_name || record.childName || submissionId}</text>
-          <text x="20" y="130">RECORD ID     : ${submissionId}</text>
-          <text x="20" y="155">STORAGE REF   : ${stringVal.substring(0, 36)}...</text>
-          <text x="20" y="180">STATUS        : STORED &amp; ENCRYPTED</text>
-        </g>
-        <circle cx="340" cy="180" r="30" fill="none" stroke="#059669" stroke-width="2.5"/>
-        <text x="312" y="184" fill="#059669" font-family="sans-serif" font-size="8" font-weight="bold">CONFIRMED</text>
-      </svg>`;
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'STORAGE_UNCONFIGURED',
+          message: 'Document preview unavailable: Private Tigris/S3 object storage is not configured (missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, or S3_BUCKET_NAME).',
+          prerequisite: 'Configure Tigris/S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET_NAME) in server environment.',
+        },
+        { status: 503, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
 
-      return new Response(fallbackSvg, {
+    try {
+      const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+      const s3 = new S3Client({
+        region: process.env.AWS_REGION || 'auto',
+        endpoint: process.env.AWS_ENDPOINT_URL_S3,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+        },
+      });
+
+      const key = targetRef.replace(/^(asset|storage|s3|urn:asset):\/\/?/, '');
+      const bucket = process.env.S3_BUCKET_NAME!;
+
+      const s3Res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      if (!s3Res.Body) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'STORAGE_EMPTY',
+            message: 'Document preview unavailable: Object is empty in storage.',
+          },
+          { status: 404, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
+
+      const bytes = await s3Res.Body.transformToByteArray();
+      const contentType = s3Res.ContentType || 'application/octet-stream';
+      const ext = ALLOWED_MIME_TYPES[contentType] || contentType.split('/')[1] || 'bin';
+
+      return new Response(Buffer.from(bytes), {
         status: 200,
         headers: {
-          'Content-Type': 'image/svg+xml; charset=utf-8',
-          'Content-Disposition': `inline; filename="${rawDocType}.svg"`,
+          'Content-Type': contentType,
+          'Content-Length': String(bytes.length),
+          'Content-Disposition': `inline; filename="${rawDocType}.${ext}"`,
           'X-Content-Type-Options': 'nosniff',
-          'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
           ...ASSET_NO_STORE_HEADERS,
         },
       });
+    } catch (err: any) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'STORAGE_RETRIEVAL_FAILED',
+          message: `Document preview unavailable: Failed to retrieve object from private storage (${err?.message || 'Storage error'}).`,
+          prerequisite: 'Verify S3/Tigris bucket name and object key exist.',
+        },
+        { status: 502, headers: ASSET_NO_STORE_HEADERS }
+      );
     }
-
-    // When S3 credentials are present, stream or proxy from private Tigris bucket
-    return NextResponse.json(
-      {
-        status: 'error',
-        code: 'STORAGE_UNAVAILABLE',
-        message: 'Direct private object storage streaming is currently configuring.',
-      },
-      { status: 503, headers: ASSET_NO_STORE_HEADERS }
-    );
   }
 
-  // 6. Handle HTTP/HTTPS URLs (e.g. from Google Drive or Mock storage)
-  if (stringVal.startsWith('http://') || stringVal.startsWith('https://')) {
-    // If it is a synthetic mock Drive URL (e.g. contains 'drive.google.com/uc?id=mock-'),
-    // serve high-fidelity synthetic SVG rather than failing network fetch
-    const mockDocSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 260" width="100%" height="100%">
-      <rect width="420" height="260" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
-      <rect width="420" height="40" rx="14" fill="#1e3a8a"/>
-      <text x="20" y="26" fill="#ffffff" font-family="sans-serif" font-size="13" font-weight="bold">SECURE DOCUMENT STORAGE PREVIEW</text>
-      <g fill="#1e293b" font-family="sans-serif" font-size="11">
-        <text x="20" y="80"><tspan font-weight="bold">Document:</tspan> ${rawDocType}</text>
-        <text x="20" y="105"><tspan font-weight="bold">Beneficiary:</tspan> ${record.child_name || record.childName || submissionId}</text>
-        <text x="20" y="130"><tspan font-weight="bold">Reference ID:</tspan> ${submissionId}</text>
-        <text x="20" y="155"><tspan font-weight="bold">Verification:</tspan> Active in Authorized Central Sheet</text>
-      </g>
-      <circle cx="340" cy="180" r="30" fill="none" stroke="#2563eb" stroke-width="2"/>
-      <text x="312" y="184" fill="#2563eb" font-family="sans-serif" font-size="8" font-weight="bold">ARCHIVED</text>
-    </svg>`;
+  // 6. Handle HTTP/HTTPS URLs (e.g. from Google Drive or remote storage)
+  if (targetRef.startsWith('http://') || targetRef.startsWith('https://')) {
+    return await fetchTrustedRemoteAsset(targetRef, rawDocType);
+  }
 
-    return new Response(mockDocSvg, {
+  // 7. Unsupported / Missing document reference format
+  return NextResponse.json(
+    {
+      status: 'error',
+      code: 'DOCUMENT_UNAVAILABLE',
+      message: `Document preview unavailable: The attached document reference ("${targetRef.substring(0, 40)}") does not contain retrievable document bytes or a supported storage URL.`,
+      prerequisite: 'A valid uploaded document (image or PDF) is required.',
+    },
+    { status: 404, headers: ASSET_NO_STORE_HEADERS }
+  );
+}
+
+const TRUSTED_DOMAINS = [
+  'drive.google.com',
+  'docs.google.com',
+  'storage.googleapis.com',
+  'googleusercontent.com',
+];
+
+const ALLOWED_MIME_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/svg+xml': 'svg',
+  'image/gif': 'gif',
+  'application/pdf': 'pdf',
+};
+
+function isPrivateOrLoopbackIp(hostname: string): boolean {
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (hostname === '0.0.0.0') return true;
+  if (hostname === '::1' || hostname === '[::1]' || hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80')) return true;
+  return false;
+}
+
+function isDomainAllowed(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+
+  // In test environment, allow localhost / 127.0.0.1 for synthetic mock servers
+  if (process.env.NODE_ENV === 'test' && (lower === 'localhost' || lower === '127.0.0.1')) {
+    return true;
+  }
+
+  // Deny private IP addresses
+  if (isPrivateOrLoopbackIp(lower)) {
+    return false;
+  }
+
+  // Exact match on trusted domains
+  if (TRUSTED_DOMAINS.includes(lower)) {
+    return true;
+  }
+
+  // Google User Content subdomains (e.g. lh3.googleusercontent.com)
+  if (lower.endsWith('.googleusercontent.com')) {
+    return true;
+  }
+
+  // Tigris / Fly object storage endpoints
+  if (lower.endsWith('.tigris.dev') || lower.endsWith('.fly.storage.tigris.dev')) {
+    return true;
+  }
+
+  // AWS S3 endpoints
+  if (lower.endsWith('.amazonaws.com')) {
+    return true;
+  }
+
+  // Custom allowed domains from environment if configured
+  if (process.env.ALLOWED_ASSET_DOMAINS) {
+    const customAllowed = process.env.ALLOWED_ASSET_DOMAINS.split(',').map((d) => d.trim().toLowerCase());
+    if (customAllowed.includes(lower) || customAllowed.some((d) => lower.endsWith(`.${d}`))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function normalizeRemoteAssetUrl(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.hostname.toLowerCase() === 'drive.google.com') {
+      let fileId = parsed.searchParams.get('id');
+      if (!fileId) {
+        const fileMatch = parsed.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (fileMatch) {
+          fileId = fileMatch[1];
+        }
+      }
+      if (fileId) {
+        return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+      }
+    }
+    return urlStr;
+  } catch {
+    return urlStr;
+  }
+}
+
+async function fetchTrustedRemoteAsset(
+  initialUrl: string,
+  rawDocType: string
+): Promise<Response> {
+  let currentUrl = normalizeRemoteAssetUrl(initialUrl);
+
+  for (let hop = 0; hop < 4; hop++) {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(currentUrl);
+    } catch {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'MALFORMED_URL',
+          message: 'Document preview unavailable: Malformed upstream storage URL.',
+        },
+        { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    // Protocol check
+    if (parsedUrl.protocol !== 'https:' && !(process.env.NODE_ENV === 'test' && parsedUrl.protocol === 'http:')) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'INSECURE_PROTOCOL',
+          message: 'Document preview unavailable: Storage URL must use HTTPS.',
+        },
+        { status: 403, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    // Domain and SSRF check
+    if (!isDomainAllowed(parsedUrl.hostname)) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UNTRUSTED_REMOTE_HOST',
+          message: `Document preview unavailable: Domain "${parsedUrl.hostname}" is not in the trusted storage allowlist.`,
+          prerequisite: 'Upstream documents must reside on trusted Google Drive or Tigris/S3 storage.',
+        },
+        { status: 403, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    let res: globalThis.Response;
+    try {
+      res = await fetch(currentUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Alliance-Childcare-PWA-AssetStreamer/3.0',
+          Accept: 'image/jpeg,image/png,image/webp,image/svg+xml,application/pdf;q=0.9,*/*;q=0.8',
+        },
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const isTimeout = err?.name === 'AbortError';
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: isTimeout ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_FETCH_FAILED',
+          message: isTimeout
+            ? 'Document preview unavailable: Timed out waiting for upstream storage response (8000ms).'
+            : `Document preview unavailable: Could not reach upstream storage (${err?.message || 'Network error'}).`,
+          prerequisite: 'Upstream storage server must be reachable.',
+        },
+        { status: isTimeout ? 504 : 502, headers: ASSET_NO_STORE_HEADERS }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Handle redirects manually to enforce SSRF checks on every hop
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get('location');
+      if (!location) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'INVALID_REDIRECT',
+            message: 'Document preview unavailable: Upstream redirect contained no Location header.',
+          },
+          { status: 502, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+
+    if (!res.ok) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UPSTREAM_FILE_UNAVAILABLE',
+          message: `Document preview unavailable: Upstream storage responded with HTTP ${res.status}.`,
+          prerequisite: 'Verify file exists in remote storage and appropriate permissions are granted.',
+        },
+        { status: res.status >= 500 ? 502 : res.status, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    // Validate Content-Type
+    const rawContentType = (res.headers.get('Content-Type') || '').toLowerCase();
+    const cleanContentType = rawContentType.split(';')[0].trim();
+
+    if (cleanContentType === 'text/html') {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UPSTREAM_AUTH_REQUIRED',
+          message: 'Document preview unavailable: Upstream storage returned HTML or login page instead of document bytes.',
+          prerequisite: 'Google Drive service account or S3 credentials required to access private document links.',
+        },
+        { status: 502, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const matchedExt = ALLOWED_MIME_TYPES[cleanContentType];
+    if (!matchedExt) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UNSUPPORTED_MEDIA_TYPE',
+          message: `Document preview unavailable: Upstream file content type "${cleanContentType}" is not a supported document format (allowed: JPEG, PNG, WebP, SVG, PDF).`,
+          prerequisite: 'Documents must be uploaded as image or PDF files.',
+        },
+        { status: 415, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    // Size limit check
+    const contentLength = res.headers.get('Content-Length');
+    if (contentLength && parseInt(contentLength, 10) > 15 * 1024 * 1024) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'ASSET_TOO_LARGE',
+          message: 'Document preview unavailable: Remote document exceeds the maximum 15MB size limit.',
+        },
+        { status: 413, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (buffer.length > 15 * 1024 * 1024) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'ASSET_TOO_LARGE',
+          message: 'Document preview unavailable: Remote document exceeds the maximum 15MB size limit.',
+        },
+        { status: 413, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': cleanContentType,
+      'Content-Length': String(buffer.length),
+      'Content-Disposition': `inline; filename="${rawDocType}.${matchedExt}"`,
+      'X-Content-Type-Options': 'nosniff',
+      ...ASSET_NO_STORE_HEADERS,
+    };
+
+    if (cleanContentType === 'image/svg+xml') {
+      headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'";
+    }
+
+    return new Response(buffer, {
       status: 200,
-      headers: {
-        'Content-Type': 'image/svg+xml; charset=utf-8',
-        'Content-Disposition': `inline; filename="${rawDocType}.svg"`,
-        'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
-        ...ASSET_NO_STORE_HEADERS,
-      },
+      headers,
     });
   }
 
-  // Fallback for unstructured text/token attachment
-  return new Response(stringVal, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Disposition': `inline; filename="${rawDocType}.txt"`,
-      'X-Content-Type-Options': 'nosniff',
-      ...ASSET_NO_STORE_HEADERS,
+  return NextResponse.json(
+    {
+      status: 'error',
+      code: 'TOO_MANY_REDIRECTS',
+      message: 'Document preview unavailable: Exceeded maximum allowed redirects (3).',
     },
-  });
+    { status: 502, headers: ASSET_NO_STORE_HEADERS }
+  );
 }

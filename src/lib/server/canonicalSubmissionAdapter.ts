@@ -304,8 +304,12 @@ export function filterAuthorisedRecord(record: any, role: UserRole = 'caseworker
 
 function sanitizeValue(val: any): any {
   if (typeof val === 'string' && val.startsWith('=')) {
-    const match = val.match(/=HYPERLINK\("[^"]*",\s*"([^"]*)"\)/);
-    return match ? match[1] : 'Restricted Document';
+    const urlMatch = val.match(/=HYPERLINK\(\s*["']([^"']+)["']/i);
+    if (urlMatch && urlMatch[1].trim()) {
+      return urlMatch[1].trim();
+    }
+    const labelMatch = val.match(/=HYPERLINK\(["'][^"']*["'],\s*["']([^"']*)["']\)/i);
+    return labelMatch ? labelMatch[1] : 'Restricted Document';
   }
   return val;
 }

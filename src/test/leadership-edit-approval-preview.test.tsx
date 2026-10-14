@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import crypto from 'crypto';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
@@ -344,19 +345,22 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
       expect(res.headers.get('Cache-Control')).toContain('no-store');
     });
 
-    it('streams binary PNG preview for authorized Admin', async () => {
+    it('retrieves original binary PNG bytes matching fixture buffer and SHA-256 hash', async () => {
       vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
-        userId: 'admin-01',
-        name: 'Administrator',
-        role: 'ADMIN',
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
         allowedStates: ['*'],
         allowedDistricts: ['*'],
         isVerified: true,
-        reason: 'Administrator session',
+        reason: 'Authorized leadership session',
       });
 
-      // 1x1 transparent PNG base64
-      const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+      // Valid 4x4 PNG buffer fixture
+      const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAADklEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const originalBuffer = Buffer.from(pngBase64, 'base64');
+      const expectedHash = crypto.createHash('sha256').update(originalBuffer).digest('hex');
+
       vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
         status: 'success',
         statusCode: 200,
@@ -373,9 +377,93 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
       expect(res.headers.get('Content-Type')).toBe('image/png');
       expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
       expect(res.headers.get('Cache-Control')).toContain('no-store');
+
+      const returnedBuffer = Buffer.from(await res.arrayBuffer());
+      const returnedHash = crypto.createHash('sha256').update(returnedBuffer).digest('hex');
+      expect(returnedHash).toBe(expectedHash);
+      expect(returnedBuffer.equals(originalBuffer)).toBe(true);
     });
 
-    it('returns synthetic encrypted archive preview for Tigris storage references', async () => {
+    it('retrieves original binary PDF bytes matching fixture buffer and SHA-256 hash', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'admin-01',
+        name: 'Administrator',
+        role: 'ADMIN',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'Administrator session',
+      });
+
+      // Valid minimal PDF 1.4 fixture
+      const pdfContent = `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000101 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF`;
+      const originalPdfBuffer = Buffer.from(pdfContent, 'utf8');
+      const expectedPdfHash = crypto.createHash('sha256').update(originalPdfBuffer).digest('hex');
+      const pdfBase64 = originalPdfBuffer.toString('base64');
+
+      vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+        status: 'success',
+        statusCode: 200,
+        data: {
+          id: 'REC-001',
+          state: 'Maharashtra',
+          feeReceiptPhotoUrl: `data:application/pdf;base64,${pdfBase64}`,
+        },
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=feeReceiptPhoto');
+      const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('application/pdf');
+      expect(res.headers.get('Content-Disposition')).toContain('feeReceiptPhoto.pdf');
+      expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+
+      const returnedBuffer = Buffer.from(await res.arrayBuffer());
+      const returnedHash = crypto.createHash('sha256').update(returnedBuffer).digest('hex');
+      expect(returnedHash).toBe(expectedPdfHash);
+      expect(returnedBuffer.equals(originalPdfBuffer)).toBe(true);
+      expect(returnedBuffer.toString('utf8')).toContain('%PDF-1.4');
+      expect(returnedBuffer.toString('utf8')).toContain('%%EOF');
+    });
+
+    it('retrieves original JPEG bytes matching fixture buffer and SHA-256 hash', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'rev-01',
+        name: 'Maharashtra Reviewer',
+        role: 'STATE_REVIEWER',
+        allowedStates: ['Maharashtra'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'State reviewer session',
+      });
+
+      const jpegBase64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+      const originalJpegBuffer = Buffer.from(jpegBase64, 'base64');
+      const expectedJpegHash = crypto.createHash('sha256').update(originalJpegBuffer).digest('hex');
+
+      vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+        status: 'success',
+        statusCode: 200,
+        data: {
+          id: 'REC-002',
+          state: 'Maharashtra',
+          district: 'Pune',
+          childPhotoUrl: `data:image/jpeg;base64,${jpegBase64}`,
+        },
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/REC-002/asset?docType=childPhoto');
+      const res = await getAsset(req, { params: { submissionId: 'REC-002' } });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('image/jpeg');
+
+      const returnedBuffer = Buffer.from(await res.arrayBuffer());
+      const returnedHash = crypto.createHash('sha256').update(returnedBuffer).digest('hex');
+      expect(returnedHash).toBe(expectedJpegHash);
+      expect(returnedBuffer.equals(originalJpegBuffer)).toBe(true);
+    });
+
+    it('truthfully returns HTTP 503 STORAGE_UNCONFIGURED without synthetic SVG when Tigris/S3 credentials are not configured', async () => {
       vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
         userId: 'lead-01',
         name: 'Leadership User',
@@ -398,11 +486,196 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
 
       const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=aadhaarCardPhoto');
       const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
+      expect(res.status).toBe(503);
+      const json = await res.json();
+      expect(json.status).toBe('error');
+      expect(json.code).toBe('STORAGE_UNCONFIGURED');
+      expect(json.message).toContain('Private Tigris/S3 object storage is not configured');
+      expect(json.prerequisite).toContain('Configure Tigris/S3 credentials');
+      // Must NOT contain a synthetic SVG placeholder!
+      expect(JSON.stringify(json)).not.toContain('<svg');
+      expect(JSON.stringify(json)).not.toContain('VERIFIED PRIVATE DOCUMENT ARCHIVE');
+    });
+
+    it('streams original bytes from trusted remote Google Drive URLs without synthetic SVG', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'Authorized leadership session',
+      });
+
+      const remoteFixture = Buffer.from('TEST-ORIGINAL-REMOTE-PDF-BYTES-998877', 'utf8');
+      const remoteHash = crypto.createHash('sha256').update(remoteFixture).digest('hex');
+
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({
+          'Content-Type': 'application/pdf',
+          'Content-Length': String(remoteFixture.length),
+        }),
+        arrayBuffer: async () => remoteFixture.buffer.slice(remoteFixture.byteOffset, remoteFixture.byteOffset + remoteFixture.byteLength),
+      }) as any;
+
+      try {
+        vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+          status: 'success',
+          statusCode: 200,
+          data: {
+            id: 'REC-001',
+            state: 'Delhi',
+            feeReceiptPhotoUrl: 'https://drive.google.com/file/d/remote-fee-doc-123/view',
+          },
+        });
+
+        const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=feeReceiptPhoto');
+        const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Type')).toBe('application/pdf');
+
+        const returnedBuffer = Buffer.from(await res.arrayBuffer());
+        expect(crypto.createHash('sha256').update(returnedBuffer).digest('hex')).toBe(remoteHash);
+        expect(returnedBuffer.equals(remoteFixture)).toBe(true);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('unwraps =HYPERLINK formulas from record and streams original document', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'admin-01',
+        name: 'Administrator',
+        role: 'ADMIN',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'Administrator session',
+      });
+
+      const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+      const originalPng = Buffer.from(pngBase64, 'base64');
+
+      vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+        status: 'success',
+        statusCode: 200,
+        data: {
+          id: 'REC-001',
+          state: 'Delhi',
+          passbookPhotoUrl: `=HYPERLINK("data:image/png;base64,${pngBase64}", "passbook.png")`,
+        },
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=passbookPhoto');
+      const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
       expect(res.status).toBe(200);
-      expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
-      const text = await res.text();
-      expect(text).toContain('VERIFIED PRIVATE DOCUMENT ARCHIVE');
-      expect(text).toContain('AADHAARCARDPHOTO');
+      expect(res.headers.get('Content-Type')).toBe('image/png');
+
+      const returnedBuffer = Buffer.from(await res.arrayBuffer());
+      expect(returnedBuffer.equals(originalPng)).toBe(true);
+    });
+
+    it('rejects untrusted remote domains and SSRF attempts with HTTP 403', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'Authorized leadership session',
+      });
+
+      vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+        status: 'success',
+        statusCode: 200,
+        data: {
+          id: 'REC-001',
+          state: 'Delhi',
+          passbookPhotoUrl: 'https://evil-untrusted-site.com/stolen-document.png',
+        },
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=passbookPhoto');
+      const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.code).toBe('UNTRUSTED_REMOTE_HOST');
+    });
+
+    it('truthfully reports HTTP 502 UPSTREAM_AUTH_REQUIRED when remote storage returns HTML login', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'Authorized leadership session',
+      });
+
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({
+          'Content-Type': 'text/html; charset=utf-8',
+        }),
+        arrayBuffer: async () => Buffer.from('<html><body>Google Sign-in Required</body></html>'),
+      }) as any;
+
+      try {
+        vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+          status: 'success',
+          statusCode: 200,
+          data: {
+            id: 'REC-001',
+            state: 'Delhi',
+            passbookPhotoUrl: 'https://drive.google.com/file/d/private-file-456/view',
+          },
+        });
+
+        const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=passbookPhoto');
+        const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
+        expect(res.status).toBe(502);
+        const json = await res.json();
+        expect(json.code).toBe('UPSTREAM_AUTH_REQUIRED');
+        expect(json.message).toContain('returned HTML or login page');
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('returns accurate HTTP 404 error when document reference is a pending placeholder or missing', async () => {
+      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+        reason: 'Authorized leadership session',
+      });
+
+      vi.mocked(canonicalSubmissionAdapter.getSubmission).mockResolvedValue({
+        status: 'success',
+        statusCode: 200,
+        data: {
+          id: 'REC-001',
+          state: 'Delhi',
+          passbookPhotoUrl: '[Document Pending Drive Upload]',
+        },
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/REC-001/asset?docType=passbookPhoto');
+      const res = await getAsset(req, { params: { submissionId: 'REC-001' } });
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.code).toBe('DOCUMENT_UNAVAILABLE');
     });
   });
 
