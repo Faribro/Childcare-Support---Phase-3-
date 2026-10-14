@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     req.headers.get('x-poll') === '1' ||
     req.nextUrl.searchParams.get('poll') === 'true';
 
-  const session = validateLeaderSession(sessionId, { isPoll });
+  const session = await validateLeaderSession(sessionId, { isPoll });
 
   if (!session) {
     const response = NextResponse.json(

@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   isLeadershipEmailAuthEnabled,
   requestLeadershipAuthCode,
+  generateDeviceBindingSecret,
 } from '@/lib/server/leaderAuthChallenge';
+import {
+  extractDeviceBindingSecret,
+  attachDeviceBindingCookie,
+} from '@/lib/server/leaderSessionStore';
 import { logSecurityEvent } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
@@ -29,10 +34,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { email } = body || {};
-  if (!email || typeof email !== 'string') {
+  const { email, leaderId } = body || {};
+  if ((!email || typeof email !== 'string') && (!leaderId || typeof leaderId !== 'string')) {
     return NextResponse.json(
-      { status: 'error', code: 'INVALID_INPUT', message: 'Email address is required.' },
+      { status: 'error', code: 'INVALID_INPUT', message: 'Email address or leader identifier is required.' },
       { status: 400 }
     );
   }
@@ -43,15 +48,29 @@ export async function POST(req: NextRequest) {
     req.headers.get('x-real-ip') ||
     '127.0.0.1';
 
+  // Extract or establish device binding secret
+  let deviceBindingSecret = extractDeviceBindingSecret(req);
+  let shouldSetDeviceCookie = false;
+  if (!deviceBindingSecret) {
+    deviceBindingSecret = generateDeviceBindingSecret();
+    shouldSetDeviceCookie = true;
+  }
+
   const result = await requestLeadershipAuthCode({
     email,
+    leaderId,
+    deviceBindingSecret,
     userAgent,
     clientIp,
   });
 
+  const actorMask = email
+    ? email.substring(0, 3) + '***'
+    : (leaderId ? String(leaderId) : 'unknown');
+
   if (!result.success) {
     logSecurityEvent({
-      actor: email.substring(0, 3) + '***',
+      actor: actorMask,
       actorRole: 'LEADERSHIP_APPLICANT',
       eventType: 'AUTH_FAILURE',
       outcome: 'DENY',
@@ -67,7 +86,7 @@ export async function POST(req: NextRequest) {
   }
 
   logSecurityEvent({
-    actor: email.substring(0, 3) + '***',
+    actor: actorMask,
     actorRole: 'LEADERSHIP_APPLICANT',
     eventType: 'AUTH_SUCCESS',
     outcome: 'ALLOW',
@@ -76,8 +95,13 @@ export async function POST(req: NextRequest) {
     userAgent,
   });
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     status: 'success',
     message: 'If this email is an authorized Leadership account, a verification code has been dispatched.',
   });
+
+  // Attach device binding cookie so verify-code can validate device consistency
+  attachDeviceBindingCookie(response, deviceBindingSecret);
+
+  return response;
 }

@@ -4,8 +4,8 @@ import {
   verifyLeadershipAuthCode,
 } from '@/lib/server/leaderAuthChallenge';
 import {
-  createLeaderSession,
   attachLeaderSessionCookie,
+  extractDeviceBindingSecret,
 } from '@/lib/server/leaderSessionStore';
 import { logSecurityEvent } from '@/lib/server/authorisation';
 
@@ -33,10 +33,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { email, code } = body || {};
-  if (!email || !code || typeof email !== 'string' || typeof code !== 'string') {
+  const { email, leaderId, code } = body || {};
+  if ((!email && !leaderId) || !code || typeof code !== 'string') {
     return NextResponse.json(
-      { status: 'error', code: 'INVALID_INPUT', message: 'Email and verification code are required.' },
+      { status: 'error', code: 'INVALID_INPUT', message: 'Valid identifier and verification code are required.' },
       { status: 400 }
     );
   }
@@ -47,16 +47,24 @@ export async function POST(req: NextRequest) {
     req.headers.get('x-real-ip') ||
     '127.0.0.1';
 
-  const result = verifyLeadershipAuthCode({
+  const deviceBindingSecret = extractDeviceBindingSecret(req) || undefined;
+
+  const result = await verifyLeadershipAuthCode({
     email,
+    leaderId,
     code,
+    deviceBindingSecret,
     userAgent,
     clientIp,
   });
 
+  const actorMask = email
+    ? email.substring(0, 3) + '***'
+    : (leaderId ? String(leaderId) : 'unknown');
+
   if (!result.success) {
     logSecurityEvent({
-      actor: email.substring(0, 3) + '***',
+      actor: actorMask,
       actorRole: 'LEADERSHIP_APPLICANT',
       eventType: 'AUTH_FAILURE',
       outcome: 'DENY',
@@ -71,15 +79,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Create session
-  const session = createLeaderSession(result.leader);
-
   logSecurityEvent({
     actor: result.leader.id,
     actorRole: 'LEADERSHIP',
     eventType: 'AUTH_SUCCESS',
     outcome: 'ALLOW',
-    details: `Leadership email sign-in verified for ${result.leader.name} (${result.leader.email})`,
+    details: `Leadership email sign-in verified for ${result.leader.name}`,
     ip: clientIp,
     userAgent,
   });
@@ -88,17 +93,17 @@ export async function POST(req: NextRequest) {
     status: 'success',
     data: {
       user: {
-        id: session.leaderId,
-        email: session.email,
-        name: session.name,
-        title: session.title,
-        role: session.role,
-        allowedStates: session.allowedStates,
-        allowedDistricts: session.allowedDistricts,
+        id: result.session.leaderId,
+        email: result.session.email,
+        name: result.session.name,
+        title: result.session.title,
+        role: result.session.role,
+        allowedStates: result.session.allowedStates,
+        allowedDistricts: result.session.allowedDistricts,
       },
     },
   });
 
-  attachLeaderSessionCookie(response, session.sessionId);
+  attachLeaderSessionCookie(response, result.session.sessionId);
   return response;
 }

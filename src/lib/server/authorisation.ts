@@ -67,7 +67,7 @@ export function logSecurityEvent(event: Omit<SecurityAuditEvent, 'timestamp'>): 
  * Never trust raw `x-user-role` headers directly from untrusted browser requests.
  * A client could simply set `x-user-role: caseworker` to bypass DPDP Act redaction.
  */
-export function resolveServerVerifiedRole(req: NextRequest): VerifiedRoleResult {
+export async function resolveServerVerifiedRole(req: NextRequest): Promise<VerifiedRoleResult> {
   const authHeader = req.headers.get('authorization') || '';
   const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
     ? authHeader.substring(7).trim()
@@ -152,13 +152,17 @@ export function resolveServerVerifiedRole(req: NextRequest): VerifiedRoleResult 
   const leaderSessionId = extractLeaderSessionId(req);
   if (leaderSessionId) {
     const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
-    const leaderSession = validateLeaderSession(leaderSessionId, { isPoll });
-    if (leaderSession) {
-      return {
-        role: 'supervisor',
-        isVerified: true,
-        reason: 'verified_session_cookie',
-      };
+    try {
+      const leaderSession = await validateLeaderSession(leaderSessionId, { isPoll, req });
+      if (leaderSession) {
+        return {
+          role: 'supervisor',
+          isVerified: true,
+          reason: 'verified_session_cookie',
+        };
+      }
+    } catch (err: any) {
+      console.error('[AUTH:ERROR] validateLeaderSession failed, failing closed:', err?.message);
     }
   }
 
@@ -196,7 +200,7 @@ export function isSyntheticDemoModeAllowed(req: NextRequest): boolean {
 /**
  * Resolves comprehensive geographic and role scope for Issue #57.
  */
-export function resolveUserAccessScope(req: NextRequest): UserAccessScope {
+export async function resolveUserAccessScope(req: NextRequest): Promise<UserAccessScope> {
   // 1. Check signed cryptographic session token
   const token = extractSessionToken(req);
   if (token) {
@@ -218,22 +222,26 @@ export function resolveUserAccessScope(req: NextRequest): UserAccessScope {
   const leaderSessionId = extractLeaderSessionId(req);
   if (leaderSessionId) {
     const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
-    const leaderSession = validateLeaderSession(leaderSessionId, { isPoll });
-    if (leaderSession) {
-      return {
-        userId: leaderSession.leaderId,
-        name: leaderSession.name,
-        role: 'LEADERSHIP',
-        allowedStates: leaderSession.allowedStates || ['*'],
-        allowedDistricts: leaderSession.allowedDistricts || ['*'],
-        isVerified: true,
-        reason: 'verified_leader_session',
-      };
+    try {
+      const leaderSession = await validateLeaderSession(leaderSessionId, { isPoll, req });
+      if (leaderSession) {
+        return {
+          userId: leaderSession.leaderId,
+          name: leaderSession.name,
+          role: 'LEADERSHIP',
+          allowedStates: leaderSession.allowedStates || ['*'],
+          allowedDistricts: leaderSession.allowedDistricts || ['*'],
+          isVerified: true,
+          reason: 'verified_leader_session',
+        };
+      }
+    } catch (err: any) {
+      console.error('[AUTH:ERROR] validateLeaderSession failed in resolveUserAccessScope, failing closed:', err?.message);
     }
   }
 
   // 2. Check server-verified role from backend header/test secret
-  const verifiedLegacy = resolveServerVerifiedRole(req);
+  const verifiedLegacy = await resolveServerVerifiedRole(req);
   if (verifiedLegacy.isVerified) {
     let role: AuthPolicyRole = 'STATE_REVIEWER';
     if (verifiedLegacy.role === 'caseworker') role = 'FIELD_USER';

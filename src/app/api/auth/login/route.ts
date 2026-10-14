@@ -36,6 +36,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Cutover enforcement: When LEADERSHIP_EMAIL_AUTH_MODE is 'email_only',
+    // shared password login for Leadership is strictly blocked.
+    if (process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only') {
+      const upper = identifier.toUpperCase();
+      if (
+        upper === 'LEADERSHIP' ||
+        upper === 'LEADERSHIP-ALL' ||
+        upper === 'LEADERSHIP_INDIA' ||
+        upper.includes('LEADERSHIP')
+      ) {
+        logSecurityEvent({
+          actor: identifier,
+          actorRole: 'LEADERSHIP',
+          eventType: 'AUTH_FAILURE',
+          outcome: 'DENY',
+          ip: clientIp,
+          details: 'Shared password login for Leadership is disabled under email_only cutover mode.',
+        });
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'AUTH_METHOD_DISABLED',
+            message: 'Shared password login for Leadership is disabled. Please use individual allowlisted email sign-in.',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const authResult = await authenticateUser(identifier, password, clientIp);
 
     if (!authResult.success) {
@@ -51,6 +80,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { status: 'error', code: 'AUTH_FAILED', message: authResult.error },
         { status: authResult.statusCode }
+      );
+    }
+
+    // Post-authentication cutover check for role
+    if (process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only' && authResult.user.role === 'LEADERSHIP') {
+      logSecurityEvent({
+        actor: authResult.user.username,
+        actorRole: 'LEADERSHIP',
+        eventType: 'AUTH_FAILURE',
+        outcome: 'DENY',
+        ip: clientIp,
+        details: 'Shared password login for Leadership role is disabled under email_only cutover mode.',
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'AUTH_METHOD_DISABLED',
+          message: 'Shared password login for Leadership is disabled. Please use individual allowlisted email sign-in.',
+        },
+        { status: 403 }
       );
     }
 

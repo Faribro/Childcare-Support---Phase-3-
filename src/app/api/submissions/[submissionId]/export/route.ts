@@ -33,7 +33,7 @@ export async function GET(
     }
 
     // Resolve caller scope (Issue #57)
-    const scope = resolveUserAccessScope(req);
+    const scope = await resolveUserAccessScope(req);
 
     // Unverified anonymous callers cannot export full evaluation PDF under any environment
     if (!scope.isVerified) {

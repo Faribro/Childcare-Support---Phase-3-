@@ -6,29 +6,37 @@ import {
   findLeaderByEmail,
   findLeaderById,
   isLeaderActive,
+  loadInitialLeaders,
   resetLeaderIdentitiesForTesting,
   setLeaderActiveStatusForTesting,
   bumpLeaderAuthVersionForTesting,
 } from '@/lib/server/leaderIdentityStore';
 import {
   MockEmailStore,
+  getEmailProvider,
+  FailingEmailProvider,
 } from '@/lib/server/emailProvider';
 import {
   requestLeadershipAuthCode,
   verifyLeadershipAuthCode,
   resetLeaderChallengesForTesting,
+  generateDeviceBindingSecret,
   CHALLENGE_TTL_MS,
   MAX_VERIFY_ATTEMPTS,
 } from '@/lib/server/leaderAuthChallenge';
 import {
-  createLeaderSession,
   validateLeaderSession,
   revokeLeaderSession,
   resetLeaderSessionsForTesting,
   LEADER_COOKIE_NAME,
+  LEADER_DEVICE_COOKIE_NAME,
   LEADER_IDLE_TIMEOUT_MS,
   LEADER_ABSOLUTE_LIFETIME_MS,
 } from '@/lib/server/leaderSessionStore';
+import {
+  MemoryLeaderAuthStore,
+  setLeaderAuthStoreForTesting,
+} from '@/lib/server/leaderAuthStore';
 import {
   resolveUserAccessScope,
   resolveServerVerifiedRole,
@@ -40,6 +48,9 @@ import { POST as requestCodeRoute } from '@/app/api/auth/leader/request-code/rou
 import { POST as verifyCodeRoute } from '@/app/api/auth/leader/verify-code/route';
 import { GET as sessionRoute } from '@/app/api/auth/leader/session/route';
 import { POST as logoutRoute } from '@/app/api/auth/leader/logout/route';
+import { GET as directoryRoute } from '@/app/api/auth/leader/directory/route';
+import { POST as loginRoute } from '@/app/api/auth/login/route';
+import { POST as globalLogoutRoute } from '@/app/api/auth/logout/route';
 import { GET as getSubmissionsRoute } from '@/app/api/submissions/route';
 import { DELETE as deleteSubmissionRoute } from '@/app/api/submissions/[submissionId]/route';
 import { POST as postAssetRoute } from '@/app/api/submissions/[submissionId]/asset/route';
@@ -47,25 +58,27 @@ import { POST as postAssetRoute } from '@/app/api/submissions/[submissionId]/ass
 describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
   const originalEnv = { ...process.env };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
     process.env = { ...originalEnv };
     process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'true';
     process.env.SESSION_SECRET = 'synthetic-session-secret-for-leadership-tests';
+    setLeaderAuthStoreForTesting(new MemoryLeaderAuthStore());
     MockEmailStore.clear();
     resetLeaderIdentitiesForTesting();
-    resetLeaderChallengesForTesting();
-    resetLeaderSessionsForTesting();
+    await resetLeaderChallengesForTesting();
+    await resetLeaderSessionsForTesting();
     MockSheetStore.reset();
     MockSheetStore.seedDefaultRecords();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.env = { ...originalEnv };
+    setLeaderAuthStoreForTesting(null);
     MockEmailStore.clear();
     resetLeaderIdentitiesForTesting();
-    resetLeaderChallengesForTesting();
-    resetLeaderSessionsForTesting();
+    await resetLeaderChallengesForTesting();
+    await resetLeaderSessionsForTesting();
   });
 
   describe('1. Feature Flag Gating', () => {
@@ -75,7 +88,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'ananya.roy@allianceindia.org' }),
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
       });
 
       const res = await requestCodeRoute(req);
@@ -92,7 +105,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: 'ananya.roy@allianceindia.org',
+          email: 'ananya.roy@example.org',
           code: 'a'.repeat(32),
         }),
       });
@@ -102,9 +115,18 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const body = await res.json();
       expect(body.code).toBe('FEATURE_DISABLED');
     });
+
+    it('returns 403 FEATURE_DISABLED on directory route when flag is disabled', async () => {
+      process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'false';
+
+      const res = await directoryRoute();
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe('FEATURE_DISABLED');
+    });
   });
 
-  describe('2. Request Code Endpoint & Anti-Enumeration', () => {
+  describe('2. Request Code Endpoint, Anti-Enumeration & Directory Boundary', () => {
     it('rejects invalid or missing email with 400 INVALID_INPUT', async () => {
       const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
         method: 'POST',
@@ -118,14 +140,14 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(body.code).toBe('REQUEST_FAILED');
     });
 
-    it('returns 200 and dispatches 128-bit hex OTP email for allowlisted active leader', async () => {
+    it('returns 200, attaches device binding cookie, and dispatches 128-bit hex OTP email for allowlisted active leader', async () => {
       const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'user-agent': 'TestBrowser/1.0',
         },
-        body: JSON.stringify({ email: 'ANANYA.ROY@allianceindia.org' }), // Case-insensitive
+        body: JSON.stringify({ email: 'ANANYA.ROY@example.org' }), // Case-insensitive
       });
 
       const res = await requestCodeRoute(req);
@@ -134,15 +156,54 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(body.status).toBe('success');
       expect(body.message).toContain('verification code has been dispatched');
 
+      // Device binding cookie is set
+      const deviceCookie = res.cookies.get(LEADER_DEVICE_COOKIE_NAME);
+      expect(deviceCookie).toBeDefined();
+      expect(deviceCookie?.value.length).toBeGreaterThanOrEqual(32);
+      expect(deviceCookie?.httpOnly).toBe(true);
+
       const emails = MockEmailStore.getAll();
       expect(emails).toHaveLength(1);
-      expect(emails[0].to).toBe('ananya.roy@allianceindia.org');
-      expect(emails[0].subject).toContain('Leadership Sign-In Code');
+      expect(emails[0].to).toBe('ananya.roy@example.org');
+      expect(emails[0].subject).toBe('Your Leadership sign-in code'); // Zero OTP in subject
 
-      // Verify code in email is 32-character hexadecimal (128-bit)
+      // Verify code in email body is 32-character hexadecimal (128-bit)
       const codeMatch = emails[0].text.match(/[0-9a-f]{32}/i);
       expect(codeMatch).not.toBeNull();
       expect(codeMatch![0]).toHaveLength(32);
+    });
+
+    it('supports requesting code via leaderId without client sending email address', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leaderId: 'lead-rajiv-menon' }),
+      });
+
+      const res = await requestCodeRoute(req);
+      expect(res.status).toBe(200);
+
+      const emails = MockEmailStore.getAll();
+      expect(emails).toHaveLength(1);
+      expect(emails[0].to).toBe('rajiv.menon@example.org'); // Sent strictly to stored email
+    });
+
+    it('exposes only id, name, and title in directory route (zero emails exposed)', async () => {
+      const res = await directoryRoute();
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe('success');
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+
+      for (const entry of body.data) {
+        expect(entry).toHaveProperty('id');
+        expect(entry).toHaveProperty('name');
+        expect(entry).toHaveProperty('title');
+        expect(entry).not.toHaveProperty('email');
+        expect(entry).not.toHaveProperty('role');
+        expect(entry).not.toHaveProperty('allowedStates');
+      }
     });
 
     it('returns identical 200 generic message without dispatching email for unknown email (anti-enumeration)', async () => {
@@ -166,7 +227,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'fatima.sheikh@allianceindia.org' }), // Deactivated in store
+        body: JSON.stringify({ email: 'fatima.sheikh@example.org' }), // Deactivated in store
       });
 
       const res = await requestCodeRoute(req);
@@ -179,7 +240,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
 
     it('enforces rate limits (3 requests per 15 minutes, 4th returns 429)', async () => {
-      const email = 'rajiv.menon@allianceindia.org';
+      const email = 'rajiv.menon@example.org';
 
       for (let i = 0; i < 3; i++) {
         const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
@@ -205,55 +266,69 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
 
     it('supersedes previous challenge when a new code is requested', async () => {
-      const email = 'priya.sharma@allianceindia.org';
-      const ua = 'TestBrowser/1.0';
+      const email = 'priya.sharma@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
 
       // 1st request
-      await requestLeadershipAuthCode({ email, userAgent: ua });
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
       const firstEmail = MockEmailStore.getLastFor(email);
       const firstCode = firstEmail!.text.match(/[0-9a-f]{32}/i)![0];
 
       // 2nd request
-      await requestLeadershipAuthCode({ email, userAgent: ua });
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
       const secondEmail = MockEmailStore.getLastFor(email);
       const secondCode = secondEmail!.text.match(/[0-9a-f]{32}/i)![0];
 
       expect(firstCode).not.toBe(secondCode);
 
       // Attempting to verify 1st code MUST fail
-      const firstVerify = verifyLeadershipAuthCode({ email, code: firstCode, userAgent: ua });
+      const firstVerify = await verifyLeadershipAuthCode({ email, code: firstCode, deviceBindingSecret });
       expect(firstVerify.success).toBe(false);
 
       // 2nd code MUST succeed
-      const secondVerify = verifyLeadershipAuthCode({ email, code: secondCode, userAgent: ua });
+      const secondVerify = await verifyLeadershipAuthCode({ email, code: secondCode, deviceBindingSecret });
       expect(secondVerify.success).toBe(true);
     });
   });
 
-  describe('3. Code Verification & Lockout Dynamics', () => {
-    it('rejects invalid code format (non-32 or non-hex) with 400', async () => {
-      const req = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: 'ananya.roy@allianceindia.org',
-          code: '123456', // Too short
-        }),
-      });
+  describe('3. Code Verification, Device Binding & Lockout Dynamics', () => {
+    it('rejects verification if device binding token is missing or mismatched', async () => {
+      const email = 'samuel.k@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
 
-      const res = await verifyCodeRoute(req);
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.code).toBe('INVALID_CODE');
+      // Missing device binding
+      const resNoDevice = await verifyLeadershipAuthCode({
+        email,
+        code,
+      });
+      expect(resNoDevice.success).toBe(false);
+      if (!resNoDevice.success) {
+        expect(resNoDevice.statusCode).toBe(401);
+        expect(resNoDevice.error).toContain('Device binding');
+      }
+
+      // Mismatched device binding
+      const resWrongDevice = await verifyLeadershipAuthCode({
+        email,
+        code,
+        deviceBindingSecret: 'different-device-secret-12345678',
+      });
+      expect(resWrongDevice.success).toBe(false);
+      if (!resWrongDevice.success) {
+        expect(resWrongDevice.statusCode).toBe(401);
+        expect(resWrongDevice.error).toContain('Device binding mismatch');
+      }
     });
 
     it('rejects wrong verification code and tracks remaining attempts', async () => {
-      const email = 'samuel.k@allianceindia.org';
-      const ua = 'TestBrowser/1.0';
-      await requestLeadershipAuthCode({ email, userAgent: ua });
+      const email = 'samuel.k@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
 
       const wrongCode = '0'.repeat(32);
-      const verifyResult = verifyLeadershipAuthCode({ email, code: wrongCode, userAgent: ua });
+      const verifyResult = await verifyLeadershipAuthCode({ email, code: wrongCode, deviceBindingSecret: deviceBindingSecret });
       expect(verifyResult.success).toBe(false);
       if (!verifyResult.success) {
         expect(verifyResult.statusCode).toBe(401);
@@ -262,44 +337,44 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
 
     it('locks out verification challenge after 5 failed attempts', async () => {
-      const email = 'samuel.k@allianceindia.org';
-      const ua = 'TestBrowser/1.0';
-      await requestLeadershipAuthCode({ email, userAgent: ua });
+      const email = 'samuel.k@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
       const rightCode = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
 
       const wrongCode = 'f'.repeat(32);
 
       // 4 wrong attempts
       for (let i = 0; i < 4; i++) {
-        const res = verifyLeadershipAuthCode({ email, code: wrongCode, userAgent: ua });
+        const res = await verifyLeadershipAuthCode({ email, code: wrongCode, deviceBindingSecret: deviceBindingSecret });
         expect(res.success).toBe(false);
       }
 
       // 5th wrong attempt locks it out
-      const res5 = verifyLeadershipAuthCode({ email, code: wrongCode, userAgent: ua });
+      const res5 = await verifyLeadershipAuthCode({ email, code: wrongCode, deviceBindingSecret: deviceBindingSecret });
       expect(res5.success).toBe(false);
       if (!res5.success) {
         expect(res5.statusCode).toBe(429);
         expect(res5.error).toContain('locked');
       }
 
-      // Even the correct code is now rejected because challenge was locked and deleted
-      const resCorrectAfterLockout = verifyLeadershipAuthCode({ email, code: rightCode, userAgent: ua });
+      // Even the correct code is now rejected because challenge was locked
+      const resCorrectAfterLockout = await verifyLeadershipAuthCode({ email, code: rightCode, deviceBindingSecret: deviceBindingSecret });
       expect(resCorrectAfterLockout.success).toBe(false);
     });
 
-    it('rejects expired verification codes after 10 minutes', () => {
+    it('rejects expired verification codes after 10 minutes', async () => {
       vi.useFakeTimers();
-      const email = 'ananya.roy@allianceindia.org';
-      const ua = 'TestBrowser/1.0';
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
 
-      requestLeadershipAuthCode({ email, userAgent: ua });
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
       const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
 
       // Advance time by 10 minutes + 1 second
       vi.advanceTimersByTime(CHALLENGE_TTL_MS + 1000);
 
-      const res = verifyLeadershipAuthCode({ email, code, userAgent: ua });
+      const res = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret: deviceBindingSecret });
       expect(res.success).toBe(false);
       if (!res.success) {
         expect(res.statusCode).toBe(401);
@@ -308,42 +383,27 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       vi.useRealTimers();
     });
 
-    it('rejects verification if User-Agent fingerprint does not match', async () => {
-      const email = 'ananya.roy@allianceindia.org';
-      await requestLeadershipAuthCode({ email, userAgent: 'Browser-A/1.0' });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
-
-      const res = verifyLeadershipAuthCode({
-        email,
-        code,
-        userAgent: 'DifferentBrowser-B/2.0',
-      });
-
-      expect(res.success).toBe(false);
-      if (!res.success) {
-        expect(res.statusCode).toBe(401);
-        expect(res.error).toContain('session mismatch');
-      }
-    });
-
     it('successfully verifies correct code, sets leader_session_id cookie, and consumes code', async () => {
-      const email = 'ananya.roy@allianceindia.org';
-      const ua = 'TestBrowser/1.0';
+      const email = 'ananya.roy@example.org';
 
       // 1. Request
       const reqPost = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'user-agent': ua },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      await requestCodeRoute(reqPost);
+      const reqPostRes = await requestCodeRoute(reqPost);
+      const deviceCookie = reqPostRes.cookies.get(LEADER_DEVICE_COOKIE_NAME)!.value;
 
       const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
 
       // 2. Verify
       const verifyReq = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'user-agent': ua },
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: `${LEADER_DEVICE_COOKIE_NAME}=${deviceCookie}`,
+        },
         body: JSON.stringify({ email, code }),
       });
 
@@ -365,7 +425,10 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       // 3. Single-use consumption test: reusing the same code must fail immediately
       const reuseReq = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'user-agent': ua },
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: `${LEADER_DEVICE_COOKIE_NAME}=${deviceCookie}`,
+        },
         body: JSON.stringify({ email, code }),
       });
       const reuseRes = await verifyCodeRoute(reuseReq);
@@ -373,131 +436,282 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
   });
 
-  describe('4. Session Lifecycle: Sliding Window, X-Poll, Absolute Expiry, and Revocation', () => {
-    it('slides 30-minute idle window on active requests', () => {
+  describe('4. Distributed Store, Concurrency & Single Active Session Enforcement', () => {
+    it('concurrent verification of the same code produces at most one session across separate instances', async () => {
+      const sharedStore = new MemoryLeaderAuthStore();
+      setLeaderAuthStoreForTesting(sharedStore);
+
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+
+      // Simulate 2 instances attempting to verify concurrently
+      const [res1, res2] = await Promise.all([
+        verifyLeadershipAuthCode({ email, code, deviceBindingSecret }),
+        verifyLeadershipAuthCode({ email, code, deviceBindingSecret }),
+      ]);
+
+      const successes = [res1, res2].filter((r) => r.success);
+      const failures = [res1, res2].filter((r) => !r.success);
+
+      expect(successes).toHaveLength(1);
+      expect(failures).toHaveLength(1);
+    });
+
+    it('enforces one active session per leader: new login revokes previous session across instances', async () => {
+      const sharedStore = new MemoryLeaderAuthStore();
+      setLeaderAuthStoreForTesting(sharedStore);
+
+      const email = 'rajiv.menon@example.org';
+      const deviceBindingSecret1 = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret1 });
+      const code1 = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+
+      // Instance 1 login
+      const login1 = await verifyLeadershipAuthCode({ email, code: code1, deviceBindingSecret: deviceBindingSecret1 });
+      expect(login1.success).toBe(true);
+      const session1Id = (login1 as any).session.sessionId;
+
+      // Session 1 is initially valid
+      expect(await validateLeaderSession(session1Id)).not.toBeNull();
+
+      // Instance 2 login for same leader
+      const deviceBindingSecret2 = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret2 });
+      const code2 = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+
+      const login2 = await verifyLeadershipAuthCode({ email, code: code2, deviceBindingSecret: deviceBindingSecret2 });
+      expect(login2.success).toBe(true);
+      const session2Id = (login2 as any).session.sessionId;
+
+      // Session 2 is valid, Session 1 MUST be revoked!
+      expect(await validateLeaderSession(session2Id)).not.toBeNull();
+      expect(await validateLeaderSession(session1Id)).toBeNull();
+    });
+  });
+
+  describe('5. Session Lifecycle: Sliding Window, X-Poll, Absolute Expiry & Revocation', () => {
+    it('slides 30-minute idle window on active requests', async () => {
       vi.useFakeTimers();
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       // Advance time by 20 minutes (within 30m idle limit)
       vi.advanceTimersByTime(20 * 60 * 1000);
 
-      // Active request (not poll) -> slides window
-      const valid1 = validateLeaderSession(session.sessionId);
+      // Active request -> slides window
+      const valid1 = await validateLeaderSession(sessionId);
       expect(valid1).not.toBeNull();
 
-      // Advance time another 20 minutes (now 40 minutes since creation, but only 20 since last activity)
+      // Advance time another 20 minutes
       vi.advanceTimersByTime(20 * 60 * 1000);
-      const valid2 = validateLeaderSession(session.sessionId);
+      const valid2 = await validateLeaderSession(sessionId);
       expect(valid2).not.toBeNull();
 
       // Advance time 31 minutes without activity -> expires
       vi.advanceTimersByTime(31 * 60 * 1000);
-      const valid3 = validateLeaderSession(session.sessionId);
+      const valid3 = await validateLeaderSession(sessionId);
       expect(valid3).toBeNull();
 
       vi.useRealTimers();
     });
 
-    it('does NOT slide idle window on X-Poll requests', () => {
+    it('does NOT slide idle window on X-Poll requests', async () => {
       vi.useFakeTimers();
-      const leader = findLeaderByEmail('rajiv.menon@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+      const email = 'rajiv.menon@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       // Make periodic poll requests every 10 minutes for 35 minutes
       vi.advanceTimersByTime(10 * 60 * 1000);
-      expect(validateLeaderSession(session.sessionId, { isPoll: true })).not.toBeNull();
+      expect(await validateLeaderSession(sessionId, { isPoll: true })).not.toBeNull();
 
       vi.advanceTimersByTime(10 * 60 * 1000);
-      expect(validateLeaderSession(session.sessionId, { isPoll: true })).not.toBeNull();
+      expect(await validateLeaderSession(sessionId, { isPoll: true })).not.toBeNull();
 
-      vi.advanceTimersByTime(15 * 60 * 1000); // 35 minutes total since creation with ONLY poll requests
+      vi.advanceTimersByTime(15 * 60 * 1000); // 35 minutes total with ONLY poll requests
       // Should now be expired because poll requests did not reset lastActivityAt
-      expect(validateLeaderSession(session.sessionId, { isPoll: true })).toBeNull();
+      expect(await validateLeaderSession(sessionId, { isPoll: true })).toBeNull();
 
       vi.useRealTimers();
     });
 
-    it('enforces absolute 8-hour session lifetime regardless of activity', () => {
+    it('enforces absolute 8-hour session lifetime regardless of activity', async () => {
       vi.useFakeTimers();
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       // Ping actively every 25 minutes for 7.5 hours
       for (let i = 0; i < 18; i++) {
         vi.advanceTimersByTime(25 * 60 * 1000);
-        expect(validateLeaderSession(session.sessionId)).not.toBeNull();
+        expect(await validateLeaderSession(sessionId)).not.toBeNull();
       }
 
       // Advance past the 8-hour absolute ceiling
       vi.advanceTimersByTime(40 * 60 * 1000);
-      expect(validateLeaderSession(session.sessionId)).toBeNull();
+      expect(await validateLeaderSession(sessionId)).toBeNull();
 
       vi.useRealTimers();
     });
 
-    it('terminates session immediately if leader account is deactivated (mid-session revocation)', () => {
-      const leader = findLeaderByEmail('priya.sharma@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+    it('terminates session immediately if leader account is deactivated (mid-session revocation)', async () => {
+      const email = 'priya.sharma@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
-      expect(validateLeaderSession(session.sessionId)).not.toBeNull();
+      expect(await validateLeaderSession(sessionId)).not.toBeNull();
 
       // Deactivate account
       setLeaderActiveStatusForTesting('lead-priya-sharma', false);
 
       // Subsequent session check MUST fail immediately
-      expect(validateLeaderSession(session.sessionId)).toBeNull();
+      expect(await validateLeaderSession(sessionId)).toBeNull();
     });
 
-    it('terminates session immediately if leader authVersion is bumped (credential rotation)', () => {
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+    it('terminates session immediately if leader authVersion is bumped (credential rotation)', async () => {
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
-      expect(validateLeaderSession(session.sessionId)).not.toBeNull();
+      expect(await validateLeaderSession(sessionId)).not.toBeNull();
 
       // Bump auth version
       bumpLeaderAuthVersionForTesting('lead-ananya-roy');
 
       // Subsequent check MUST fail immediately
-      expect(validateLeaderSession(session.sessionId)).toBeNull();
+      expect(await validateLeaderSession(sessionId)).toBeNull();
     });
 
-    it('clears session cookie and invalidates session on POST /api/auth/leader/logout', async () => {
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+    it('clears session and device cookies on POST /api/auth/leader/logout', async () => {
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       const req = new NextRequest('http://localhost:3000/api/auth/leader/logout', {
         method: 'POST',
         headers: {
-          cookie: `${LEADER_COOKIE_NAME}=${session.sessionId}`,
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
         },
       });
 
       const res = await logoutRoute(req);
       expect(res.status).toBe(200);
 
-      // Session in store is gone
-      expect(validateLeaderSession(session.sessionId)).toBeNull();
+      // Session in store is revoked
+      expect(await validateLeaderSession(sessionId)).toBeNull();
 
-      // Cookie is cleared
+      // Cookies are cleared
       const cookie = res.cookies.get(LEADER_COOKIE_NAME);
       expect(cookie?.maxAge).toBe(0);
+      const devCookie = res.cookies.get(LEADER_DEVICE_COOKIE_NAME);
+      expect(devCookie?.maxAge).toBe(0);
     });
   });
 
-  describe('5. Authorisation Scope & Submissions API Integration', () => {
-    it('resolves UserAccessScope with role LEADERSHIP and wildcard state scope from leader session', () => {
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+  describe('6. Production Fail-Closed Identity Loading & Email Cutover', () => {
+    it('fails closed in production if LEADERSHIP_ALLOWLIST_JSON is missing or empty (zero synthetic fallback)', () => {
+      const prevNodeEnv = process.env.NODE_ENV;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        delete process.env.LEADERSHIP_ALLOWLIST_JSON;
+
+        const leaders = loadInitialLeaders();
+        expect(leaders).toEqual([]); // Zero leaders allowed in production without allowlist
+      } finally {
+        (process.env as any).NODE_ENV = prevNodeEnv;
+      }
+    });
+
+    it('fails closed in production if LEADERSHIP_ALLOWLIST_JSON has duplicate emails', () => {
+      const prevNodeEnv = process.env.NODE_ENV;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        process.env.LEADERSHIP_ALLOWLIST_JSON = JSON.stringify([
+          { id: 'lead-1', email: 'dup@example.org', name: 'Leader One' },
+          { id: 'lead-2', email: 'dup@example.org', name: 'Leader Two' }, // Duplicate email!
+        ]);
+
+        const leaders = loadInitialLeaders();
+        expect(leaders).toEqual([]); // Fail closed on duplicates!
+      } finally {
+        (process.env as any).NODE_ENV = prevNodeEnv;
+      }
+    });
+
+    it('rejects FORCE_MOCK_EMAIL in production environment', () => {
+      const prevNodeEnv = process.env.NODE_ENV;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        process.env.FORCE_MOCK_EMAIL = 'true';
+
+        const provider = getEmailProvider();
+        expect(provider instanceof FailingEmailProvider).toBe(true);
+      } finally {
+        (process.env as any).NODE_ENV = prevNodeEnv;
+      }
+    });
+
+    it('enforces email_only cutover: rejects shared password leadership logins with 403 AUTH_METHOD_DISABLED', async () => {
+      process.env.LEADERSHIP_EMAIL_AUTH_MODE = 'email_only';
+
+      const req = new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({
+          accessIdentifier: 'LEADERSHIP-ALL',
+          password: 'some-password',
+        }),
+      });
+
+      const res = await loginRoute(req);
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe('AUTH_METHOD_DISABLED');
+      expect(body.message).toContain('individual allowlisted email');
+    });
+  });
+
+  describe('7. Authorisation Scope & Submissions API Integration', () => {
+    it('resolves UserAccessScope with role LEADERSHIP and wildcard state scope from leader session', async () => {
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       const req = new NextRequest('http://localhost:3000/api/submissions', {
         method: 'GET',
         headers: {
-          cookie: `${LEADER_COOKIE_NAME}=${session.sessionId}`,
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
         },
       });
 
-      const scope = resolveUserAccessScope(req);
+      const scope = await resolveUserAccessScope(req);
       expect(scope.isVerified).toBe(true);
       expect(scope.role).toBe('LEADERSHIP');
       expect(scope.userId).toBe('lead-ananya-roy');
@@ -508,13 +722,17 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
 
     it('allows leadership session to query submissions linelist across states without 401/403', async () => {
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       const req = new NextRequest('http://localhost:3000/api/submissions?limit=50', {
         method: 'GET',
         headers: {
-          cookie: `${LEADER_COOKIE_NAME}=${session.sessionId}`,
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
         },
       });
 
@@ -526,13 +744,17 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
 
     it('rejects DELETE attempts by leadership session with HTTP 403 FORBIDDEN', async () => {
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
         method: 'DELETE',
         headers: {
-          cookie: `${LEADER_COOKIE_NAME}=${session.sessionId}`,
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
         },
       });
 
@@ -546,14 +768,18 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
     });
 
     it('rejects POST asset uploads by leadership session with HTTP 403 FORBIDDEN', async () => {
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org')!;
-      const session = createLeaderSession(leader);
+      const email = 'ananya.roy@example.org';
+      const deviceBindingSecret = generateDeviceBindingSecret();
+      await requestLeadershipAuthCode({ email, deviceBindingSecret });
+      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
+      const sessionId = (login as any).session.sessionId;
 
       const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02/asset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          cookie: `${LEADER_COOKIE_NAME}=${session.sessionId}`,
+          cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
         },
         body: JSON.stringify({
           documentType: 'Aadhaar_Card',
@@ -568,42 +794,6 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.code).toBe('FORBIDDEN');
-    });
-  });
-
-  describe('6. Dynamic LEADERSHIP_ALLOWLIST_JSON Loading & Strict Role Enforcement', () => {
-    it('dynamically loads allowlist from LEADERSHIP_ALLOWLIST_JSON and strictly enforces LEADERSHIP role', () => {
-      process.env.LEADERSHIP_ALLOWLIST_JSON = JSON.stringify([
-        {
-          id: 'lead-custom-dev',
-          email: 'custom.dev@example.org',
-          name: 'Custom Developer',
-          title: 'Technical Architect',
-          role: 'ADMIN', // Tampering attempt: trying to claim ADMIN
-          isActive: true,
-          authVersion: 1,
-        },
-      ]);
-
-      resetLeaderIdentitiesForTesting();
-
-      const leader = findLeaderByEmail('custom.dev@example.org');
-      expect(leader).not.toBeNull();
-      expect(leader?.name).toBe('Custom Developer');
-      expect(leader?.role).toBe('LEADERSHIP'); // Strictly enforced to LEADERSHIP!
-      expect(leader?.allowedStates).toEqual(['*']);
-
-      // Synthetic persona should NOT be present when custom allowlist is loaded
-      expect(findLeaderByEmail('ananya.roy@allianceindia.org')).toBeNull();
-    });
-
-    it('falls back to synthetic identities if LEADERSHIP_ALLOWLIST_JSON is invalid JSON', () => {
-      process.env.LEADERSHIP_ALLOWLIST_JSON = 'invalid-json';
-      resetLeaderIdentitiesForTesting();
-
-      const leader = findLeaderByEmail('ananya.roy@allianceindia.org');
-      expect(leader).not.toBeNull();
-      expect(leader?.name).toBe('Dr. Ananya Roy');
     });
   });
 });

@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Shield,
   Mail,
   Key,
   ArrowRight,
@@ -14,15 +13,43 @@ import {
   RefreshCw,
   Building2,
   Lock,
+  UserCheck,
 } from 'lucide-react';
 import { setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
+
+interface PublicLeader {
+  id: string;
+  name: string;
+  title: string;
+}
+
+/**
+ * Validates and sanitizes returnUrl to prevent open redirect vulnerabilities.
+ * Must begin with '/' and not start with '//' or '/\' or specify an absolute scheme.
+ */
+function sanitizeReturnUrl(rawUrl?: string | null): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '/supervisor';
+  const trimmed = rawUrl.trim();
+  if (
+    trimmed.startsWith('/') &&
+    !trimmed.startsWith('//') &&
+    !trimmed.startsWith('/\\') &&
+    !trimmed.includes('://')
+  ) {
+    return trimmed;
+  }
+  return '/supervisor';
+}
 
 function LeadershipLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnUrl = searchParams?.get('returnUrl') || '/supervisor';
+  const safeReturnUrl = sanitizeReturnUrl(searchParams?.get('returnUrl'));
 
   const [step, setStep] = useState<'email' | 'code'>('email');
+  const [authMode, setAuthMode] = useState<'directory' | 'manual'>('directory');
+  const [directoryLeaders, setDirectoryLeaders] = useState<PublicLeader[]>([]);
+  const [selectedLeaderId, setSelectedLeaderId] = useState<string>('');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -37,13 +64,37 @@ function LeadershipLoginForm() {
     process.env.NEXT_PUBLIC_LEADERSHIP_EMAIL_AUTH_ENABLED === 'true' ||
     process.env.LEADERSHIP_EMAIL_AUTH_ENABLED === 'true';
 
+  // Load public directory of leadership names (zero emails exposed)
+  useEffect(() => {
+    async function loadDirectory() {
+      try {
+        const res = await fetch('/api/auth/leader/directory');
+        if (res.ok) {
+          const body = await res.json();
+          if (body?.status === 'success' && Array.isArray(body?.data) && body.data.length > 0) {
+            setDirectoryLeaders(body.data);
+            setSelectedLeaderId(body.data[0].id);
+            setAuthMode('directory');
+            return;
+          }
+        }
+      } catch {
+        // Fall back gracefully to manual email input
+      }
+      setAuthMode('manual');
+    }
+    loadDirectory();
+  }, []);
+
   useEffect(() => {
     if (step === 'email') {
-      emailInputRef.current?.focus();
+      if (authMode === 'manual') {
+        emailInputRef.current?.focus();
+      }
     } else {
       codeInputRef.current?.focus();
     }
-  }, [step]);
+  }, [step, authMode]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -56,21 +107,35 @@ function LeadershipLoginForm() {
 
   const handleRequestCode = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      setErrorMessage('Please enter a valid email address.');
-      return;
-    }
 
     setIsLoading(true);
     setErrorMessage(null);
     setInfoMessage(null);
 
+    const payload: { email?: string; leaderId?: string } = {};
+
+    if (authMode === 'directory') {
+      if (!selectedLeaderId) {
+        setErrorMessage('Please select your leadership profile.');
+        setIsLoading(false);
+        return;
+      }
+      payload.leaderId = selectedLeaderId;
+    } else {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        setErrorMessage('Please enter a valid email address.');
+        setIsLoading(false);
+        return;
+      }
+      payload.email = cleanEmail;
+    }
+
     try {
       const res = await fetch('/api/auth/leader/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -83,7 +148,7 @@ function LeadershipLoginForm() {
 
       setInfoMessage(
         data?.message ||
-          'If this email is an authorized Leadership account, a 128-bit verification code has been dispatched.'
+          'If this account is an authorized Leadership identity, a single-use verification code has been dispatched.'
       );
       setStep('code');
       setCooldownSeconds(60);
@@ -97,7 +162,6 @@ function LeadershipLoginForm() {
 
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
     const cleanCode = code.trim().toLowerCase().replace(/[^0-9a-f]/g, '');
 
     if (!cleanCode) {
@@ -113,11 +177,21 @@ function LeadershipLoginForm() {
     setIsLoading(true);
     setErrorMessage(null);
 
+    const payload: { email?: string; leaderId?: string; code: string } = {
+      code: cleanCode,
+    };
+
+    if (authMode === 'directory' && selectedLeaderId) {
+      payload.leaderId = selectedLeaderId;
+    } else {
+      payload.email = email.trim().toLowerCase();
+    }
+
     try {
       const res = await fetch('/api/auth/leader/verify-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, code: cleanCode }),
+        body: JSON.stringify(payload),
       });
 
       const body = await res.json().catch(() => ({}));
@@ -142,7 +216,7 @@ function LeadershipLoginForm() {
 
       setInfoMessage('Authentication successful! Unlocking Leadership surveillance...');
       setTimeout(() => {
-        router.push(returnUrl);
+        router.push(safeReturnUrl);
       }, 500);
     } catch {
       setErrorMessage('Network error while verifying code.');
@@ -150,6 +224,8 @@ function LeadershipLoginForm() {
       setIsLoading(false);
     }
   };
+
+  const activeLeaderObj = directoryLeaders.find((l) => l.id === selectedLeaderId);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-teal-950 to-slate-900 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100">
@@ -200,30 +276,76 @@ function LeadershipLoginForm() {
 
           {step === 'email' ? (
             <form onSubmit={handleRequestCode} className="space-y-4">
-              <div>
-                <label htmlFor="leader-email" className="block text-xs font-bold text-slate-800 mb-1.5 uppercase tracking-wider">
-                  Leadership Email Address
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Mail className="h-4 w-4" />
-                  </div>
-                  <input
-                    ref={emailInputRef}
-                    id="leader-email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@allianceindia.org"
-                    className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent transition-all font-medium text-slate-900"
-                  />
+              {directoryLeaders.length > 0 && (
+                <div className="flex items-center justify-between text-xs pb-1">
+                  <span className="font-bold text-slate-800 uppercase tracking-wider">
+                    Sign-In Method
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode(authMode === 'directory' ? 'manual' : 'directory');
+                      setErrorMessage(null);
+                    }}
+                    className="text-teal-700 hover:text-teal-900 font-semibold cursor-pointer underline"
+                  >
+                    {authMode === 'directory' ? 'Enter email manually' : 'Select from directory'}
+                  </button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  Allowlisted Directors and Senior Technical Officers receive a single-use 128-bit verification code.
-                </p>
-              </div>
+              )}
+
+              {authMode === 'directory' && directoryLeaders.length > 0 ? (
+                <div>
+                  <label htmlFor="leader-select" className="block text-xs font-bold text-slate-800 mb-1.5 uppercase tracking-wider">
+                    Authorized Leadership Profile
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <UserCheck className="h-4 w-4 text-teal-700" />
+                    </div>
+                    <select
+                      id="leader-select"
+                      value={selectedLeaderId}
+                      onChange={(e) => setSelectedLeaderId(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent transition-all font-medium text-slate-900 cursor-pointer"
+                    >
+                      {directoryLeaders.map((lead) => (
+                        <option key={lead.id} value={lead.id}>
+                          {lead.name} — {lead.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    A single-use verification code will be sent to your registered approved address.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="leader-email" className="block text-xs font-bold text-slate-800 mb-1.5 uppercase tracking-wider">
+                    Leadership Email Address
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="h-4 w-4" />
+                    </div>
+                    <input
+                      ref={emailInputRef}
+                      id="leader-email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@allianceindia.org"
+                      className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent transition-all font-medium text-slate-900"
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    Allowlisted Directors and Senior Technical Officers receive a single-use 128-bit verification code.
+                  </p>
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -259,12 +381,16 @@ function LeadershipLoginForm() {
                     }}
                     className="text-[11px] text-teal-700 hover:text-teal-900 font-semibold cursor-pointer inline-flex items-center gap-1"
                   >
-                    <ArrowLeft className="w-3 h-3" /> Change Email
+                    <ArrowLeft className="w-3 h-3" /> Change Identity
                   </button>
                 </div>
 
                 <div className="text-[11px] text-slate-600 mb-2 font-mono bg-slate-50 p-2 rounded-lg border border-slate-200">
-                  Sent to: <span className="font-semibold text-slate-900">{email}</span>
+                  {authMode === 'directory' && activeLeaderObj ? (
+                    <span>Account: <strong className="text-slate-900">{activeLeaderObj.name}</strong> ({activeLeaderObj.title})</span>
+                  ) : (
+                    <span>Sent to: <strong className="text-slate-900">{email}</strong></span>
+                  )}
                 </div>
 
                 <div className="relative">

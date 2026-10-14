@@ -127,7 +127,7 @@ describe('Supabase Schema Foundation & Migration Readiness Review (PR #73 Audit)
     }
   });
 
-  it('verifies synthetic scope parity between Next.js authorisation guards and proposed Supabase RLS rules', () => {
+  it('verifies synthetic scope parity between Next.js authorisation guards and proposed Supabase RLS rules', async () => {
     const syntheticRecords = [
       {
         uniqueId: 'SYNTH-MH-PUN-0001',
@@ -156,7 +156,7 @@ describe('Supabase Schema Foundation & Migration Readiness Review (PR #73 Audit)
     const unauthReq = new NextRequest('http://localhost:3000/api/submissions', {
       headers: { 'x-test-unauthenticated': 'true' },
     });
-    const unauthScope = resolveUserAccessScope(unauthReq);
+    const unauthScope = await resolveUserAccessScope(unauthReq);
     expect(unauthScope.isVerified).toBe(false);
     expect(unauthScope.allowedStates).toEqual([]);
     expect(filterRecordsByScope(unauthScope, syntheticRecords)).toEqual([]);

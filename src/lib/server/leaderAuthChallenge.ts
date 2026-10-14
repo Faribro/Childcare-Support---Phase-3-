@@ -4,55 +4,46 @@
  * Implements:
  * - 128-bit hex OTP generation (32 hex characters)
  * - SHA-256 verifier storage (zero plain OTP persistence)
- * - User-Agent / browser fingerprint binding
+ * - Server-issued HttpOnly device binding token verification
  * - 10-minute expiry window
  * - Rate limiting (3/15m, 10/24h)
- * - Lockout after 5 failed verification attempts
+ * - Atomic lockout after 5 failed verification attempts
  * - Challenge superseding (new code request invalidates older code)
+ * - Invalidation on email dispatch failure
  * - Constant-time generic responses to prevent email enumeration
  */
 
 import crypto from 'crypto';
 import {
   findLeaderByEmail,
-  isLeaderActive,
+  findLeaderById,
   normalizeEmail,
   type LeaderIdentity,
 } from './leaderIdentityStore';
 import { sendLeadershipOtpEmail } from './emailProvider';
+import {
+  getLeaderAuthStore,
+  CHALLENGE_TTL_MS,
+  MAX_VERIFY_ATTEMPTS,
+  LEADER_ABSOLUTE_LIFETIME_MS,
+  type LeaderAuthChallengeRecord,
+  type LeaderSessionRecord,
+} from './leaderAuthStore';
+export {
+  CHALLENGE_TTL_MS,
+  MAX_VERIFY_ATTEMPTS,
+  LEADER_ABSOLUTE_LIFETIME_MS,
+};
 
-export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-export const MAX_VERIFY_ATTEMPTS = 5;
-export const MAX_REQUESTS_15M = 3;
-export const MAX_REQUESTS_24H = 10;
-
-export interface StoredChallenge {
-  leaderId: string;
-  email: string;
-  codeHash: string; // SHA-256 hash of the 32-char hex OTP
-  userAgentHash: string;
-  ip: string;
-  createdAt: number;
-  expiresAt: number;
-  failedAttempts: number;
-  isLocked: boolean;
-}
-
-interface RateLimitTracker {
-  shortWindowTimestamps: number[]; // within 15 min
-  longWindowTimestamps: number[];  // within 24 hours
-}
-
-// In-memory challenge and rate-limiting stores
-const pendingChallengesMap = new Map<string, StoredChallenge>(); // key: normalized email
-const emailRateLimits = new Map<string, RateLimitTracker>();
-const ipRateLimits = new Map<string, RateLimitTracker>();
 
 /**
  * Checks whether Leadership email authentication is enabled via feature flag.
  */
 export function isLeadershipEmailAuthEnabled(): boolean {
-  return process.env.LEADERSHIP_EMAIL_AUTH_ENABLED === 'true';
+  return (
+    process.env.LEADERSHIP_EMAIL_AUTH_ENABLED === 'true' ||
+    process.env.NEXT_PUBLIC_LEADERSHIP_EMAIL_AUTH_ENABLED === 'true'
+  );
 }
 
 /**
@@ -71,57 +62,28 @@ export function hashString(value: string): string {
 }
 
 /**
- * Cleans timestamps older than the window and returns current counts.
+ * Generates a new 256-bit cryptographically secure device secret for browser binding.
  */
-function checkWindowRateLimit(
-  tracker: RateLimitTracker | undefined,
-  now: number
-): { allowed: boolean; reason?: string } {
-  if (!tracker) return { allowed: true };
-
-  const fifteenMinAgo = now - 15 * 60 * 1000;
-  const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
-
-  tracker.shortWindowTimestamps = tracker.shortWindowTimestamps.filter((t) => t > fifteenMinAgo);
-  tracker.longWindowTimestamps = tracker.longWindowTimestamps.filter((t) => t > twentyFourHoursAgo);
-
-  if (tracker.shortWindowTimestamps.length >= MAX_REQUESTS_15M) {
-    return {
-      allowed: false,
-      reason: 'Too many verification code requests in a short time. Please wait 15 minutes before requesting a new code.',
-    };
-  }
-
-  if (tracker.longWindowTimestamps.length >= MAX_REQUESTS_24H) {
-    return {
-      allowed: false,
-      reason: 'Maximum daily verification code requests reached for this account. Please retry tomorrow or contact central administration.',
-    };
-  }
-
-  return { allowed: true };
-}
-
-function recordRequest(map: Map<string, RateLimitTracker>, key: string, now: number): void {
-  let tracker = map.get(key);
-  if (!tracker) {
-    tracker = { shortWindowTimestamps: [], longWindowTimestamps: [] };
-    map.set(key, tracker);
-  }
-  tracker.shortWindowTimestamps.push(now);
-  tracker.longWindowTimestamps.push(now);
+export function generateDeviceBindingSecret(): string {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 /**
  * Requests an individual 128-bit hex authentication code.
+ * Supports requesting via email or authorized leaderId.
+ * Always dispatches strictly to the server-verified stored email.
  * Always returns a generic success message to prevent user/email enumeration.
  */
 export async function requestLeadershipAuthCode({
   email,
+  leaderId,
+  deviceBindingSecret,
   userAgent = 'unknown',
   clientIp = 'unknown',
 }: {
-  email: string;
+  email?: string;
+  leaderId?: string;
+  deviceBindingSecret: string;
   userAgent?: string;
   clientIp?: string;
 }): Promise<{ success: boolean; error?: string; statusCode: number }> {
@@ -133,90 +95,120 @@ export async function requestLeadershipAuthCode({
     };
   }
 
-  const norm = normalizeEmail(email);
-  if (!norm || !norm.includes('@')) {
+  const store = getLeaderAuthStore();
+  const now = Date.now();
+
+  let leader: LeaderIdentity | null = null;
+  let targetEmail = '';
+
+  if (leaderId && typeof leaderId === 'string') {
+    leader = findLeaderById(leaderId.trim());
+    if (leader) {
+      targetEmail = normalizeEmail(leader.email);
+    }
+  } else if (email && typeof email === 'string') {
+    targetEmail = normalizeEmail(email);
+    leader = findLeaderByEmail(targetEmail);
+  }
+
+  if (!targetEmail || !targetEmail.includes('@')) {
     return {
       success: false,
-      error: 'Please enter a valid email address.',
+      error: 'Please provide a valid email or select a valid leadership profile.',
       statusCode: 400,
     };
   }
 
-  const now = Date.now();
-
-  // Rate limit checks
-  const emailLimit = checkWindowRateLimit(emailRateLimits.get(norm), now);
+  // Distributed Rate Limiting Checks
+  const emailRateKey = `rate:email:${targetEmail}`;
+  const emailLimit = await store.checkAndRecordRateLimit(emailRateKey, now);
   if (!emailLimit.allowed) {
     return { success: false, error: emailLimit.reason, statusCode: 429 };
   }
 
-  const ipLimit = checkWindowRateLimit(ipRateLimits.get(clientIp), now);
+  const ipRateKey = `rate:ip:${clientIp}`;
+  const ipLimit = await store.checkAndRecordRateLimit(ipRateKey, now);
   if (!ipLimit.allowed) {
     return { success: false, error: ipLimit.reason, statusCode: 429 };
   }
 
-  recordRequest(emailRateLimits, norm, now);
-  recordRequest(ipRateLimits, clientIp, now);
-
-  const leader = findLeaderByEmail(norm);
-
-  // If email is not allowlisted or leader is deactivated, return success without sending code
-  // Constant-time execution prevents timing attacks revealing email validity
+  // If email is not allowlisted or leader is inactive, return generic success
+  // Artificial small delay prevents timing attacks
   if (!leader || !leader.isActive) {
-    // Artificial small delay matching hashing cost
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 15));
     return { success: true, statusCode: 200 };
   }
+
+  // Supersede prior unused challenges for this leader
+  await store.supersedePriorChallenges(targetEmail, leader.id);
 
   // Generate 128-bit hex OTP (16 random bytes = 32 hex chars)
   const plainOtp = crypto.randomBytes(16).toString('hex');
   const codeHash = hashString(plainOtp);
+  const deviceBindingHash = hashString(deviceBindingSecret);
   const userAgentHash = hashString(userAgent || '');
+  const challengeId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
 
-  // Challenge superseding: replacing map entry immediately invalidates any prior code
-  const challenge: StoredChallenge = {
+  const challenge: LeaderAuthChallengeRecord = {
+    challengeId,
     leaderId: leader.id,
-    email: norm,
+    email: targetEmail,
     codeHash,
+    deviceBindingHash,
     userAgentHash,
     ip: clientIp,
     createdAt: now,
     expiresAt: now + CHALLENGE_TTL_MS,
     failedAttempts: 0,
+    isUsed: false,
     isLocked: false,
   };
 
-  pendingChallengesMap.set(norm, challenge);
+  await store.createChallenge(challenge);
 
-  // Dispatch email
-  await sendLeadershipOtpEmail({
+  // Dispatch email directly to server-stored approved email
+  const emailResult = await sendLeadershipOtpEmail({
     to: leader.email,
     name: leader.name,
     code: plainOtp,
     expiryMinutes: 10,
   });
 
+  if (!emailResult.success) {
+    // Invalidate challenge immediately on transmission failure
+    await store.invalidateChallenge(challengeId);
+    return {
+      success: false,
+      error: 'Unable to deliver verification code. Please check configuration or try again later.',
+      statusCode: 502,
+    };
+  }
+
   return { success: true, statusCode: 200 };
 }
 
 export type VerifyChallengeResult =
-  | { success: true; leader: LeaderIdentity }
+  | { success: true; session: LeaderSessionRecord; leader: LeaderIdentity }
   | { success: false; error: string; statusCode: number };
 
 /**
- * Verifies a 128-bit hex authentication code challenge.
+ * Atomically verifies a 128-bit hex authentication code and creates a session.
  */
-export function verifyLeadershipAuthCode({
+export async function verifyLeadershipAuthCode({
   email,
+  leaderId,
   code,
+  deviceBindingSecret,
   userAgent = 'unknown',
   clientIp = 'unknown',
 }: {
-  email: string;
+  email?: string;
+  leaderId?: string;
   code: string;
+  deviceBindingSecret?: string;
   userAgent?: string;
   clientIp?: string;
-}): VerifyChallengeResult {
+}): Promise<VerifyChallengeResult> {
   if (!isLeadershipEmailAuthEnabled()) {
     return {
       success: false,
@@ -225,13 +217,25 @@ export function verifyLeadershipAuthCode({
     };
   }
 
-  const norm = normalizeEmail(email);
+  let leader: LeaderIdentity | null = null;
+  let norm = '';
+
+  if (leaderId && typeof leaderId === 'string') {
+    leader = findLeaderById(leaderId.trim());
+    if (leader) {
+      norm = normalizeEmail(leader.email);
+    }
+  } else if (email && typeof email === 'string') {
+    norm = normalizeEmail(email);
+    leader = findLeaderByEmail(norm);
+  }
+
   const cleanCode = normalizeOtpCode(code);
 
   if (!norm || !cleanCode) {
     return {
       success: false,
-      error: 'Email and verification code are required.',
+      error: 'Valid identifier and verification code are required.',
       statusCode: 400,
     };
   }
@@ -245,7 +249,17 @@ export function verifyLeadershipAuthCode({
     };
   }
 
-  const challenge = pendingChallengesMap.get(norm);
+  if (!deviceBindingSecret) {
+    return {
+      success: false,
+      error: 'Device binding token missing. Please ensure cookies are enabled.',
+      statusCode: 401,
+    };
+  }
+
+  const store = getLeaderAuthStore();
+  const challenge = await store.getPendingChallenge(norm);
+
   if (!challenge) {
     return {
       success: false,
@@ -254,78 +268,11 @@ export function verifyLeadershipAuthCode({
     };
   }
 
-  const now = Date.now();
-
-  // Check if locked
-  if (challenge.isLocked || challenge.failedAttempts >= MAX_VERIFY_ATTEMPTS) {
-    pendingChallengesMap.delete(norm);
-    return {
-      success: false,
-      error: 'This verification challenge has been locked due to excessive failed attempts. Please request a new code.',
-      statusCode: 429,
-    };
+  if (!leader) {
+    leader = findLeaderByEmail(norm);
   }
-
-  // Check expiry
-  if (now > challenge.expiresAt) {
-    pendingChallengesMap.delete(norm);
-    return {
-      success: false,
-      error: 'This verification code has expired (10-minute limit). Please request a new code.',
-      statusCode: 401,
-    };
-  }
-
-  // Browser / User-Agent fingerprint verification
-  const currentUaHash = hashString(userAgent || '');
-  if (challenge.userAgentHash && challenge.userAgentHash !== currentUaHash) {
-    challenge.failedAttempts += 1;
-    if (challenge.failedAttempts >= MAX_VERIFY_ATTEMPTS) {
-      challenge.isLocked = true;
-    }
-    return {
-      success: false,
-      error: 'Verification session mismatch. Please verify the code using the same browser window where it was requested.',
-      statusCode: 401,
-    };
-  }
-
-  // Constant-time hash comparison
-  const submittedHash = hashString(cleanCode);
-  const expectedHashBuf = Buffer.from(challenge.codeHash);
-  const submittedHashBuf = Buffer.from(submittedHash);
-
-  const isValidCode =
-    expectedHashBuf.length === submittedHashBuf.length &&
-    crypto.timingSafeEqual(expectedHashBuf, submittedHashBuf);
-
-  if (!isValidCode) {
-    challenge.failedAttempts += 1;
-    const remaining = MAX_VERIFY_ATTEMPTS - challenge.failedAttempts;
-
-    if (challenge.failedAttempts >= MAX_VERIFY_ATTEMPTS) {
-      challenge.isLocked = true;
-      pendingChallengesMap.delete(norm);
-      return {
-        success: false,
-        error: 'Too many incorrect attempts. This verification code has been locked. Please request a new code.',
-        statusCode: 429,
-      };
-    }
-
-    return {
-      success: false,
-      error: `Invalid verification code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`,
-      statusCode: 401,
-    };
-  }
-
-  // Code is valid! Consume and remove challenge immediately (single-use)
-  pendingChallengesMap.delete(norm);
-
-  // Validate leader identity is active
-  const leader = findLeaderByEmail(norm);
   if (!leader || !leader.isActive) {
+    await store.invalidateChallenge(challenge.challengeId);
     return {
       success: false,
       error: 'Leadership account is deactivated or unauthorized.',
@@ -333,17 +280,40 @@ export function verifyLeadershipAuthCode({
     };
   }
 
+  const submittedCodeHash = hashString(cleanCode);
+  const deviceBindingHash = hashString(deviceBindingSecret);
+  const now = Date.now();
+
+  const outcome = await store.consumeChallengeAndCreateSession({
+    challengeId: challenge.challengeId,
+    submittedCodeHash,
+    deviceBindingHash,
+    leader,
+    now,
+    absoluteLifetimeMs: LEADER_ABSOLUTE_LIFETIME_MS,
+  });
+
+  if (!outcome.success || !outcome.session) {
+    return {
+      success: false,
+      error: outcome.error || 'Verification failed.',
+      statusCode: outcome.statusCode || 401,
+    };
+  }
+
   return {
     success: true,
+    session: outcome.session,
     leader,
   };
 }
 
 /**
- * Resets all pending challenges and rate limits for isolated unit testing.
+ * Resets challenges and rate limits for testing.
  */
-export function resetLeaderChallengesForTesting(): void {
-  pendingChallengesMap.clear();
-  emailRateLimits.clear();
-  ipRateLimits.clear();
+export async function resetLeaderChallengesForTesting(): Promise<void> {
+  const store = getLeaderAuthStore();
+  if (store.clearAllForTesting) {
+    await store.clearAllForTesting();
+  }
 }

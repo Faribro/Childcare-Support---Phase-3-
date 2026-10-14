@@ -3,6 +3,7 @@ import {
   extractLeaderSessionId,
   revokeLeaderSession,
   clearLeaderSessionCookie,
+  clearDeviceBindingCookie,
 } from '@/lib/server/leaderSessionStore';
 import { logSecurityEvent } from '@/lib/server/authorisation';
 
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const sessionId = extractLeaderSessionId(req);
   if (sessionId) {
-    revokeLeaderSession(sessionId);
+    await revokeLeaderSession(sessionId);
     logSecurityEvent({
       actor: sessionId.substring(0, 8),
       actorRole: 'LEADERSHIP',
@@ -27,5 +28,6 @@ export async function POST(req: NextRequest) {
   });
 
   clearLeaderSessionCookie(response);
+  clearDeviceBindingCookie(response);
   return response;
 }

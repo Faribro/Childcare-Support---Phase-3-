@@ -3,105 +3,79 @@
  * 
  * Rules:
  * - Cookie name: `leader_session_id`
+ * - Device binding cookie name: `leader_device_binding`
  * - Cookie attributes: HttpOnly, SameSite=Lax, Secure (prod), Path=/
  * - Absolute session lifetime: 8 hours
  * - Sliding idle timeout: 30 minutes
  * - Non-sliding background polling: requests with X-Poll do NOT extend idle window
- * - Instant mid-session revocation: checks leader.isActive and leader.authVersion
+ * - Instant mid-session revocation: checks leader.isActive and leader.authVersion against identity store
+ * - Single active session per leader enforced via distributed store
  */
 
-import crypto from 'crypto';
 import { NextResponse, NextRequest } from 'next/server';
 import {
   findLeaderById,
   type LeaderIdentity,
 } from './leaderIdentityStore';
+import {
+  getLeaderAuthStore,
+  LEADER_COOKIE_NAME,
+  LEADER_DEVICE_COOKIE_NAME,
+  LEADER_IDLE_TIMEOUT_MS,
+  LEADER_ABSOLUTE_LIFETIME_MS,
+  type LeaderSessionRecord,
+} from './leaderAuthStore';
 
-export const LEADER_COOKIE_NAME = 'leader_session_id';
-export const LEADER_IDLE_TIMEOUT_MS = 30 * 60 * 1000;      // 30 minutes
-export const LEADER_ABSOLUTE_LIFETIME_MS = 8 * 60 * 60 * 1000; // 8 hours
+export {
+  LEADER_COOKIE_NAME,
+  LEADER_DEVICE_COOKIE_NAME,
+  LEADER_IDLE_TIMEOUT_MS,
+  LEADER_ABSOLUTE_LIFETIME_MS,
+  type LeaderSessionRecord,
+};
 
-export interface LeaderSession {
-  sessionId: string;
-  leaderId: string;
-  email: string;
-  name: string;
-  title: string;
-  role: 'LEADERSHIP';
-  allowedStates: string[];
-  allowedDistricts: string[];
-  authVersion: number;
-  createdAt: number;
-  lastActivityAt: number;
-  absoluteExpiresAt: number;
-}
-
-const activeLeaderSessions = new Map<string, LeaderSession>();
+export type LeaderSession = LeaderSessionRecord;
 
 /**
- * Creates a new leadership session upon successful code verification.
- */
-export function createLeaderSession(leader: LeaderIdentity): LeaderSession {
-  const sessionId = crypto.randomBytes(32).toString('hex');
-  const now = Date.now();
-
-  const session: LeaderSession = {
-    sessionId,
-    leaderId: leader.id,
-    email: leader.email,
-    name: leader.name,
-    title: leader.title,
-    role: 'LEADERSHIP',
-    allowedStates: leader.allowedStates || ['*'],
-    allowedDistricts: leader.allowedDistricts || ['*'],
-    authVersion: leader.authVersion,
-    createdAt: now,
-    lastActivityAt: now,
-    absoluteExpiresAt: now + LEADER_ABSOLUTE_LIFETIME_MS,
-  };
-
-  activeLeaderSessions.set(sessionId, session);
-  return session;
-}
-
-/**
- * Validates a leadership session ID.
+ * Validates a leadership session ID against distributed store and identity rules.
  * 
  * Options:
  * - isPoll: When true (e.g. from X-Poll header), does NOT extend lastActivityAt
  */
-export function validateLeaderSession(
+export async function validateLeaderSession(
   sessionId?: string | null,
-  options?: { isPoll?: boolean }
-): LeaderSession | null {
+  options?: { isPoll?: boolean; req?: NextRequest }
+): Promise<LeaderSessionRecord | null> {
   if (!sessionId || typeof sessionId !== 'string') return null;
 
-  const session = activeLeaderSessions.get(sessionId);
-  if (!session) return null;
+  const store = getLeaderAuthStore();
+  const session = await store.getSession(sessionId);
+  if (!session || session.isRevoked) return null;
 
   const now = Date.now();
 
   // 1. Check absolute 8-hour expiry
   if (now > session.absoluteExpiresAt) {
-    activeLeaderSessions.delete(sessionId);
+    await store.revokeSession(sessionId);
     return null;
   }
 
   // 2. Check 30-minute sliding idle timeout
   if (now - session.lastActivityAt > LEADER_IDLE_TIMEOUT_MS) {
-    activeLeaderSessions.delete(sessionId);
+    await store.revokeSession(sessionId);
     return null;
   }
 
   // 3. Mid-session revocation & authVersion check against identity store
   const leader = findLeaderById(session.leaderId);
   if (!leader || !leader.isActive || leader.authVersion !== session.authVersion) {
-    activeLeaderSessions.delete(sessionId);
+    await store.revokeSession(sessionId);
     return null;
   }
 
   // 4. Slide idle window UNLESS request is a background poll
   if (!options?.isPoll) {
+    await store.updateSessionActivity(sessionId, now);
     session.lastActivityAt = now;
   }
 
@@ -111,10 +85,19 @@ export function validateLeaderSession(
 /**
  * Revokes a session explicitly (e.g. on logout).
  */
-export function revokeLeaderSession(sessionId?: string | null): void {
+export async function revokeLeaderSession(sessionId?: string | null): Promise<void> {
   if (sessionId) {
-    activeLeaderSessions.delete(sessionId);
+    const store = getLeaderAuthStore();
+    await store.revokeSession(sessionId);
   }
+}
+
+/**
+ * Revokes all sessions for a leader (e.g. on deactivation or security reset).
+ */
+export async function revokeAllSessionsForLeader(leaderId: string): Promise<void> {
+  const store = getLeaderAuthStore();
+  await store.revokeAllSessionsForLeader(leaderId);
 }
 
 /**
@@ -144,6 +127,32 @@ export function clearLeaderSessionCookie(response: NextResponse): void {
 }
 
 /**
+ * Sets the HttpOnly browser device binding cookie.
+ */
+export function attachDeviceBindingCookie(response: NextResponse, secret: string): void {
+  response.cookies.set(LEADER_DEVICE_COOKIE_NAME, secret, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+    path: '/',
+  });
+}
+
+/**
+ * Clears the device binding cookie.
+ */
+export function clearDeviceBindingCookie(response: NextResponse): void {
+  response.cookies.set(LEADER_DEVICE_COOKIE_NAME, '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 0,
+    path: '/',
+  });
+}
+
+/**
  * Extracts leader session ID from incoming request cookie or header.
  */
 export function extractLeaderSessionId(req: NextRequest): string | null {
@@ -158,8 +167,25 @@ export function extractLeaderSessionId(req: NextRequest): string | null {
 }
 
 /**
- * Clears all active sessions for unit testing.
+ * Extracts browser device binding secret from incoming request cookie or header.
  */
-export function resetLeaderSessionsForTesting(): void {
-  activeLeaderSessions.clear();
+export function extractDeviceBindingSecret(req: NextRequest): string | null {
+  const cookieVal = req.cookies.get(LEADER_DEVICE_COOKIE_NAME)?.value;
+  if (cookieVal) return cookieVal.trim();
+
+  // Header fallback for testing
+  const headerVal = req.headers.get('x-device-binding');
+  if (headerVal) return headerVal.trim();
+
+  return null;
+}
+
+/**
+ * Resets all sessions for unit testing.
+ */
+export async function resetLeaderSessionsForTesting(): Promise<void> {
+  const store = getLeaderAuthStore();
+  if (store.clearAllForTesting) {
+    await store.clearAllForTesting();
+  }
 }

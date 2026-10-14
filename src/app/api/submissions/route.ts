@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const clientSubmissionId = searchParams.get('clientSubmissionId');
 
     // Resolve caller scope (Issue #57)
-    const scope = resolveUserAccessScope(req);
+    const scope = await resolveUserAccessScope(req);
     const syntheticDemoAllowed = !scope.isVerified && isSyntheticDemoModeAllowed(req);
 
     if (!scope.isVerified && !syntheticDemoAllowed) {

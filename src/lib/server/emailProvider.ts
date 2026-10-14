@@ -1,9 +1,15 @@
 /**
- * Email Provider Abstraction
+ * Email Provider Abstraction for Leadership Authentication
  * 
- * Supports SMTP (nodemailer), Resend, and Dev/Test Mock Logger fallback.
- * Never leaks credentials, never fails closed in test environments without email credentials.
+ * Guarantees:
+ * - Direct ESM/CJS import of nodemailer without eval/hacks
+ * - Strict production safety: FORCE_MOCK_EMAIL is rejected in production
+ * - Fail closed if email provider unconfigured in production
+ * - Zero OTP exposure in email subjects or logs
+ * - Standardized env vars: EMAIL_FROM, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE, RESEND_API_KEY
  */
+
+import nodemailer from 'nodemailer';
 
 export interface SendEmailParams {
   to: string;
@@ -79,13 +85,31 @@ export class MockEmailProvider implements EmailProvider {
 }
 
 /**
+ * Failing Email Provider for Unconfigured / Forbidden Environments
+ */
+export class FailingEmailProvider implements EmailProvider {
+  private reason: string;
+
+  constructor(reason: string) {
+    this.reason = reason;
+  }
+
+  async sendEmail(_params: SendEmailParams): Promise<SendEmailResult> {
+    console.error(`[EMAIL_DISPATCH:ERROR] ${this.reason}`);
+    return {
+      success: false,
+      error: this.reason,
+      provider: 'mock_logger',
+    };
+  }
+}
+
+/**
  * SMTP Provider (nodemailer)
  */
 export class SmtpEmailProvider implements EmailProvider {
   async sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
     try {
-      const nodeRequire = eval('require');
-      const nodemailer: any = nodeRequire('nodemailer');
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: Number(process.env.SMTP_PORT || 587),
@@ -135,7 +159,7 @@ export class ResendEmailProvider implements EmailProvider {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -174,23 +198,39 @@ export class ResendEmailProvider implements EmailProvider {
 }
 
 /**
- * Factory resolving the active email provider.
- * Selection priority:
- * 1. Mock Logger if in test environment or mock forced
- * 2. SMTP if SMTP_HOST configured
- * 3. Resend if RESEND_API_KEY configured
- * 4. Fallback to Mock Logger
+ * Resolves active email provider.
+ * Enforces production security:
+ * - Reject FORCE_MOCK_EMAIL in production
+ * - Fail closed if no real provider configured in production
  */
 export function getEmailProvider(): EmailProvider {
-  if (process.env.NODE_ENV === 'test' || process.env.FORCE_MOCK_EMAIL === 'true') {
-    return new MockEmailProvider();
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL_ENV === 'production' ||
+    process.env.APP_ENV === 'production';
+
+  if (isProduction) {
+    if (process.env.FORCE_MOCK_EMAIL === 'true') {
+      return new FailingEmailProvider('FORCE_MOCK_EMAIL is strictly forbidden in production.');
+    }
+
+    if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+      return new SmtpEmailProvider();
+    }
+
+    if (process.env.RESEND_API_KEY) {
+      return new ResendEmailProvider(process.env.RESEND_API_KEY);
+    }
+
+    return new FailingEmailProvider('No valid email provider configured in production.');
   }
 
-  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+  // Development / Test resolution
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.FORCE_MOCK_EMAIL !== 'true') {
     return new SmtpEmailProvider();
   }
 
-  if (process.env.RESEND_API_KEY) {
+  if (process.env.RESEND_API_KEY && process.env.FORCE_MOCK_EMAIL !== 'true') {
     return new ResendEmailProvider(process.env.RESEND_API_KEY);
   }
 
@@ -199,6 +239,7 @@ export function getEmailProvider(): EmailProvider {
 
 /**
  * Dispatches a Leadership OTP email with security advisory.
+ * Guarantees zero OTP plaintext in email subject.
  */
 export async function sendLeadershipOtpEmail({
   to,
@@ -212,7 +253,7 @@ export async function sendLeadershipOtpEmail({
   expiryMinutes?: number;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
-  const subject = `Your Alliance India Leadership Sign-In Code: ${code.substring(0, 8)}...`;
+  const subject = 'Your Leadership sign-in code';
 
   const html = `
     <!DOCTYPE html>
@@ -227,13 +268,10 @@ export async function sendLeadershipOtpEmail({
           <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello <strong>${name}</strong>,</p>
 
           <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
-            A sign-in request was initiated for your individual Leadership account. Please use the verification code below to complete authentication:
+            Your sign-in code is:
           </p>
 
           <div style="background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
-            <div style="font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em; color: #64748b; margin-bottom: 8px;">
-              Your 128-Bit Verification Code
-            </div>
             <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 18px; font-weight: bold; letter-spacing: 0.1em; color: #0f172a; word-break: break-all; display: block;">
               ${code}
             </code>
@@ -241,12 +279,12 @@ export async function sendLeadershipOtpEmail({
 
           <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px; margin-bottom: 24px;">
             <p style="color: #92400e; font-size: 12px; line-height: 1.5; margin: 0;">
-              <strong>Security Notice:</strong> This single-use code expires in <strong>${expiryMinutes} minutes</strong>. Never share this code with anyone. Alliance India staff will never ask for your authentication challenge code.
+              This code expires in <strong>${expiryMinutes} minutes</strong>. Do not share it. Alliance India staff will never ask for your verification code.
             </p>
           </div>
 
           <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
-            If you did not initiate this request, your account may be under review or someone entered your email by mistake. You can safely ignore this email.
+            If you did not initiate this request, you can safely ignore this email.
           </p>
         </div>
       </body>
@@ -254,19 +292,9 @@ export async function sendLeadershipOtpEmail({
   `;
 
   const text = `
-India HIV/AIDS Alliance — Leadership Access
-------------------------------------------------
-Hello ${name},
+Your sign-in code is: ${code}
 
-A sign-in request was initiated for your individual Leadership account.
-
-Verification Code:
-${code}
-
-This single-use code expires in ${expiryMinutes} minutes.
-Never share this code with anyone.
-
-If you did not request this, you can safely ignore this email.
+This code expires in ${expiryMinutes} minutes. Do not share it.
   `.trim();
 
   return provider.sendEmail({

@@ -4,7 +4,7 @@ import { resolveUserAccessScope } from '@/lib/server/authorisation';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const scope = resolveUserAccessScope(req);
+  const scope = await resolveUserAccessScope(req);
   return NextResponse.json({
     status: 'success',
     data: {
