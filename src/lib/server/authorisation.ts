@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { UserRole } from './canonicalSubmissionAdapter';
 import { extractSessionToken, verifySessionToken } from './sessionService';
+import { extractLeaderSessionId, validateLeaderSession } from './leaderSessionStore';
 
 export interface VerifiedRoleResult {
   role: UserRole;
@@ -147,6 +148,20 @@ export function resolveServerVerifiedRole(req: NextRequest): VerifiedRoleResult 
     }
   }
 
+  // 4b. Check individual Leadership session cookie
+  const leaderSessionId = extractLeaderSessionId(req);
+  if (leaderSessionId) {
+    const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
+    const leaderSession = validateLeaderSession(leaderSessionId, { isPoll });
+    if (leaderSession) {
+      return {
+        role: 'supervisor',
+        isVerified: true,
+        reason: 'verified_session_cookie',
+      };
+    }
+  }
+
   // 5. Untrusted browser caller fallback:
   if (rawRole && rawRole !== 'supervisor') {
     console.warn(`[Security Warning] Unverified client attempted privilege escalation with x-user-role: "${rawRole}". Enforcing "supervisor" default.`);
@@ -195,6 +210,24 @@ export function resolveUserAccessScope(req: NextRequest): UserAccessScope {
         allowedDistricts: session.allowedDistricts,
         isVerified: true,
         reason: 'verified_session_token',
+      };
+    }
+  }
+
+  // 1b. Check individual Leadership session cookie / header
+  const leaderSessionId = extractLeaderSessionId(req);
+  if (leaderSessionId) {
+    const isPoll = req.headers.get('x-poll') === 'true' || req.headers.get('x-poll') === '1';
+    const leaderSession = validateLeaderSession(leaderSessionId, { isPoll });
+    if (leaderSession) {
+      return {
+        userId: leaderSession.leaderId,
+        name: leaderSession.name,
+        role: 'LEADERSHIP',
+        allowedStates: leaderSession.allowedStates || ['*'],
+        allowedDistricts: leaderSession.allowedDistricts || ['*'],
+        isVerified: true,
+        reason: 'verified_leader_session',
       };
     }
   }

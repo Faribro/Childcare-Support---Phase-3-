@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Shield, Lock, AlertTriangle, CheckCircle, X, LogOut, Info, MapPin, Building2, Users } from 'lucide-react';
+import { Shield, Lock, AlertTriangle, CheckCircle, X, LogOut, Info, MapPin, Building2, Users, Mail, Key } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 interface EvaluationLoginModalProps {
@@ -270,10 +270,30 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   </>
                 ) : (
                   <>
+                    {process.env.NEXT_PUBLIC_LEADERSHIP_EMAIL_AUTH_ENABLED === 'true' && (
+                      <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-teal-900">
+                          <Mail className="w-4 h-4 text-teal-700" />
+                          <span>Individual Leadership Account (Allowlisted Email)</span>
+                        </div>
+                        <p className="text-[11px] text-teal-800 leading-relaxed">
+                          Directors and Technical Leads can sign in using individual allowlisted email and single-use 128-bit verification codes.
+                        </p>
+                        <a
+                          href="/leadership/login"
+                          onClick={() => onClose()}
+                          className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 text-xs font-semibold text-teal-900 bg-teal-100 hover:bg-teal-200 border border-teal-300 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                          Go to Individual Email Sign-In →
+                        </a>
+                      </div>
+                    )}
+
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                       <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                         <Users className="w-4 h-4 text-teal-700" />
-                        <span>Managers &amp; Directors (All States)</span>
+                        <span>Managers &amp; Directors (Shared Credential)</span>
                       </div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
                         Authorized shared leadership credential for national surveillance and programme review. Grants cross-state read-only evaluation without edit or deletion rights.
