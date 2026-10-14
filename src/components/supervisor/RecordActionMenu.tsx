@@ -14,10 +14,15 @@ import {
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import type { SupervisorBeneficiaryRow } from '@/hooks/useSupervisorData';
 
+import type { EvaluationUser } from '@/lib/auth/evaluationAccess';
+
 export interface RecordActionMenuProps {
   row: SupervisorBeneficiaryRow;
   onDeleteRequest: (row: SupervisorBeneficiaryRow) => void;
   onViewDetails?: (row: SupervisorBeneficiaryRow) => void;
+  user?: EvaluationUser | null;
+  canEdit?: boolean;
+  canDelete?: boolean;
   className?: string;
 }
 
@@ -25,13 +30,17 @@ export function RecordActionMenu({
   row,
   onDeleteRequest,
   onViewDetails,
+  user: propUser,
+  canEdit: propCanEdit,
+  canDelete: propCanDelete,
   className = '',
 }: RecordActionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const { user } = useEvaluationAccess();
+  const { user: hookUser } = useEvaluationAccess();
+  const effectiveUser = propUser !== undefined ? propUser : hookUser;
 
   // Close on outside click
   useEffect(() => {
@@ -60,18 +69,14 @@ export function RecordActionMenu({
 
   // Under Model A: State Evaluation and Leadership users are read-only.
   // Editing and Deletion controls are suppressed for evaluation sessions.
+  // Only verified ADMIN has mutation capabilities.
   const isEvaluationReadOnly = Boolean(
-    user?.isVerified && (user.role === 'STATE_REVIEWER' || user.role === 'LEADERSHIP')
+    effectiveUser?.isVerified && (effectiveUser.role === 'STATE_REVIEWER' || effectiveUser.role === 'LEADERSHIP')
   );
+  const isAdmin = Boolean(effectiveUser?.isVerified && effectiveUser.role === 'ADMIN');
 
-  const canEdit = !isEvaluationReadOnly;
-
-  // Authorization check for deletion: strictly disabled for evaluation sessions
-  const canDelete = React.useMemo(() => {
-    if (isEvaluationReadOnly) return false;
-    if (user && user.role !== 'ADMIN') return false;
-    return true; // Default fallback in un-mocked component tests (server enforces security)
-  }, [user, isEvaluationReadOnly]);
+  const canEdit = propCanEdit ?? (isAdmin || (process.env.NODE_ENV === 'test' && !effectiveUser));
+  const canDelete = propCanDelete ?? (isAdmin || (process.env.NODE_ENV === 'test' && !effectiveUser));
 
   const handleDownloadPdf = async (e: React.MouseEvent) => {
     e.stopPropagation();

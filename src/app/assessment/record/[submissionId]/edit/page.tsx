@@ -1315,7 +1315,7 @@ export default function EditRecordPage() {
 
   // Model A Enforcement: Evaluation sessions (State Reviewer and Leadership) are read-only.
   // Editing submitted records is strictly restricted to verified Administrator.
-  if (user?.isVerified && user.role !== 'ADMIN') {
+  if (user?.role && user.role !== 'ADMIN') {
     return (
       <AppShell>
         <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">
