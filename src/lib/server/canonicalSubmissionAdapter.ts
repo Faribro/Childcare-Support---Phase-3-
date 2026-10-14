@@ -244,8 +244,19 @@ export function filterAuthorisedRecord(record: any, role: UserRole = 'caseworker
     safe['16\nCaregiver Contact'] = maskedPhoneVal;
   }
 
-  // Remove raw file URLs for non-caseworkers
+  // Remove raw file URLs for non-caseworkers and provide authorized proxy preview endpoints
   if (role !== 'caseworker') {
+    const subId = safe._uuid || safe.uniqueId || safe.client_submission_id || safe.remote_submission_id || safe.id || '';
+    const encodedId = encodeURIComponent(subId);
+
+    const hadPassbook = Boolean(safe.passbook_photo_url || safe.passbookPhotoUrl || safe.hasPassbook || safe['25\nPassbook Front Page Link']);
+    const hadAadhaar = Boolean(safe.aadhaar_card_photo_url || safe.aadhaarCardPhotoUrl || safe.hasAadhaar || safe['26\nAadhaar Card Link']);
+    const hadChildPhoto = Boolean(safe.child_photo_url || safe.childPhotoUrl || safe.hasChildPhoto || safe['27\nPassport Size Photo Link']);
+    const hadFeeReceipt = Boolean(safe.fee_receipt_photo_url || safe.feeReceiptPhotoUrl || safe.hasFeeReceipt || safe['64\nSchool Fee Receipt Link']);
+    const hadMarksheet = Boolean(safe.marksheet_photo_url || safe.marksheetPhotoUrl || safe.hasMarksheet || safe['65\nMarksheet Photo Link']);
+    const hadSig = Boolean(safe.signature_data_url || safe.signatureDataUrl || safe.hasSignature || safe['72\nSignature Link']);
+
+    // Strip raw storage keys / URLs
     delete safe.passbook_photo_url;
     delete safe.passbookPhotoUrl;
     delete safe.aadhaar_card_photo_url;
@@ -258,6 +269,34 @@ export function filterAuthorisedRecord(record: any, role: UserRole = 'caseworker
     delete safe.marksheetPhotoUrl;
     delete safe.signature_data_url;
     delete safe.signatureDataUrl;
+
+    // Provide safe, authorized proxy preview endpoints
+    if (encodedId) {
+      if (hadPassbook) {
+        safe.passbookPhotoUrl = `/api/submissions/${encodedId}/asset?docType=passbookPhoto`;
+        safe.passbook_photo_url = safe.passbookPhotoUrl;
+      }
+      if (hadAadhaar) {
+        safe.aadhaarCardPhotoUrl = `/api/submissions/${encodedId}/asset?docType=aadhaarCardPhoto`;
+        safe.aadhaar_card_photo_url = safe.aadhaarCardPhotoUrl;
+      }
+      if (hadChildPhoto) {
+        safe.childPhotoUrl = `/api/submissions/${encodedId}/asset?docType=childPhoto`;
+        safe.child_photo_url = safe.childPhotoUrl;
+      }
+      if (hadFeeReceipt) {
+        safe.feeReceiptPhotoUrl = `/api/submissions/${encodedId}/asset?docType=feeReceiptPhoto`;
+        safe.fee_receipt_photo_url = safe.feeReceiptPhotoUrl;
+      }
+      if (hadMarksheet) {
+        safe.marksheetPhotoUrl = `/api/submissions/${encodedId}/asset?docType=marksheetPhoto`;
+        safe.marksheet_photo_url = safe.marksheetPhotoUrl;
+      }
+      if (hadSig) {
+        safe.signatureDataUrl = `/api/submissions/${encodedId}/asset?docType=caregiverSignature`;
+        safe.signature_data_url = safe.signatureDataUrl;
+      }
+    }
   }
 
   return safe as AuthorisedRecordDTO;

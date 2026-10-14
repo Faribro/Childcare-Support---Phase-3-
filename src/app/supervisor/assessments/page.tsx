@@ -62,6 +62,17 @@ import {
 
 type BeneficiaryRow = SupervisorBeneficiaryRow;
 
+function getDocTypeParam(docName: string): string {
+  const lower = docName.toLowerCase();
+  if (lower.includes('passbook')) return 'passbookPhoto';
+  if (lower.includes('aadhaar')) return 'aadhaarCardPhoto';
+  if (lower.includes('passport') || lower.includes('photo')) return 'childPhoto';
+  if (lower.includes('fee')) return 'feeReceiptPhoto';
+  if (lower.includes('mark') || lower.includes('grade')) return 'marksheetPhoto';
+  if (lower.includes('signature')) return 'caregiverSignature';
+  return 'childPhoto';
+}
+
 export default function SupervisorAssessmentsPage() {
   const { isUnlocked, isLoaded, user } = useEvaluationAccess();
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -1178,30 +1189,7 @@ export default function SupervisorAssessmentsPage() {
                     </div>
                   </th>
 
-                  {/* 6. BMI & Growth */}
-                  <th className="py-3 px-3">
-                    <div className="flex items-center justify-between">
-                      <span className="truncate">BMI</span>
-                      <ColumnFilterPopover
-                        columnId="bmi"
-                        columnTitle="BMI"
-                        sections={[
-                          {
-                            id: 'bmiCategory',
-                            title: 'BMI Category',
-                            options: bmiFacets,
-                            selectedValues: columnFilters.bmiCategory,
-                          },
-                        ]}
-                        onApply={handleApplyColumnFilter}
-                        onClear={() => handleClearColumnFilter(['bmiCategory'])}
-                        sortDirection={sortState?.column === 'bmi' ? sortState.direction : null}
-                        onSortChange={(dir) => handleSortChange('bmi', dir)}
-                      />
-                    </div>
-                  </th>
-
-                  {/* 7. Viral Load */}
+                  {/* 6. Viral Load */}
                   <th className="py-3 px-3">
                     <div className="flex items-center justify-between">
                       <span className="truncate">Viral Load</span>
@@ -1419,22 +1407,7 @@ export default function SupervisorAssessmentsPage() {
                         <div className="text-[10px] text-slate-400">{row.orphanStatus}</div>
                       </td>
 
-                      {/* 6. BMI & Growth */}
-                      <td className="py-3.5 px-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                            row.bmiCategory === 'Severe Underweight'
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : row.bmiCategory === 'Moderate Underweight'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}
-                        >
-                          {row.bmiCategory} {row.bmi !== null && row.bmi > 0 ? `(${row.bmi})` : ''}
-                        </span>
-                      </td>
-
-                      {/* 7. Viral Load */}
+                      {/* 6. Viral Load */}
                       <td className="py-3.5 px-3">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
@@ -1503,9 +1476,9 @@ export default function SupervisorAssessmentsPage() {
                         )}
                       </td>
 
-                      {/* 11. Approval Status: Admin Actionable Control vs Evaluation Read-Only Badge */}
+                      {/* 11. Approval Status: Admin / Leadership Actionable Control vs Evaluation Read-Only Badge */}
                       <td className="py-3.5 px-3 text-center">
-                        {user?.role === 'ADMIN' ? (
+                        {(user?.role === 'ADMIN' || user?.role === 'LEADERSHIP') ? (
                           <button
                             type="button"
                             onClick={() => setApprovalModalTarget(row)}
@@ -1715,8 +1688,8 @@ export default function SupervisorAssessmentsPage() {
                       {row.schoolType} • {row.orphanStatus}
                     </p>
                   </div>
-                  {/* Mobile Approval Status (Admin Toggle / Read-Only Badge) */}
-                  {user?.role === 'ADMIN' ? (
+                  {/* Mobile Approval Status (Admin/Leadership Toggle / Read-Only Badge) */}
+                  {(user?.role === 'ADMIN' || user?.role === 'LEADERSHIP') ? (
                     <button
                       type="button"
                       onClick={() => setApprovalModalTarget(row)}
@@ -1950,30 +1923,67 @@ export default function SupervisorAssessmentsPage() {
                 )}
               </div>
 
-              {/* Uploaded Documents List */}
+              {/* Uploaded Documents List with Visual Preview */}
               {activeDocModal.status.uploadedDocs.length > 0 && (
                 <div className="mt-4">
                   <h4 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
                     <FileCheck className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Uploaded ({activeDocModal.status.uploadedDocs.length})</span>
+                    <span>Uploaded Documents &amp; Previews ({activeDocModal.status.uploadedDocs.length})</span>
                   </h4>
-                  <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                    {activeDocModal.status.uploadedDocs.map((doc, idx) => (
-                      <li
-                        key={idx}
-                        className="flex items-center justify-between p-2 bg-emerald-50/50 border border-emerald-100 rounded-xl text-xs text-emerald-900"
-                      >
-                        <span className="truncate">{doc}</span>
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
+                    {activeDocModal.status.uploadedDocs.map((doc, idx) => {
+                      const docType = getDocTypeParam(doc);
+                      const assetUrl = `/api/submissions/${encodeURIComponent(activeDocModal.id)}/asset?docType=${docType}`;
+                      return (
+                        <div
+                          key={idx}
+                          className="flex flex-col p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-xs text-slate-800 truncate" title={doc}>
+                              {doc}
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                              Uploaded
+                            </span>
+                          </div>
+                          <div className="h-28 w-full bg-white rounded-lg border border-slate-200 overflow-hidden relative flex items-center justify-center">
+                            <img
+                              src={assetUrl}
+                              alt={`Preview of ${doc}`}
+                              className="w-full h-full object-contain p-1"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                                const parent = (e.target as HTMLElement).parentElement;
+                                if (parent && !parent.querySelector('.doc-fallback')) {
+                                  const fallback = document.createElement('div');
+                                  fallback.className = 'doc-fallback flex flex-col items-center justify-center text-slate-400 p-2 text-center';
+                                  fallback.innerHTML = `<span class="text-xs font-medium text-slate-600">Document File</span><span class="text-[10px] text-slate-400">Click preview to open</span>`;
+                                  parent.appendChild(fallback);
+                                }
+                              }}
+                            />
+                          </div>
+                          <a
+                            href={assetUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center space-x-1 text-[11px] font-bold text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 rounded-lg py-1 transition-colors"
+                          >
+                            <Eye className="h-3 w-3" />
+                            <span>View Full Document</span>
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
               {/* Footer Actions */}
               <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
-                {user?.role === 'ADMIN' && (
+                {(user?.role === 'ADMIN' || user?.role === 'LEADERSHIP') && (
                   <Link
                     href={`/assessment/record/${activeDocModal.id}/edit`}
                     className="inline-flex items-center space-x-1.5 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
@@ -1995,7 +2005,7 @@ export default function SupervisorAssessmentsPage() {
           </div>
         )}
 
-        {/* Actionable Approval Confirmation Modal for ADMIN */}
+        {/* Actionable Approval Confirmation Modal for ADMIN and LEADERSHIP */}
         {approvalModalTarget && (
           <div
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
@@ -2037,7 +2047,7 @@ export default function SupervisorAssessmentsPage() {
                         : 'bg-emerald-100 text-emerald-900'
                     }`}
                   >
-                    {approvalModalTarget.isApproved ? 'Approved → Pending' : 'Pending → Approved'}
+                    {approvalModalTarget.isApproved ? 'Approved → Pending (Remove Approval)' : 'Pending → Approved (Approve Record)'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-[11px] text-slate-400">
@@ -2047,7 +2057,7 @@ export default function SupervisorAssessmentsPage() {
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed">
-                Confirming will synchronize this sensitive approval state to the central surveillance sheet under your administrator identity.
+                Confirming will synchronize this sensitive approval state to the central surveillance sheet under your authorized identity.
               </p>
 
               <div className="pt-2 flex items-center justify-end space-x-2.5">
@@ -2078,7 +2088,7 @@ export default function SupervisorAssessmentsPage() {
                     </>
                   ) : (
                     <span>
-                      {approvalModalTarget.isApproved ? 'Revoke to Pending' : 'Confirm Approval'}
+                      {approvalModalTarget.isApproved ? 'Remove Approval' : 'Approve Record'}
                     </span>
                   )}
                 </Button>

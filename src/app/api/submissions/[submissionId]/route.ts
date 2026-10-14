@@ -156,20 +156,20 @@ export async function PATCH(
       );
     }
 
-    if (scope.role !== 'ADMIN') {
+    if (scope.role !== 'ADMIN' && scope.role !== 'LEADERSHIP') {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'ACCESS_DENIED',
         outcome: 'DENY',
         targetResource: submissionId,
-        details: `Caller role '${scope.role}' forbidden to execute PATCH on submission under Model A read-only evaluation policy`,
+        details: `Caller role '${scope.role}' forbidden to execute PATCH on submission. State Evaluators have read-only evaluation access.`,
       });
       return NextResponse.json(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Record edits are restricted to verified Administrator role. State Evaluation and Leadership users have read-only evaluation access.',
+          message: 'Record edits and approvals are restricted to verified Administrator and Leadership roles. State Evaluators have read-only access.',
           requestId,
         },
         { status: 403 }
@@ -281,6 +281,35 @@ export async function PATCH(
       req.headers.get('idempotency-key') ||
       `update-${submissionId}-${patchPayload.expectedVersion || 1}`;
 
+    // Geographic scope enforcement for Leadership callers without global wildcard
+    if (scope.role === 'LEADERSHIP' && (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*'))) {
+      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'caseworker');
+      if (existing.status === 'success' && existing.data) {
+        const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
+        const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
+        if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: 'SCOPE_VIOLATION',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            scope: `state=${recordState},district=${recordDistrict || ''}`,
+            details: `Leadership caller forbidden to edit record outside authorized scope ('${recordState}')`,
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: 'FORBIDDEN_SCOPE',
+              message: `Access denied to edit records in state "${recordState}".`,
+              requestId,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     const result = await canonicalSubmissionAdapter.updateSubmission({
       submissionId,
       patch: patchPayload,
@@ -315,6 +344,16 @@ export async function PATCH(
         { status: result.statusCode || 502 }
       );
     }
+
+    const isApprovalChange = patchPayload.approvedAllianceIndia !== undefined;
+    logSecurityEvent({
+      actor: scope.userId,
+      actorRole: scope.role,
+      eventType: isApprovalChange ? 'APPROVAL_CHANGED' : 'RECORD_MODIFIED',
+      outcome: 'ALLOW',
+      targetResource: submissionId,
+      details: `Record ${submissionId} updated by ${scope.name} (${scope.role}). Fields: ${Object.keys(patchPayload).filter((k) => k !== 'expectedVersion').join(', ')}. Version: ${result.version || patchPayload.expectedVersion + 1}`,
+    });
 
     return NextResponse.json(
       {

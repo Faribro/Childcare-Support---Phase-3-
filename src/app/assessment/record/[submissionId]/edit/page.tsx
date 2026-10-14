@@ -1313,9 +1313,10 @@ export default function EditRecordPage() {
     );
   }
 
-  // Model A Enforcement: Evaluation sessions (State Reviewer and Leadership) are read-only.
-  // Editing submitted records is strictly restricted to verified Administrator.
-  if (user?.role && user.role !== 'ADMIN') {
+  // Under updated policy:
+  // - Verified Administrators and Leadership are authorized to edit existing records.
+  // - State Evaluator sessions remain read-only.
+  if (user?.role && user.role !== 'ADMIN' && user.role !== 'LEADERSHIP') {
     return (
       <AppShell>
         <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">
@@ -1328,7 +1329,7 @@ export default function EditRecordPage() {
                 Read-Only Evaluation Session
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mt-2 max-w-md mx-auto leading-relaxed">
-                State Evaluation and Leadership sessions operate under read-only policy. Existing beneficiary records cannot be edited or modified.
+                State Evaluator sessions operate under read-only policy. Existing beneficiary records cannot be edited or modified.
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
@@ -1406,7 +1407,7 @@ export default function EditRecordPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h1 className="text-lg sm:text-xl font-bold text-slate-900">
-                Edit &amp; Amend Assessment Record
+                Editing Existing Assessment: {formData.childName || 'Child'} (ART ID: {formData.artNumber || submissionId})
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
                 Beneficiary: <strong className="text-slate-800">{formData.childName || 'Child'}</strong> • Unique Reference: <span className="font-mono text-teal-800">{formData.artNumber || submissionId}</span>
