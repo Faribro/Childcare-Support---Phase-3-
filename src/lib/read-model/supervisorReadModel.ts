@@ -53,14 +53,14 @@ export interface SupervisorBeneficiaryRow {
   childName: string;
   caregiverName?: string;
   caregiverPhone?: string;
-  age: number;
+  age: number | null;
   gender: string;
   district: string;
   state: string;
   schoolType: string;
   schoolEnrolled: boolean;
   orphanStatus: string;
-  bmi: number;
+  bmi: number | null;
   bmiCategory: BMICategory;
   viralLoad: string;
   vlCategory: VLCategory;
@@ -201,7 +201,7 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     it.caregiver_phone ||
     it.caregiverPhone ||
     undefined;
-  const age = readiness.age ?? 0;
+  const age = readiness.age;
   const gender = it['12\nGender'] || it['gender'] || it.demographics?.gender || it.gender || '—';
   const district = it['19\nDistrict'] || it['district'] || it.demographics?.district || it.district || 'General';
   const state = it['18\nState'] || it['state'] || it.demographics?.state || it.state || 'Maharashtra';
@@ -249,7 +249,7 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     schoolType: String(schoolType),
     schoolEnrolled: Boolean(schoolEnrolled),
     orphanStatus: String(orphanStatus),
-    bmi: numBmi,
+    bmi: readiness.bmi,
     bmiCategory: (it['35\nBMI Category'] || it['bmi category'] || it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
     viralLoad: String(rawVl || '—'),
     vlCategory: (it['46\nVL Category'] || it['vl category'] || it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,

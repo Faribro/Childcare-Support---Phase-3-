@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +18,9 @@ import {
   ShieldCheck,
   Home,
   Utensils,
+  FileDown,
+  Loader2,
+  Trash2,
 } from 'lucide-react';
 
 import { db } from '@/lib/db/dexieDb';
@@ -27,12 +30,17 @@ import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 export default function RecordDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const submissionId = params?.submissionId as string;
   const { user } = useEvaluationAccess();
 
   const [record, setRecord] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -240,6 +248,53 @@ export default function RecordDetailPage() {
   const remoteId = record.remote_submission_id || submissionId;
   const version = record.version || 1;
 
+  const handleDownloadPdf = async () => {
+    setIsExporting(true);
+    try {
+      const targetId = remoteId || submissionId;
+      const res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}/export`);
+      if (!res.ok) {
+        alert('Failed to generate PDF dossier.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Alliance_Beneficiary_${artNumber || targetId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('PDF export error:', err);
+      alert('Error downloading PDF dossier.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const targetId = remoteId || submissionId;
+      const res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        router.push('/supervisor/assessments');
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setDeleteError(data.error || 'Failed to delete record. Please check authorization.');
+    } catch (err) {
+      setDeleteError('Network error while deleting record.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-6 sm:py-8 space-y-6">
@@ -265,24 +320,63 @@ export default function RecordDetailPage() {
             </p>
           </div>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleDownloadPdf}
+              disabled={isExporting}
+              className="shadow-2xs text-xs"
+            >
+              {isExporting ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-1.5" />
+              )}
+              <span>{isExporting ? 'Generating PDF...' : 'Download PDF Dossier'}</span>
+            </Button>
+
             <Link href={`/assessment/record/${submissionId}/receipt`}>
-              <Button variant="secondary" size="sm" className="shadow-2xs">
+              <Button variant="secondary" size="sm" className="shadow-2xs text-xs">
                 <FileText className="h-4 w-4 mr-1.5" />
                 <span>View Receipt</span>
               </Button>
             </Link>
 
             {user?.role === 'ADMIN' && (
-              <Link href={`/assessment/record/${submissionId}/edit`}>
-                <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 shadow-2xs">
-                  <Edit className="h-4 w-4 mr-1.5" />
-                  <span>Edit Approved Fields</span>
+              <>
+                <Link href={`/assessment/record/${submissionId}/edit`}>
+                  <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 shadow-2xs text-xs">
+                    <Edit className="h-4 w-4 mr-1.5" />
+                    <span>Edit Approved Fields</span>
+                  </Button>
+                </Link>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 shadow-2xs text-xs cursor-pointer"
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  <span>Delete Survey</span>
                 </Button>
-              </Link>
+              </>
             )}
           </div>
         </div>
+
+        {/* Model A Evaluation Read-Only Notice */}
+        {user?.role && user.role !== 'ADMIN' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start space-x-3 shadow-xs">
+            <ShieldCheck className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Evaluation Session (Read-Only Mode)</p>
+              <p className="mt-0.5 text-slate-600 leading-relaxed">
+                State Reviewer and Leadership evaluation sessions operate under Model A read-only policy. Editing and deleting beneficiary surveys are disabled.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -522,6 +616,68 @@ export default function RecordDetailPage() {
             onRequiredSupportChange={() => {}}
           />
         </section>
+
+        {/* Delete Confirmation Modal for ADMIN */}
+        {showDeleteModal && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-survey-dialog-title"
+          >
+            <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
+              <div className="h-10 w-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-3">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <h3 id="delete-survey-dialog-title" className="text-base font-bold text-slate-900">
+                Delete Beneficiary Survey?
+              </h3>
+              <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                Are you sure you want to permanently delete the survey record for{' '}
+                <strong className="text-slate-900">{childName}</strong> (ART ID:{' '}
+                <span className="font-mono text-teal-800">{artNumber || submissionId}</span>)?
+              </p>
+              <p className="text-[11px] text-rose-600 mt-2 font-medium">
+                This action is irreversible and restricted to verified administrators.
+              </p>
+              {deleteError && (
+                <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2 mt-3">
+                  {deleteError}
+                </p>
+              )}
+              <div className="mt-5 flex items-center justify-end space-x-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteError(null);
+                  }}
+                  disabled={isDeleting}
+                  className="text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={handleConfirmDelete}
+                  disabled={isDeleting}
+                  className="text-xs bg-rose-600 hover:bg-rose-700 text-white"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Yes, Permanently Delete</span>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

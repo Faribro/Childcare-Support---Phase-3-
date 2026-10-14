@@ -150,7 +150,7 @@ export function isAttachmentPresent(val: any, confirmedBoolean?: boolean): boole
     if (
       lower.startsWith('http://') ||
       lower.startsWith('https://') ||
-      lower.startsWith('data:image/') ||
+      lower.startsWith('data:') ||
       lower.startsWith('blob:')
     ) {
       return true;
@@ -426,71 +426,78 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     }
   }
 
+  const isPassbookVerified = Boolean(it.isPassbookVerified || it.reviewConfirmed);
+  const isAadhaarVerified = Boolean(it.isAadhaarVerified || it.reviewConfirmed);
+  const isPhotoVerified = Boolean(it.isPhotoVerified || it.reviewConfirmed);
+  const isSignatureVerified = Boolean(it.isSignatureVerified || it.reviewConfirmed);
+  const isFeeReceiptVerified = Boolean(it.isFeeReceiptVerified || it.reviewConfirmed);
+  const isMarksheetVerified = Boolean(it.isMarksheetVerified || it.reviewConfirmed);
+
   // Assemble document details
   const docDetails: Record<CanonicalDocumentType, DocumentVerificationDetail> = {
     'Bank Passbook Front Page': {
       docType: 'Bank Passbook Front Page',
       required: true,
-      state: passbookPresent ? 'uploaded' : 'missing',
+      state: !passbookPresent ? 'missing' : isPassbookVerified ? 'verified' : 'uploaded',
       label: 'Bank Passbook Front Page',
       isMissing: !passbookPresent,
       isPresent: passbookPresent,
-      isVerified: Boolean(it.isPassbookVerified || it.reviewConfirmed),
+      isVerified: isPassbookVerified,
       isNotApplicable: false,
       rawRef: typeof passbookVal === 'string' ? passbookVal : undefined,
     },
     'Aadhaar Card': {
       docType: 'Aadhaar Card',
       required: true,
-      state: aadhaarPresent ? 'uploaded' : 'missing',
+      state: !aadhaarPresent ? 'missing' : isAadhaarVerified ? 'verified' : 'uploaded',
       label: 'Aadhaar Card',
       isMissing: !aadhaarPresent,
       isPresent: aadhaarPresent,
-      isVerified: Boolean(it.isAadhaarVerified || it.reviewConfirmed),
+      isVerified: isAadhaarVerified,
       isNotApplicable: false,
       rawRef: typeof aadhaarVal === 'string' ? aadhaarVal : undefined,
     },
     'Passport Size Photo': {
       docType: 'Passport Size Photo',
       required: true,
-      state: photoPresent ? 'uploaded' : 'missing',
+      state: !photoPresent ? 'missing' : isPhotoVerified ? 'verified' : 'uploaded',
       label: 'Passport Size Photo',
       isMissing: !photoPresent,
       isPresent: photoPresent,
-      isVerified: Boolean(it.isPhotoVerified || it.reviewConfirmed),
+      isVerified: isPhotoVerified,
       isNotApplicable: false,
       rawRef: typeof photoVal === 'string' ? photoVal : undefined,
     },
     'Caregiver Signature': {
       docType: 'Caregiver Signature',
       required: true,
-      state: sigPresent ? 'uploaded' : 'missing',
+      state: !sigPresent ? 'missing' : isSignatureVerified ? 'verified' : 'uploaded',
       label: 'Caregiver Signature / Thumb Impression',
       isMissing: !sigPresent,
       isPresent: sigPresent,
-      isVerified: Boolean(it.isSignatureVerified || it.reviewConfirmed),
+      isVerified: isSignatureVerified,
       isNotApplicable: false,
       rawRef: typeof sigVal === 'string' ? sigVal : undefined,
     },
     'School Fee Receipt': {
       docType: 'School Fee Receipt',
       required: isEnrolled,
-      state: !isEnrolled ? 'not_applicable' : feeReceiptPresent ? 'uploaded' : 'missing',
+      state: !isEnrolled ? 'not_applicable' : !feeReceiptPresent ? 'missing' : isFeeReceiptVerified ? 'verified' : 'uploaded',
       label: 'School Fee Receipt',
       isMissing: isEnrolled && !feeReceiptPresent,
       isPresent: feeReceiptPresent,
-      isVerified: Boolean(it.isFeeReceiptVerified || it.reviewConfirmed),
+      isVerified: isFeeReceiptVerified,
       isNotApplicable: !isEnrolled,
       rawRef: typeof feeVal === 'string' ? feeVal : undefined,
     },
     'Academic Marksheet': {
       docType: 'Academic Marksheet',
       required: isEnrolled,
-      state: !isEnrolled ? 'not_applicable' : marksheetPresent ? 'uploaded' : 'missing',
+      state: !isEnrolled ? 'not_applicable' : !marksheetPresent ? 'missing' : isMarksheetVerified ? 'verified' : 'uploaded',
       label: 'Academic Marksheet / Certificate',
       isMissing: isEnrolled && !marksheetPresent,
       isPresent: marksheetPresent,
-      isVerified: Boolean(it.isMarksheetVerified || it.reviewConfirmed),
+      isVerified: isMarksheetVerified,
       isNotApplicable: !isEnrolled,
       rawRef: typeof marksheetVal === 'string' ? marksheetVal : undefined,
     },

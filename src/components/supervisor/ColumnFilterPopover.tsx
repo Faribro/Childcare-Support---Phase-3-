@@ -48,10 +48,11 @@ export function ColumnFilterPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const prevIsOpenRef = useRef(false);
 
-  // Sync staged selections whenever popover opens or prop sections change
+  // Sync staged selections strictly when popover transitions from closed to open
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !prevIsOpenRef.current) {
       const initial: Record<string, string[]> = {};
       sections.forEach((s) => {
         initial[s.id] = [...s.selectedValues];
@@ -62,6 +63,7 @@ export function ColumnFilterPopover({
         searchInputRef.current?.focus();
       }, 50);
     }
+    prevIsOpenRef.current = isOpen;
   }, [isOpen, sections]);
 
   // Total active selected count across all sections for this column

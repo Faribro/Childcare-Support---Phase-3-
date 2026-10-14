@@ -260,7 +260,17 @@ export function computeColumnFacets(
 
   // Ensure any currently selected values are preserved in the list even if count is 0
   const selectedValues = filters[targetKey] || [];
-  const combinedValues = Array.from(new Set([...allPossible, ...selectedValues]));
+  let combinedValues = Array.from(new Set([...allPossible, ...selectedValues]));
+
+  // Strictly enforce user geographic authorization scope on facet options
+  if (user?.allowedStates && !user.allowedStates.includes('*') && targetKey === 'state') {
+    const allowed = user.allowedStates.map((s) => s.toLowerCase());
+    combinedValues = combinedValues.filter((v) => allowed.includes(v.toLowerCase()));
+  }
+  if (user?.allowedDistricts && !user.allowedDistricts.includes('*') && targetKey === 'district') {
+    const allowed = user.allowedDistricts.map((d) => d.toLowerCase());
+    combinedValues = combinedValues.filter((v) => allowed.includes(v.toLowerCase()));
+  }
 
   // Build facet options
   const facets: FacetOption[] = combinedValues.map((val) => ({
@@ -289,6 +299,30 @@ export function computeColumnFacets(
   });
 }
 
+function parseNumericLabValue(val: string | null | undefined): number | null {
+  if (!val || val === '—' || val === '-' || val.toLowerCase() === 'unknown') return null;
+  const lower = val.toLowerCase().trim();
+  if (lower.includes('undetect') || lower.includes('<')) return 0;
+  const num = parseFloat(val.replace(/[^0-9.]/g, ''));
+  return isNaN(num) ? null : num;
+}
+
+function compareNullableNumbers(
+  valA: number | null | undefined,
+  valB: number | null | undefined,
+  modifier: number
+): number {
+  const isAEmpty = valA === null || valA === undefined || isNaN(valA);
+  const isBEmpty = valB === null || valB === undefined || isNaN(valB);
+
+  // Unknown values always sort to the end (NULLS LAST)
+  if (isAEmpty && isBEmpty) return 0;
+  if (isAEmpty) return 1;
+  if (isBEmpty) return -1;
+
+  return (valA! - valB!) * modifier;
+}
+
 /**
  * Sorts linelist rows with stable tie-break ordering.
  */
@@ -306,54 +340,57 @@ export function sortBeneficiaryRows(
 
     switch (column) {
       case 'artNumber':
-        diff = a.artNumber.localeCompare(b.artNumber);
+        diff = a.artNumber.localeCompare(b.artNumber) * modifier;
         break;
       case 'childName':
-        diff = a.childName.localeCompare(b.childName);
+        diff = a.childName.localeCompare(b.childName) * modifier;
         break;
-      case 'age': {
-        const ageA = a.age ?? -1;
-        const ageB = b.age ?? -1;
-        diff = ageA - ageB;
+      case 'age':
+        diff = compareNullableNumbers(a.age, b.age, modifier);
         break;
-      }
       case 'gender':
-        diff = (a.gender || '').localeCompare(b.gender || '');
+        diff = (a.gender || '').localeCompare(b.gender || '') * modifier;
         break;
       case 'location': {
         const locA = `${a.district || ''}, ${a.state || ''}`;
         const locB = `${b.district || ''}, ${b.state || ''}`;
-        diff = locA.localeCompare(locB);
+        diff = locA.localeCompare(locB) * modifier;
         break;
       }
       case 'schoolOrphan': {
         const soA = `${a.schoolType || ''} ${a.orphanStatus || ''}`;
         const soB = `${b.schoolType || ''} ${b.orphanStatus || ''}`;
-        diff = soA.localeCompare(soB);
+        diff = soA.localeCompare(soB) * modifier;
         break;
       }
       case 'bmi':
-        diff = (a.bmi || 0) - (b.bmi || 0);
+        diff = compareNullableNumbers(a.bmi, b.bmi, modifier);
         break;
-      case 'viralLoad':
-        diff = (a.viralLoad || '').localeCompare(b.viralLoad || '');
+      case 'viralLoad': {
+        const vlA = parseNumericLabValue(a.viralLoad);
+        const vlB = parseNumericLabValue(b.viralLoad);
+        diff = compareNullableNumbers(vlA, vlB, modifier);
         break;
-      case 'hemoglobin':
-        diff = (a.hemoglobin || '').localeCompare(b.hemoglobin || '');
+      }
+      case 'hemoglobin': {
+        const hbA = parseNumericLabValue(a.hemoglobin);
+        const hbB = parseNumericLabValue(b.hemoglobin);
+        diff = compareNullableNumbers(hbA, hbB, modifier);
         break;
+      }
       case 'grantAmount':
-        diff = (a.grantAmount || 0) - (b.grantAmount || 0);
+        diff = compareNullableNumbers(a.grantAmount, b.grantAmount, modifier);
         break;
       case 'documents':
-        diff = (a.documentStatus.isComplete ? 1 : 0) - (b.documentStatus.isComplete ? 1 : 0);
+        diff = ((a.documentStatus.isComplete ? 1 : 0) - (b.documentStatus.isComplete ? 1 : 0)) * modifier;
         break;
       case 'approval':
-        diff = (a.isApproved ? 1 : 0) - (b.isApproved ? 1 : 0);
+        diff = ((a.isApproved ? 1 : 0) - (b.isApproved ? 1 : 0)) * modifier;
         break;
     }
 
     if (diff !== 0) {
-      return diff * modifier;
+      return diff;
     }
 
     // Stable tie-break by artNumber then id

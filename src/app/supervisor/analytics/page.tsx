@@ -31,7 +31,7 @@ interface ClinicalAnalyticsRecord {
   id: string;
   state: string;
   district: string;
-  bmi: number;
+  bmi: number | null;
   bmiCategory: BMICategory;
   vlCategory: VLCategory;
   hb: number;

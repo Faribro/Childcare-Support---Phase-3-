@@ -22,6 +22,8 @@ import {
 import type { SupervisorBeneficiaryRow } from '@/hooks/useSupervisorData';
 import type { EvaluationUser } from '@/lib/auth/evaluationAccess';
 import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
+import { ColumnFilterPopover } from '@/components/supervisor/ColumnFilterPopover';
+import { parseBeneficiaryRecord } from '@/lib/read-model/supervisorReadModel';
 
 describe('Beneficiary Linelist Readiness, Actions & Column Filter Architecture', () => {
   // ---------------------------------------------------------------------------
@@ -865,6 +867,414 @@ describe('Beneficiary Linelist Readiness, Actions & Column Filter Architecture',
       expect(deleteModalTarget).toBeNull();
       // Zero fetch calls must be made
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 10. Attachment Verification Differentiation & Multi-format Acceptance
+  // ---------------------------------------------------------------------------
+  describe('10. Attachment Verification Differentiation & Multi-format Acceptance', () => {
+    it('accepts base64 PDF and generic data URIs as present attachments', () => {
+      const pdfBase64 = 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...';
+      expect(isAttachmentPresent(pdfBase64)).toBe(true);
+
+      const imageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...';
+      expect(isAttachmentPresent(imageBase64)).toBe(true);
+    });
+
+    it('accurately derives state as verified, uploaded, missing, and not_applicable', () => {
+      const record = {
+        '1\nUnique ID': 'BEN-VER-01',
+        '42\nART ID Number': 'MH-PUN-001',
+        '9\nChild Name': 'Ananya Joshi',
+        '11\nAge': 10,
+        '53\nSchool Type': 'Government school',
+        // Passbook is present and verified
+        '25\nPassbook Front Page Link': 'https://drive.google.com/passbook.jpg',
+        isPassbookVerified: true,
+        // Aadhaar is present but unverified
+        '26\nAadhaar Card Link': 'https://drive.google.com/aadhaar.pdf',
+        isAadhaarVerified: false,
+        // Photo is missing
+        '27\nPassport Size Photo Link': '',
+        // Signature present and unverified
+        '6\nSignature /\nThumb Impression': 'data:image/png;base64,iVBORw0...',
+        isSignatureVerified: false,
+      };
+
+      const readiness = deriveBeneficiaryReadiness(record);
+      expect(readiness.docDetails['Bank Passbook Front Page'].state).toBe('verified');
+      expect(readiness.docDetails['Bank Passbook Front Page'].isVerified).toBe(true);
+      expect(readiness.docDetails['Bank Passbook Front Page'].isPresent).toBe(true);
+
+      expect(readiness.docDetails['Aadhaar Card'].state).toBe('uploaded');
+      expect(readiness.docDetails['Aadhaar Card'].isVerified).toBe(false);
+      expect(readiness.docDetails['Aadhaar Card'].isPresent).toBe(true);
+
+      expect(readiness.docDetails['Passport Size Photo'].state).toBe('missing');
+      expect(readiness.docDetails['Passport Size Photo'].isMissing).toBe(true);
+    });
+
+    it('sets state to not_applicable for school documents when child is not enrolled', () => {
+      const record = {
+        '1\nUnique ID': 'BEN-VER-02',
+        '42\nART ID Number': 'MH-PUN-002',
+        '9\nChild Name': 'Vikram',
+        '53\nSchool Type': 'Not in School / Dropped Out',
+        '25\nPassbook Front Page Link': 'https://drive.google.com/passbook.jpg',
+        '26\nAadhaar Card Link': 'https://drive.google.com/aadhaar.pdf',
+        '27\nPassport Size Photo Link': 'https://drive.google.com/photo.jpg',
+        '6\nSignature /\nThumb Impression': 'https://drive.google.com/sig.png',
+      };
+
+      const readiness = deriveBeneficiaryReadiness(record);
+      expect(readiness.docDetails['School Fee Receipt'].state).toBe('not_applicable');
+      expect(readiness.docDetails['School Fee Receipt'].required).toBe(false);
+      expect(readiness.docDetails['Academic Marksheet'].state).toBe('not_applicable');
+      expect(readiness.docDetails['Academic Marksheet'].required).toBe(false);
+    });
+
+    it('parseBeneficiaryRecord preserves null for missing age and bmi without coercing to zero', () => {
+      const recordWithoutAgeOrBmi = {
+        '1\nUnique ID': 'BEN-NULL-01',
+        '42\nART ID Number': 'MH-NUL-001',
+        '9\nChild Name': 'Tanvi',
+        '18\nState': 'Maharashtra',
+        '19\nDistrict': 'Pune',
+      };
+
+      const parsed = parseBeneficiaryRecord(recordWithoutAgeOrBmi);
+      expect(parsed.age).toBeNull();
+      expect(parsed.bmi).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 11. Null-Preserving Numeric Sorting & Lab Metric Sorting (NULLS LAST)
+  // ---------------------------------------------------------------------------
+  describe('11. Null-Preserving Numeric Sorting & Lab Metric Sorting', () => {
+    const makeRow = (
+      id: string,
+      art: string,
+      age: number | null,
+      bmi: number | null,
+      vl: string,
+      hb: string,
+      grant: number
+    ): SupervisorBeneficiaryRow => ({
+      id,
+      artNumber: art,
+      childName: `Child ${id}`,
+      age,
+      gender: 'Female',
+      district: 'Pune',
+      state: 'Maharashtra',
+      schoolType: 'Government',
+      schoolEnrolled: true,
+      orphanStatus: 'None',
+      bmi,
+      bmiCategory: 'Normal',
+      viralLoad: vl,
+      vlCategory: 'Suppressed',
+      hemoglobin: hb,
+      hbCategory: 'Normal',
+      grantAmount: grant,
+      documentStatus: {
+        isComplete: true,
+        completenessRate: 100,
+        uploadedCount: 6,
+        totalRequired: 6,
+        missingDocs: [],
+        missingPassbook: false,
+        missingAadhaar: false,
+        missingPhoto: false,
+        missingSignature: false,
+        missingSchoolDoc: false,
+      },
+      isApproved: true,
+      hasPassbook: true,
+      hasAadhaar: true,
+      hasPhoto: true,
+      hasSignature: true,
+      hasFeeReceipt: true,
+      hasMarksheet: true,
+      docDetails: {} as any,
+    });
+
+    it('sorts lab metrics (viralLoad) numerically rather than alphabetically', () => {
+      const rows = [
+        makeRow('1', 'ART-01', 10, 16.5, '1500', '12.0', 1000),
+        makeRow('2', 'ART-02', 12, 18.0, '< 50', '11.5', 1000),
+        makeRow('3', 'ART-03', 8, 14.2, '200', '13.0', 1000),
+        makeRow('4', 'ART-04', 9, 15.0, '—', '10.5', 1000),
+      ];
+
+      // Alphabetical sorting would put "1500" before "200". Numeric sorting puts 0 (< 50) < 200 < 1500 < null (—).
+      const sortedAsc = sortBeneficiaryRows(rows, { column: 'viralLoad', direction: 'asc' });
+      expect(sortedAsc.map((r) => r.id)).toEqual(['2', '3', '1', '4']);
+
+      const sortedDesc = sortBeneficiaryRows(rows, { column: 'viralLoad', direction: 'desc' });
+      // Descending puts 1500 first, then 200, then < 50, and unknown/— at the end (NULLS LAST)
+      expect(sortedDesc.map((r) => r.id)).toEqual(['1', '3', '2', '4']);
+    });
+
+    it('sorts hemoglobin numerically with nulls last in both directions', () => {
+      const rows = [
+        makeRow('1', 'ART-01', 10, 16.5, '50', '11.5', 1000),
+        makeRow('2', 'ART-02', 12, 18.0, '50', '6.5', 1000),
+        makeRow('3', 'ART-03', 8, 14.2, '50', '—', 1000),
+        makeRow('4', 'ART-04', 9, 15.0, '50', '9.0', 1000),
+      ];
+
+      const sortedAsc = sortBeneficiaryRows(rows, { column: 'hemoglobin', direction: 'asc' });
+      // 6.5 < 9.0 < 11.5 < null
+      expect(sortedAsc.map((r) => r.id)).toEqual(['2', '4', '1', '3']);
+
+      const sortedDesc = sortBeneficiaryRows(rows, { column: 'hemoglobin', direction: 'desc' });
+      // 11.5 > 9.0 > 6.5, null last
+      expect(sortedDesc.map((r) => r.id)).toEqual(['1', '4', '2', '3']);
+    });
+
+    it('places null ages and null BMIs last regardless of sort direction', () => {
+      const rows = [
+        makeRow('1', 'ART-01', null, 15.0, '50', '12.0', 1000),
+        makeRow('2', 'ART-02', 14, 18.0, '50', '12.0', 1000),
+        makeRow('3', 'ART-03', 7, null, '50', '12.0', 1000),
+      ];
+
+      const sortedAgeAsc = sortBeneficiaryRows(rows, { column: 'age', direction: 'asc' });
+      expect(sortedAgeAsc.map((r) => r.id)).toEqual(['3', '2', '1']);
+
+      const sortedAgeDesc = sortBeneficiaryRows(rows, { column: 'age', direction: 'desc' });
+      expect(sortedAgeDesc.map((r) => r.id)).toEqual(['2', '3', '1']);
+
+      const sortedBmiAsc = sortBeneficiaryRows(rows, { column: 'bmi', direction: 'asc' });
+      expect(sortedBmiAsc.map((r) => r.id)).toEqual(['1', '2', '3']);
+
+      const sortedBmiDesc = sortBeneficiaryRows(rows, { column: 'bmi', direction: 'desc' });
+      expect(sortedBmiDesc.map((r) => r.id)).toEqual(['2', '1', '3']);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12. Geographic Scope Isolation in Facet Computation
+  // ---------------------------------------------------------------------------
+  describe('12. Geographic Scope Isolation in Facet Computation', () => {
+    const records: SupervisorBeneficiaryRow[] = [
+      {
+        id: '1',
+        artNumber: 'MH-01',
+        childName: 'Pooja',
+        age: 10,
+        gender: 'Female',
+        district: 'Pune',
+        state: 'Maharashtra',
+        schoolType: 'Government',
+        schoolEnrolled: true,
+        orphanStatus: 'None',
+        bmi: 16.0,
+        bmiCategory: 'Normal',
+        viralLoad: '< 50',
+        vlCategory: 'Suppressed',
+        hemoglobin: '12.0',
+        hbCategory: 'Normal',
+        grantAmount: 1000,
+        documentStatus: { isComplete: true } as any,
+        isApproved: true,
+        hasPassbook: true,
+        hasAadhaar: true,
+        hasPhoto: true,
+        hasSignature: true,
+        hasFeeReceipt: true,
+        hasMarksheet: true,
+        docDetails: {} as any,
+      },
+      {
+        id: '2',
+        artNumber: 'WB-01',
+        childName: 'Rohan',
+        age: 11,
+        gender: 'Male',
+        district: 'Kolkata',
+        state: 'West Bengal',
+        schoolType: 'Government',
+        schoolEnrolled: true,
+        orphanStatus: 'None',
+        bmi: 17.0,
+        bmiCategory: 'Normal',
+        viralLoad: '< 50',
+        vlCategory: 'Suppressed',
+        hemoglobin: '11.0',
+        hbCategory: 'Normal',
+        grantAmount: 1000,
+        documentStatus: { isComplete: true } as any,
+        isApproved: true,
+        hasPassbook: true,
+        hasAadhaar: true,
+        hasPhoto: true,
+        hasSignature: true,
+        hasFeeReceipt: true,
+        hasMarksheet: true,
+        docDetails: {} as any,
+      },
+    ];
+
+    it('strictly isolates state facet options according to user allowedStates', () => {
+      const mhUser: EvaluationUser = {
+        userId: 'rev-mh',
+        name: 'MH Reviewer',
+        role: 'STATE_REVIEWER',
+        allowedStates: ['Maharashtra'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+      };
+
+      // Even if filters has 'West Bengal' injected by client tampering
+      const tamperedFilters: LinelistColumnFilters = {
+        ...INITIAL_COLUMN_FILTERS,
+        state: ['West Bengal'],
+      };
+
+      const facets = computeColumnFacets(
+        records,
+        tamperedFilters,
+        '',
+        'state',
+        (rows) => Array.from(new Set(rows.map((r) => r.state))),
+        mhUser
+      );
+
+      const facetValues = facets.map((f) => f.value);
+      expect(facetValues).toContain('Maharashtra');
+      expect(facetValues).not.toContain('West Bengal');
+    });
+
+    it('strictly isolates district facet options according to user allowedDistricts', () => {
+      const puneUser: EvaluationUser = {
+        userId: 'rev-pune',
+        name: 'Pune Reviewer',
+        role: 'DISTRICT_COORDINATOR',
+        allowedStates: ['Maharashtra'],
+        allowedDistricts: ['Pune'],
+        isVerified: true,
+      };
+
+      const tamperedFilters: LinelistColumnFilters = {
+        ...INITIAL_COLUMN_FILTERS,
+        district: ['Thane'],
+      };
+
+      const facets = computeColumnFacets(
+        records,
+        tamperedFilters,
+        '',
+        'district',
+        (rows) => Array.from(new Set(rows.map((r) => r.district))),
+        puneUser
+      );
+
+      const facetValues = facets.map((f) => f.value);
+      expect(facetValues).toContain('Pune');
+      expect(facetValues).not.toContain('Thane');
+      expect(facetValues).not.toContain('Kolkata');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 13. Popover Staged Selections Stability
+  // ---------------------------------------------------------------------------
+  describe('13. Popover Staged Selections Stability', () => {
+    it('maintains staged selections across parent re-renders while open', () => {
+      const onApply = vi.fn();
+      const onClear = vi.fn();
+
+      const { rerender } = render(
+        <ColumnFilterPopover
+          columnId="state"
+          columnTitle="State"
+          sections={[
+            {
+              id: 'state',
+              title: 'State',
+              options: [
+                { value: 'Maharashtra', label: 'Maharashtra', count: 10 },
+                { value: 'Gujarat', label: 'Gujarat', count: 5 },
+              ],
+              selectedValues: [],
+            },
+          ]}
+          onApply={onApply}
+          onClear={onClear}
+        />
+      );
+
+      // Open popover
+      const trigger = screen.getByRole('button', { name: /Filter and sort State/i });
+      fireEvent.click(trigger);
+
+      // Click Maharashtra checkbox (stages it without applying yet)
+      const mhCheckbox = screen.getByRole('checkbox', { name: /Maharashtra/i });
+      fireEvent.click(mhCheckbox);
+      expect(mhCheckbox).toBeChecked();
+
+      // Parent re-renders with new sections object reference
+      rerender(
+        <ColumnFilterPopover
+          columnId="state"
+          columnTitle="State"
+          sections={[
+            {
+              id: 'state',
+              title: 'State',
+              options: [
+                { value: 'Maharashtra', label: 'Maharashtra', count: 10 },
+                { value: 'Gujarat', label: 'Gujarat', count: 5 },
+              ],
+              selectedValues: [],
+            },
+          ]}
+          onApply={onApply}
+          onClear={onClear}
+        />
+      );
+
+      // The staged selection should NOT be wiped out
+      const mhCheckboxAfterRerender = screen.getByRole('checkbox', { name: /Maharashtra/i });
+      expect(mhCheckboxAfterRerender).toBeChecked();
+
+      // Apply filter
+      const applyBtn = screen.getByRole('button', { name: /apply/i });
+      fireEvent.click(applyBtn);
+
+      expect(onApply).toHaveBeenCalledWith({
+        state: ['Maharashtra'],
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 14. Scope Denominator Reconciliation
+  // ---------------------------------------------------------------------------
+  describe('14. Scope Denominator Reconciliation', () => {
+    it('accurately reconciles distinct children in scope from raw assessments', () => {
+      const rawSubmissions = [
+        { id: 'sub-01', artNumber: 'MH-PUN-001', version: 1, childName: 'Aarav' },
+        { id: 'sub-02', artNumber: 'MH-PUN-001', version: 2, childName: 'Aarav' }, // Duplicate assessment
+        { id: 'sub-03', artNumber: 'MH-PUN-002', version: 1, childName: 'Sneha' },
+        { id: 'sub-04', artNumber: 'MH-PUN-003', version: 1, childName: 'Pooja' },
+      ];
+
+      expect(rawSubmissions.length).toBe(4);
+
+      const deduplicated = deduplicateRecordsByChild(rawSubmissions);
+      expect(deduplicated.totalAssessments).toBe(4);
+      expect(deduplicated.distinctRecords.length).toBe(3);
+      expect(deduplicated.hasDuplicates).toBe(true);
+      expect(deduplicated.duplicateCount).toBe(1);
+
+      // Distinct children count (3) is the surveillance denominator, not raw submissions count (4)
+      const totalChildrenInScope = deduplicated.distinctRecords.length;
+      expect(totalChildrenInScope).toBe(3);
     });
   });
 });

@@ -43,6 +43,7 @@ import {
   type SupervisorBeneficiaryRow,
   type BeneficiaryDocumentStatus,
 } from '@/hooks/useSupervisorData';
+import { deduplicateRecordsByChild } from '@/lib/read-model/beneficiaryReadiness';
 import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
 import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
 import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
@@ -85,8 +86,21 @@ export default function SupervisorAssessmentsPage() {
 
   // Filter & Search State
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [columnFilters, setColumnFilters] = useState<LinelistColumnFilters>(INITIAL_COLUMN_FILTERS);
   const [sortState, setSortState] = useState<LinelistSortState | null>(null);
+
+  // Debounce global search input to prevent main-thread jank across large datasets (10,000 rows)
+  useEffect(() => {
+    if (!searchTerm) {
+      setDebouncedSearchTerm('');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Client-Side Pagination State (for scaling up to 10,000 records without DOM bloat)
   const [pageSize, setPageSize] = useState<number>(25);
@@ -115,17 +129,21 @@ export default function SupervisorAssessmentsPage() {
   // Feedback Notification Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const userAllowedStatesKey = user?.allowedStates?.join(',') || '';
+  const userAllowedDistrictsKey = user?.allowedDistricts?.join(',') || '';
+
   // Clear filters and reset page when session scope or user identity changes
   useEffect(() => {
     setColumnFilters(INITIAL_COLUMN_FILTERS);
     setSearchTerm('');
+    setDebouncedSearchTerm('');
     setCurrentPage(1);
-  }, [user?.userId, user?.role]);
+  }, [user?.userId, user?.role, userAllowedStatesKey, userAllowedDistrictsKey]);
 
-  // Reset pagination to page 1 whenever filters or search term change
+  // Reset pagination to page 1 whenever filters or debounced search term change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, columnFilters]);
+  }, [debouncedSearchTerm, columnFilters]);
 
   // Escape key handler for cloud modal and confirmation modals
   useEffect(() => {
@@ -161,10 +179,15 @@ export default function SupervisorAssessmentsPage() {
     });
   }, [data, user]);
 
+  // Distinct children in scope for accurate surveillance denominator
+  const totalChildrenInScope = useMemo(() => {
+    return deduplicateRecordsByChild(authorizedRecords).distinctRecords.length;
+  }, [authorizedRecords]);
+
   // 2. Filtered dataset combining global search and multi-select column filters
   const filteredData = useMemo(() => {
-    return filterBeneficiaryRows(authorizedRecords, columnFilters, searchTerm, user);
-  }, [authorizedRecords, columnFilters, searchTerm, user]);
+    return filterBeneficiaryRows(authorizedRecords, columnFilters, debouncedSearchTerm, user);
+  }, [authorizedRecords, columnFilters, debouncedSearchTerm, user]);
 
   // 3. Stable tie-break sorted dataset
   const sortedData = useMemo(() => {
@@ -184,12 +207,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'artNumber',
         (rows) => Array.from(new Set(rows.map((r) => r.artNumber))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const childNameFacets = useMemo(
@@ -197,12 +220,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'childName',
         (rows) => Array.from(new Set(rows.map((r) => r.childName))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const ageFacets = useMemo(
@@ -210,7 +233,7 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'age',
         (rows) =>
           Array.from(
@@ -222,7 +245,7 @@ export default function SupervisorAssessmentsPage() {
           ),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const genderFacets = useMemo(
@@ -230,12 +253,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'gender',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.gender)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const stateFacets = useMemo(
@@ -243,12 +266,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'state',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.state)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const districtFacets = useMemo(
@@ -256,12 +279,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'district',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.district)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const schoolTypeFacets = useMemo(
@@ -269,12 +292,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'schoolType',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.schoolType)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const orphanStatusFacets = useMemo(
@@ -282,12 +305,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'orphanStatus',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.orphanStatus)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const bmiFacets = useMemo(
@@ -295,12 +318,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'bmiCategory',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.bmiCategory)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const vlFacets = useMemo(
@@ -308,12 +331,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'vlCategory',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.vlCategory)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const hbFacets = useMemo(
@@ -321,12 +344,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'hbCategory',
         (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.hbCategory)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const grantFacets = useMemo(
@@ -334,12 +357,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'grantAmount',
         (rows) => Array.from(new Set(rows.map((r) => String(r.grantAmount || 0)))),
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const docFacets = useMemo(
@@ -347,12 +370,12 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'documentStatus',
         () => ['Complete', 'Pending'],
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   const approvalFacets = useMemo(
@@ -360,7 +383,7 @@ export default function SupervisorAssessmentsPage() {
       computeColumnFacets(
         authorizedRecords,
         columnFilters,
-        searchTerm,
+        debouncedSearchTerm,
         'approvalStatus',
         (rows) => {
           const distinct = new Set<string>(['Approved', 'Pending']);
@@ -371,7 +394,7 @@ export default function SupervisorAssessmentsPage() {
         },
         user
       ),
-    [authorizedRecords, columnFilters, searchTerm, user]
+    [authorizedRecords, columnFilters, debouncedSearchTerm, user]
   );
 
   // Filter application & clear handlers
@@ -839,7 +862,7 @@ export default function SupervisorAssessmentsPage() {
           <div className="mb-5">
             <CaseStatusSummaryDashboard
               records={filteredData}
-              totalInScope={authorizedRecords.length}
+              totalInScope={totalChildrenInScope}
             />
           </div>
         )}
@@ -1404,7 +1427,7 @@ export default function SupervisorAssessmentsPage() {
                               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           }`}
                         >
-                          {row.bmiCategory} {row.bmi > 0 ? `(${row.bmi})` : ''}
+                          {row.bmiCategory} {row.bmi !== null && row.bmi > 0 ? `(${row.bmi})` : ''}
                         </span>
                       </td>
 
@@ -1537,6 +1560,7 @@ export default function SupervisorAssessmentsPage() {
                       <td className="py-3.5 px-3 text-right">
                         <RecordActionMenu
                           row={row}
+                          user={user}
                           onDeleteRequest={(r) =>
                             setDeleteConfirmTarget({
                               id: r.id,
@@ -1781,6 +1805,7 @@ export default function SupervisorAssessmentsPage() {
 
                   <RecordActionMenu
                     row={row}
+                    user={user}
                     onDeleteRequest={(r) =>
                       setDeleteConfirmTarget({
                         id: r.id,
