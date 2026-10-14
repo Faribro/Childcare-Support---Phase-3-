@@ -6,124 +6,33 @@ import {
   FileWarning,
   AlertTriangle,
   HeartHandshake,
-  School,
   CheckCircle2,
-  Clock,
-  ChevronRight,
   ShieldAlert,
+  Info,
 } from 'lucide-react';
 import type { SupervisorBeneficiaryRow } from '@/hooks/useSupervisorData';
+import { computeReadinessAggregates, type ReadinessSummary } from '@/lib/read-model/beneficiaryReadiness';
 
 export interface CaseStatusSummaryDashboardProps {
   records: SupervisorBeneficiaryRow[];
+  totalInScope?: number;
   onFilterShortcut?: (filterKey: string, filterValue: string) => void;
   className?: string;
 }
 
 export function CaseStatusSummaryDashboard({
   records,
+  totalInScope,
   onFilterShortcut,
   className = '',
 }: CaseStatusSummaryDashboardProps) {
-  const summary = useMemo(() => {
-    const total = records.length;
-    if (total === 0) {
-      return {
-        total: 0,
-        completeDocsCount: 0,
-        incompleteDocsCount: 0,
-        completenessRate: 0,
-        missingPassbook: 0,
-        missingAadhaar: 0,
-        missingPhoto: 0,
-        missingSchoolDoc: 0,
-        doubleOrphans: 0,
-        singleOrphans: 0,
-        outOfSchool: 0,
-        clinicalAlerts: 0,
-        approvedCount: 0,
-        pendingApprovalCount: 0,
-        approvalRate: 0,
-      };
-    }
+  const summary: ReadinessSummary = useMemo(() => {
+    return computeReadinessAggregates(records, totalInScope);
+  }, [records, totalInScope]);
 
-    let completeDocsCount = 0;
-    let missingPassbook = 0;
-    let missingAadhaar = 0;
-    let missingPhoto = 0;
-    let missingSchoolDoc = 0;
-
-    let doubleOrphans = 0;
-    let singleOrphans = 0;
-    let outOfSchool = 0;
-    let clinicalAlerts = 0;
-    let approvedCount = 0;
-
-    for (const r of records) {
-      // Document checks
-      if (r.documentStatus.isComplete) {
-        completeDocsCount++;
-      } else {
-        const pending = r.documentStatus.pendingDocs || [];
-        if (pending.some((d) => d.toLowerCase().includes('passbook'))) missingPassbook++;
-        if (pending.some((d) => d.toLowerCase().includes('aadhaar'))) missingAadhaar++;
-        if (pending.some((d) => d.toLowerCase().includes('photo'))) missingPhoto++;
-        if (pending.some((d) => d.toLowerCase().includes('fee') || d.toLowerCase().includes('receipt') || d.toLowerCase().includes('school'))) {
-          missingSchoolDoc++;
-        }
-      }
-
-      // Vulnerability checks
-      const orphanLower = (r.orphanStatus || '').toLowerCase();
-      if (orphanLower.includes('double') || orphanLower.includes('both parents deceased')) {
-        doubleOrphans++;
-      } else if (orphanLower.includes('single') || orphanLower.includes('deceased')) {
-        singleOrphans++;
-      }
-
-      if (!r.schoolEnrolled || (r.schoolType && r.schoolType.toLowerCase().includes('not enrolled'))) {
-        outOfSchool++;
-      }
-
-      // Clinical alert
-      const isSevereUnderweight = r.bmiCategory === 'Severe Underweight';
-      const isHighVL = r.vlCategory.includes('Unsuppressed') || r.vlCategory.includes('High');
-      const isSevereAnemia = r.hbCategory === 'Severe Anemia';
-      if (isSevereUnderweight || isHighVL || isSevereAnemia) {
-        clinicalAlerts++;
-      }
-
-      // Approval
-      if (r.isApproved) {
-        approvedCount++;
-      }
-    }
-
-    const completenessRate = Math.round((completeDocsCount / total) * 100);
-    const incompleteDocsCount = total - completeDocsCount;
-    const pendingApprovalCount = total - approvedCount;
-    const approvalRate = Math.round((approvedCount / total) * 100);
-
-    return {
-      total,
-      completeDocsCount,
-      incompleteDocsCount,
-      completenessRate,
-      missingPassbook,
-      missingAadhaar,
-      missingPhoto,
-      missingSchoolDoc,
-      doubleOrphans,
-      singleOrphans,
-      outOfSchool,
-      clinicalAlerts,
-      approvedCount,
-      pendingApprovalCount,
-      approvalRate,
-    };
-  }, [records]);
-
-  if (summary.total === 0) {
+  // Zero records returns null so no misleading 0% dashboard is rendered;
+  // page level table empty state handles user messaging.
+  if (records.length === 0) {
     return null;
   }
 
@@ -135,15 +44,18 @@ export function CaseStatusSummaryDashboard({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <FileCheck2 className="h-4 w-4 text-teal-600" />
+            <FileCheck2 className="h-4 w-4 text-teal-600 shrink-0" />
             <span>Case Status & Document Verification Readiness</span>
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Dossier completeness and vulnerability surveillance across {summary.total} active beneficiaries in scope
+            Dossier completeness and vulnerability surveillance across {summary.contextLabel}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
+          <span
+            className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+            title={`${summary.completeDocsCount} of ${summary.total} distinct beneficiaries have all applicable required documents`}
+          >
             {summary.completeDocsCount} / {summary.total} Complete ({summary.completenessRate}%)
           </span>
         </div>
@@ -169,6 +81,9 @@ export function CaseStatusSummaryDashboard({
               style={{ width: `${summary.completenessRate}%` }}
             />
           </div>
+          <div className="text-[10px] text-slate-400 mt-1 truncate" title={summary.metricDocumentation.completenessFormula}>
+            {summary.completeDocsCount} of {summary.total} satisfying all requirements
+          </div>
         </div>
 
         {/* Missing Documentation Alert Card */}
@@ -185,7 +100,11 @@ export function CaseStatusSummaryDashboard({
           </div>
           <div className="text-[11px] text-amber-700/80 mt-1 truncate">
             {summary.missingAadhaar > 0 && `${summary.missingAadhaar} Aadhaar `}
-            {summary.missingPassbook > 0 && `• ${summary.missingPassbook} Passbook`}
+            {summary.missingPassbook > 0 && `• ${summary.missingPassbook} Passbook `}
+            {summary.missingPhoto > 0 && `• ${summary.missingPhoto} Photo`}
+          </div>
+          <div className="text-[10px] text-amber-600/70 mt-1 truncate">
+            {summary.incompleteDocsCount} distinct children missing &ge;1 document
           </div>
         </div>
 
@@ -206,6 +125,9 @@ export function CaseStatusSummaryDashboard({
           <div className="text-[11px] text-purple-700/80 mt-1">
             {summary.singleOrphans} Single Orphan Cases
           </div>
+          <div className="text-[10px] text-purple-600/70 mt-1">
+            {summary.bothParentsAlive} Both Parents Alive
+          </div>
         </div>
 
         {/* Alliance Approval Status Card */}
@@ -222,6 +144,10 @@ export function CaseStatusSummaryDashboard({
           </div>
           <div className="text-[11px] text-teal-700/80 mt-1">
             {summary.pendingApprovalCount} Pending Approval
+            {summary.rejectedApprovalCount > 0 && ` • ${summary.rejectedApprovalCount} Rejected`}
+          </div>
+          <div className="text-[10px] text-teal-600/70 mt-1 truncate" title={summary.metricDocumentation.approvalFormula}>
+            Numerator: {summary.approvedCount} approved / Denominator: {summary.total}
           </div>
         </div>
       </div>
@@ -247,6 +173,11 @@ export function CaseStatusSummaryDashboard({
             {summary.missingPhoto > 0 && (
               <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
                 Passport Photo: <strong className="ml-1">{summary.missingPhoto}</strong>
+              </span>
+            )}
+            {summary.missingSignature > 0 && (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                Caregiver Signature: <strong className="ml-1">{summary.missingSignature}</strong>
               </span>
             )}
             {summary.missingSchoolDoc > 0 && (

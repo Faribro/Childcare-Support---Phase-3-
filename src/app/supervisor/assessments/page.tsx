@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -30,6 +30,11 @@ import {
   Loader2,
   Lock,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
@@ -38,11 +43,22 @@ import {
   type SupervisorBeneficiaryRow,
   type BeneficiaryDocumentStatus,
 } from '@/hooks/useSupervisorData';
-import { StateDistrictFilterBar } from '@/components/supervisor/StateDistrictFilterBar';
+import { deduplicateRecordsByChild } from '@/lib/read-model/beneficiaryReadiness';
 import { CaseStatusSummaryDashboard } from '@/components/supervisor/CaseStatusSummaryDashboard';
 import { RecordActionMenu } from '@/components/supervisor/RecordActionMenu';
 import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
-import type { BMICategory, VLCategory, HbCategory, SchoolType, OrphanStatus } from '@/types/domain';
+import { ColumnFilterPopover } from '@/components/supervisor/ColumnFilterPopover';
+import {
+  type LinelistColumnFilters,
+  INITIAL_COLUMN_FILTERS,
+  type LinelistSortState,
+  type SortColumn,
+  filterBeneficiaryRows,
+  sortBeneficiaryRows,
+  computeColumnFacets,
+  sanitizeCsvCell,
+  normalizeFilterValue,
+} from '@/components/supervisor/linelistFilterUtils';
 
 type BeneficiaryRow = SupervisorBeneficiaryRow;
 
@@ -68,60 +84,465 @@ export default function SupervisorAssessmentsPage() {
     lastRefreshed,
   } = useSupervisorData({ enabled: isLoaded && isUnlocked });
 
+  // Filter & Search State
   const [searchTerm, setSearchTerm] = useState('');
-  const [schoolTypeFilter, setSchoolTypeFilter] = useState('ALL');
-  const [orphanStatusFilter, setOrphanStatusFilter] = useState('ALL');
-  const [stateFilter, setStateFilter] = useState('ALL');
-  const [districtFilter, setDistrictFilter] = useState('ALL');
-  const [deleteConfirmId, setDeleteConfirmId] = useState<{ id: string; name: string } | null>(null);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [columnFilters, setColumnFilters] = useState<LinelistColumnFilters>(INITIAL_COLUMN_FILTERS);
+  const [sortState, setSortState] = useState<LinelistSortState | null>(null);
+
+  // Debounce global search input to prevent main-thread jank across large datasets (10,000 rows)
+  useEffect(() => {
+    if (!searchTerm) {
+      setDebouncedSearchTerm('');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Client-Side Pagination State (for scaling up to 10,000 records without DOM bloat)
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Deletion State
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
+    id: string;
+    name: string;
+    artNumber: string;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Approval Mutation State
+  const [approvalModalTarget, setApprovalModalTarget] = useState<BeneficiaryRow | null>(null);
+  const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
+
+  // Document Verification Cloud Modal State
   const [activeDocModal, setActiveDocModal] = useState<{
     id: string;
     childName: string;
     artNumber: string;
     status: BeneficiaryDocumentStatus;
   } | null>(null);
-  const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
+
+  // Feedback Notification Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Sync state filter when user has restricted scope
+  const userAllowedStatesKey = user?.allowedStates?.join(',') || '';
+  const userAllowedDistrictsKey = user?.allowedDistricts?.join(',') || '';
+
+  // Clear filters and reset page when session scope or user identity changes
   useEffect(() => {
-    if (user?.allowedStates && !user.allowedStates.includes('*') && user.allowedStates.length === 1) {
-      setStateFilter(user.allowedStates[0]);
+    setColumnFilters(INITIAL_COLUMN_FILTERS);
+    setSearchTerm('');
+    setDebouncedSearchTerm('');
+    setCurrentPage(1);
+  }, [user?.userId, user?.role, userAllowedStatesKey, userAllowedDistrictsKey]);
+
+  // Reset pagination to page 1 whenever filters or debounced search term change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm, columnFilters]);
+
+  // Escape key handler for cloud modal and confirmation modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveDocModal(null);
+        setDeleteConfirmTarget(null);
+        setApprovalModalTarget(null);
+      }
+    };
+    if (activeDocModal || deleteConfirmTarget || approvalModalTarget) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [user]);
+  }, [activeDocModal, deleteConfirmTarget, approvalModalTarget]);
 
-  const handleStateChange = (nextState: string) => {
-    setStateFilter(nextState);
-    setDistrictFilter('ALL');
-    fetchWithFilters({ state: nextState === 'ALL' ? undefined : nextState, district: undefined });
-  };
-
-  const handleDistrictChange = (nextDistrict: string) => {
-    setDistrictFilter(nextDistrict);
-    fetchWithFilters({
-      state: stateFilter === 'ALL' ? undefined : stateFilter,
-      district: nextDistrict === 'ALL' ? undefined : nextDistrict,
+  // 1. Authorized scope filtering: Strictly ensure records never cross geographic clearance
+  const authorizedRecords = useMemo(() => {
+    return data.filter((row) => {
+      if (user?.allowedStates && !user.allowedStates.includes('*')) {
+        const rowState = (row.state || 'Maharashtra').toLowerCase();
+        if (!user.allowedStates.some((s) => s.toLowerCase() === rowState)) {
+          return false;
+        }
+      }
+      if (user?.allowedDistricts && !user.allowedDistricts.includes('*')) {
+        const rowDist = (row.district || '').toLowerCase();
+        if (!user.allowedDistricts.some((d) => d.toLowerCase() === rowDist)) {
+          return false;
+        }
+      }
+      return true;
     });
+  }, [data, user]);
+
+  // 1b. Distinct children in authorized scope under established visit chronology
+  const currentChildRecords = useMemo(() => {
+    return deduplicateRecordsByChild(authorizedRecords).distinctRecords;
+  }, [authorizedRecords]);
+
+  const totalChildrenInScope = currentChildRecords.length;
+
+  // 2. Filtered dataset combining global search and multi-select column filters
+  const filteredData = useMemo(() => {
+    return filterBeneficiaryRows(currentChildRecords, columnFilters, debouncedSearchTerm, user);
+  }, [currentChildRecords, columnFilters, debouncedSearchTerm, user]);
+
+  // 3. Stable tie-break sorted dataset
+  const sortedData = useMemo(() => {
+    return sortBeneficiaryRows(filteredData, sortState);
+  }, [filteredData, sortState]);
+
+  // 4. Paginated rows slice for DOM rendering performance
+  const totalPages = Math.max(1, Math.ceil(sortedData.length / pageSize));
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedData.slice(start, start + pageSize);
+  }, [sortedData, currentPage, pageSize]);
+
+  // 5. Faceted Option Derivation for Column Headers (memoized per column using current child records)
+  const artNumberFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'artNumber',
+        (rows) => Array.from(new Set(rows.map((r) => r.artNumber))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const childNameFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'childName',
+        (rows) => Array.from(new Set(rows.map((r) => r.childName))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const ageFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'age',
+        (rows) =>
+          Array.from(
+            new Set(
+              rows.map((r) =>
+                r.age !== null && r.age !== undefined ? String(r.age) : '(Blank / Unknown)'
+              )
+            )
+          ),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const genderFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'gender',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.gender)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const stateFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'state',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.state)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const districtFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'district',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.district)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const schoolTypeFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'schoolType',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.schoolType)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const orphanStatusFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'orphanStatus',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.orphanStatus)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const bmiFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'bmiCategory',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.bmiCategory)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const vlFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'vlCategory',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.vlCategory)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const hbFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'hbCategory',
+        (rows) => Array.from(new Set(rows.map((r) => normalizeFilterValue(r.hbCategory)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const grantFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'grantAmount',
+        (rows) => Array.from(new Set(rows.map((r) => String(r.grantAmount || 0)))),
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const docFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'documentStatus',
+        () => ['Complete', 'Pending'],
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  const approvalFacets = useMemo(
+    () =>
+      computeColumnFacets(
+        currentChildRecords,
+        columnFilters,
+        debouncedSearchTerm,
+        'approvalStatus',
+        (rows) => {
+          const distinct = new Set<string>(['Approved', 'Pending']);
+          rows.forEach((r) => {
+            if (r.approvedStatus) distinct.add(r.approvedStatus);
+          });
+          return Array.from(distinct);
+        },
+        user
+      ),
+    [currentChildRecords, columnFilters, debouncedSearchTerm, user]
+  );
+
+  // Filter application & clear handlers
+  const handleApplyColumnFilter = useCallback((selectionsBySection: Record<string, string[]>) => {
+    setColumnFilters((prev) => ({
+      ...prev,
+      ...selectionsBySection,
+    }));
+  }, []);
+
+  const handleClearColumnFilter = useCallback((sectionKeys: (keyof LinelistColumnFilters)[]) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      for (const key of sectionKeys) {
+        next[key] = [];
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSortChange = useCallback((column: SortColumn, direction: 'asc' | 'desc' | null) => {
+    if (!direction) {
+      setSortState(null);
+    } else {
+      setSortState({ column, direction });
+    }
+  }, []);
+
+  // Reset all filters (preserves authorized scope)
+  const resetFilters = useCallback(() => {
+    setSearchTerm('');
+    setColumnFilters(INITIAL_COLUMN_FILTERS);
+    setSortState(null);
+  }, []);
+
+  // Determine active filter count across all columns & search
+  const activeFilterList = useMemo(() => {
+    const list: { key: keyof LinelistColumnFilters | 'search'; label: string; count: number }[] = [];
+    if (searchTerm.trim()) {
+      list.push({ key: 'search', label: `Search: "${searchTerm}"`, count: 1 });
+    }
+    const filterLabels: Record<keyof LinelistColumnFilters, string> = {
+      artNumber: 'ART ID',
+      childName: 'Child Name',
+      gender: 'Gender',
+      age: 'Age',
+      state: 'State',
+      district: 'District',
+      schoolType: 'School Type',
+      orphanStatus: 'Orphan Status',
+      bmiCategory: 'BMI',
+      vlCategory: 'Viral Load',
+      hbCategory: 'Haemoglobin',
+      grantAmount: 'Grant',
+      documentStatus: 'Documents',
+      approvalStatus: 'Approval',
+    };
+    for (const [k, vals] of Object.entries(columnFilters)) {
+      const key = k as keyof LinelistColumnFilters;
+      if (vals && vals.length > 0) {
+        list.push({
+          key,
+          label: `${filterLabels[key]}: ${vals.join(', ')}`,
+          count: vals.length,
+        });
+      }
+    }
+    return list;
+  }, [searchTerm, columnFilters]);
+
+  const hasActiveFilters = activeFilterList.length > 0;
+
+  // Single filter chip removal
+  const handleRemoveFilterChip = (key: keyof LinelistColumnFilters | 'search') => {
+    if (key === 'search') {
+      setSearchTerm('');
+    } else {
+      handleClearColumnFilter([key]);
+    }
   };
 
-  const handleToggleApproval = async (row: BeneficiaryRow) => {
+  // Safe CSV Export (Formula Injection Safe via sanitizeCsvCell, Exports ALL matching records)
+  const handleExportCSV = useCallback(() => {
+    if (sortedData.length === 0) return;
+
+    const headers = [
+      'Reference ID',
+      'Child Name',
+      'Age',
+      'Gender',
+      'District',
+      'State',
+      'School Type',
+      'Orphan Status',
+      'BMI',
+      'BMI Category',
+      'Viral Load',
+      'VL Status',
+      'Haemoglobin (g/dL)',
+      'Hb Category',
+      'Grant Amount (INR)',
+      'Documents Status',
+      'Pending Documents',
+      'Approval Status',
+    ];
+
+    const csvRows = [
+      headers.map(sanitizeCsvCell).join(','),
+      ...sortedData.map((r) =>
+        [
+          sanitizeCsvCell(r.artNumber),
+          sanitizeCsvCell(r.childName),
+          sanitizeCsvCell(r.age !== null ? r.age : ''),
+          sanitizeCsvCell(r.gender),
+          sanitizeCsvCell(r.district),
+          sanitizeCsvCell(r.state || 'Maharashtra'),
+          sanitizeCsvCell(r.schoolType),
+          sanitizeCsvCell(r.orphanStatus),
+          sanitizeCsvCell(r.bmi !== null ? r.bmi : ''),
+          sanitizeCsvCell(r.bmiCategory),
+          sanitizeCsvCell(r.viralLoad || ''),
+          sanitizeCsvCell(r.vlCategory),
+          sanitizeCsvCell(r.hemoglobin || ''),
+          sanitizeCsvCell(r.hbCategory),
+          sanitizeCsvCell(r.grantAmount),
+          sanitizeCsvCell(r.documentStatus.isComplete ? 'Complete' : 'Pending'),
+          sanitizeCsvCell(r.documentStatus.pendingDocs.join('; ') || 'None'),
+          sanitizeCsvCell(r.isApproved ? 'Approved' : r.approvedStatus || 'Pending'),
+        ].join(',')
+      ),
+    ];
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alliance_india_linelist_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [sortedData]);
+
+  // Working Permission-Aware Approval Mutation (Admin only, server-confirmed, OCC versioned)
+  const handleConfirmApproval = async (row: BeneficiaryRow) => {
     setUpdatingApprovalId(row.id);
     const nextApproved = !row.isApproved;
     const nextStatus = nextApproved ? 'Approved' : 'Pending';
-
-    // Optimistic UI update
-    setData((prev) =>
-      prev.map((item) =>
-        item.id === row.id
-          ? {
-              ...item,
-              isApproved: nextApproved,
-              approvedStatus: nextStatus,
-              version: item.version + 1,
-            }
-          : item
-      )
-    );
 
     try {
       const res = await fetch(`/api/submissions/${encodeURIComponent(row.id)}`, {
@@ -137,184 +558,87 @@ export default function SupervisorAssessmentsPage() {
       });
 
       if (res.ok) {
-        setToastMessage(
-          nextApproved
-            ? `Survey for ${row.childName} Approved and marked in central sheet!`
-            : `Survey for ${row.childName} marked as Pending.`
-        );
-        setTimeout(() => setToastMessage(null), 3500);
-      } else {
-        // Revert on failure
+        // Server confirmation: update row data in state with incremented version
         setData((prev) =>
           prev.map((item) =>
             item.id === row.id
               ? {
                   ...item,
-                  isApproved: row.isApproved,
-                  approvedStatus: row.approvedStatus,
+                  isApproved: nextApproved,
+                  approvedStatus: nextStatus,
+                  version: item.version + 1,
+                  readiness: item.readiness
+                    ? {
+                        ...item.readiness,
+                        isApproved: nextApproved,
+                        approvalStatus: nextStatus,
+                      }
+                    : undefined,
                 }
               : item
           )
         );
-        alert('Failed to sync approval status to sheet. Please try again.');
+        setToastMessage(
+          nextApproved
+            ? `Survey for ${row.childName} Approved and synced to central surveillance!`
+            : `Survey for ${row.childName} marked as Pending.`
+        );
+        setTimeout(() => setToastMessage(null), 3500);
+      } else if (res.status === 409) {
+        alert(
+          'Version Conflict (HTTP 409): This assessment was modified concurrently by another user. Refreshing latest surveillance data...'
+        );
+        await refresh();
+      } else if (res.status === 401) {
+        alert('Authentication required: Your session has expired. Please sign in again.');
+      } else if (res.status === 403) {
+        alert('Forbidden: Only verified administrators have permission to alter approval status.');
+      } else {
+        alert('Failed to update approval status. Please check your network connection.');
       }
     } catch (err) {
       console.error('Approval sync error:', err);
-      setData((prev) =>
-        prev.map((item) =>
-          item.id === row.id
-            ? {
-                ...item,
-                isApproved: row.isApproved,
-                approvedStatus: row.approvedStatus,
-              }
-            : item
-        )
-      );
-      alert('Network error updating approval status.');
+      alert('Network error communicating with server to update approval status.');
     } finally {
       setUpdatingApprovalId(null);
+      setApprovalModalTarget(null);
     }
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setActiveDocModal(null);
-      }
-    };
-    if (activeDocModal) {
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }
-  }, [activeDocModal]);
+  // Working Permission-Aware Deletion Mutation (Admin only, server-confirmed)
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmTarget || isDeleting) return;
+    const { id, name } = deleteConfirmTarget;
+    setIsDeleting(true);
 
-  const handleDeleteRecord = async () => {
-    if (!deleteConfirmId) return;
-    const { id, name } = deleteConfirmId;
     try {
       const res = await fetch(`/api/submissions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
+
       if (res.ok) {
         setData((prev) => prev.filter((r) => r.id !== id));
-        setToastMessage(`Record for ${name} successfully deleted.`);
+        setToastMessage(`Record for ${name} permanently deleted.`);
         setTimeout(() => setToastMessage(null), 3500);
+      } else if (res.status === 401) {
+        alert('Authentication required: Your session has expired.');
+      } else if (res.status === 403) {
+        alert('Forbidden: Deletion is restricted to verified administrators.');
+      } else if (res.status === 409) {
+        alert('Conflict: Record state changed on server. Please refresh.');
       } else {
-        alert('Failed to delete record. Please check network connection.');
+        alert('Failed to delete record. Please check server connection.');
       }
     } catch (err) {
       console.error('Delete error:', err);
-      alert('Error connecting to server to delete record.');
+      alert('Network error while deleting record.');
     } finally {
-      setDeleteConfirmId(null);
+      setIsDeleting(false);
+      setDeleteConfirmTarget(null);
     }
   };
 
-  // Filtered dataset using School Type, Orphan Status, State, District, and Search
-  const filteredData = useMemo(() => {
-    return data.filter((row) => {
-      const term = searchTerm.toLowerCase();
-      const matchesSearch =
-        !term ||
-        row.childName.toLowerCase().includes(term) ||
-        row.artNumber.toLowerCase().includes(term) ||
-        row.district.toLowerCase().includes(term);
-
-      const matchesSchoolType =
-        schoolTypeFilter === 'ALL' ||
-        row.schoolType.toLowerCase().includes(schoolTypeFilter.toLowerCase());
-
-      const matchesOrphanStatus =
-        orphanStatusFilter === 'ALL' ||
-        row.orphanStatus.toLowerCase().includes(orphanStatusFilter.toLowerCase());
-
-      const matchesState =
-        stateFilter === 'ALL' ||
-        (row.state || 'Maharashtra').toLowerCase() === stateFilter.toLowerCase();
-
-      const matchesDistrict =
-        districtFilter === 'ALL' || row.district.toLowerCase() === districtFilter.toLowerCase();
-
-      return matchesSearch && matchesState && matchesSchoolType && matchesOrphanStatus && matchesDistrict;
-    });
-  }, [data, searchTerm, schoolTypeFilter, orphanStatusFilter, stateFilter, districtFilter]);
-
-  const hasActiveFilters =
-    searchTerm !== '' ||
-    schoolTypeFilter !== 'ALL' ||
-    orphanStatusFilter !== 'ALL' ||
-    stateFilter !== 'ALL' ||
-    districtFilter !== 'ALL';
-
-  const resetFilters = () => {
-    setSearchTerm('');
-    setSchoolTypeFilter('ALL');
-    setOrphanStatusFilter('ALL');
-    const defaultState =
-      user?.allowedStates && !user.allowedStates.includes('*') && user.allowedStates.length === 1
-        ? user.allowedStates[0]
-        : 'ALL';
-    setStateFilter(defaultState);
-    setDistrictFilter('ALL');
-    fetchWithFilters({
-      state: defaultState === 'ALL' ? undefined : defaultState,
-      district: undefined,
-    });
-  };
-
-  const handleExportCSV = () => {
-    const headers = [
-      'Reference ID',
-      'Child Name',
-      'Age',
-      'Gender',
-      'District',
-      'School Type',
-      'Orphan Status',
-      'BMI',
-      'BMI Category',
-      'Viral Load',
-      'VL Status',
-      'Haemoglobin (g/dL)',
-      'Hb Category',
-      'Grant Amount (INR)',
-      'Documents Status',
-      'Pending Documents',
-      'Approval Status',
-    ];
-    const csvRows = [
-      headers.join(','),
-      ...filteredData.map((r) =>
-        [
-          `"${r.artNumber}"`,
-          `"${r.childName}"`,
-          r.age,
-          r.gender,
-          `"${r.district}"`,
-          `"${r.schoolType}"`,
-          `"${r.orphanStatus}"`,
-          r.bmi,
-          `"${r.bmiCategory}"`,
-          `"${r.viralLoad}"`,
-          `"${r.vlCategory}"`,
-          `"${r.hemoglobin}"`,
-          `"${r.hbCategory}"`,
-          r.grantAmount,
-          `"${r.documentStatus.isComplete ? 'Complete' : 'Pending'}"`,
-          `"${r.documentStatus.pendingDocs.join('; ') || 'None'}"`,
-          `"${r.isApproved ? 'Approved' : 'Pending'}"`,
-        ].join(',')
-      ),
-    ];
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `alliance_india_linelist_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
-
+  // Loading authorization gate
   if (!isLoaded) {
     return (
       <AppShell>
@@ -329,6 +653,7 @@ export default function SupervisorAssessmentsPage() {
     );
   }
 
+  // Authentication gate for unauthenticated users
   if (isLoaded && !isUnlocked && !isUnauthorized) {
     return (
       <AppShell>
@@ -372,15 +697,22 @@ export default function SupervisorAssessmentsPage() {
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8">
         {/* Toast Alert */}
         {toastMessage && (
-          <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs">
+          <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs animate-in fade-in">
             <div className="flex items-center space-x-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
               <span>{toastMessage}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="text-emerald-700 hover:text-emerald-900 p-0.5"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
-        {/* Supervisor Tab Navigation with Smooth Animations */}
+        {/* Supervisor Tab Navigation */}
         <SupervisorTabNav
           rightAction={
             <div className="flex items-center space-x-2">
@@ -395,12 +727,26 @@ export default function SupervisorAssessmentsPage() {
                 onClick={refresh}
                 className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer"
               >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`}
+                />
                 <span>Refresh</span>
               </Button>
             </div>
           }
         />
+
+        {/* Model A Evaluation Read-Only Notice Banner */}
+        {user?.role && user.role !== 'ADMIN' && (
+          <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-700 flex items-center justify-between shadow-2xs">
+            <div className="flex items-center space-x-2.5">
+              <Info className="h-4 w-4 text-teal-700 shrink-0" />
+              <span>
+                <strong>Evaluation Read-Only Mode ({user.role}):</strong> You have read-only clearance for surveillance and review. Record mutations, approvals, and deletions are restricted to verified administrators.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Unauthorized State Banner */}
         {isUnauthorized && (
@@ -514,103 +860,43 @@ export default function SupervisorAssessmentsPage() {
           </div>
         )}
 
-        {/* Case Status & Document Verification Readiness Dashboard (Issue #54) */}
-        {!isError && data.length > 0 && (
+        {/* Case Status & Document Verification Readiness Dashboard */}
+        {!isError && (
           <div className="mb-5">
-            <CaseStatusSummaryDashboard records={data} />
+            <CaseStatusSummaryDashboard
+              records={filteredData}
+              totalInScope={totalChildrenInScope}
+            />
           </div>
         )}
 
-        {/* Precision Command Ribbon: Search, Smart Filter Suite, Open GIS & CSV Export */}
+        {/* Precision Command Ribbon: Global Search, Open GIS & Export CSV */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 mb-5 shadow-xs transition-all">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            {/* Left Suite: Search & Smart Integrated Dropdowns */}
-            <div className="flex flex-1 flex-wrap items-center gap-2.5">
-              {/* Search Field with Integrated Icon and Clear button */}
-              <div className="relative flex-1 min-w-[210px] max-w-full sm:max-w-xs">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search ART ID, child name, district..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full h-10 pl-10 pr-9 text-xs bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all placeholder:text-slate-400 font-medium text-slate-800"
-                />
-                {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
-                    aria-label="Clear search"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* School Type Filter Pill */}
-              <div className="relative min-w-[145px] sm:min-w-[165px] flex-1 sm:flex-initial">
-                <School
-                  className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors ${
-                    schoolTypeFilter !== 'ALL' ? 'text-teal-600' : 'text-slate-400'
-                  }`}
-                />
-                <select
-                  className={`w-full h-10 pl-9 pr-8 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/30 font-medium transition-all appearance-none cursor-pointer ${
-                    schoolTypeFilter !== 'ALL'
-                      ? 'bg-teal-50/80 border-teal-300 text-teal-900 font-semibold shadow-xs'
-                      : 'bg-slate-50 hover:bg-slate-100/60 border-slate-200 text-slate-700'
-                  }`}
-                  value={schoolTypeFilter}
-                  onChange={(e) => setSchoolTypeFilter(e.target.value)}
-                >
-                  <option value="ALL">All School Types</option>
-                  <option value="Government">Government School</option>
-                  <option value="Private">Private School</option>
-                  <option value="Aided">Aided School</option>
-                  <option value="Not In School">Not in School</option>
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-              </div>
-
-              {/* Orphan Status Filter Pill */}
-              <div className="relative min-w-[145px] sm:min-w-[170px] flex-1 sm:flex-initial">
-                <HeartHandshake
-                  className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors ${
-                    orphanStatusFilter !== 'ALL' ? 'text-teal-600' : 'text-slate-400'
-                  }`}
-                />
-                <select
-                  className={`w-full h-10 pl-9 pr-8 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/30 font-medium transition-all appearance-none cursor-pointer ${
-                    orphanStatusFilter !== 'ALL'
-                      ? 'bg-teal-50/80 border-teal-300 text-teal-900 font-semibold shadow-xs'
-                      : 'bg-slate-50 hover:bg-slate-100/60 border-slate-200 text-slate-700'
-                  }`}
-                  value={orphanStatusFilter}
-                  onChange={(e) => setOrphanStatusFilter(e.target.value)}
-                >
-                  <option value="ALL">All Orphan Statuses</option>
-                  <option value="Both parents alive">Both Parents Alive</option>
-                  <option value="Single orphan">Single Orphan</option>
-                  <option value="Double orphan">Double Orphan</option>
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-              </div>
-
-              {/* Dependent State & District Filter Suite (Issue #53) */}
-              <StateDistrictFilterBar
-                selectedState={stateFilter}
-                selectedDistrict={districtFilter}
-                onStateChange={handleStateChange}
-                onDistrictChange={handleDistrictChange}
-                availableStates={Array.from(new Set(data.map((r) => r.state).filter(Boolean)))}
-                availableDistricts={Array.from(new Set(data.map((r) => r.district).filter(Boolean)))}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            {/* Global Search Field with Clear Button */}
+            <div className="relative flex-1 min-w-[220px] max-w-full sm:max-w-md">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search ART ID, child name, district, state..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full h-10 pl-10 pr-9 text-xs bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all placeholder:text-slate-400 font-medium text-slate-800"
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
 
-            {/* Right Suite: Action Buttons (Open GIS & Export CSV) */}
-            <div className="flex items-center gap-2.5 pt-2 lg:pt-0 shrink-0 border-t lg:border-t-0 border-slate-100">
-              {/* Open GIS Button */}
+            {/* Action Buttons: Open GIS & Export CSV */}
+            <div className="flex items-center gap-2.5 shrink-0">
               <Link href="/supervisor/gis" className="flex-1 sm:flex-initial">
                 <Button
                   variant="secondary"
@@ -624,102 +910,420 @@ export default function SupervisorAssessmentsPage() {
                 </Button>
               </Link>
 
-              {/* Export CSV Button */}
               <Button
                 variant="primary"
                 onClick={handleExportCSV}
-                disabled={isError || filteredData.length === 0}
+                disabled={isError || sortedData.length === 0}
                 className={`flex-1 sm:flex-initial h-10 px-4 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-xs flex items-center justify-center space-x-2 transition-all shrink-0 ${
-                  isError || filteredData.length === 0 ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
+                  isError || sortedData.length === 0
+                    ? 'opacity-50 cursor-not-allowed pointer-events-none'
+                    : ''
                 }`}
+                title="Export all matching records to CSV with formula injection protection"
               >
                 <Download className="h-3.5 w-3.5 text-slate-300 shrink-0" />
                 <span>Export CSV</span>
                 <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-slate-800 text-slate-200 border border-slate-700">
-                  {filteredData.length}
+                  {sortedData.length}
                 </span>
               </Button>
             </div>
           </div>
 
-          {/* Active Filters Pill Bar */}
+          {/* Active Filter Chips Bar */}
           {hasActiveFilters && (
             <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-slate-500 font-medium">Active:</span>
-                {searchTerm && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-medium">
-                    Search: &ldquo;{searchTerm}&rdquo;
-                    <button type="button" onClick={() => setSearchTerm('')} className="hover:text-rose-600">
+                <span className="text-slate-500 font-medium">Active Filters:</span>
+                {activeFilterList.map((item) => (
+                  <span
+                    key={item.key}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-900 border border-teal-200/80 text-[11px] font-medium"
+                  >
+                    <span>{item.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFilterChip(item.key)}
+                      className="text-teal-700 hover:text-rose-700 p-0.5 rounded transition-colors cursor-pointer"
+                      title={`Remove ${item.label}`}
+                      aria-label={`Remove filter: ${item.label}`}
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   </span>
-                )}
-                {schoolTypeFilter !== 'ALL' && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-medium">
-                    School: {schoolTypeFilter}
-                    <button type="button" onClick={() => setSchoolTypeFilter('ALL')} className="hover:text-rose-600">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                )}
-                {orphanStatusFilter !== 'ALL' && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-medium">
-                    Orphan: {orphanStatusFilter}
-                    <button type="button" onClick={() => setOrphanStatusFilter('ALL')} className="hover:text-rose-600">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                )}
-                {districtFilter !== 'ALL' && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-medium">
-                    District: {districtFilter}
-                    <button type="button" onClick={() => setDistrictFilter('ALL')} className="hover:text-rose-600">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                )}
+                ))}
               </div>
 
               <div className="flex items-center gap-3">
                 <span className="text-slate-500 font-medium text-[11px]">
-                  Showing <strong>{filteredData.length}</strong> of <strong>{data.length}</strong> records
+                  Showing <strong>{filteredData.length}</strong> of <strong>{authorizedRecords.length}</strong> records
                 </span>
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="text-teal-700 hover:text-teal-900 font-bold hover:underline cursor-pointer text-[11px]"
+                  className="text-teal-700 hover:text-rose-600 font-bold hover:underline cursor-pointer text-[11px] flex items-center gap-1"
                 >
-                  Clear all
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Clear all</span>
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Desktop View: Full Data Grid (>= 768px) - NO VERSION COLUMN */}
+        {/* Mobile Filter Quick-Access Ribbon (< 768px) */}
+        <div className="md:hidden mb-4 bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+            <Filter className="h-3 w-3 text-teal-600" />
+            <span>Multi-Select Column Filters</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <ColumnFilterPopover
+              columnId="locationMobile"
+              columnTitle="Location"
+              sections={[
+                { id: 'state', title: 'State', options: stateFacets, selectedValues: columnFilters.state },
+                { id: 'district', title: 'District', options: districtFacets, selectedValues: columnFilters.district },
+              ]}
+              onApply={handleApplyColumnFilter}
+              onClear={() => handleClearColumnFilter(['state', 'district'])}
+              sortDirection={sortState?.column === 'location' ? sortState.direction : null}
+              onSortChange={(dir) => handleSortChange('location', dir)}
+            />
+            <ColumnFilterPopover
+              columnId="ageSexMobile"
+              columnTitle="Age & Sex"
+              sections={[
+                { id: 'age', title: 'Age', options: ageFacets, selectedValues: columnFilters.age },
+                { id: 'gender', title: 'Gender', options: genderFacets, selectedValues: columnFilters.gender },
+              ]}
+              onApply={handleApplyColumnFilter}
+              onClear={() => handleClearColumnFilter(['age', 'gender'])}
+              sortDirection={sortState?.column === 'age' ? sortState.direction : null}
+              onSortChange={(dir) => handleSortChange('age', dir)}
+            />
+            <ColumnFilterPopover
+              columnId="schoolOrphanMobile"
+              columnTitle="School & Orphan"
+              sections={[
+                { id: 'schoolType', title: 'School', options: schoolTypeFacets, selectedValues: columnFilters.schoolType },
+                { id: 'orphanStatus', title: 'Orphan', options: orphanStatusFacets, selectedValues: columnFilters.orphanStatus },
+              ]}
+              onApply={handleApplyColumnFilter}
+              onClear={() => handleClearColumnFilter(['schoolType', 'orphanStatus'])}
+              sortDirection={sortState?.column === 'schoolOrphan' ? sortState.direction : null}
+              onSortChange={(dir) => handleSortChange('schoolOrphan', dir)}
+            />
+            <ColumnFilterPopover
+              columnId="docsMobile"
+              columnTitle="Documents"
+              sections={[
+                { id: 'documentStatus', title: 'Docs', options: docFacets, selectedValues: columnFilters.documentStatus },
+              ]}
+              onApply={handleApplyColumnFilter}
+              onClear={() => handleClearColumnFilter(['documentStatus'])}
+              sortDirection={sortState?.column === 'documents' ? sortState.direction : null}
+              onSortChange={(dir) => handleSortChange('documents', dir)}
+            />
+            <ColumnFilterPopover
+              columnId="approvalMobile"
+              columnTitle="Approval"
+              sections={[
+                { id: 'approvalStatus', title: 'Approval', options: approvalFacets, selectedValues: columnFilters.approvalStatus },
+              ]}
+              onApply={handleApplyColumnFilter}
+              onClear={() => handleClearColumnFilter(['approvalStatus'])}
+              sortDirection={sortState?.column === 'approval' ? sortState.direction : null}
+              onSortChange={(dir) => handleSortChange('approval', dir)}
+            />
+          </div>
+        </div>
+
+        {/* Desktop View: Full Data Grid with Column-Header Multi-Select Popovers (>= 768px) */}
         <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-900">
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="py-3 px-4">Reference ID</th>
-                  <th className="py-3 px-4">Child Name</th>
-                  <th className="py-3 px-4">Age / Sex</th>
-                  <th className="py-3 px-4">School & Orphan</th>
-                  <th className="py-3 px-4">BMI & Growth</th>
-                  <th className="py-3 px-4">Viral Load</th>
-                  <th className="py-3 px-4">Haemoglobin</th>
-                  <th className="py-3 px-4">Grant (INR)</th>
-                  <th className="py-3 px-4 text-center">Documents</th>
-                  <th className="py-3 px-4 text-center">Approval</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  {/* 1. Reference ID */}
+                  <th className="py-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Reference ID</span>
+                      <ColumnFilterPopover
+                        columnId="artNumber"
+                        columnTitle="Reference ID"
+                        sections={[
+                          {
+                            id: 'artNumber',
+                            title: 'ART ID',
+                            options: artNumberFacets,
+                            selectedValues: columnFilters.artNumber,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['artNumber'])}
+                        sortDirection={sortState?.column === 'artNumber' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('artNumber', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 2. Child Name */}
+                  <th className="py-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Child Name</span>
+                      <ColumnFilterPopover
+                        columnId="childName"
+                        columnTitle="Child Name"
+                        sections={[
+                          {
+                            id: 'childName',
+                            title: 'Name',
+                            options: childNameFacets,
+                            selectedValues: columnFilters.childName,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['childName'])}
+                        sortDirection={sortState?.column === 'childName' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('childName', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 3. Age / Sex */}
+                  <th className="py-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Age / Sex</span>
+                      <ColumnFilterPopover
+                        columnId="ageSex"
+                        columnTitle="Age / Sex"
+                        sections={[
+                          {
+                            id: 'age',
+                            title: 'Age',
+                            options: ageFacets,
+                            selectedValues: columnFilters.age,
+                          },
+                          {
+                            id: 'gender',
+                            title: 'Gender',
+                            options: genderFacets,
+                            selectedValues: columnFilters.gender,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['age', 'gender'])}
+                        sortDirection={sortState?.column === 'age' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('age', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 4. Location (State & District) */}
+                  <th className="py-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Location</span>
+                      <ColumnFilterPopover
+                        columnId="location"
+                        columnTitle="Location"
+                        sections={[
+                          {
+                            id: 'state',
+                            title: 'State',
+                            options: stateFacets,
+                            selectedValues: columnFilters.state,
+                          },
+                          {
+                            id: 'district',
+                            title: 'District',
+                            options: districtFacets,
+                            selectedValues: columnFilters.district,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['state', 'district'])}
+                        sortDirection={sortState?.column === 'location' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('location', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 5. School & Orphan */}
+                  <th className="py-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">School &amp; Orphan</span>
+                      <ColumnFilterPopover
+                        columnId="schoolOrphan"
+                        columnTitle="School & Orphan"
+                        sections={[
+                          {
+                            id: 'schoolType',
+                            title: 'School',
+                            options: schoolTypeFacets,
+                            selectedValues: columnFilters.schoolType,
+                          },
+                          {
+                            id: 'orphanStatus',
+                            title: 'Orphan',
+                            options: orphanStatusFacets,
+                            selectedValues: columnFilters.orphanStatus,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['schoolType', 'orphanStatus'])}
+                        sortDirection={sortState?.column === 'schoolOrphan' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('schoolOrphan', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 6. BMI & Growth */}
+                  <th className="py-3 px-3">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">BMI</span>
+                      <ColumnFilterPopover
+                        columnId="bmi"
+                        columnTitle="BMI"
+                        sections={[
+                          {
+                            id: 'bmiCategory',
+                            title: 'BMI Category',
+                            options: bmiFacets,
+                            selectedValues: columnFilters.bmiCategory,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['bmiCategory'])}
+                        sortDirection={sortState?.column === 'bmi' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('bmi', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 7. Viral Load */}
+                  <th className="py-3 px-3">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Viral Load</span>
+                      <ColumnFilterPopover
+                        columnId="vl"
+                        columnTitle="Viral Load"
+                        sections={[
+                          {
+                            id: 'vlCategory',
+                            title: 'VL Status',
+                            options: vlFacets,
+                            selectedValues: columnFilters.vlCategory,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['vlCategory'])}
+                        sortDirection={sortState?.column === 'viralLoad' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('viralLoad', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 8. Haemoglobin */}
+                  <th className="py-3 px-3">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Hb</span>
+                      <ColumnFilterPopover
+                        columnId="hb"
+                        columnTitle="Haemoglobin"
+                        sections={[
+                          {
+                            id: 'hbCategory',
+                            title: 'Hb Status',
+                            options: hbFacets,
+                            selectedValues: columnFilters.hbCategory,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['hbCategory'])}
+                        sortDirection={sortState?.column === 'hemoglobin' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('hemoglobin', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 9. Grant (INR) */}
+                  <th className="py-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">Grant</span>
+                      <ColumnFilterPopover
+                        columnId="grantAmount"
+                        columnTitle="Grant (INR)"
+                        sections={[
+                          {
+                            id: 'grantAmount',
+                            title: 'Grant Amount',
+                            options: grantFacets,
+                            selectedValues: columnFilters.grantAmount,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['grantAmount'])}
+                        sortDirection={sortState?.column === 'grantAmount' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('grantAmount', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 10. Documents */}
+                  <th className="py-3 px-3 text-center">
+                    <div className="flex items-center justify-center">
+                      <span className="truncate">Docs</span>
+                      <ColumnFilterPopover
+                        columnId="documents"
+                        columnTitle="Documents"
+                        sections={[
+                          {
+                            id: 'documentStatus',
+                            title: 'Document Status',
+                            options: docFacets,
+                            selectedValues: columnFilters.documentStatus,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['documentStatus'])}
+                        sortDirection={sortState?.column === 'documents' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('documents', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 11. Approval */}
+                  <th className="py-3 px-3 text-center">
+                    <div className="flex items-center justify-center">
+                      <span className="truncate">Approval</span>
+                      <ColumnFilterPopover
+                        columnId="approval"
+                        columnTitle="Approval"
+                        sections={[
+                          {
+                            id: 'approvalStatus',
+                            title: 'Approval Status',
+                            options: approvalFacets,
+                            selectedValues: columnFilters.approvalStatus,
+                          },
+                        ]}
+                        onApply={handleApplyColumnFilter}
+                        onClear={() => handleClearColumnFilter(['approvalStatus'])}
+                        sortDirection={sortState?.column === 'approval' ? sortState.direction : null}
+                        onSortChange={(dir) => handleSortChange('approval', dir)}
+                      />
+                    </div>
+                  </th>
+
+                  {/* 12. Actions (No filter popover as required) */}
+                  <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={11} className="py-12 text-center text-xs text-slate-400">
+                    <td colSpan={12} className="py-12 text-center text-xs text-slate-400">
                       <div className="flex items-center justify-center space-x-2">
                         <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
                         <span>Loading linelist surveys...</span>
@@ -728,10 +1332,12 @@ export default function SupervisorAssessmentsPage() {
                   </tr>
                 ) : isError ? (
                   <tr>
-                    <td colSpan={11} className="py-16 text-center">
+                    <td colSpan={12} className="py-16 text-center">
                       <div className="max-w-md mx-auto text-center space-y-3">
                         <AlertCircle className="h-10 w-10 text-rose-500 mx-auto" />
-                        <h4 className="text-sm font-bold text-slate-800">Linelist Upstream Connection Failed</h4>
+                        <h4 className="text-sm font-bold text-slate-800">
+                          Linelist Upstream Connection Failed
+                        </h4>
                         <p className="text-xs text-slate-500">
                           {error?.message || 'Unable to retrieve survey rows from central Google Sheets bridge.'}
                         </p>
@@ -746,9 +1352,9 @@ export default function SupervisorAssessmentsPage() {
                       </div>
                     </td>
                   </tr>
-                ) : filteredData.length === 0 ? (
+                ) : sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-16 text-center">
+                    <td colSpan={12} className="py-16 text-center">
                       <div className="max-w-xs mx-auto text-center space-y-2">
                         <AlertCircle className="h-8 w-8 text-slate-300 mx-auto" />
                         <h4 className="text-sm font-bold text-slate-700">
@@ -756,19 +1362,24 @@ export default function SupervisorAssessmentsPage() {
                         </h4>
                         <p className="text-xs text-slate-400">
                           {hasActiveFilters
-                            ? 'No records match the selected filters.'
+                            ? 'No records match the selected multi-select column filters.'
                             : 'Submitted surveys from field caseworkers will appear here in real-time.'}
                         </p>
                         {hasActiveFilters && (
-                          <Button variant="secondary" size="sm" onClick={resetFilters} className="mt-2 text-xs">
-                            Reset Filters
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={resetFilters}
+                            className="mt-2 text-xs"
+                          >
+                            Reset All Filters
                           </Button>
                         )}
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  filteredData.map((row) => (
+                  paginatedRows.map((row) => (
                     <tr
                       key={row.id}
                       className={
@@ -779,25 +1390,37 @@ export default function SupervisorAssessmentsPage() {
                           : 'bg-emerald-50/45 hover:bg-emerald-100/55 border-l-4 border-l-emerald-400 border-b border-emerald-100/80 transition-colors duration-150'
                       }
                     >
-                      <td className="py-3.5 px-4 font-mono font-bold text-teal-800">
+                      {/* 1. Reference ID */}
+                      <td className="py-3.5 px-3.5 font-mono font-bold text-teal-800">
                         <Link href={`/assessment/record/${row.id}`} className="hover:underline">
                           {row.artNumber}
                         </Link>
                       </td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900">{row.childName}</td>
-                      <td className="py-3.5 px-4 text-slate-600">
-                        <div className="font-semibold text-slate-800">{row.age} yrs • {row.gender}</div>
-                        <div className="text-[10px] text-slate-400">{row.district}</div>
+
+                      {/* 2. Child Name */}
+                      <td className="py-3.5 px-3.5 font-bold text-slate-900">{row.childName}</td>
+
+                      {/* 3. Age / Sex */}
+                      <td className="py-3.5 px-3.5 text-slate-600">
+                        <div className="font-semibold text-slate-800">
+                          {row.age !== null && row.age !== undefined ? `${row.age} yrs` : '—'} • {row.gender}
+                        </div>
                       </td>
 
-                      {/* School & Orphan Status */}
-                      <td className="py-3.5 px-4 text-slate-600">
+                      {/* 4. Location (District & State) */}
+                      <td className="py-3.5 px-3.5 text-slate-600">
+                        <div className="font-semibold text-slate-800">{row.district}</div>
+                        <div className="text-[10px] text-slate-400">{row.state || 'Maharashtra'}</div>
+                      </td>
+
+                      {/* 5. School & Orphan Status */}
+                      <td className="py-3.5 px-3.5 text-slate-600">
                         <div className="font-medium text-slate-800">{row.schoolType}</div>
                         <div className="text-[10px] text-slate-400">{row.orphanStatus}</div>
                       </td>
 
-                      {/* BMI & Growth */}
-                      <td className="py-3.5 px-4">
+                      {/* 6. BMI & Growth */}
+                      <td className="py-3.5 px-3">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
                             row.bmiCategory === 'Severe Underweight'
@@ -807,12 +1430,12 @@ export default function SupervisorAssessmentsPage() {
                               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           }`}
                         >
-                          {row.bmiCategory} {row.bmi > 0 ? `(${row.bmi})` : ''}
+                          {row.bmiCategory} {row.bmi !== null && row.bmi > 0 ? `(${row.bmi})` : ''}
                         </span>
                       </td>
 
-                      {/* Viral Load */}
-                      <td className="py-3.5 px-4">
+                      {/* 7. Viral Load */}
+                      <td className="py-3.5 px-3">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] ${
                             row.vlCategory.includes('Unsuppressed')
@@ -821,15 +1444,15 @@ export default function SupervisorAssessmentsPage() {
                           }`}
                         >
                           {row.vlCategory.includes('Unsuppressed')
-                            ? `${row.viralLoad} c/mL (High)`
+                            ? `${row.viralLoad || ''} c/mL (High)`
                             : row.vlCategory.includes('Undetectable')
                             ? 'Undetectable'
                             : 'Suppressed'}
                         </span>
                       </td>
 
-                      {/* Haemoglobin */}
-                      <td className="py-3.5 px-4">
+                      {/* 8. Haemoglobin */}
+                      <td className="py-3.5 px-3">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[11px] ${
                             row.hbCategory === 'Severe Anemia'
@@ -839,12 +1462,17 @@ export default function SupervisorAssessmentsPage() {
                               : 'bg-slate-100 text-slate-700'
                           }`}
                         >
-                          {row.hemoglobin} {row.hemoglobin !== '—' ? 'g/dL' : ''}
+                          {row.hemoglobin} {row.hemoglobin && row.hemoglobin !== '—' ? 'g/dL' : ''}
                         </span>
                       </td>
 
-                      <td className="py-3.5 px-4 font-bold text-teal-900">₹{row.grantAmount.toLocaleString('en-IN')}</td>
-                      <td className="py-3.5 px-4 text-center">
+                      {/* 9. Grant Amount */}
+                      <td className="py-3.5 px-3.5 font-bold text-teal-900">
+                        ₹{row.grantAmount.toLocaleString('en-IN')}
+                      </td>
+
+                      {/* 10. Documents */}
+                      <td className="py-3.5 px-3 text-center">
                         {row.documentStatus.isComplete ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                             <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
@@ -875,19 +1503,24 @@ export default function SupervisorAssessmentsPage() {
                         )}
                       </td>
 
-                      {/* Approval Status Toggle (Admin) / Status Badge (Evaluation Read-Only) */}
-                      <td className="py-3.5 px-4 text-center">
+                      {/* 11. Approval Status: Admin Actionable Control vs Evaluation Read-Only Badge */}
+                      <td className="py-3.5 px-3 text-center">
                         {user?.role === 'ADMIN' ? (
                           <button
                             type="button"
-                            onClick={() => handleToggleApproval(row)}
+                            onClick={() => setApprovalModalTarget(row)}
                             disabled={updatingApprovalId === row.id}
                             className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full font-bold text-[11px] transition-all cursor-pointer shadow-2xs ${
                               row.isApproved
                                 ? 'bg-amber-400 text-amber-950 border border-amber-500 hover:bg-amber-300 ring-2 ring-amber-400/60 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
                                 : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 hover:border-slate-400'
                             } ${updatingApprovalId === row.id ? 'opacity-60 cursor-wait' : ''}`}
-                            title={row.isApproved ? 'Click to revoke approval' : 'Click to approve row in sheet'}
+                            title={
+                              row.isApproved
+                                ? 'Click to revoke approval'
+                                : 'Click to approve survey record'
+                            }
+                            aria-label={`Approval control: current status ${row.isApproved ? 'Approved' : 'Pending'}`}
                           >
                             {updatingApprovalId === row.id ? (
                               <Loader2 className="w-3 h-3 animate-spin text-amber-950" />
@@ -899,7 +1532,9 @@ export default function SupervisorAssessmentsPage() {
                                     : 'border-slate-400 bg-white'
                                 }`}
                               >
-                                {row.isApproved && <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />}
+                                {row.isApproved && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />
+                                )}
                               </span>
                             )}
                             <span>{row.isApproved ? 'Approved' : 'Approve'}</span>
@@ -911,7 +1546,8 @@ export default function SupervisorAssessmentsPage() {
                                 ? 'bg-amber-100 text-amber-900 border border-amber-300'
                                 : 'bg-slate-100 text-slate-600 border border-slate-200'
                             }`}
-                            title={row.isApproved ? 'Approved' : 'Pending Approval'}
+                            title="Evaluation access is read-only. Approval is managed by central administration."
+                            aria-label={`Approval status: ${row.isApproved ? 'Approved' : 'Pending'} (Read-only)`}
                           >
                             <span
                               className={`w-2 h-2 rounded-full ${
@@ -923,11 +1559,18 @@ export default function SupervisorAssessmentsPage() {
                         )}
                       </td>
 
-                      {/* Accessible Record Action Menu (Issue #55) */}
-                      <td className="py-3.5 px-4 text-right">
+                      {/* 12. Actions Column */}
+                      <td className="py-3.5 px-3 text-right">
                         <RecordActionMenu
                           row={row}
-                          onDeleteRequest={(r) => setDeleteConfirmId({ id: r.id, name: r.childName })}
+                          user={user}
+                          onDeleteRequest={(r) =>
+                            setDeleteConfirmTarget({
+                              id: r.id,
+                              name: r.childName,
+                              artNumber: r.artNumber,
+                            })
+                          }
                         />
                       </td>
                     </tr>
@@ -936,9 +1579,70 @@ export default function SupervisorAssessmentsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Table Client-Side Pagination Bar */}
+          {sortedData.length > 0 && (
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <span>
+                  Showing{' '}
+                  <strong>{(currentPage - 1) * pageSize + 1}</strong> to{' '}
+                  <strong>{Math.min(currentPage * pageSize, sortedData.length)}</strong> of{' '}
+                  <strong>{sortedData.length}</strong> matching records
+                </span>
+                {authorizedRecords.length !== sortedData.length && (
+                  <span className="text-slate-400">
+                    (from {authorizedRecords.length} in scope)
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500">Rows per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 px-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="px-2 font-semibold text-slate-700">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Mobile View: Cards Over Tables (< 768px) - Dynamic highlights & Approval */}
+        {/* Mobile View: Cards Over Tables (< 768px) */}
         <div className="md:hidden space-y-3">
           {isLoading ? (
             <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center space-x-2 bg-white rounded-2xl border border-slate-200">
@@ -949,7 +1653,9 @@ export default function SupervisorAssessmentsPage() {
             <div className="p-6 text-center bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 space-y-3">
               <AlertCircle className="w-8 h-8 text-rose-600 mx-auto" />
               <h4 className="text-sm font-bold">Failed to Load Surveys</h4>
-              <p className="text-xs text-rose-700">{error?.message || 'Connection error with central bridge.'}</p>
+              <p className="text-xs text-rose-700">
+                {error?.message || 'Connection error with central bridge.'}
+              </p>
               <div className="flex justify-center gap-2 pt-1">
                 <Button variant="secondary" size="sm" onClick={retry} className="text-xs">
                   Retry
@@ -959,17 +1665,17 @@ export default function SupervisorAssessmentsPage() {
                 </Button>
               </div>
             </div>
-          ) : filteredData.length === 0 ? (
+          ) : sortedData.length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200 space-y-2">
               <p>{hasActiveFilters ? 'No records match the current filters.' : 'No survey records found.'}</p>
               {hasActiveFilters && (
                 <Button variant="secondary" size="sm" onClick={resetFilters} className="text-xs">
-                  Reset Filters
+                  Reset All Filters
                 </Button>
               )}
             </div>
           ) : (
-            filteredData.map((row) => (
+            paginatedRows.map((row) => (
               <div
                 key={row.id}
                 className={`rounded-2xl p-4 shadow-xs transition-all ${
@@ -1003,7 +1709,7 @@ export default function SupervisorAssessmentsPage() {
                   <div>
                     <h3 className="text-base font-bold text-slate-900">{row.childName}</h3>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      {row.age} yrs • {row.gender} • {row.district}
+                      {row.age !== null && row.age !== undefined ? `${row.age} yrs` : '—'} • {row.gender} • {row.district} ({row.state || 'Maharashtra'})
                     </p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       {row.schoolType} • {row.orphanStatus}
@@ -1013,7 +1719,7 @@ export default function SupervisorAssessmentsPage() {
                   {user?.role === 'ADMIN' ? (
                     <button
                       type="button"
-                      onClick={() => handleToggleApproval(row)}
+                      onClick={() => setApprovalModalTarget(row)}
                       disabled={updatingApprovalId === row.id}
                       className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full font-bold text-[11px] transition-all cursor-pointer shadow-2xs ${
                         row.isApproved
@@ -1039,6 +1745,7 @@ export default function SupervisorAssessmentsPage() {
                           ? 'bg-amber-100 text-amber-900 border border-amber-300'
                           : 'bg-slate-100 text-slate-600 border border-slate-200'
                       }`}
+                      title="Evaluation access is read-only"
                     >
                       <span
                         className={`w-2 h-2 rounded-full ${
@@ -1058,7 +1765,7 @@ export default function SupervisorAssessmentsPage() {
                         row.vlCategory.includes('Unsuppressed') ? 'text-rose-600' : 'text-teal-700'
                       }`}
                     >
-                      {row.vlCategory.includes('Unsuppressed') ? `${row.viralLoad} c/mL` : 'Suppressed'}
+                      {row.vlCategory.includes('Unsuppressed') ? `${row.viralLoad || ''} c/mL` : 'Suppressed'}
                     </span>
                   </div>
                   <div>
@@ -1069,7 +1776,6 @@ export default function SupervisorAssessmentsPage() {
 
                 {/* Mobile Documents & Actions */}
                 <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
-                  {/* Documents Status */}
                   <div className="flex items-center space-x-1.5">
                     {row.documentStatus.isComplete ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -1091,7 +1797,7 @@ export default function SupervisorAssessmentsPage() {
                               status: row.documentStatus,
                             })
                           }
-                          className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-white text-slate-600 border border-slate-300 hover:text-sky-600 hover:border-sky-300 shadow-2xs"
+                          className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-white text-slate-600 border border-slate-300 hover:text-sky-600 hover:border-sky-300 shadow-2xs cursor-pointer"
                           aria-label="View pending documents"
                         >
                           <Info className="h-3 w-3" />
@@ -1100,14 +1806,47 @@ export default function SupervisorAssessmentsPage() {
                     )}
                   </div>
 
-                  {/* Actions: Accessible Record Action Menu (Issue #55) */}
                   <RecordActionMenu
                     row={row}
-                    onDeleteRequest={(r) => setDeleteConfirmId({ id: r.id, name: r.childName })}
+                    user={user}
+                    onDeleteRequest={(r) =>
+                      setDeleteConfirmTarget({
+                        id: r.id,
+                        name: r.childName,
+                        artNumber: r.artNumber,
+                      })
+                    }
                   />
                 </div>
               </div>
             ))
+          )}
+
+          {/* Mobile Pagination Controls */}
+          {sortedData.length > 0 && (
+            <div className="p-3 bg-white rounded-2xl border border-slate-200 flex items-center justify-between text-xs text-slate-600 shadow-xs">
+              <span className="font-medium">
+                Page {currentPage} of {totalPages} ({sortedData.length} total)
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 disabled:opacity-40 font-semibold"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 disabled:opacity-40 font-semibold"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -1121,7 +1860,6 @@ export default function SupervisorAssessmentsPage() {
               className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-sky-100 relative overflow-hidden animate-in zoom-in-95 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Cloud decorative header */}
               <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-sky-400 via-teal-400 to-emerald-400" />
 
               <div className="flex items-start justify-between pb-3 border-b border-slate-100">
@@ -1132,7 +1870,10 @@ export default function SupervisorAssessmentsPage() {
                   <div>
                     <h3 className="text-base font-bold text-slate-900">Document Status Cloud</h3>
                     <p className="text-xs text-slate-500">
-                      {activeDocModal.childName} • <span className="font-mono font-semibold text-teal-700">{activeDocModal.artNumber}</span>
+                      {activeDocModal.childName} •{' '}
+                      <span className="font-mono font-semibold text-teal-700">
+                        {activeDocModal.artNumber}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -1150,17 +1891,33 @@ export default function SupervisorAssessmentsPage() {
               <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
                 <div className="flex justify-between items-center text-xs mb-1.5 font-semibold">
                   <span className="text-slate-600">Verification Progress</span>
-                  <span className={activeDocModal.status.isComplete ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                  <span
+                    className={
+                      activeDocModal.status.isComplete
+                        ? 'text-emerald-700 font-bold'
+                        : 'text-amber-700 font-bold'
+                    }
+                  >
                     {activeDocModal.status.uploadedCount} of {activeDocModal.status.totalRequired} Uploaded
                   </span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                   <div
                     className={`h-2 rounded-full transition-all duration-500 ${
-                      activeDocModal.status.isComplete ? 'bg-emerald-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'
+                      activeDocModal.status.isComplete
+                        ? 'bg-emerald-500'
+                        : 'bg-gradient-to-r from-amber-400 to-amber-500'
                     }`}
                     style={{
-                      width: `${Math.round((activeDocModal.status.uploadedCount / activeDocModal.status.totalRequired) * 100)}%`,
+                      width: `${
+                        activeDocModal.status.totalRequired > 0
+                          ? Math.round(
+                              (activeDocModal.status.uploadedCount /
+                                activeDocModal.status.totalRequired) *
+                                100
+                            )
+                          : 0
+                      }%`,
                     }}
                   />
                 </div>
@@ -1173,7 +1930,9 @@ export default function SupervisorAssessmentsPage() {
                   <span>Pending Documents ({activeDocModal.status.pendingDocs.length})</span>
                 </h4>
                 {activeDocModal.status.pendingDocs.length === 0 ? (
-                  <p className="text-xs text-emerald-600 font-medium py-1">All required documents have been uploaded!</p>
+                  <p className="text-xs text-emerald-600 font-medium py-1">
+                    All required documents have been uploaded!
+                  </p>
                 ) : (
                   <ul className="space-y-1.5">
                     {activeDocModal.status.pendingDocs.map((doc, idx) => (
@@ -1196,7 +1955,7 @@ export default function SupervisorAssessmentsPage() {
                 <div className="mt-4">
                   <h4 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
                     <FileCheck className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Uploaded &amp; Verified ({activeDocModal.status.uploadedDocs.length})</span>
+                    <span>Uploaded ({activeDocModal.status.uploadedDocs.length})</span>
                   </h4>
                   <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
                     {activeDocModal.status.uploadedDocs.map((doc, idx) => (
@@ -1223,7 +1982,12 @@ export default function SupervisorAssessmentsPage() {
                     <span>Upload Documents in Edit Mode &rarr;</span>
                   </Link>
                 )}
-                <Button variant="secondary" size="sm" onClick={() => setActiveDocModal(null)} className="text-xs ml-auto">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setActiveDocModal(null)}
+                  className="text-xs ml-auto"
+                >
                   Close
                 </Button>
               </div>
@@ -1231,30 +1995,153 @@ export default function SupervisorAssessmentsPage() {
           </div>
         )}
 
-        {/* Delete Confirmation Modal */}
-        {deleteConfirmId && (
-          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+        {/* Actionable Approval Confirmation Modal for ADMIN */}
+        {approvalModalTarget && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="approval-dialog-title"
+          >
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
+                <div className="h-10 w-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 id="approval-dialog-title" className="text-base font-bold text-slate-900">
+                    Confirm Approval Status Transition
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Beneficiary: <strong className="text-slate-800">{approvalModalTarget.childName}</strong> • ART ID:{' '}
+                    <span className="font-mono font-semibold text-teal-800">
+                      {approvalModalTarget.artNumber}
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-medium">Current Status:</span>
+                  <span className="font-bold text-slate-800">
+                    {approvalModalTarget.isApproved ? 'Approved' : 'Pending'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-medium">Proposed Transition:</span>
+                  <span
+                    className={`font-bold px-2 py-0.5 rounded-full ${
+                      approvalModalTarget.isApproved
+                        ? 'bg-amber-100 text-amber-900'
+                        : 'bg-emerald-100 text-emerald-900'
+                    }`}
+                  >
+                    {approvalModalTarget.isApproved ? 'Approved → Pending' : 'Pending → Approved'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-slate-400">
+                  <span>Record Version (OCC):</span>
+                  <span className="font-mono font-semibold">v{approvalModalTarget.version}</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Confirming will synchronize this sensitive approval state to the central surveillance sheet under your administrator identity.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end space-x-2.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setApprovalModalTarget(null)}
+                  disabled={updatingApprovalId === approvalModalTarget.id}
+                  className="text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleConfirmApproval(approvalModalTarget)}
+                  disabled={updatingApprovalId === approvalModalTarget.id}
+                  className={`text-xs ${
+                    approvalModalTarget.isApproved
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                      : 'bg-teal-800 hover:bg-teal-900 text-white'
+                  }`}
+                >
+                  {updatingApprovalId === approvalModalTarget.id ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      <span>Updating...</span>
+                    </>
+                  ) : (
+                    <span>
+                      {approvalModalTarget.isApproved ? 'Revoke to Pending' : 'Confirm Approval'}
+                    </span>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Explicit Single-Record Deletion Modal for ADMIN */}
+        {deleteConfirmTarget && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+          >
+            <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
               <div className="h-10 w-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-3">
                 <Trash2 className="h-5 w-5" />
               </div>
-              <h3 className="text-base font-bold text-slate-900">Delete Survey?</h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+              <h3 id="delete-dialog-title" className="text-base font-bold text-slate-900">
+                Delete Beneficiary Survey?
+              </h3>
+              <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
                 Are you sure you want to permanently delete the survey record for{' '}
-                <strong className="text-slate-900">{deleteConfirmId.name}</strong>? This action cannot be undone.
+                <strong className="text-slate-900">{deleteConfirmTarget.name}</strong> (ART ID:{' '}
+                <span className="font-mono text-teal-800">{deleteConfirmTarget.artNumber}</span>)?
+              </p>
+              <p className="text-[11px] text-rose-600 mt-2 font-medium">
+                This action is irreversible and restricted to verified administrators.
               </p>
               <div className="mt-5 flex items-center justify-end space-x-2">
-                <Button variant="ghost" size="sm" onClick={() => setDeleteConfirmId(null)} className="text-xs">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDeleteConfirmTarget(null)}
+                  disabled={isDeleting}
+                  className="text-xs"
+                >
                   Cancel
                 </Button>
-                <Button variant="danger" size="sm" onClick={handleDeleteRecord} className="text-xs">
-                  Yes, Delete Survey
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={handleConfirmDelete}
+                  disabled={isDeleting}
+                  className="text-xs bg-rose-600 hover:bg-rose-700 text-white"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Yes, Permanently Delete</span>
+                  )}
                 </Button>
               </div>
             </div>
           </div>
         )}
       </div>
+
       <EvaluationLoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}

@@ -8,6 +8,16 @@ import {
   formatSystemStatus,
   getBrowserNetworkHint,
 } from '@/lib/status/statusModel';
+import {
+  deriveBeneficiaryReadiness,
+  deduplicateRecordsByChild,
+  computeReadinessAggregates,
+  type CanonicalRecordReadiness,
+  type CanonicalDocumentType,
+  type CanonicalApprovalStatus,
+  type CanonicalOrphanStatus,
+  type ReadinessSummary,
+} from './beneficiaryReadiness';
 
 export type {
   NetworkStatus,
@@ -15,8 +25,19 @@ export type {
   SyncStatus,
   SystemStatus,
   FormattedStatus,
+  CanonicalRecordReadiness,
+  CanonicalDocumentType,
+  CanonicalApprovalStatus,
+  CanonicalOrphanStatus,
+  ReadinessSummary,
 };
-export { formatSystemStatus, getBrowserNetworkHint };
+export {
+  formatSystemStatus,
+  getBrowserNetworkHint,
+  deriveBeneficiaryReadiness,
+  deduplicateRecordsByChild,
+  computeReadinessAggregates,
+};
 
 export interface BeneficiaryDocumentStatus {
   isComplete: boolean;
@@ -32,14 +53,14 @@ export interface SupervisorBeneficiaryRow {
   childName: string;
   caregiverName?: string;
   caregiverPhone?: string;
-  age: number;
+  age: number | null;
   gender: string;
   district: string;
   state: string;
   schoolType: string;
   schoolEnrolled: boolean;
   orphanStatus: string;
-  bmi: number;
+  bmi: number | null;
   bmiCategory: BMICategory;
   viralLoad: string;
   vlCategory: VLCategory;
@@ -58,6 +79,7 @@ export interface SupervisorBeneficiaryRow {
   documentStatus: BeneficiaryDocumentStatus;
   isApproved: boolean;
   approvedStatus: string;
+  readiness?: CanonicalRecordReadiness;
 }
 
 export type SupervisorDataStatus =
@@ -119,122 +141,20 @@ function isFieldPresent(val: any): boolean {
   return false;
 }
 
-export function evaluateDocuments(it: any, schoolTypeStr: string): BeneficiaryDocumentStatus {
-  const pendingDocs: string[] = [];
-  const uploadedDocs: string[] = [];
-
-  const passbook =
-    it['25\nPassbook Front Page Link'] ||
-    it['25\\nPassbook Front Page Link'] ||
-    it['Passbook Front Page Link'] ||
-    it['passbook front page link'] ||
-    it.passbookPhotoUrl ||
-    it.passbook_photo_url ||
-    it.bankingAndKyc?.passbookPhotoUrl ||
-    it.bankDetails?.passbookPhotoCaptured ||
-    it.raw_payload?.bankingAndKyc?.passbookPhotoUrl;
-  if (isFieldPresent(passbook)) {
-    uploadedDocs.push('Bank Passbook Front Page');
-  } else {
-    pendingDocs.push('Bank Passbook Front Page');
-  }
-
-  const aadhaar =
-    it['26\nAadhaar Card Link'] ||
-    it['26\\nAadhaar Card Link'] ||
-    it['Aadhaar Card Link'] ||
-    it['aadhaar card link'] ||
-    it.aadhaarCardPhotoUrl ||
-    it.aadhaar_card_photo_url ||
-    it.bankingAndKyc?.aadhaarCardPhotoUrl ||
-    it.raw_payload?.bankingAndKyc?.aadhaarCardPhotoUrl;
-  if (isFieldPresent(aadhaar)) {
-    uploadedDocs.push('Aadhaar Card');
-  } else {
-    pendingDocs.push('Aadhaar Card');
-  }
-
-  const childPhoto =
-    it['27\nPassport Size Photo Link'] ||
-    it['27\\nPassport Size Photo Link'] ||
-    it['Passport Size Photo Link'] ||
-    it['passport size photo link'] ||
-    it.childPhotoUrl ||
-    it.child_photo_url ||
-    it.bankingAndKyc?.childPhotoUrl ||
-    it.raw_payload?.bankingAndKyc?.childPhotoUrl;
-  if (isFieldPresent(childPhoto)) {
-    uploadedDocs.push('Passport Size Photo');
-  } else {
-    pendingDocs.push('Passport Size Photo');
-  }
-
-  const signature =
-    it['6\nSignature /\nThumb Impression'] ||
-    it['6\\nSignature /\\nThumb Impression'] ||
-    it['Signature /\nThumb Impression'] ||
-    it['signature'] ||
-    it.consentSignatureUrl ||
-    it.signature_url ||
-    it.consent?.caregiverSignature ||
-    it.raw_payload?.consent?.caregiverSignature;
-  if (isFieldPresent(signature)) {
-    uploadedDocs.push('Caregiver Signature');
-  } else {
-    pendingDocs.push('Caregiver Signature');
-  }
-
-  const isOutOfSchool =
-    schoolTypeStr.toLowerCase().includes('out of school') ||
-    schoolTypeStr.toLowerCase().includes('not in school') ||
-    schoolTypeStr.toLowerCase().includes('dropped out') ||
-    schoolTypeStr.toLowerCase().includes('never enrolled');
-
-  if (!isOutOfSchool) {
-    const feeReceipt =
-      it['64\nSchool Fee Receipt Link'] ||
-      it['64\\nSchool Fee Receipt Link'] ||
-      it['School Fee Receipt Link'] ||
-      it['school fee receipt link'] ||
-      it.feeReceiptPhotoUrl ||
-      it.fee_receipt_photo_url ||
-      it.educationExpenses?.feeReceiptPhotoUrl ||
-      it.raw_payload?.educationExpenses?.feeReceiptPhotoUrl;
-    if (isFieldPresent(feeReceipt)) {
-      uploadedDocs.push('School Fee Receipt');
-    } else {
-      pendingDocs.push('School Fee Receipt');
-    }
-
-    const marksheet =
-      it['65\nMarksheet Photo Link'] ||
-      it['65\\nMarksheet Photo Link'] ||
-      it['Marksheet Photo Link'] ||
-      it['marksheet photo link'] ||
-      it.marksheetPhotoUrl ||
-      it.marksheet_photo_url ||
-      it.educationExpenses?.marksheetPhotoUrl ||
-      it.raw_payload?.educationExpenses?.marksheetPhotoUrl;
-    if (isFieldPresent(marksheet)) {
-      uploadedDocs.push('Academic Marksheet');
-    } else {
-      pendingDocs.push('Academic Marksheet');
-    }
-  }
-
-  const totalRequired = uploadedDocs.length + pendingDocs.length;
-  const isComplete = pendingDocs.length === 0;
-
+export function evaluateDocuments(it: any, schoolTypeStr?: string): BeneficiaryDocumentStatus {
+  const readiness = deriveBeneficiaryReadiness(it);
   return {
-    isComplete,
-    totalRequired,
-    uploadedCount: uploadedDocs.length,
-    pendingDocs,
-    uploadedDocs,
+    isComplete: readiness.isComplete,
+    totalRequired: readiness.totalRequired,
+    uploadedCount: readiness.uploadedCount,
+    pendingDocs: readiness.missingDocTypes,
+    uploadedDocs: readiness.presentDocTypes,
   };
 }
 
 export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
+  const readiness = deriveBeneficiaryReadiness(it);
+
   const rawBmi = it['34\nBMI'] ?? it['bmi'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? 0;
   let bmiCat: BMICategory = 'Normal';
   const numBmi = Number(rawBmi) || 0;
@@ -263,9 +183,9 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     else if (numHb < 11.0) hbCat = 'Mild Anemia';
   }
 
-  const id = it['1\nUnique ID'] || it['unique id'] || it.id || it._uuid || it.client_submission_id || it.remote_submission_id || it.clientSubmissionId;
-  const artNumber = it['42\nART ID Number'] || it['art id number'] || it['1\nUnique ID'] || it.demographics?.artNumber || it.art_number || id || 'MH-BEN-00';
-  const childName = it['9\nChild Name'] || it['child name'] || it.demographics?.childName || it.child_name || 'Beneficiary Child';
+  const id = readiness.recordId;
+  const artNumber = readiness.artNumber;
+  const childName = readiness.childName;
   const caregiverName =
     it['14\nCaregiver Full Name'] ||
     it['caregiver full name'] ||
@@ -281,16 +201,14 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     it.caregiver_phone ||
     it.caregiverPhone ||
     undefined;
-  const age = Number(it['11\nAge'] ?? it['age'] ?? it.demographics?.calculatedAgeYears ?? it.calculated_age ?? 0);
+  const age = readiness.age;
   const gender = it['12\nGender'] || it['gender'] || it.demographics?.gender || it.gender || '—';
   const district = it['19\nDistrict'] || it['district'] || it.demographics?.district || it.district || 'General';
   const state = it['18\nState'] || it['state'] || it.demographics?.state || it.state || 'Maharashtra';
   const schoolType = it['53\nSchool Type'] || it['school type'] || it.educationStatus?.schoolType || it.education?.schoolType || it.school_type || 'Government school';
-  const schoolEnrolled = it['49\nEducation Status']
-    ? !String(it['49\nEducation Status']).toLowerCase().includes('not')
-    : (it.education?.educationStatus?.includes('going') ?? it.school_enrolled ?? true);
-  const orphanStatus = it['13\nOrphan Status'] || it['orphan status'] || it.demographics?.orphanStatus || it.orphan_status || 'Both parents alive';
-  const grantAmount = Number(it['63\nTotal Annual Education Cost'] ?? it['total annual education cost'] ?? it.grantCalculation?.totalGrantAmount ?? it.recommended_grant_amount ?? it.educationExpenses?.totalRequiredSupport ?? 0);
+  const schoolEnrolled = readiness.isEnrolledInSchool;
+  const orphanStatus = readiness.orphanClassification;
+  const grantAmount = readiness.grantAmount;
   const createdAt =
     it['3\nSubmission Time'] ||
     it.submissionTime ||
@@ -307,25 +225,16 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
   const editReason = it['4\nEdit Reason'] || it['48\nEdit Reason'] || it.editReason || it.edit_reason || undefined;
   const sheetRow = it.sheetRow ?? it.rowNumber ?? undefined;
   const remoteSubmissionId = it.remote_submission_id || it.remoteSubmissionId || it._uuid || undefined;
-  const documentStatus = evaluateDocuments(it, schoolType);
+  const documentStatus = {
+    isComplete: readiness.isComplete,
+    totalRequired: readiness.totalRequired,
+    uploadedCount: readiness.uploadedCount,
+    pendingDocs: readiness.missingDocTypes,
+    uploadedDocs: readiness.presentDocTypes,
+  };
 
-  const rawApproved =
-    it['67\nApproved Alliance India'] ||
-    it['67\\nApproved Alliance India'] ||
-    it['Approved Alliance India'] ||
-    it['approved alliance india'] ||
-    it.approvedAllianceIndia ||
-    it.approved_alliance_india ||
-    it.finalReview?.approvedAllianceIndia ||
-    it.raw_payload?.finalReview?.approvedAllianceIndia;
-
-  const isApproved =
-    typeof rawApproved === 'boolean'
-      ? rawApproved
-      : String(rawApproved || '').toLowerCase().includes('approv') ||
-        String(rawApproved || '').toLowerCase() === 'yes';
-
-  const approvedStatus = isApproved ? 'Approved' : String(rawApproved || 'Pending');
+  const isApproved = readiness.isApproved;
+  const approvedStatus = readiness.approvalStatus;
 
   return {
     id: String(id),
@@ -340,7 +249,7 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     schoolType: String(schoolType),
     schoolEnrolled: Boolean(schoolEnrolled),
     orphanStatus: String(orphanStatus),
-    bmi: numBmi,
+    bmi: readiness.bmi,
     bmiCategory: (it['35\nBMI Category'] || it['bmi category'] || it.clinical?.bmiCategory || it.bmicategory || bmiCat) as BMICategory,
     viralLoad: String(rawVl || '—'),
     vlCategory: (it['46\nVL Category'] || it['vl category'] || it.clinical?.vlCategory || it.vl_category || vlCat) as VLCategory,
@@ -359,6 +268,7 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     documentStatus,
     isApproved,
     approvedStatus,
+    readiness,
   };
 }
 

@@ -306,10 +306,10 @@ export default function EditRecordPage() {
             }
           }
         } catch (_) {}
-      } else if (!localRecord && isValidUuidV4(submissionId)) {
-        // No local record found at all, and submissionId is a valid UUIDv4: attempt remote fetch
+      } else if (!localRecord && submissionId && typeof submissionId === 'string' && submissionId.trim().length > 0) {
+        // No local record found at all: attempt remote fetch by submissionId / reference ID
         try {
-          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId.trim())}`);
           if (res.ok) {
             const body = await res.json();
             if (body.data) {
@@ -1315,7 +1315,7 @@ export default function EditRecordPage() {
 
   // Model A Enforcement: Evaluation sessions (State Reviewer and Leadership) are read-only.
   // Editing submitted records is strictly restricted to verified Administrator.
-  if (user?.isVerified && user.role !== 'ADMIN') {
+  if (user?.role && user.role !== 'ADMIN') {
     return (
       <AppShell>
         <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">
