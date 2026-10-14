@@ -13,6 +13,7 @@ import { Plus } from 'lucide-react';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
+import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel';
 import { submissionEvents } from '@/features/submission/submissionEvents';
 
 export default function FieldWorkspacePage() {
@@ -34,6 +35,11 @@ export default function FieldWorkspacePage() {
   const [submittedStatus, setSubmittedStatus] = useState<
     'loading' | 'success' | 'offline' | 'error'
   >('loading');
+
+  // Stage-based readiness counts
+  const [submittedMissingDocsCount, setSubmittedMissingDocsCount] = useState<number>(0);
+  const [approvedBankPendingCount, setApprovedBankPendingCount] = useState<number>(0);
+  const [serverScopeLabel, setServerScopeLabel] = useState<string>('Authorized scope');
 
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -194,6 +200,25 @@ export default function FieldWorkspacePage() {
           count = json.count;
         }
 
+        if (isMountedRef.current) {
+          if (typeof json.data?.intakeIncomplete === 'number') {
+            setSubmittedMissingDocsCount(json.data.intakeIncomplete);
+          }
+          if (typeof json.data?.bankPending === 'number') {
+            setApprovedBankPendingCount(json.data.bankPending);
+          }
+          if (json.data?.scope?.allowedStates) {
+            const states = json.data.scope.allowedStates;
+            setServerScopeLabel(
+              states.includes('*')
+                ? 'National'
+                : states.length > 0
+                ? states.join(', ')
+                : 'Authorized scope'
+            );
+          }
+        }
+
         if (count !== null && isMountedRef.current) {
           setSubmittedCount(count);
           setSubmittedStatus('success');
@@ -351,6 +376,9 @@ export default function FieldWorkspacePage() {
         draftsCount={draftCount ?? drafts.length}
         waitingCount={waitingCount ?? 0}
         submittedCount={submittedCount}
+        submittedMissingDocsCount={submittedMissingDocsCount}
+        approvedBankPendingCount={approvedBankPendingCount}
+        serverScopeLabel={serverScopeLabel}
         isLoading={isDraftsLoading && isWaitingLoading && isSubmittedLoading}
         isDraftsLoading={isDraftsLoading}
         isWaitingLoading={isWaitingLoading}
@@ -366,6 +394,16 @@ export default function FieldWorkspacePage() {
         <div className="space-y-3 sm:space-y-3.5">
           {/* Miniature Children Garden Playground (Physics-based live interactive garden) */}
           <MiniatureGardenPlayground />
+
+          {/* Needs Attention Panel */}
+          <NeedsAttentionPanel
+            localDraftsCount={draftCount ?? drafts.length}
+            outboxAttentionCount={waitingCount ?? 0}
+            submittedMissingDocsCount={submittedMissingDocsCount}
+            approvedBankPendingCount={approvedBankPendingCount}
+            serverScopeLabel={serverScopeLabel}
+            isServerLoading={isSubmittedLoading}
+          />
 
           {/* Featured Primary Form Card Matching Reference FormLibrary */}
           <div className="p-6 md:p-8 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-6">
