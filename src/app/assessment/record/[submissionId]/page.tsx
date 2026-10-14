@@ -129,9 +129,9 @@ export default function RecordDetailPage() {
         }
 
         // 3. If no local record matches at all:
-        // Only issue remote GET if submissionId itself is a valid UUIDv4
-        if (isValidUuidV4(submissionId)) {
-          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+        // Attempt remote GET for the submissionId (UUIDv4 or canonical reference ID)
+        if (submissionId && typeof submissionId === 'string' && submissionId.trim().length > 0) {
+          const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId.trim())}`);
           if (res.ok) {
             const body = await res.json();
             if (body.data) {
@@ -139,9 +139,16 @@ export default function RecordDetailPage() {
               return;
             }
           }
-          setError(`Unable to load record (${res.status})`);
+          if (res.status === 401) {
+            setError('Authentication required to view this record. Please sign in with your evaluation credentials.');
+          } else if (res.status === 403) {
+            setError('Access denied: this record is outside your authorized state or district.');
+          } else if (res.status === 404) {
+            setError('Record not found.');
+          } else {
+            setError(`Unable to load record (${res.status})`);
+          }
         } else {
-          // submissionId is not a UUIDv4 and not in local DB -> not found
           setError('Record not found.');
         }
       } catch (err) {
