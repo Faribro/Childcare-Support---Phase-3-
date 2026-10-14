@@ -18,6 +18,7 @@ import {
   Edit3,
 } from 'lucide-react';
 import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
+import { isValidImageUrl } from '@/components/ui/PhotoUpload';
 
 export interface SubmissionViewModalProps {
   item: any;
@@ -203,7 +204,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                 <span className="text-slate-400 block text-[11px]">Contact Number:</span>
                 <span className="font-mono text-slate-800">{caregiverPhone}</span>
               </div>
-              {signatureData && (
+              {isValidImageUrl(signatureData) && (
                 <div className="sm:col-span-3 pt-2 border-t border-slate-200">
                   <span className="text-slate-400 block text-[11px] mb-1">Caregiver Signature On File:</span>
                   <div className="border border-slate-200 rounded-lg p-2 bg-white max-w-sm">
@@ -292,7 +293,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="border border-slate-200 rounded-xl p-2 bg-white text-center space-y-1">
                     <span className="text-[10px] font-bold text-slate-600 uppercase block">Passbook Front Page</span>
-                    {passbookPhoto ? (
+                    {isValidImageUrl(passbookPhoto) ? (
                       <img src={passbookPhoto} alt="Passbook" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
                     ) : (
                       <div className="h-24 flex items-center justify-center bg-slate-50 rounded-lg text-slate-400 text-[11px]">Not uploaded</div>
@@ -300,7 +301,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                   </div>
                   <div className="border border-slate-200 rounded-xl p-2 bg-white text-center space-y-1">
                     <span className="text-[10px] font-bold text-slate-600 uppercase block">Aadhaar Card</span>
-                    {aadhaarPhoto ? (
+                    {isValidImageUrl(aadhaarPhoto) ? (
                       <img src={aadhaarPhoto} alt="Aadhaar Card" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
                     ) : (
                       <div className="h-24 flex items-center justify-center bg-slate-50 rounded-lg text-slate-400 text-[11px]">Not uploaded</div>
@@ -308,7 +309,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                   </div>
                   <div className="border border-slate-200 rounded-xl p-2 bg-white text-center space-y-1">
                     <span className="text-[10px] font-bold text-slate-600 uppercase block">Child Beneficiary Photo</span>
-                    {childPhoto ? (
+                    {isValidImageUrl(childPhoto) ? (
                       <img src={childPhoto} alt="Child Beneficiary" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
                     ) : (
                       <div className="h-24 flex items-center justify-center bg-slate-50 rounded-lg text-slate-400 text-[11px]">Not uploaded</div>
@@ -492,7 +493,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="border border-slate-200 rounded-xl p-2 text-center space-y-1 bg-slate-50">
                     <span className="text-[10px] font-bold text-slate-600 uppercase block">Fee Receipt Proof</span>
-                    {feeReceiptPhoto ? (
+                    {isValidImageUrl(feeReceiptPhoto) ? (
                       <img src={feeReceiptPhoto} alt="Fee Receipt" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
                     ) : (
                       <div className="h-24 flex items-center justify-center bg-white rounded-lg text-slate-400 text-[11px]">No fee receipt attached</div>
@@ -500,7 +501,7 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
                   </div>
                   <div className="border border-slate-200 rounded-xl p-2 text-center space-y-1 bg-slate-50">
                     <span className="text-[10px] font-bold text-slate-600 uppercase block">Previous Marksheet</span>
-                    {marksheetPhoto ? (
+                    {isValidImageUrl(marksheetPhoto) ? (
                       <img src={marksheetPhoto} alt="Marksheet" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
                     ) : (
                       <div className="h-24 flex items-center justify-center bg-white rounded-lg text-slate-400 text-[11px]">No marksheet attached</div>

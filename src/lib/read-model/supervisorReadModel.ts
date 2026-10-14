@@ -528,6 +528,17 @@ class SupervisorReadModelService {
       return this.inFlightPromise;
     }
 
+    if (typeof window !== 'undefined') {
+      try {
+        const isStoredUnlocked = localStorage.getItem('child_nutrition_evaluation_unlocked') === 'true';
+        const cachedUser = localStorage.getItem('child_nutrition:user_session_v1');
+        const parsed = cachedUser ? JSON.parse(cachedUser) : null;
+        if (!isStoredUnlocked || !parsed?.isVerified) return;
+      } catch {
+        return;
+      }
+    }
+
     if (options?.state !== undefined) {
       this.activeFilters.state = options.state === 'ALL' || !options.state ? undefined : options.state;
     }

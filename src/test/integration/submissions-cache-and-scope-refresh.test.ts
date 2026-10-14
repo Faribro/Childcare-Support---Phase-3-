@@ -321,6 +321,13 @@ describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolat
 
   describe('5. Cross-Scope Cache Isolation on Refresh', () => {
     it('purges supervisorReadModel in-memory and localStorage cache when refresh receives 401 or 403 so records never leak across users/scopes', async () => {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('child_nutrition_evaluation_unlocked', 'true');
+        localStorage.setItem(
+          'child_nutrition:user_session_v1',
+          JSON.stringify({ isVerified: true, role: 'SUPERVISOR' })
+        );
+      }
       supervisorReadModel.resetForTesting();
 
       const fetchSpy = vi.spyOn(globalThis, 'fetch');
