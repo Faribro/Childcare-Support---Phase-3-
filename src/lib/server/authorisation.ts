@@ -35,6 +35,8 @@ export interface SecurityAuditEvent {
     | 'ACCESS_DENIED'
     | 'SCOPE_VIOLATION'
     | 'RECORD_ACCESSED'
+    | 'RECORD_MODIFIED'
+    | 'APPROVAL_CHANGED'
     | 'RECORD_DELETED'
     | 'EXPORT_ATTEMPT'
     | 'RECORD_EXPORTED';

@@ -67,15 +67,14 @@ export function RecordActionMenu({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Under Model A: State Evaluation and Leadership users are read-only.
-  // Editing and Deletion controls are suppressed for evaluation sessions.
-  // Only verified ADMIN has mutation capabilities.
-  const isEvaluationReadOnly = Boolean(
-    effectiveUser?.isVerified && (effectiveUser.role === 'STATE_REVIEWER' || effectiveUser.role === 'LEADERSHIP')
-  );
+  // Under updated policy:
+  // - State Evaluation remains read-only.
+  // - Leadership is authorized to edit records within server-authorized scope, but CANNOT delete.
+  // - Deletion remains strictly restricted to verified ADMIN.
   const isAdmin = Boolean(effectiveUser?.isVerified && effectiveUser.role === 'ADMIN');
+  const isLeadership = Boolean(effectiveUser?.isVerified && effectiveUser.role === 'LEADERSHIP');
 
-  const canEdit = propCanEdit ?? (isAdmin || (process.env.NODE_ENV === 'test' && !effectiveUser));
+  const canEdit = propCanEdit ?? (isAdmin || isLeadership || (process.env.NODE_ENV === 'test' && !effectiveUser));
   const canDelete = propCanDelete ?? (isAdmin || (process.env.NODE_ENV === 'test' && !effectiveUser));
 
   const handleDownloadPdf = async (e: React.MouseEvent) => {
@@ -162,7 +161,7 @@ export function RecordActionMenu({
             </Link>
           )}
 
-          {/* Edit Record: Rendered only for verified ADMIN under Model A */}
+          {/* Edit Record: Rendered for verified ADMIN and LEADERSHIP */}
           {canEdit && (
             <Link
               href={`/assessment/record/${encodeURIComponent(row.id)}/edit`}
@@ -171,7 +170,7 @@ export function RecordActionMenu({
               className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
             >
               <Pencil className="h-3.5 w-3.5 text-purple-600" />
-              <span>Edit Survey</span>
+              <span>Edit Record</span>
             </Link>
           )}
 

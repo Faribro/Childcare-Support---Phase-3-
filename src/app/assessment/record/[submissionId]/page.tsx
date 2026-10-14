@@ -21,12 +21,30 @@ import {
   FileDown,
   Loader2,
   Trash2,
+  Eye,
+  X,
+  ExternalLink,
+  AlertCircle,
+  FileCheck,
 } from 'lucide-react';
 
 import { db } from '@/lib/db/dexieDb';
 import { isValidUuidV4 } from '@/features/submission/submissionTypes';
 import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import {
+  deriveBeneficiaryReadiness,
+  type CanonicalDocumentType,
+} from '@/lib/read-model/beneficiaryReadiness';
+
+const CANONICAL_DOC_TO_PARAM: Record<CanonicalDocumentType, string> = {
+  'Bank Passbook Front Page': 'passbookPhoto',
+  'Aadhaar Card': 'aadhaarCardPhoto',
+  'Passport Size Photo': 'childPhoto',
+  'Caregiver Signature': 'caregiverSignature',
+  'School Fee Receipt': 'feeReceiptPhoto',
+  'Academic Marksheet': 'marksheetPhoto',
+};
 
 export default function RecordDetailPage() {
   const params = useParams();
@@ -41,6 +59,14 @@ export default function RecordDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Document Preview Modal State
+  const [previewDoc, setPreviewDoc] = useState<{ title: string; url: string; state: string } | null>(null);
+
+  // Approval Mutation State
+  const [isUpdatingApproval, setIsUpdatingApproval] = useState(false);
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -218,6 +244,20 @@ export default function RecordDetailPage() {
     };
   }, [record]);
 
+  const readiness = useMemo(() => {
+    if (!record) return null;
+    return deriveBeneficiaryReadiness(record);
+  }, [record]);
+
+  const isApproved = useMemo(() => {
+    if (!record) return false;
+    const val =
+      record['Approved Alliance India'] ||
+      record.raw_payload?.finalReview?.approvedAllianceIndia ||
+      record.approved_alliance_india;
+    return val === 'Approved' || val === true;
+  }, [record]);
+
   if (isLoading) {
     return (
       <AppShell>
@@ -302,6 +342,47 @@ export default function RecordDetailPage() {
     }
   };
 
+  const handleToggleApproval = async () => {
+    setIsUpdatingApproval(true);
+    setApprovalError(null);
+    try {
+      const targetId = remoteId || submissionId;
+      const nextStatus = isApproved ? 'Pending' : 'Approved';
+
+      const res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approvedAllianceIndia: nextStatus,
+          expectedVersion: version,
+        }),
+      });
+
+      if (res.ok) {
+        const body = await res.json();
+        setRecord((prev: any) => ({
+          ...prev,
+          'Approved Alliance India': nextStatus,
+          approved_alliance_india: nextStatus,
+          version: body.version || version + 1,
+        }));
+        setApprovalModalOpen(false);
+        return;
+      }
+
+      if (res.status === 409) {
+        setApprovalError('Concurrency conflict: this record was modified by another user. Please reload latest data.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setApprovalError(data.message || `Failed to update approval status (${res.status}).`);
+      }
+    } catch (err) {
+      setApprovalError('Network error while updating approval status.');
+    } finally {
+      setIsUpdatingApproval(false);
+    }
+  };
+
   return (
     <AppShell>
       <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-6 sm:py-8 space-y-6">
@@ -350,36 +431,48 @@ export default function RecordDetailPage() {
               </Button>
             </Link>
 
-            {user?.role === 'ADMIN' && (
-              <>
-                <Link href={`/assessment/record/${submissionId}/edit`}>
-                  <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 shadow-2xs text-xs">
-                    <Edit className="h-4 w-4 mr-1.5" />
-                    <span>Edit Approved Fields</span>
-                  </Button>
-                </Link>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => setShowDeleteModal(true)}
-                  className="bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 shadow-2xs text-xs cursor-pointer"
-                >
-                  <Trash2 className="h-4 w-4 mr-1.5" />
-                  <span>Delete Survey</span>
+            {(user?.role === 'ADMIN' || user?.role === 'LEADERSHIP') && (
+              <Link href={`/assessment/record/${submissionId}/edit`}>
+                <Button variant="primary" size="sm" className="bg-teal-700 hover:bg-teal-800 shadow-2xs text-xs">
+                  <Edit className="h-4 w-4 mr-1.5" />
+                  <span>Edit Record</span>
                 </Button>
-              </>
+              </Link>
+            )}
+
+            {user?.role === 'ADMIN' && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setShowDeleteModal(true)}
+                className="bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 shadow-2xs text-xs cursor-pointer"
+              >
+                <Trash2 className="h-4 w-4 mr-1.5" />
+                <span>Delete Survey</span>
+              </Button>
             )}
           </div>
         </div>
 
-        {/* Model A Evaluation Read-Only Notice */}
-        {user?.role && user.role !== 'ADMIN' && (
+        {/* Approval Mutation Error Banner */}
+        {approvalError && (
+          <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 text-xs text-rose-900 flex items-start space-x-3 shadow-xs">
+            <AlertCircle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold">Approval Update Error</p>
+              <p className="mt-0.5 text-rose-800 leading-relaxed">{approvalError}</p>
+            </div>
+          </div>
+        )}
+
+        {/* State Evaluator Read-Only Notice */}
+        {user?.role && user.role !== 'ADMIN' && user.role !== 'LEADERSHIP' && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start space-x-3 shadow-xs">
             <ShieldCheck className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold">Evaluation Session (Read-Only Mode)</p>
               <p className="mt-0.5 text-slate-600 leading-relaxed">
-                State Reviewer and Leadership evaluation sessions operate under Model A read-only policy. Editing and deleting beneficiary surveys are disabled.
+                State Evaluator sessions operate under read-only policy. Editing and deleting beneficiary surveys are disabled.
               </p>
             </div>
           </div>
@@ -577,18 +670,38 @@ export default function RecordDetailPage() {
                   ₹{Number(record["Total Annual Education Cost"] || record.raw_payload?.educationExpenses?.totalAnnualCost || record.recommended_grant_amount || 0).toLocaleString('en-IN')}
                 </dd>
               </div>
-              <div className="flex justify-between border-t border-slate-100 pt-2">
+              <div className="flex justify-between border-t border-slate-100 pt-2 items-center">
                 <dt className="text-slate-500">Alliance India Approval:</dt>
                 <dd>
-                  <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                    (record["Approved Alliance India"] || record.raw_payload?.finalReview?.approvedAllianceIndia) === 'Approved'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : (record["Approved Alliance India"] || record.raw_payload?.finalReview?.approvedAllianceIndia) === 'Rejected'
-                      ? 'bg-rose-100 text-rose-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {record["Approved Alliance India"] || record.raw_payload?.finalReview?.approvedAllianceIndia || 'Pending'}
-                  </span>
+                  {(user?.role === 'ADMIN' || user?.role === 'LEADERSHIP') ? (
+                    <button
+                      type="button"
+                      onClick={() => setApprovalModalOpen(true)}
+                      disabled={isUpdatingApproval}
+                      className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full font-bold text-xs transition-all cursor-pointer shadow-2xs ${
+                        isApproved
+                          ? 'bg-amber-400 text-amber-950 border border-amber-500 hover:bg-amber-300 ring-2 ring-amber-400/60'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400'
+                      }`}
+                      title={isApproved ? 'Click to revoke approval' : 'Click to approve record'}
+                      aria-label={`Approval status: ${isApproved ? 'Approved' : 'Pending'}. Click to toggle.`}
+                    >
+                      {isUpdatingApproval ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isApproved ? 'Approved' : 'Approve Record'}</span>
+                    </button>
+                  ) : (
+                    <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                      isApproved
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {isApproved ? 'Approved' : 'Pending'}
+                    </span>
+                  )}
                 </dd>
               </div>
               <div className="flex justify-between">
@@ -606,6 +719,122 @@ export default function RecordDetailPage() {
             </dl>
           </div>
         </div>
+
+        {/* Section: Document Verification & Private Previews */}
+        {readiness && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-2 text-slate-800">
+                <FileCheck className="h-5 w-5 text-teal-700" />
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  Document Verification &amp; Attachment Previews
+                </h3>
+              </div>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border self-start sm:self-auto ${
+                readiness.isComplete
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : 'bg-amber-50 text-amber-800 border-amber-200'
+              }`}>
+                {readiness.isComplete ? 'All Required Documents Complete' : `${readiness.missingDocTypes.length} Document(s) Pending`}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+              {Object.values(readiness.docDetails).map((doc) => {
+                const docTypeKey = CANONICAL_DOC_TO_PARAM[doc.docType];
+                const assetUrl = `/api/submissions/${encodeURIComponent(remoteId || submissionId)}/asset?docType=${docTypeKey}`;
+                const isAvailable = doc.isPresent;
+
+                return (
+                  <div
+                    key={doc.docType}
+                    className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all ${
+                      doc.isNotApplicable
+                        ? 'bg-slate-50/50 border-slate-200 text-slate-400'
+                        : doc.isVerified
+                        ? 'bg-emerald-50/40 border-emerald-200'
+                        : doc.isPresent
+                        ? 'bg-sky-50/30 border-sky-200'
+                        : 'bg-rose-50/30 border-rose-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-2">
+                        <span className="text-xs font-bold text-slate-800 truncate" title={doc.label}>
+                          {doc.label}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
+                            doc.isNotApplicable
+                              ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                              : doc.isVerified
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : doc.isPresent
+                              ? 'bg-sky-100 text-sky-800 border border-sky-300'
+                              : 'bg-rose-100 text-rose-700 border border-rose-300'
+                          }`}
+                        >
+                          {doc.state === 'not_applicable' ? 'N/A' : doc.state === 'verified' ? 'Verified' : doc.state === 'uploaded' ? 'Uploaded' : 'Missing'}
+                        </span>
+                      </div>
+
+                      {/* Thumbnail preview container */}
+                      {isAvailable ? (
+                        <div className="h-32 w-full bg-white rounded-lg border border-slate-200 overflow-hidden relative flex items-center justify-center group">
+                          <img
+                            src={assetUrl}
+                            alt={doc.label}
+                            className="w-full h-full object-contain p-1.5 transition-transform duration-200 group-hover:scale-105"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                              const parent = (e.target as HTMLElement).parentElement;
+                              if (parent && !parent.querySelector('.doc-fallback')) {
+                                const fallback = document.createElement('div');
+                                fallback.className = 'doc-fallback flex flex-col items-center justify-center text-slate-400 p-2 text-center';
+                                fallback.innerHTML = `<span class="text-xs font-semibold text-slate-700">Document Available</span><span class="text-[10px] text-slate-400">Click to preview</span>`;
+                                parent.appendChild(fallback);
+                              }
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-32 w-full bg-slate-100/60 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center text-center p-3">
+                          <AlertCircle className="h-6 w-6 text-slate-400 mb-1" />
+                          <span className="text-xs text-slate-500 font-medium">
+                            {doc.isNotApplicable ? 'Not applicable for child' : 'Document not uploaded'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {isAvailable && (
+                      <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDoc({ title: doc.label, url: assetUrl, state: doc.state })}
+                          className="inline-flex items-center text-xs font-bold text-teal-700 hover:text-teal-900 transition-colors cursor-pointer"
+                        >
+                          <Eye className="h-3.5 w-3.5 mr-1" />
+                          <span>Enlarge Preview</span>
+                        </button>
+                        <a
+                          href={assetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center text-[11px] text-slate-500 hover:text-slate-800 font-medium"
+                        >
+                          <ExternalLink className="h-3 w-3 mr-0.5" />
+                          <span>Open</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Section 6: Education Expenses & Programme Approval Breakdown */}
         <section className="space-y-3">
@@ -679,6 +908,170 @@ export default function RecordDetailPage() {
                     </>
                   ) : (
                     <span>Yes, Permanently Delete</span>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Full-size Document Viewer Dialog */}
+        {previewDoc && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="preview-doc-title"
+          >
+            <div className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 space-y-3 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <FileText className="h-5 w-5 text-teal-700" />
+                  <h3 id="preview-doc-title" className="text-sm sm:text-base font-bold text-slate-900">
+                    {previewDoc.title}
+                  </h3>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                      previewDoc.state === 'verified'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-sky-100 text-sky-800'
+                    }`}
+                  >
+                    {previewDoc.state}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDoc(null)}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  aria-label="Close Preview"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-slate-50 rounded-xl p-2 border border-slate-100 min-h-[220px]">
+                <img
+                  src={previewDoc.url}
+                  alt={previewDoc.title}
+                  className="max-h-[65vh] w-auto object-contain rounded-lg shadow-2xs"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                    const parent = (e.target as HTMLElement).parentElement;
+                    if (parent && !parent.querySelector('.embed-pdf')) {
+                      const iframe = document.createElement('iframe');
+                      iframe.src = previewDoc.url;
+                      iframe.className = 'embed-pdf w-full h-[60vh] border-0 rounded-lg';
+                      parent.appendChild(iframe);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-xs font-bold text-teal-800 hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                  <span>Open in New Tab</span>
+                </a>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPreviewDoc(null)}
+                  className="text-xs"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Approval Confirmation Dialog for ADMIN and LEADERSHIP */}
+        {approvalModalOpen && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="approval-dialog-title"
+          >
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
+                <div className="h-10 w-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 id="approval-dialog-title" className="text-base font-bold text-slate-900">
+                    Confirm Approval Status Transition
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Beneficiary: <strong className="text-slate-800">{childName}</strong> • ART ID:{' '}
+                    <span className="font-mono font-semibold text-teal-800">{artNumber || submissionId}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-medium">Current Status:</span>
+                  <span className="font-bold text-slate-800">
+                    {isApproved ? 'Approved' : 'Pending'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-medium">Proposed Transition:</span>
+                  <span
+                    className={`font-bold px-2 py-0.5 rounded-full ${
+                      isApproved
+                        ? 'bg-amber-100 text-amber-900'
+                        : 'bg-emerald-100 text-emerald-900'
+                    }`}
+                  >
+                    {isApproved ? 'Approved → Pending (Remove Approval)' : 'Pending → Approved (Approve Record)'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-slate-400">
+                  <span>Record Version (OCC):</span>
+                  <span className="font-mono font-semibold">v{version}</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Confirming will synchronize this sensitive approval state to the central surveillance sheet under your authorized identity.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end space-x-2.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setApprovalModalOpen(false)}
+                  disabled={isUpdatingApproval}
+                  className="text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleToggleApproval}
+                  disabled={isUpdatingApproval}
+                  className={`text-xs ${
+                    isApproved
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                      : 'bg-teal-800 hover:bg-teal-900 text-white'
+                  }`}
+                >
+                  {isUpdatingApproval ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      <span>Updating...</span>
+                    </>
+                  ) : (
+                    <span>{isApproved ? 'Remove Approval' : 'Approve Record'}</span>
                   )}
                 </Button>
               </div>

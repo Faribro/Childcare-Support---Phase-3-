@@ -329,7 +329,7 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
       expect(res.status).toBe(403);
       const data = await res.json();
       expect(data.code).toBe('FORBIDDEN');
-      expect(data.message).toContain('Record edits are restricted to verified Administrator role');
+      expect(data.message).toContain('Record edits and approvals are restricted to verified Administrator and Leadership roles');
     });
 
     it('rejects STATE_REVIEWER asset upload (POST asset) attempts with HTTP 403 FORBIDDEN under Model A', async () => {
@@ -426,7 +426,7 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
       expect(data.code).toBe('FORBIDDEN');
     });
 
-    it('rejects leadership credential attempting to PATCH records with HTTP 403 FORBIDDEN', async () => {
+    it('permits leadership credential to PATCH records within authorized scope with HTTP 200', async () => {
       const leadAuth = await authenticateUser('LEADERSHIP-ALL', TEST_LEADERSHIP_PWD, TEST_IP);
       if (!leadAuth.success) throw new Error('Auth failed');
 
@@ -444,9 +444,9 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
       });
 
       const res = await patchSubmissionRoute(patchReq, { params: { submissionId: 'MH-PUN-081200-02' } });
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.code).toBe('FORBIDDEN');
+      expect(data.status).toBe('success');
     });
 
     it('rejects leadership credential attempting to upload assets with HTTP 403 FORBIDDEN', async () => {

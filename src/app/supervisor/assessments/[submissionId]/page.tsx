@@ -124,7 +124,7 @@ export default function SupervisorAssessmentDetailPage() {
                 <span>Line-List</span>
               </Button>
             </Link>
-            {user?.role === 'ADMIN' && (
+            {(user?.role === 'ADMIN' || user?.role === 'LEADERSHIP') && (
               <Link href={`/assessment/record/${submissionId}/edit`}>
                 <Button variant="secondary" size="sm">
                   <Edit3 className="h-4 w-4 mr-1.5" />

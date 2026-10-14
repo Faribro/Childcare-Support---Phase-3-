@@ -661,8 +661,8 @@ describe('Beneficiary Linelist Readiness, Actions & Column Filter Architecture',
       const button = screen.getByRole('button', { name: /actions for record pooja/i });
       fireEvent.click(button);
 
-      // ADMIN must see Edit and Delete Survey
-      expect(screen.getByText(/Edit Survey/i)).toBeDefined();
+      // ADMIN must see Edit Record and Delete Survey
+      expect(screen.getByText(/Edit Record/i)).toBeDefined();
       expect(screen.getByText(/Delete Survey/i)).toBeDefined();
       expect(screen.getByText('View Details')).toBeDefined();
       expect(screen.getByText(/Download PDF/i)).toBeDefined();
@@ -684,8 +684,8 @@ describe('Beneficiary Linelist Readiness, Actions & Column Filter Architecture',
       const button = screen.getByRole('button', { name: /actions for record pooja/i });
       fireEvent.click(button);
 
-      // STATE_REVIEWER must NOT see Edit or Delete Survey
-      expect(screen.queryByText(/Edit Survey/i)).toBeNull();
+      // STATE_REVIEWER must NOT see Edit Record or Delete Survey
+      expect(screen.queryByText(/Edit Record/i)).toBeNull();
       expect(screen.queryByText(/Delete Survey/i)).toBeNull();
 
       // Only View Details and Download PDF must appear
