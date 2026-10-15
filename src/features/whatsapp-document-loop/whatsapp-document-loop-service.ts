@@ -13,9 +13,21 @@ import { WhatsAppRequestBuilder } from './whatsapp-request-builder';
 import { MediaValidator } from './media-validator';
 import { TigrisStorageAdapter } from './tigris-storage-adapter';
 import { InboundEventAdapter } from './inbound-event-adapter';
+import { IDurableDocumentLoopStore, MemoryDocumentLoopStore } from './persistence';
 
+/**
+ * Service orchestrating the narrow live-ready WhatsApp document loop.
+ *
+ * DOMAIN ROLE: Backend Media & Document Storage Worker
+ *
+ * Guarantees:
+ * 1. Storage != Verification: Storing valid image/PDF bytes sets status to UPLOADED, not VERIFIED.
+ * 2. Only an authorized verifier can transition a document to VERIFIED.
+ * 3. Atomic rollback: If Tigris storage succeeds but database linkage fails, storage is automatically cleaned up.
+ * 4. Durable persistence: State survives process restarts via IDurableDocumentLoopStore.
+ */
 export class WhatsAppDocumentLoopService {
-  private readonly submissions: Map<string, SubmissionEntity>;
+  private readonly store: IDurableDocumentLoopStore;
   private readonly detector: MissingDocumentDetector;
   private readonly requestBuilder: WhatsAppRequestBuilder;
   private readonly mediaValidator: MediaValidator;
@@ -23,26 +35,27 @@ export class WhatsAppDocumentLoopService {
   private readonly inboundAdapter: InboundEventAdapter;
 
   constructor(
+    store: IDurableDocumentLoopStore = new MemoryDocumentLoopStore(),
     detector: MissingDocumentDetector = new MissingDocumentDetector(),
     requestBuilder: WhatsAppRequestBuilder = new WhatsAppRequestBuilder(detector),
     mediaValidator: MediaValidator = new MediaValidator(),
     storageAdapter: TigrisStorageAdapter = new TigrisStorageAdapter(),
-    inboundAdapter: InboundEventAdapter = new InboundEventAdapter()
+    inboundAdapter?: InboundEventAdapter
   ) {
-    this.submissions = new Map();
+    this.store = store;
     this.detector = detector;
     this.requestBuilder = requestBuilder;
     this.mediaValidator = mediaValidator;
     this.storageAdapter = storageAdapter;
-    this.inboundAdapter = inboundAdapter;
+    this.inboundAdapter = inboundAdapter || new InboundEventAdapter(undefined, store);
   }
 
   public registerSubmission(submission: SubmissionEntity): void {
-    this.submissions.set(submission.id, submission);
+    this.store.saveSubmission(submission);
   }
 
   public getSubmission(submissionId: string): SubmissionEntity | undefined {
-    return this.submissions.get(submissionId);
+    return this.store.getSubmission(submissionId);
   }
 
   /**
@@ -58,12 +71,22 @@ export class WhatsAppDocumentLoopService {
     const now = new Date().toISOString();
 
     if (missing.length === 0) {
+      // Check if all are actually verified vs only uploaded
+      let allVerified = true;
+      for (const doc of Object.values(submission.documents)) {
+        if (doc && !doc.isVerified && doc.status !== 'MISSING') {
+          allVerified = false;
+          break;
+        }
+      }
+
+      const nextStatus: SubmissionState = allVerified ? 'DOCUMENTS_VERIFIED' : 'DOCUMENTS_RECEIVED';
       const updated: SubmissionEntity = {
         ...submission,
-        submissionStatus: 'DOCUMENTS_VERIFIED',
+        submissionStatus: nextStatus,
         updatedAt: now,
       };
-      this.submissions.set(submission.id, updated);
+      this.store.saveSubmission(updated);
       return { updatedSubmission: updated, missingDocuments: [] };
     }
 
@@ -74,6 +97,7 @@ export class WhatsAppDocumentLoopService {
         updatedDocs[docType] = {
           ...updatedDocs[docType],
           status: 'REQUESTED',
+          isVerified: false,
         };
       }
     }
@@ -84,10 +108,11 @@ export class WhatsAppDocumentLoopService {
       documents: updatedDocs,
       updatedAt: now,
     };
-    this.submissions.set(submission.id, updated);
+    this.store.saveSubmission(updated);
 
     // Prepare outbound WhatsApp request with idempotency key (do not send live)
     const outboundRequest = this.requestBuilder.buildDocumentRequest(updated, missing);
+    this.store.saveOutboundRequest(outboundRequest);
 
     return {
       updatedSubmission: updated,
@@ -98,12 +123,16 @@ export class WhatsAppDocumentLoopService {
 
   /**
    * Step 3: Handle inbound document upload via WhatsApp.
-   * Enforces signature verification, deduplication, authorization, media validation,
-   * Tigris storage, database linkage, and confirmation.
+   * Enforces signature verification, deduplication, authorization, media validation (including magic bytes),
+   * Tigris storage, database linkage with cleanup on failure, and confirmation.
+   *
+   * Note: Successful storage places document in 'UPLOADED' status (pending supervisor verification).
+   * It DOES NOT mark the document 'VERIFIED'.
    */
   public async handleInboundDocumentUpload(
     event: InboundMediaUploadEvent,
-    rawPayloadForSignature?: string | Buffer
+    rawPayloadForSignature?: string | Buffer,
+    simulateDbFailure?: boolean
   ): Promise<ConfirmationReceipt> {
     const now = new Date().toISOString();
 
@@ -116,6 +145,8 @@ export class WhatsAppDocumentLoopService {
           submissionId: event.submissionId,
           docType: event.docType,
           submissionState: 'PENDING_DOCUMENTS',
+          isUploaded: false,
+          allDocumentsUploaded: false,
           allDocumentsVerified: false,
           confirmationMessage: 'Security signature mismatch.',
           status: 'REJECTED',
@@ -124,17 +155,23 @@ export class WhatsAppDocumentLoopService {
       }
     }
 
-    // 2. Deduplication check
+    // 2. Deduplication check backed by durable store
     const idempotencyKey = `evt_${event.eventId}_${event.submissionId}_${event.docType}`;
     if (this.inboundAdapter.isDuplicate(event.eventId, idempotencyKey)) {
-      const existingSub = this.submissions.get(event.submissionId);
-      const isAllVerified = existingSub ? this.detector.detectMissingDocuments(existingSub).length === 0 : false;
+      const existingSub = this.store.getSubmission(event.submissionId);
+      const isAllUploaded = existingSub ? this.detector.detectMissingDocuments(existingSub).length === 0 : false;
+      const isAllVerified = existingSub
+        ? Object.values(existingSub.documents).every((d) => d && d.isVerified)
+        : false;
+
       return {
         success: true,
         submissionId: event.submissionId,
         docType: event.docType,
         storageUri: existingSub?.documents[event.docType]?.fileUri,
         submissionState: existingSub?.submissionStatus || 'PENDING_DOCUMENTS',
+        isUploaded: true,
+        allDocumentsUploaded: isAllUploaded,
         allDocumentsVerified: isAllVerified,
         confirmationMessage: 'Duplicate event received: Document has already been securely processed.',
         status: 'DUPLICATE_IGNORED',
@@ -142,13 +179,15 @@ export class WhatsAppDocumentLoopService {
     }
 
     // 3. Locate target submission
-    const submission = this.submissions.get(event.submissionId);
+    const submission = this.store.getSubmission(event.submissionId);
     if (!submission) {
       return {
         success: false,
         submissionId: event.submissionId,
         docType: event.docType,
         submissionState: 'PENDING_DOCUMENTS',
+        isUploaded: false,
+        allDocumentsUploaded: false,
         allDocumentsVerified: false,
         confirmationMessage: 'Submission record not found.',
         status: 'REJECTED',
@@ -164,6 +203,8 @@ export class WhatsAppDocumentLoopService {
         submissionId: event.submissionId,
         docType: event.docType,
         submissionState: submission.submissionStatus,
+        isUploaded: false,
+        allDocumentsUploaded: false,
         allDocumentsVerified: false,
         confirmationMessage: 'Unauthorized sender.',
         status: 'REJECTED',
@@ -171,7 +212,7 @@ export class WhatsAppDocumentLoopService {
       };
     }
 
-    // 5. Media Validation (MIME, size <= 15MB, SHA-256 checksum)
+    // 5. Media Validation (MIME, channel size limit, SHA-256 checksum, magic bytes content check)
     const mediaResult = this.mediaValidator.validateMedia(
       event.mimeType,
       event.byteSize,
@@ -184,6 +225,8 @@ export class WhatsAppDocumentLoopService {
         submissionId: event.submissionId,
         docType: event.docType,
         submissionState: submission.submissionStatus,
+        isUploaded: false,
+        allDocumentsUploaded: false,
         allDocumentsVerified: false,
         confirmationMessage: 'Media validation failed.',
         status: 'REJECTED',
@@ -207,6 +250,8 @@ export class WhatsAppDocumentLoopService {
         submissionId: event.submissionId,
         docType: event.docType,
         submissionState: submission.submissionStatus,
+        isUploaded: false,
+        allDocumentsUploaded: false,
         allDocumentsVerified: false,
         confirmationMessage: 'Durable storage failed.',
         status: 'STORAGE_FAILED',
@@ -214,58 +259,165 @@ export class WhatsAppDocumentLoopService {
       };
     }
 
-    // 7. Database Linkage & State Transition (ONLY after durable storage succeeds)
+    // 7. Database Linkage & State Transition (With cleanup compensation on failure)
+    try {
+      if (simulateDbFailure) {
+        throw new Error('Simulated database connection/constraint failure during document linkage.');
+      }
+
+      // Mark document as UPLOADED (pending verification by supervisor)
+      const updatedDocs = {
+        ...submission.documents,
+        [event.docType]: {
+          docType: event.docType,
+          status: 'UPLOADED' as const,
+          isVerified: false, // Uploaded != Verified
+          fileUri: storageResult.storageUri,
+          byteSize: event.byteSize,
+          mimeType: event.mimeType,
+          sha256Checksum: event.sha256Checksum,
+          uploadedAt: now,
+        },
+      };
+
+      const remainingMissing = this.detector.detectMissingDocuments({
+        ...submission,
+        documents: updatedDocs,
+      });
+
+      const isAllUploaded = remainingMissing.length === 0;
+      // When all documents uploaded, submission becomes DOCUMENTS_RECEIVED (not DOCUMENTS_VERIFIED)
+      const nextSubmissionState: SubmissionState = isAllUploaded
+        ? 'DOCUMENTS_RECEIVED'
+        : 'PENDING_DOCUMENTS';
+
+      const updatedSubmission: SubmissionEntity = {
+        ...submission,
+        submissionStatus: nextSubmissionState,
+        documents: updatedDocs,
+        updatedAt: now,
+      };
+
+      this.store.saveSubmission(updatedSubmission);
+
+      // Mark event processed for deduplication
+      this.inboundAdapter.markProcessed(event.eventId, idempotencyKey);
+
+      // 8. Confirm Receipt to beneficiary
+      const docLabel = this.detector.getDocumentLabel(event.docType);
+      const confirmationMessage = isAllUploaded
+        ? `✅ *All Documents Received*\n\nYour *${docLabel}* has been securely stored. All requested documents for \`${submission.remoteSubmissionId}\` have been received and are now awaiting supervisor review.`
+        : `✅ *Document Received*\n\nYour *${docLabel}* has been received and securely stored.\n\n*Remaining documents required:* ${remainingMissing
+            .map((d) => this.detector.getDocumentLabel(d))
+            .join(', ')}.`;
+
+      return {
+        success: true,
+        submissionId: event.submissionId,
+        docType: event.docType,
+        storageUri: storageResult.storageUri,
+        submissionState: nextSubmissionState,
+        isUploaded: true,
+        allDocumentsUploaded: isAllUploaded,
+        allDocumentsVerified: false, // Only verification step sets this true
+        confirmationMessage,
+        status: 'PROCESSED',
+      };
+    } catch (linkageErr: any) {
+      // Storage Cleanup Compensation: If DB linkage fails, delete uploaded file from Tigris
+      await this.storageAdapter.deleteDocument(storageResult.storageUri);
+
+      return {
+        success: false,
+        submissionId: event.submissionId,
+        docType: event.docType,
+        submissionState: submission.submissionStatus,
+        isUploaded: false,
+        allDocumentsUploaded: false,
+        allDocumentsVerified: false,
+        confirmationMessage: 'Database linkage failed: storage rolled back.',
+        status: 'LINKAGE_FAILED',
+        errorReason: linkageErr.message || 'Database linkage failed.',
+      };
+    }
+  }
+
+  /**
+   * Explicit Evaluator / Supervisor Verification Step.
+   * Only an authorized supervisor or lead can transition a document from UPLOADED to VERIFIED.
+   */
+  public verifyDocument(
+    submissionId: string,
+    docType: DocType,
+    verifier: CallerSecurityContext
+  ): {
+    submission: SubmissionEntity;
+    documentVerified: boolean;
+    allDocumentsVerified: boolean;
+  } {
+    const submission = this.store.getSubmission(submissionId);
+    if (!submission) {
+      throw new Error(`Submission "${submissionId}" not found.`);
+    }
+
+    // Role check: Only SUPERVISOR, STATE_LEAD, LEADERSHIP, or ADMIN can verify
+    const allowedRoles = ['SUPERVISOR', 'STATE_LEAD', 'LEADERSHIP', 'ADMIN'];
+    if (!allowedRoles.includes(verifier.role)) {
+      throw new Error(`Forbidden: Role '${verifier.role}' is not authorized to verify documents.`);
+    }
+
+    // Geographic check
+    const isNational = verifier.permittedStates.includes('*');
+    if (!isNational && !verifier.permittedStates.includes(submission.state)) {
+      throw new Error(
+        `Forbidden: Verifier with scope [${verifier.permittedStates.join(
+          ', '
+        )}] cannot verify records for state '${submission.state}'.`
+      );
+    }
+
+    const doc = submission.documents[docType];
+    if (!doc || doc.status !== 'UPLOADED') {
+      throw new Error(
+        `Cannot verify document "${docType}": current status is '${doc?.status || 'MISSING'}', expected 'UPLOADED'.`
+      );
+    }
+
+    const now = new Date().toISOString();
     const updatedDocs = {
       ...submission.documents,
-      [event.docType]: {
-        docType: event.docType,
+      [docType]: {
+        ...doc,
         status: 'VERIFIED' as const,
-        fileUri: storageResult.storageUri,
-        byteSize: event.byteSize,
-        mimeType: event.mimeType,
-        sha256Checksum: event.sha256Checksum,
-        uploadedAt: now,
+        isVerified: true,
         verifiedAt: now,
+        verifiedBy: verifier.userId,
       },
     };
 
-    const remainingMissing = this.detector.detectMissingDocuments({
-      ...submission,
-      documents: updatedDocs,
-    });
+    // Check if all core mandatory documents are now explicitly VERIFIED
+    const required: DocType[] = ['passbookPhoto', 'aadhaarCardPhoto', 'childPhoto', 'caregiverSignature'];
+    if (submission.requiresFeeReceipt) required.push('feeReceiptPhoto');
 
-    const isAllComplete = remainingMissing.length === 0;
-    const nextSubmissionState: SubmissionState = isAllComplete ? 'DOCUMENTS_VERIFIED' : 'PENDING_DOCUMENTS';
+    const allVerified = required.every(
+      (dt) => updatedDocs[dt] && updatedDocs[dt].isVerified && updatedDocs[dt].status === 'VERIFIED'
+    );
+
+    const nextState: SubmissionState = allVerified ? 'DOCUMENTS_VERIFIED' : submission.submissionStatus;
 
     const updatedSubmission: SubmissionEntity = {
       ...submission,
-      submissionStatus: nextSubmissionState,
+      submissionStatus: nextState,
       documents: updatedDocs,
       updatedAt: now,
     };
 
-    this.submissions.set(submission.id, updatedSubmission);
-
-    // Mark event processed for deduplication
-    this.inboundAdapter.markProcessed(event.eventId, idempotencyKey);
-
-    // 8. Confirm Receipt
-    const docLabel = this.detector.getDocumentLabel(event.docType);
-    const confirmationMessage = isAllComplete
-      ? `✅ *All Documents Verified*\n\nYour *${docLabel}* has been securely persisted. All required documentation for \`${submission.remoteSubmissionId}\` is now complete and ready for final supervisor approval.`
-      : `✅ *Document Received*\n\nYour *${docLabel}* has been verified and securely persisted.\n\n*Remaining documents required:* ${remainingMissing
-          .map((d) => this.detector.getDocumentLabel(d))
-          .join(', ')}.`;
+    this.store.saveSubmission(updatedSubmission);
 
     return {
-      success: true,
-      submissionId: event.submissionId,
-      docType: event.docType,
-      storageUri: storageResult.storageUri,
-      submissionState: nextSubmissionState,
-      allDocumentsVerified: isAllComplete,
-      confirmationMessage,
-      status: 'PROCESSED',
+      submission: updatedSubmission,
+      documentVerified: true,
+      allDocumentsVerified: allVerified,
     };
   }
 
@@ -277,7 +429,7 @@ export class WhatsAppDocumentLoopService {
     submissionId: string,
     caller: CallerSecurityContext
   ): LeadershipStatusSummary {
-    const submission = this.submissions.get(submissionId);
+    const submission = this.store.getSubmission(submissionId);
     if (!submission) {
       throw new Error(`Submission "${submissionId}" not found.`);
     }
@@ -295,6 +447,7 @@ export class WhatsAppDocumentLoopService {
     const missing = this.detector.detectMissingDocuments(submission);
     const isComplete = missing.length === 0;
 
+    let uploadedCount = 0;
     let verifiedCount = 0;
     const documentStatusMap: Record<
       DocType,
@@ -303,12 +456,16 @@ export class WhatsAppDocumentLoopService {
         isVerified: boolean;
         checksumMasked?: string;
         uploadedAt?: string;
+        verifiedAt?: string;
       }
     > = {} as any;
 
     for (const [docKey, docRecord] of Object.entries(submission.documents)) {
       const docType = docKey as DocType;
-      const isVerified = docRecord.status === 'VERIFIED';
+      const isVerified = Boolean(docRecord.isVerified || docRecord.status === 'VERIFIED');
+      const isUploaded = docRecord.status === 'UPLOADED' || docRecord.status === 'VERIFIED';
+
+      if (isUploaded) uploadedCount++;
       if (isVerified) verifiedCount++;
 
       const checksumMasked = docRecord.sha256Checksum
@@ -320,6 +477,7 @@ export class WhatsAppDocumentLoopService {
         isVerified,
         checksumMasked,
         uploadedAt: docRecord.uploadedAt,
+        verifiedAt: docRecord.verifiedAt,
       };
     }
 
@@ -331,6 +489,7 @@ export class WhatsAppDocumentLoopService {
       overallStatus: submission.submissionStatus,
       isComplete,
       missingDocumentCount: missing.length,
+      uploadedDocumentCount: uploadedCount,
       verifiedDocumentCount: verifiedCount,
       documents: documentStatusMap,
       lastUpdatedAt: submission.updatedAt,

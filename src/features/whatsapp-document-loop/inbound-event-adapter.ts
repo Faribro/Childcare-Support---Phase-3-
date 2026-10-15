@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { InboundMediaUploadEvent, SubmissionEntity } from './types';
+import { IDurableDocumentLoopStore, MemoryDocumentLoopStore } from './persistence';
 
 export interface SignatureVerificationResult {
   readonly valid: boolean;
@@ -8,13 +9,14 @@ export interface SignatureVerificationResult {
 
 export class InboundEventAdapter {
   private readonly appSecret: string;
-  private readonly processedEventIds: Set<string>;
-  private readonly processedIdempotencyKeys: Set<string>;
+  private readonly store: IDurableDocumentLoopStore;
 
-  constructor(appSecret: string = process.env.META_APP_SECRET || 'test_meta_app_secret') {
+  constructor(
+    appSecret: string = process.env.META_APP_SECRET || 'test_meta_app_secret',
+    store: IDurableDocumentLoopStore = new MemoryDocumentLoopStore()
+  ) {
     this.appSecret = appSecret;
-    this.processedEventIds = new Set();
-    this.processedIdempotencyKeys = new Set();
+    this.store = store;
   }
 
   /**
@@ -49,27 +51,18 @@ export class InboundEventAdapter {
   }
 
   /**
-   * Deduplication check.
+   * Deduplication check backed by durable store.
    * Returns true if eventId or idempotency key has already been processed.
    */
   public isDuplicate(eventId: string, idempotencyKey?: string): boolean {
-    if (this.processedEventIds.has(eventId)) {
-      return true;
-    }
-    if (idempotencyKey && this.processedIdempotencyKeys.has(idempotencyKey)) {
-      return true;
-    }
-    return false;
+    return this.store.hasEvent(eventId, idempotencyKey);
   }
 
   /**
    * Marks an event as processed for deduplication.
    */
   public markProcessed(eventId: string, idempotencyKey?: string): void {
-    this.processedEventIds.add(eventId);
-    if (idempotencyKey) {
-      this.processedIdempotencyKeys.add(idempotencyKey);
-    }
+    this.store.recordEvent(eventId, idempotencyKey);
   }
 
   /**

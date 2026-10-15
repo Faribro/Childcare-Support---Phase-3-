@@ -1,12 +1,12 @@
 /**
  * WhatsApp Document Loop - Domain Types & State Machine
  *
- * OWNERSHIP: Thread A (Narrow Live-Ready WhatsApp Document Loop)
+ * DOMAIN ROLE: Backend Media & Document Storage Worker
  * Scope:
  * - Inbound event ingestion, signature verification & deduplication
- * - Submission & document state transitions
+ * - Submission & document state transitions (separating UPLOADED from VERIFIED)
  * - Missing-document detection & outbound request preparation
- * - Media validation, Tigris upload & database linkage
+ * - Media validation (MIME, size bounds, magic bytes), Tigris upload & database linkage
  * - Confirmation receipt & privacy-preserving leadership status query
  */
 
@@ -35,6 +35,7 @@ export type SubmissionState =
   | 'DRAFT'
   | 'SUBMITTED'
   | 'PENDING_DOCUMENTS'
+  | 'DOCUMENTS_RECEIVED'
   | 'DOCUMENTS_VERIFIED'
   | 'APPROVED'
   | 'FLAGGED';
@@ -42,12 +43,14 @@ export type SubmissionState =
 export interface DocumentRecord {
   readonly docType: DocType;
   readonly status: DocumentStatus;
+  readonly isVerified: boolean;
   readonly fileUri?: string;
   readonly byteSize?: number;
   readonly mimeType?: string;
   readonly sha256Checksum?: string;
   readonly uploadedAt?: string;
   readonly verifiedAt?: string;
+  readonly verifiedBy?: string;
 }
 
 export interface SubmissionEntity {
@@ -83,7 +86,8 @@ export interface OutboundDocumentRequest {
   readonly requestId: string;
   readonly idempotencyKey: string;
   readonly submissionId: string;
-  readonly recipientPhoneMasked: string;
+  readonly recipientPhoneRef: string; // trusted private reference (e.g. SHA-256 hash or internal ID)
+  readonly recipientPhoneMasked: string; // display-only masked string (e.g. "+91 ******3210")
   readonly missingDocTypes: readonly DocType[];
   readonly messageBody: string;
   readonly status: 'PREPARED' | 'SENT' | 'FAILED';
@@ -107,9 +111,11 @@ export interface ConfirmationReceipt {
   readonly docType: DocType;
   readonly storageUri?: string;
   readonly submissionState: SubmissionState;
+  readonly isUploaded: boolean;
+  readonly allDocumentsUploaded: boolean;
   readonly allDocumentsVerified: boolean;
   readonly confirmationMessage: string;
-  readonly status: 'PROCESSED' | 'DUPLICATE_IGNORED' | 'REJECTED' | 'STORAGE_FAILED';
+  readonly status: 'PROCESSED' | 'DUPLICATE_IGNORED' | 'REJECTED' | 'STORAGE_FAILED' | 'LINKAGE_FAILED';
   readonly errorReason?: string;
 }
 
@@ -121,6 +127,7 @@ export interface LeadershipStatusSummary {
   readonly overallStatus: SubmissionState;
   readonly isComplete: boolean;
   readonly missingDocumentCount: number;
+  readonly uploadedDocumentCount: number;
   readonly verifiedDocumentCount: number;
   readonly documents: Record<
     DocType,
@@ -129,6 +136,7 @@ export interface LeadershipStatusSummary {
       readonly isVerified: boolean;
       readonly checksumMasked?: string;
       readonly uploadedAt?: string;
+      readonly verifiedAt?: string;
     }
   >;
   readonly lastUpdatedAt: string;

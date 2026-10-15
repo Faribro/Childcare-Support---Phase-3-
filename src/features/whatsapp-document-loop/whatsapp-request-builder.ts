@@ -40,6 +40,9 @@ export class WhatsAppRequestBuilder {
     const requestId = `req_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const idempotencyKey = this.generateIdempotencyKey(submission.id, missingDocTypes);
     const maskedPhone = this.maskPhoneNumber(submission.beneficiaryPhone);
+    const recipientPhoneRef =
+      submission.beneficiaryPhoneHash ||
+      crypto.createHash('sha256').update(submission.beneficiaryPhone).digest('hex');
 
     const docBulletList = missingDocTypes
       .map((d, idx) => `  ${idx + 1}. *${this.detector.getDocumentLabel(d)}*`)
@@ -60,6 +63,7 @@ export class WhatsAppRequestBuilder {
       requestId,
       idempotencyKey,
       submissionId: submission.id,
+      recipientPhoneRef,
       recipientPhoneMasked: maskedPhone,
       missingDocTypes: [...missingDocTypes],
       messageBody,
