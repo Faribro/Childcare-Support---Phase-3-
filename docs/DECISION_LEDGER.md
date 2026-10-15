@@ -32,16 +32,26 @@ Every data value shown, stored, computed, or sent in the platform must have an i
 | **Financial / Bank Values** | User-submitted string representation preserving leading zeros. | JavaScript `Number` conversion (which strips leading zeros). | Unit tests verifying string typing (`typeof account === 'string'`). |
 | **Audit & Security Metadata** | Request IP header, user session context, ISO 8601 UTC timestamp. | Client-supplied timestamps for server verification. | Server-generated timestamps (`new Date().toISOString()`). |
 
+4. **DEC-004: Storage vs Verification Separation & Tigris Reconciliation**:
+   - *Status*: Approved & Implemented.
+   - *Details*: Ingesting and storing media bytes (whether in Tigris S3 or Google Drive) transitions document status to `UPLOADED` / `DOCUMENTS_RECEIVED` (`isVerified: false`). It does NOT equal verification. Only authorized caseworker/supervisor review sets `VERIFIED` (`isVerified: true`). Linelist cells store sanitized proxy URLs (`/api/submissions/[id]/asset?docType=...`) preventing leakage of private storage keys or presigned tokens.
+5. **DEC-005: Outbound WhatsApp Sender & E.164 Resolution**:
+   - *Status*: Approved & Implemented.
+   - *Details*: Outbound sender adapter strictly requires valid international E.164 format (`^\+[1-9]\d{7,14}$`). Masked strings (`******0170`, `XXXXXX0170`) are rejected fail-closed. Outcomes explicitly categorize `ACCEPTED_BY_GATEWAY` (2xx), `FAILED` (4xx), and `UNCERTAIN` (5xx/timeouts), preventing false claims of delivery across distributed boundaries.
+6. **DEC-006: Local Persistence Fail-Closed in Production**:
+   - *Status*: Approved & Implemented.
+   - *Details*: File-based stores (`PersistentWebhookHandoffQueue`, `PersistentFileIdempotencyStore`, `PersistentFileOutboundRegistry`) persist to `.cache/` and are labeled `LOCAL_DEVELOPMENT_ONLY`. If initialized in `NODE_ENV === 'production'` without explicit test flag, they throw `STORAGE_UNCONFIGURED`. Cloud-durable schema is codified in migration `004_durable_integration_queues.sql`.
+
 ---
 
 ## 3. Open Decisions & Blockers
 
-1. **Travelling-Record Animation Specification**:
-   - *Status*: Open / Deferred.
-   - *Requirement*: Detailed visual brief / storyboard for the *Record → Save offline → Sync* travelling-record animation sequence before resumption.
-2. **Meta Developer App Publication**:
+1. **Meta Developer App & Webhook Verification**:
    - *Status*: Pending administrative action.
-   - *Requirement*: The Meta App is currently unpublished (Development Mode), which restricts live message delivery from external test numbers.
-3. **PR Merge Sequence**:
-   - *Status*: Awaiting Maintainer Approval.
-   - *Sequence*: PR #82 (Bank Queue) and PR #83 (Leadership Auth) are validated jointly in `Childcare-Combined`. PR #85 (Landing) is isolated. Maintainer merge order to be confirmed.
+   - *Requirement*: Meta App in Development Mode requires test phone numbers explicitly registered as testers.
+2. **Cloud Infrastructure Provisioning**:
+   - *Status*: Pending infrastructure deployment.
+   - *Requirement*: Staging PostgreSQL 15 / Supabase instance for migration 004, Tigris S3 bucket provisioning, and Zoho Catalyst CLI credentials.
+3. **Travelling-Record Animation Specification**:
+   - *Status*: Open / Deferred.
+   - *Requirement*: Detailed visual brief / storyboard for the *Record → Save offline → Sync* travelling-record animation sequence.

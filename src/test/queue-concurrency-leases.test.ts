@@ -30,18 +30,18 @@ describe('Queue Concurrency, Leases, and Recovery Suite (Task 1 & 2)', () => {
     const originalEnv = process.env.NODE_ENV;
 
     afterEach(() => {
-      process.env.NODE_ENV = originalEnv;
+      (process.env as any).NODE_ENV = originalEnv;
     });
 
     it('fails closed when PersistentWebhookHandoffQueue is instantiated in production without explicit local flag', () => {
-      process.env.NODE_ENV = 'production';
+      (process.env as any).NODE_ENV = 'production';
       expect(() => {
         new PersistentWebhookHandoffQueue({ filePath: testQueuePath });
       }).toThrowError(/STORAGE_UNCONFIGURED.*strictly LOCAL_DEVELOPMENT_ONLY/);
     });
 
     it('allows PersistentWebhookHandoffQueue in production if explicitly configured for local filesystem simulation', () => {
-      process.env.NODE_ENV = 'production';
+      (process.env as any).NODE_ENV = 'production';
       expect(() => {
         const q = new PersistentWebhookHandoffQueue({
           filePath: testQueuePath,
@@ -52,14 +52,14 @@ describe('Queue Concurrency, Leases, and Recovery Suite (Task 1 & 2)', () => {
     });
 
     it('fails closed when PersistentFileIdempotencyStore is instantiated in production without explicit local flag', () => {
-      process.env.NODE_ENV = 'production';
+      (process.env as any).NODE_ENV = 'production';
       expect(() => {
         new PersistentFileIdempotencyStore({ filePath: testIdempotencyPath });
       }).toThrowError(/STORAGE_UNCONFIGURED.*strictly LOCAL_DEVELOPMENT_ONLY/);
     });
 
     it('allows PersistentFileIdempotencyStore in production if explicitly configured for local filesystem simulation', () => {
-      process.env.NODE_ENV = 'production';
+      (process.env as any).NODE_ENV = 'production';
       expect(() => {
         const s = new PersistentFileIdempotencyStore({
           filePath: testIdempotencyPath,
