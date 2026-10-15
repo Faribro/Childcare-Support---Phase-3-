@@ -296,7 +296,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                         <span>Managers &amp; Directors (Shared Credential)</span>
                       </div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Authorized shared leadership credential for national surveillance and programme review. Grants cross-state read-only evaluation without edit or deletion rights.
+                        Authorized shared leadership credential for national surveillance and programme review. Grants cross-state access with edit and approval permissions (deletion and asset replacement restricted to Admin).
                       </p>
                     </div>
 

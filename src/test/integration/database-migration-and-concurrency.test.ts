@@ -31,6 +31,13 @@ import { SupabaseLeaderAuthStore } from '@/lib/server/leaderAuthStore';
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const hasDatabase = Boolean(TEST_DB_URL);
 
+// Enforce that in CI, database integration job must have a valid database and NEVER skip
+if (process.env.CI && !hasDatabase) {
+  throw new Error(
+    'FATAL: TEST_DATABASE_URL environment variable is required in CI database-integration job. Database integration cannot be skipped in CI.'
+  );
+}
+
 // Helper to hash test codes/tokens
 function hashString(val: string): string {
   return crypto.createHash('sha256').update(val).digest('hex');
@@ -47,12 +54,29 @@ describe.skipIf(!hasDatabase)('1. Database Integration: Ephemeral PostgreSQL 15 
       connectionTimeoutMillis: 5000,
     });
 
-    // Read and apply migration DDL directly from docs/migrations/003_leadership_email_auth.sql
-    const migrationPath = path.resolve(process.cwd(), 'docs/migrations/003_leadership_email_auth.sql');
-    const sql = fs.readFileSync(migrationPath, 'utf-8');
-
     const client = await pool.connect();
     try {
+      // Bootstrap test roles for non-Supabase PostgreSQL environments (e.g. CI service container)
+      // Keeps the production migration file clean and free of cluster-level role management
+      await client.query(`
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+                CREATE ROLE anon NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+                CREATE ROLE authenticated NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN
+                CREATE ROLE service_role NOLOGIN;
+            END IF;
+        END
+        $$;
+      `);
+
+      // Read and apply migration DDL directly from docs/migrations/003_leadership_email_auth.sql
+      const migrationPath = path.resolve(process.cwd(), 'docs/migrations/003_leadership_email_auth.sql');
+      const sql = fs.readFileSync(migrationPath, 'utf-8');
       await client.query(sql);
     } finally {
       client.release();
@@ -66,6 +90,11 @@ describe.skipIf(!hasDatabase)('1. Database Integration: Ephemeral PostgreSQL 15 
   });
 
   describe('1.1 Schema Structure, Constraints & Function Definitions', () => {
+    it('verifies active disposable database connection and validates against silent skipping in CI', () => {
+      expect(hasDatabase).toBe(true);
+      expect(TEST_DB_URL).toBeDefined();
+    });
+
     it('creates all 4 core tables in public schema', async () => {
       const res = await pool.query(`
         SELECT table_name 
