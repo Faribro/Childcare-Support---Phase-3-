@@ -632,6 +632,24 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
     challengeId: string,
     maxAttempts: number
   ): Promise<{ failedAttempts: number; isLocked: boolean }> {
+    const rpcUrl = `${this.baseUrl}/rest/v1/rpc/increment_challenge_failed_attempts`;
+    const rpcRes = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_challenge_id: challengeId,
+        p_max_attempts: maxAttempts,
+      }),
+    });
+
+    if (rpcRes.ok) {
+      const data = await rpcRes.json();
+      if (data && data.success) {
+        return { failedAttempts: data.failedAttempts, isLocked: Boolean(data.isLocked) };
+      }
+    }
+
+    // Fallback: direct PATCH with current counter check
     const current = await this.getPendingChallengeById(challengeId);
     const nextAttempts = (current?.failedAttempts || 0) + 1;
     const isLocked = nextAttempts >= maxAttempts;

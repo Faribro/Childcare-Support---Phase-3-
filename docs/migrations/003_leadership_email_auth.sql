@@ -33,6 +33,21 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- Safe role bootstrap for non-Supabase PostgreSQL environments (e.g. CI / testing)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN;
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated NOLOGIN;
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN
+        CREATE ROLE service_role NOLOGIN;
+    END IF;
+END
+$$;
+
 -- ============================================================================
 -- 1. TABLE: leader_identities
 -- ============================================================================
@@ -454,9 +469,12 @@ BEGIN
             'allowedStates', v_leader.allowed_states,
             'allowedDistricts', v_leader.allowed_districts,
             'authVersion', v_leader.auth_version,
+            'deviceBindingHash', p_device_binding_hash,
             'createdAt', EXTRACT(EPOCH FROM v_now) * 1000,
             'lastActivityAt', EXTRACT(EPOCH FROM v_now) * 1000,
-            'absoluteExpiresAt', EXTRACT(EPOCH FROM v_abs_expiry) * 1000
+            'absoluteExpiresAt', EXTRACT(EPOCH FROM v_abs_expiry) * 1000,
+            'isRevoked', false,
+            'revokedAt', null
         )
     );
 END;
@@ -466,7 +484,45 @@ REVOKE EXECUTE ON FUNCTION public.consume_leader_challenge_and_create_session(UU
 GRANT EXECUTE ON FUNCTION public.consume_leader_challenge_and_create_session(UUID, TEXT, TEXT, TEXT) TO service_role;
 
 -- ============================================================================
--- 9. IDEMPOTENT PROVISIONING RPC: provision_leader_identity
+-- 9. ATOMIC ATTEMPT INCREMENT RPC: increment_challenge_failed_attempts
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.increment_challenge_failed_attempts(
+    p_challenge_id UUID,
+    p_max_attempts INT DEFAULT 5
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_rec RECORD;
+BEGIN
+    UPDATE public.leader_auth_challenges
+    SET failed_attempts = failed_attempts + 1,
+        is_locked = (failed_attempts + 1 >= p_max_attempts)
+    WHERE challenge_id = p_challenge_id
+      AND is_used = FALSE
+    RETURNING failed_attempts, is_locked INTO v_rec;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Challenge not found or already consumed');
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'failedAttempts', v_rec.failed_attempts,
+        'isLocked', v_rec.is_locked
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.increment_challenge_failed_attempts(UUID, INT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_challenge_failed_attempts(UUID, INT) TO service_role;
+
+-- ============================================================================
+-- 10. IDEMPOTENT PROVISIONING RPC: provision_leader_identity
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.provision_leader_identity(
