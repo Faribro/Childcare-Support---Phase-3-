@@ -13,6 +13,8 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import type {
   ReportingEmailDeliveryRequest,
   ReportingEmailDeliveryResult,
@@ -248,7 +250,7 @@ export function generateReportArtifact(params: {
   // Build CSV content with provenance banner
   const csvLines: string[] = [
     `# ==============================================================================`,
-    `# INDIA HIV/AIDS ALLIANCE â€” PAEDIATRIC SURVEILLANCE & REPORTING`,
+    `# INDIA HIV/AIDS ALLIANCE Ã¢â‚¬â€ PAEDIATRIC SURVEILLANCE & REPORTING`,
     `# Report Title: ${params.title}`,
     `# Generated At: ${now}`,
     `# Source Origin: ${params.freshness.upstreamOrigin}`,
@@ -324,7 +326,15 @@ export interface IdempotencyRecord {
   readonly dryRun: boolean;
 }
 
-class InMemoryIdempotencyTracker {
+export interface IdempotencyStore {
+  get(key: string): Promise<IdempotencyRecord | undefined> | IdempotencyRecord | undefined;
+  record(entry: IdempotencyRecord): Promise<void> | void;
+  has(key: string): Promise<boolean> | boolean;
+  clear(): Promise<void> | void;
+  size(): Promise<number> | number;
+}
+
+export class InMemoryIdempotencyTracker implements IdempotencyStore {
   private records = new Map<string, IdempotencyRecord>();
   private readonly ttlMs: number;
 

@@ -1,7 +1,7 @@
 # Cross-Thread Integration Handoff & Ownership Ledger
-**Location**: `docs/CROSS_THREAD_INTEGRATION_HANDOFF.md`  
-**Role**: Integration Coordinator  
-**Last Updated**: 2026-10-15T21:53:30+05:30  
+**Location**: `docs/CROSS_THREAD_INTEGRATION_HANDOFF.md`
+**Role**: Integration Coordinator
+**Last Updated**: 2026-10-15T21:53:30+05:30
 **Baseline**: Remote `main` at `631afd38c443403b83bad8300a3701ea258c6269`
 
 ---
@@ -10,10 +10,10 @@
 
 | Domain | Worktree Directory | Branch Name | Full Commit SHA | Conversation / Context | Verified Local Results | Deployment & Safety Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Receive-Only Webhook / Catalyst** | `Childcare-Catalyst-Adapter` | `feat/catalyst-whatsapp-adapter` | `28a4c6a4bc4866c73b6617b3fa6eed60e41f9d3f` | Peer Thread (`Childcare-Catalyst-Adapter`) | 66 tests pass, typecheck/lint/packaging pass 100% | Isolated receive-only test sink. No cloud deployment. No outbound messaging. Meta App unpublished. |
+| **Receive-Only Webhook / Catalyst** | `Childcare-Catalyst-Adapter` | `feat/catalyst-whatsapp-adapter` | `8d6b6e9cf41a0939e417334fd66b36e21e815bb9` | Peer Thread (`docs/WHATSAPP_CATALYST_INTEGRATION_HANDOFF.md`) | 66 adapter tests pass (100%), full suite 797/797 tests pass, packaging verified | Isolated receive-only test sink. Retains ingress/validation boundary only. No outbound messaging. |
 | **Leadership Reporting** | `Childcare-Leadership-Assistant` | `feat/leadership-reporting-assistant` | `b690e40f0dfdfd32ad93b263a4de74b41522f9d3` | `7f9096aa-8621-496d-bc00-c5b5bcc1b24e` | June single-orphan scenario, intent parsing, 500-record benchmark eval pass | Local synthetic prototype. Disconnected from live Sheet. Uses local synthetic dataset. |
 | **Submission Intake & Stage Readiness** | `Childcare-PR82` | `feat/staged-readiness-bank-queue` | `b6de72543b24ed20ccf5acc35b8c78556f6d1e15` | PR #82 Review Thread | 751 tests pass; stage calculation, leading zeros in bank accounts, offline outbox sync verified | Clean local branch. Awaiting maintainer merge authorization into candidate. |
-| **Apps Script & Reporting Email** | `Childcare-Support-Phase-3(1)` | `feat/staging-destination-hardening` | `6ce5ee608b3fa21a594edb9a5c70103a34e13790` | Integration Coordinator Thread | 54 tests pass (14 destination guard, 26 reporting email, 14 behavioral); tsc 0 errors | Staging infrastructure not provisioned. MailApp quota bounded. Zero live emails sent. |
+| **Apps Script, Reporting Email & Media Service** | `Childcare-Support-Phase-3(1)` | `feat/staging-destination-hardening` | `eb0bedef21521b33f7c962df26abac51e85bdeb0` | Integration Coordinator Thread *(Current)* | 40 tests pass (14 destination guard, 26 reporting email); tsc 0 errors | Owns authoritative linelist, reporting email delivery, and Media Processing Service. |
 | **Voice Calling Agent** | `Childcare-Voice-Prototype` | `prototype/calling-agent-voice-harness` | `b2fc5a1b497e09f8f075ca8fcb310bb9e6dabfce` | Voice Prototype Thread | Mock token issuing, room reservation lifecycle, session cleanup, synthetic missing-doc event pass | In-memory synthetic store only. Disconnected from live telephony / Meta API. |
 | **Editorial Landing** | `Childcare-Landing` | `feat/landing-page-experience` | `a09f28f6b539feaf3b98ede317b22831f112fbc3` | PR #85 Review Thread | All tests green, zero-JS native `<details>` FAQ fallback verified, mobile layout verified | Travelling-record motion deferred. Ready for release candidate review. |
 | **Leadership Auth & Postgres** | `Childcare-Combined` | `test/combined-validation-82-83` | `6720a176c81e7831a09b502eb46e48a6a812d4a2` | Combined Validation Thread | Ephemeral PostgreSQL 15 CI suite, RLS policies, Argon2id verification pass | PR #83 held outside initial release scope by governance directive. |
@@ -28,7 +28,7 @@ To prevent silent assumption of capabilities, critical pipeline responsibilities
 | :--- | :--- | :--- | :--- | :--- |
 | **Outbound WhatsApp Requests** | **UNASSIGNED** | None | Not implemented | `Childcare-Catalyst-Adapter` is strictly receive-only. It explicitly strips phone numbers/text and executes zero outbound Graph API calls (`messages` endpoint). No thread owns outbound WhatsApp delivery. |
 | **Conversational Message Processing** | **SPLIT / PARTIAL** | 1. Leadership: `Childcare-Leadership-Assistant` (`b690e40`)<br>2. Beneficiary Dialog: **UNASSIGNED** | Simulated (Leadership)<br>Missing (Beneficiary) | Leadership conversational reporting (intent parsing, KPI query answering) is owned by `Childcare-Leadership-Assistant`. Inbound beneficiary conversational dialog (processing caregiver responses to missing document prompts) is **UNASSIGNED** (Catalyst adapter strips message bodies). |
-| **Document/Media Download & Storage Linkage** | **UNASSIGNED** | None | Architectural Gap | Meta WhatsApp webhooks only supply a `media_id` string. Neither Catalyst Adapter nor Core Platform implements the worker to fetch media bytes from `GET https://graph.facebook.com/v19.0/{media_id}` and store them in Google Drive / S3. |
+| **Document/Media Download & Storage Linkage** | **Apps Script / Backend Owner** | `Childcare-Support-Phase-3(1)` (`feat/staging-destination-hardening`) | In Progress (Executable Adapter) | Explicitly assigned to Apps Script / backend thread. Ingress webhook remains strictly receive-only. Backend service downloads media bytes, verifies SHA256/10MB bounds, and stores in Drive folder `<ChildName> - <UniqueID>`. |
 | **Submission / Missing-Document Orchestration** | **SPLIT / PARTIAL** | 1. Detection: `Childcare-PR82` (`b6de725`)<br>2. Voice Follow-up: `Childcare-Voice-Prototype` (`b2fc5a1`)<br>3. End-to-End Orchestrator: **UNASSIGNED** | Staged Readiness (PR #82)<br>In-Memory Mock (Voice)<br>Missing Glue | PR #82 detects missing documents (`DOCS_PENDING` / `ACTION_REQUIRED`). Voice Prototype simulates an outreach call for `SYNTH-DOC-002`. However, the event bus / dispatcher that takes a detected missing doc in PR #82 and automatically schedules outreach is **UNASSIGNED**. |
 
 ---
