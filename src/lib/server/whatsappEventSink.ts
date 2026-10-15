@@ -1,32 +1,39 @@
-import { RedactedWhatsAppEvent } from './whatsappWebhookParser';
+import { DiagnosticEventRecord } from './whatsappWebhookParser';
 
 const MAX_SINK_CAPACITY = 50;
-const eventBuffer: RedactedWhatsAppEvent[] = [];
+const eventBuffer: DiagnosticEventRecord[] = [];
 let totalEventsReceived = 0;
 
 /**
- * Records a redacted event into the in-memory test sink.
- * Capacity is strictly bounded via FIFO eviction.
+ * In-Memory Diagnostic Event Sink (Server-Only, Private)
+ *
+ * Operational Guarantees:
+ * - Strictly bounded to a maximum of 50 diagnostic records via FIFO eviction.
+ * - Private internal module: NO public API endpoint exposes this buffer.
+ * - Non-durable & ephemeral: Does NOT provide persistence, durable queuing,
+ *   or cross-instance synchronization.
+ * - Idempotent reception: Duplicate deliveries do NOT trigger side effects.
+ * - Zero PII: Records contain only aggregate counts, event class, and random correlation IDs.
  */
-export function recordWebhookEvent(event: RedactedWhatsAppEvent): void {
+export function recordDiagnosticEvent(event: DiagnosticEventRecord): void {
   if (eventBuffer.length >= MAX_SINK_CAPACITY) {
-    eventBuffer.shift();
+    eventBuffer.shift(); // FIFO eviction
   }
   eventBuffer.push(event);
   totalEventsReceived++;
 }
 
 /**
- * Retrieves the most recent events from the in-memory sink (newest first).
+ * Retrieves recent diagnostic records for local testing and inspection (newest first).
  */
-export function getRecentWebhookEvents(limit = 10): RedactedWhatsAppEvent[] {
+export function getRecentDiagnosticEvents(limit = 10): DiagnosticEventRecord[] {
   return [...eventBuffer].reverse().slice(0, limit);
 }
 
 /**
  * Clears the event buffer (useful for test isolation).
  */
-export function clearWebhookEvents(): void {
+export function clearDiagnosticEvents(): void {
   eventBuffer.length = 0;
   totalEventsReceived = 0;
 }
@@ -34,7 +41,7 @@ export function clearWebhookEvents(): void {
 /**
  * Diagnostic metrics for the in-memory sink.
  */
-export function getWebhookSinkStats() {
+export function getDiagnosticSinkStats() {
   return {
     totalEventsReceived,
     currentBufferSize: eventBuffer.length,

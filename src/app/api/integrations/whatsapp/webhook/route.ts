@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWhatsAppWebhookConfig } from '@/lib/server/whatsappWebhookConfig';
 import { verifyWebhookHandshake, verifyWebhookSignature } from '@/lib/server/whatsappWebhookVerifier';
-import { redactWhatsAppPayload, MetaWhatsAppWebhookPayload } from '@/lib/server/whatsappWebhookParser';
-import { recordWebhookEvent } from '@/lib/server/whatsappEventSink';
+import {
+  extractMinimalDiagnostics,
+  MetaWhatsAppWebhookPayload,
+  readBoundedRawBody,
+  MAX_RAW_BODY_SIZE,
+} from '@/lib/server/whatsappWebhookParser';
+import { recordDiagnosticEvent } from '@/lib/server/whatsappEventSink';
 
 export const dynamic = 'force-dynamic';
-
-const MAX_PAYLOAD_SIZE = 512 * 1024; // 512 KB
 
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -59,9 +62,11 @@ export async function GET(req: NextRequest) {
  * Receive-only test sink for incoming Meta WhatsApp Cloud API webhooks.
  *
  * Security & Data Privacy Guarantees:
+ * - Enforces bounded streaming read (256 KB hard limit) with early cancellation.
  * - Rejects unverified payloads with 401 Unauthorized before JSON parsing.
  * - Enforces HMAC-SHA256 signature verification using timing-safe comparison.
- * - Strips all personally identifiable information (PII) before recording.
+ * - Strips all personally identifiable information (PII) before recording or logging.
+ * - Retains only minimal diagnostics (event class, aggregate counts, random correlation ID).
  * - Does NOT perform outbound calls, database mutations, or beneficiary outreach.
  * - Returns HTTP 200 OK immediately to satisfy Meta's delivery window (<3s).
  */
@@ -83,27 +88,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1. Read raw request bytes for exact HMAC calculation
-  let rawBuffer: Buffer;
-  try {
-    const arrayBuffer = await req.arrayBuffer();
-    rawBuffer = Buffer.from(arrayBuffer);
-  } catch {
+  // 1. Read bounded raw request bytes with stream cancellation
+  const bodyReadResult = await readBoundedRawBody(req, MAX_RAW_BODY_SIZE);
+  if (!bodyReadResult.success) {
     return NextResponse.json(
-      { status: 'error', code: 'BODY_READ_ERROR', message: 'Failed to read request body.' },
-      { status: 400, headers: NO_CACHE_HEADERS }
+      { status: 'error', code: bodyReadResult.code, message: bodyReadResult.message },
+      { status: bodyReadResult.statusCode, headers: NO_CACHE_HEADERS }
     );
   }
 
-  // 2. Reject payloads exceeding reasonable limits
-  if (rawBuffer.length > MAX_PAYLOAD_SIZE) {
-    return NextResponse.json(
-      { status: 'error', code: 'PAYLOAD_TOO_LARGE', message: 'Request payload exceeds maximum allowed size.' },
-      { status: 413, headers: NO_CACHE_HEADERS }
-    );
-  }
+  const rawBuffer = bodyReadResult.buffer;
 
-  // 3. Cryptographic signature verification BEFORE parsing JSON
+  // 2. Cryptographic signature verification BEFORE parsing JSON
   const signatureHeader = req.headers.get('x-hub-signature-256');
   const signatureVerification = verifyWebhookSignature(rawBuffer, signatureHeader, config.appSecret);
 
@@ -114,7 +110,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 4. Safe JSON parsing after signature authentication
+  // 3. Safe JSON parsing after signature authentication
   let payload: MetaWhatsAppWebhookPayload;
   try {
     payload = JSON.parse(rawBuffer.toString('utf-8'));
@@ -125,7 +121,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 5. Structure validation against WhatsApp Business API schema
+  // 4. Structure validation against WhatsApp Business API schema
   if (!payload || typeof payload !== 'object' || payload.object !== 'whatsapp_business_account' || !Array.isArray(payload.entry)) {
     return NextResponse.json(
       { status: 'error', code: 'UNSUPPORTED_OBJECT', message: "Expected object 'whatsapp_business_account'." },
@@ -133,29 +129,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 6. Redaction and in-memory test sink recording
-  const redactedEvents = redactWhatsAppPayload(payload);
-  for (const event of redactedEvents) {
-    recordWebhookEvent(event);
-  }
+  // 5. Minimal privacy-safe diagnostics extraction (NO PII, NO message bodies, NO phone fragments)
+  const diagnostics = extractMinimalDiagnostics(payload);
+  recordDiagnosticEvent(diagnostics);
 
-  let totalMessages = 0;
-  let totalStatuses = 0;
-  for (const ev of redactedEvents) {
-    totalMessages += ev.messages.length;
-    totalStatuses += ev.statuses.length;
-  }
+  console.info(
+    `[WHATSAPP_WEBHOOK] Received event [correlationId=${diagnostics.correlationId}]: class=${diagnostics.eventClass}, entries=${diagnostics.entryCount}, messages=${diagnostics.messageCount}, statuses=${diagnostics.statusCount}`
+  );
 
-  console.info(`[WHATSAPP_WEBHOOK] Received event: entries=${payload.entry.length}, messages=${totalMessages}, statuses=${totalStatuses}`);
-
-  // 7. Prompt HTTP 200 OK response
+  // 6. Prompt HTTP 200 OK response
   return NextResponse.json(
     {
       status: 'ok',
       received: true,
-      entriesProcessed: payload.entry.length,
-      messagesProcessed: totalMessages,
-      statusesProcessed: totalStatuses,
+      correlationId: diagnostics.correlationId,
+      entriesProcessed: diagnostics.entryCount,
+      messagesProcessed: diagnostics.messageCount,
+      statusesProcessed: diagnostics.statusCount,
     },
     {
       status: 200,

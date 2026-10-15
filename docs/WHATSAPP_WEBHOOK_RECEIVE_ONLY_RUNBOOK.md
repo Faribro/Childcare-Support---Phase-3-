@@ -110,11 +110,17 @@ The script runs four synthetic checks:
 
 ---
 
-## 8. Data Privacy & Redaction Guarantees
+## 8. Data Privacy & Security Hardening Guarantees
 
-All incoming webhook payloads are immediately sanitized by `redactWhatsAppPayload`:
-- **Phone Numbers**: All phone numbers (`from`, `wa_id`, `recipient_id`, `display_phone_number`) are masked to at most the last 4 digits (e.g., `+******1234`).
-- **Message Content**: Text bodies, image captions, and button texts are stripped and marked as `contentRedacted: true`.
-- **Contact Profiles**: Names and contact lists are stripped.
-- **In-Memory Sink**: An in-memory ring-buffer stores up to 50 recent redacted events for diagnostics and automated testing. Events are evicted via FIFO.
-- **Outbound Restraint**: Zero outbound network requests are made by the webhook handler.
+All incoming webhook payloads are immediately stripped of sensitive data:
+- **Streaming Hard Size Limit**: Enforces a strict 256 KB limit on raw payloads (`MAX_RAW_BODY_SIZE`). Streaming requests exceeding this ceiling are cancelled immediately at the byte level before buffering or JSON parsing. Fast rejection is also applied if `Content-Length > 256 KB`.
+- **Parameter Bounds**: Handshake GET query parameters are strictly bounded (mode ≤ 64, token ≤ 256, challenge ≤ 512).
+- **Strict PII Elimination**:
+  - NO phone numbers or phone fragments (masked or raw) are retained in logs or diagnostics.
+  - NO contact profile names or user identifiers.
+  - NO message content, raw text, captions, buttons, or media URLs.
+  - NO raw WhatsApp message IDs (`wamid...`).
+  - NO raw error strings that might echo payload fragments.
+- **Minimal Diagnostic Record**: Retains ONLY aggregate counts (`entryCount`, `messageCount`, `statusCount`), event class (`message` | `status` | `general`), numeric error codes, and an ephemeral random correlation UUID (`crypto.randomUUID()`).
+- **In-Memory Sink Boundary**: A private, non-durable in-memory ring-buffer stores up to 50 recent diagnostic records for local testing and inspection with FIFO eviction. No public API endpoint exposes the sink, and duplicate deliveries cause no business side effects.
+- **Outbound Restraint**: Zero outbound network requests, zero document downloads, zero beneficiary lookups, and zero database mutations.

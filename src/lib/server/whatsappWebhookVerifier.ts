@@ -35,6 +35,30 @@ export function verifyWebhookHandshake(
     };
   }
 
+  if (mode.length > 64) {
+    return {
+      isValid: false,
+      statusCode: 400,
+      error: 'hub.mode parameter exceeds maximum allowed length.',
+    };
+  }
+
+  if (verifyToken.length > 256) {
+    return {
+      isValid: false,
+      statusCode: 400,
+      error: 'hub.verify_token parameter exceeds maximum allowed length.',
+    };
+  }
+
+  if (challenge.length > 512) {
+    return {
+      isValid: false,
+      statusCode: 400,
+      error: 'hub.challenge parameter exceeds maximum allowed length.',
+    };
+  }
+
   if (mode !== 'subscribe') {
     return {
       isValid: false,
@@ -60,15 +84,6 @@ export function verifyWebhookHandshake(
       isValid: false,
       statusCode: 403,
       error: 'Invalid hub.verify_token.',
-    };
-  }
-
-  // Safety bound on challenge parameter to prevent resource abuse
-  if (challenge.length > 512) {
-    return {
-      isValid: false,
-      statusCode: 400,
-      error: 'hub.challenge parameter exceeds maximum allowed length of 512 characters.',
     };
   }
 

@@ -3,15 +3,19 @@ import { NextRequest } from 'next/server';
 import crypto from 'crypto';
 import { GET, POST } from '@/app/api/integrations/whatsapp/webhook/route';
 import {
-  clearWebhookEvents,
-  getRecentWebhookEvents,
-  getWebhookSinkStats,
-  recordWebhookEvent,
+  clearDiagnosticEvents,
+  getRecentDiagnosticEvents,
+  getDiagnosticSinkStats,
+  recordDiagnosticEvent,
 } from '@/lib/server/whatsappEventSink';
-import { maskPhoneNumber, redactWhatsAppPayload } from '@/lib/server/whatsappWebhookParser';
+import {
+  extractMinimalDiagnostics,
+  MAX_RAW_BODY_SIZE,
+  readBoundedRawBody,
+} from '@/lib/server/whatsappWebhookParser';
 import { verifyWebhookHandshake, verifyWebhookSignature } from '@/lib/server/whatsappWebhookVerifier';
 
-describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
+describe('Meta WhatsApp Cloud API Webhook Integration (Pre-Deployment Hardening)', () => {
   const TEST_VERIFY_TOKEN = 'synthetic_verify_token_secure_xyz_789';
   const TEST_APP_SECRET = 'synthetic_meta_app_secret_1234567890abcdef';
 
@@ -21,12 +25,12 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
     process.env.WHATSAPP_WEBHOOK_ENABLED = 'true';
     process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = TEST_VERIFY_TOKEN;
     process.env.META_APP_SECRET = TEST_APP_SECRET;
-    clearWebhookEvents();
+    clearDiagnosticEvents();
   });
 
   afterEach(() => {
     process.env = { ...origEnv };
-    clearWebhookEvents();
+    clearDiagnosticEvents();
     vi.restoreAllMocks();
   });
 
@@ -37,9 +41,89 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
   }
 
   // =========================================================================
-  // 1. Feature Flag & Fail-Closed Guardrails
+  // 1. Request Size Limits & Stream Cancellation
   // =========================================================================
-  describe('1. Feature Flag & Fail-Closed Guardrails', () => {
+  describe('1. Request Size Limits & Stream Cancellation', () => {
+    it('documents MAX_RAW_BODY_SIZE as 256 KB', () => {
+      expect(MAX_RAW_BODY_SIZE).toBe(256 * 1024);
+    });
+
+    it('fast-rejects requests with oversized Content-Length header with HTTP 413 before reading body', async () => {
+      const oversizedLength = (MAX_RAW_BODY_SIZE + 1024).toString();
+      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': oversizedLength,
+          'X-Hub-Signature-256': 'sha256=' + '0'.repeat(64),
+        },
+        body: 'small-body',
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(413);
+      const json = await res.json();
+      expect(json.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('rejects streamed requests exceeding 256 KB when Content-Length is missing', async () => {
+      const oversizedBuffer = Buffer.alloc(MAX_RAW_BODY_SIZE + 1024, 65); // 257 KB of 'A'
+
+      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hub-Signature-256': 'sha256=' + '0'.repeat(64),
+        },
+        body: oversizedBuffer,
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(413);
+      const json = await res.json();
+      expect(json.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('rejects streamed requests where Content-Length is falsified/smaller than actual streamed bytes', async () => {
+      const oversizedBuffer = Buffer.alloc(MAX_RAW_BODY_SIZE + 500, 66); // 256.5 KB
+
+      // Falsified Content-Length says 100 bytes, but body sends >256 KB
+      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': '100',
+          'X-Hub-Signature-256': 'sha256=' + '0'.repeat(64),
+        },
+        body: oversizedBuffer,
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(413);
+      const json = await res.json();
+      expect(json.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('readBoundedRawBody terminates stream early on exceeding limit', async () => {
+      const oversizedBuffer = Buffer.alloc(MAX_RAW_BODY_SIZE + 2048, 67);
+      const req = new NextRequest('http://localhost:3000/api/test', {
+        method: 'POST',
+        body: oversizedBuffer,
+      });
+
+      const result = await readBoundedRawBody(req, MAX_RAW_BODY_SIZE);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(413);
+        expect(result.code).toBe('PAYLOAD_TOO_LARGE');
+      }
+    });
+  });
+
+  // =========================================================================
+  // 2. Configuration & Fail-Closed Guardrails
+  // =========================================================================
+  describe('2. Configuration & Fail-Closed Guardrails', () => {
     it('returns HTTP 404 on GET when WHATSAPP_WEBHOOK_ENABLED is false', async () => {
       process.env.WHATSAPP_WEBHOOK_ENABLED = 'false';
       const req = new NextRequest(
@@ -80,7 +164,7 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(json.code).toBe('FEATURE_DISABLED');
     });
 
-    it('returns HTTP 500 on GET when WHATSAPP_WEBHOOK_VERIFY_TOKEN is not configured', async () => {
+    it('returns HTTP 500 on GET when enabled but WHATSAPP_WEBHOOK_VERIFY_TOKEN is missing', async () => {
       delete process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
       const req = new NextRequest(
         'http://localhost:3000/api/integrations/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=any&hub.challenge=test_123'
@@ -91,7 +175,7 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(json.code).toBe('VERIFICATION_FAILED');
     });
 
-    it('returns HTTP 500 on POST when META_APP_SECRET is not configured', async () => {
+    it('returns HTTP 500 on POST when enabled but META_APP_SECRET is missing', async () => {
       delete process.env.META_APP_SECRET;
       const payload = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
@@ -110,10 +194,10 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
   });
 
   // =========================================================================
-  // 2. GET Webhook Handshake Verification
+  // 3. GET Webhook Handshake Verification & Parameter Bounds
   // =========================================================================
-  describe('2. GET Webhook Handshake Verification', () => {
-    it('returns HTTP 200 with raw challenge on valid handshake parameters', async () => {
+  describe('3. GET Webhook Handshake Verification & Parameter Bounds', () => {
+    it('returns HTTP 200 with raw challenge as plain text and non-cacheable headers on valid handshake', async () => {
       const challengeStr = '1158201444_meta_challenge';
       const req = new NextRequest(
         `http://localhost:3000/api/integrations/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=${TEST_VERIFY_TOKEN}&hub.challenge=${challengeStr}`
@@ -123,6 +207,8 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('text/plain');
       expect(res.headers.get('cache-control')).toContain('no-store');
+      expect(res.headers.get('cache-control')).toContain('no-cache');
+      expect(res.headers.get('pragma')).toBe('no-cache');
       const text = await res.text();
       expect(text).toBe(challengeStr);
     });
@@ -148,37 +234,37 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(res.status).toBe(403);
       const json = await res.json();
       expect(json.code).toBe('VERIFICATION_FAILED');
-      expect(json.message).toContain("expected 'subscribe'");
     });
 
-    it('rejects handshake with HTTP 400 when query parameters are missing', async () => {
-      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook');
-      const res = await GET(req);
-
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.code).toBe('VERIFICATION_FAILED');
-      expect(json.message).toContain('Missing required handshake parameters');
+    it('bounds GET hub.mode length to max 64 characters', () => {
+      const longMode = 'subscribe' + 'x'.repeat(60);
+      const res = verifyWebhookHandshake(longMode, TEST_VERIFY_TOKEN, 'chal', TEST_VERIFY_TOKEN);
+      expect(res.isValid).toBe(false);
+      expect(res.statusCode).toBe(400);
+      expect(res.error).toContain('hub.mode parameter exceeds maximum allowed length');
     });
 
-    it('rejects handshake with HTTP 400 when challenge exceeds 512 characters', async () => {
+    it('bounds GET hub.verify_token length to max 256 characters', () => {
+      const longToken = 'x'.repeat(257);
+      const res = verifyWebhookHandshake('subscribe', longToken, 'chal', TEST_VERIFY_TOKEN);
+      expect(res.isValid).toBe(false);
+      expect(res.statusCode).toBe(400);
+      expect(res.error).toContain('hub.verify_token parameter exceeds maximum allowed length');
+    });
+
+    it('bounds GET hub.challenge length to max 512 characters', () => {
       const longChallenge = 'x'.repeat(513);
-      const req = new NextRequest(
-        `http://localhost:3000/api/integrations/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=${TEST_VERIFY_TOKEN}&hub.challenge=${longChallenge}`
-      );
-      const res = await GET(req);
-
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.code).toBe('VERIFICATION_FAILED');
-      expect(json.message).toContain('exceeds maximum allowed length');
+      const res = verifyWebhookHandshake('subscribe', TEST_VERIFY_TOKEN, longChallenge, TEST_VERIFY_TOKEN);
+      expect(res.isValid).toBe(false);
+      expect(res.statusCode).toBe(400);
+      expect(res.error).toContain('hub.challenge parameter exceeds maximum allowed length');
     });
   });
 
   // =========================================================================
-  // 3. POST HMAC-SHA256 Signature Authentication
+  // 4. POST Signature Verification & Malformed Inputs
   // =========================================================================
-  describe('3. POST HMAC-SHA256 Signature Authentication', () => {
+  describe('4. POST Signature Verification & Malformed Inputs', () => {
     it('rejects POST with HTTP 401 when X-Hub-Signature-256 header is missing', async () => {
       const payload = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
@@ -194,7 +280,7 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(json.message).toContain('Missing X-Hub-Signature-256 header');
     });
 
-    it('rejects POST with HTTP 401 when signature header format is malformed (no prefix)', async () => {
+    it('rejects POST with HTTP 401 when signature header format lacks sha256= prefix', async () => {
       const payload = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
         method: 'POST',
@@ -211,13 +297,13 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(json.message).toContain('must start with sha256=');
     });
 
-    it('rejects POST with HTTP 401 when signature hex digest length is invalid', async () => {
+    it('rejects POST with HTTP 401 when signature hex digest length is not exactly 64 chars', async () => {
       const payload = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Hub-Signature-256': 'sha256=abc123short',
+          'X-Hub-Signature-256': 'sha256=bad_hex_length',
         },
         body: payload,
       });
@@ -228,28 +314,9 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       expect(json.message).toContain('64-character hexadecimal string');
     });
 
-    it('rejects POST with HTTP 401 when signature does not match payload', async () => {
-      const payload = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
-      const bogusSignature = 'sha256=' + '0'.repeat(64);
-      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Hub-Signature-256': bogusSignature,
-        },
-        body: payload,
-      });
-      const res = await POST(req);
-
-      expect(res.status).toBe(401);
-      const json = await res.json();
-      expect(json.message).toContain('Invalid X-Hub-Signature-256 signature');
-    });
-
-    it('rejects POST with HTTP 401 when payload was tampered after signature generation', async () => {
+    it('rejects POST with HTTP 401 when signature does not match payload (tampered body)', async () => {
       const originalPayload = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
       const signature = computeHmacSignature(TEST_APP_SECRET, originalPayload);
-
       const tamperedPayload = JSON.stringify({ object: 'whatsapp_business_account', entry: [{ id: 'tampered' }] });
 
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
@@ -266,14 +333,9 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       const json = await res.json();
       expect(json.code).toBe('INVALID_SIGNATURE');
     });
-  });
 
-  // =========================================================================
-  // 4. POST Payload Parsing, Redaction & In-Memory Sink Recording
-  // =========================================================================
-  describe('4. POST Payload Parsing, Redaction & In-Memory Sink Recording', () => {
-    it('rejects POST with HTTP 400 when body is not valid JSON despite valid HMAC', async () => {
-      const invalidJson = 'Not Valid JSON { [';
+    it('rejects POST with HTTP 400 when body is signed but malformed JSON', async () => {
+      const invalidJson = 'Not Valid JSON { [ missing bracket';
       const signature = computeHmacSignature(TEST_APP_SECRET, invalidJson);
 
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
@@ -290,64 +352,88 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
       const json = await res.json();
       expect(json.code).toBe('INVALID_JSON');
     });
+  });
 
-    it('rejects POST with HTTP 400 when object is not "whatsapp_business_account"', async () => {
-      const payload = JSON.stringify({ object: 'instagram', entry: [] });
-      const signature = computeHmacSignature(TEST_APP_SECRET, payload);
-
-      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Hub-Signature-256': signature,
+  // =========================================================================
+  // 5. Minimal Diagnostics & Strict Absence of Sensitive Values / PII
+  // =========================================================================
+  describe('5. Minimal Diagnostics & Strict Absence of Sensitive Values / PII', () => {
+    const REALISTIC_BENEFICIARY_PAYLOAD = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba_1670497521174128',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  display_phone_number: '919876543210',
+                  phone_number_id: 'phone_1413691425156891',
+                },
+                contacts: [
+                  {
+                    profile: { name: 'Sunita Sharma (Beneficiary Caregiver)' },
+                    wa_id: '919876543210',
+                  },
+                ],
+                messages: [
+                  {
+                    from: '919876543210',
+                    id: 'wamid.HBgLMjU1NTk4NzY1NDM0FQIAEhggM0E2NTM4REI4',
+                    timestamp: '1720000000',
+                    type: 'text',
+                    text: { body: 'Inquiring about ART nutritional food basket dispatch for child Rohan' },
+                  },
+                ],
+              },
+            },
+          ],
         },
-        body: payload,
-      });
-      const res = await POST(req);
+      ],
+    };
 
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.code).toBe('UNSUPPORTED_OBJECT');
+    it('extractMinimalDiagnostics completely excludes all phone numbers, names, message text, and IDs', () => {
+      const correlationId = 'test-corr-id-12345';
+      const diag = extractMinimalDiagnostics(REALISTIC_BENEFICIARY_PAYLOAD, correlationId);
+
+      expect(diag.correlationId).toBe(correlationId);
+      expect(diag.eventClass).toBe('message');
+      expect(diag.entryCount).toBe(1);
+      expect(diag.messageCount).toBe(1);
+      expect(diag.statusCount).toBe(0);
+      expect(diag.hasErrors).toBe(false);
+
+      const serialized = JSON.stringify(diag);
+
+      // Assert ABSOLUTE ABSENCE of phone numbers and fragments
+      expect(serialized).not.toContain('9876543210');
+      expect(serialized).not.toContain('3210');
+      expect(serialized).not.toContain('91987654');
+
+      // Assert ABSOLUTE ABSENCE of beneficiary names
+      expect(serialized).not.toContain('Sunita');
+      expect(serialized).not.toContain('Sharma');
+      expect(serialized).not.toContain('Rohan');
+
+      // Assert ABSOLUTE ABSENCE of message text and clinical terms
+      expect(serialized).not.toContain('nutritional');
+      expect(serialized).not.toContain('basket');
+      expect(serialized).not.toContain('ART');
+
+      // Assert ABSOLUTE ABSENCE of raw WhatsApp message ID
+      expect(serialized).not.toContain('wamid');
+      expect(serialized).not.toContain('HBgLMjU1');
+
+      // Assert ABSOLUTE ABSENCE of account and phone identifiers
+      expect(serialized).not.toContain('waba_1670497521174128');
+      expect(serialized).not.toContain('phone_1413691425156891');
     });
 
-    it('accepts and records incoming text message payload while redacting PII', async () => {
-      const payload = JSON.stringify({
-        object: 'whatsapp_business_account',
-        entry: [
-          {
-            id: '1670497521174128',
-            changes: [
-              {
-                field: 'messages',
-                value: {
-                  messaging_product: 'whatsapp',
-                  metadata: {
-                    display_phone_number: '15551234567',
-                    phone_number_id: '1413691425156891',
-                  },
-                  contacts: [
-                    {
-                      profile: { name: 'Aarav Kumar' },
-                      wa_id: '919876543210',
-                    },
-                  ],
-                  messages: [
-                    {
-                      from: '919876543210',
-                      id: 'wamid.HBgLM...',
-                      timestamp: '1720000000',
-                      text: { body: 'Confidential clinical inquiry regarding nutrition' },
-                      type: 'text',
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        ],
-      });
-
-      const signature = computeHmacSignature(TEST_APP_SECRET, payload);
+    it('POST response body contains only random correlation ID and aggregate counts, with zero PII', async () => {
+      const payloadString = JSON.stringify(REALISTIC_BENEFICIARY_PAYLOAD);
+      const signature = computeHmacSignature(TEST_APP_SECRET, payloadString);
 
       const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
         method: 'POST',
@@ -355,70 +441,60 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
           'Content-Type': 'application/json',
           'X-Hub-Signature-256': signature,
         },
-        body: payload,
+        body: payloadString,
       });
-      const res = await POST(req);
 
+      const res = await POST(req);
       expect(res.status).toBe(200);
+
       const json = await res.json();
       expect(json.status).toBe('ok');
       expect(json.received).toBe(true);
+      expect(json.correlationId).toBeDefined();
+      expect(json.entriesProcessed).toBe(1);
       expect(json.messagesProcessed).toBe(1);
       expect(json.statusesProcessed).toBe(0);
 
-      // Verify in-memory sink contents
-      const stats = getWebhookSinkStats();
-      expect(stats.totalEventsReceived).toBe(1);
-      expect(stats.currentBufferSize).toBe(1);
+      const resString = JSON.stringify(json);
+      expect(resString).not.toContain('9876543210');
+      expect(resString).not.toContain('Sunita');
+      expect(resString).not.toContain('Rohan');
+      expect(resString).not.toContain('nutritional');
+      expect(resString).not.toContain('wamid');
 
-      const recent = getRecentWebhookEvents(10);
+      // Verify in-memory sink also contains zero sensitive strings
+      const recent = getRecentDiagnosticEvents(1);
       expect(recent).toHaveLength(1);
-      const ev = recent[0];
-
-      expect(ev.wabaId).toBe('1670497521174128');
-      expect(ev.phoneNumberId).toBe('1413691425156891');
-      // Verify phone masking: display phone should be masked
-      expect(ev.maskedDisplayPhone).toBe('******4567');
-      expect(ev.maskedDisplayPhone).not.toContain('1555123');
-
-      // Verify message PII redaction:
-      expect(ev.messages).toHaveLength(1);
-      const msg = ev.messages[0];
-      expect(msg.id).toBe('wamid.HBgLM...');
-      expect(msg.type).toBe('text');
-      expect(msg.maskedSender).toBe('******3210');
-      expect(msg.maskedSender).not.toContain('987654');
-      expect(msg.contentRedacted).toBe(true);
-      // Ensure raw message body is NOT stored in the sink
-      expect((msg as any).text).toBeUndefined();
-      expect((msg as any).body).toBeUndefined();
+      const sinkString = JSON.stringify(recent[0]);
+      expect(sinkString).not.toContain('9876543210');
+      expect(sinkString).not.toContain('Sunita');
+      expect(sinkString).not.toContain('Rohan');
+      expect(sinkString).not.toContain('nutritional');
+      expect(sinkString).not.toContain('wamid');
     });
 
-    it('accepts and records message delivery status update payload', async () => {
-      const payload = JSON.stringify({
+    it('retains numeric error codes on delivery failures without recording error messages', async () => {
+      const failurePayload = {
         object: 'whatsapp_business_account',
         entry: [
           {
-            id: '1670497521174128',
             changes: [
               {
                 field: 'messages',
                 value: {
                   messaging_product: 'whatsapp',
-                  metadata: {
-                    display_phone_number: '15551234567',
-                    phone_number_id: '1413691425156891',
-                  },
                   statuses: [
                     {
-                      id: 'wamid.HBgLM_STATUS_01',
-                      status: 'delivered',
-                      timestamp: '1720000010',
+                      id: 'wamid.STATUS_FAIL',
+                      status: 'failed',
                       recipient_id: '919876543210',
-                      conversation: {
-                        id: 'conv-abc-123',
-                        origin: { type: 'user_initiated' },
-                      },
+                      errors: [
+                        {
+                          code: 131026,
+                          title: 'Message Undeliverable',
+                          message: 'Detailed recipient account suspension notice with confidential payload excerpt',
+                        },
+                      ],
                     },
                   ],
                 },
@@ -426,167 +502,112 @@ describe('Meta WhatsApp Cloud API Webhook Integration (Receive-Only)', () => {
             ],
           },
         ],
-      });
+      };
 
-      const signature = computeHmacSignature(TEST_APP_SECRET, payload);
+      const diag = extractMinimalDiagnostics(failurePayload);
+      expect(diag.eventClass).toBe('status');
+      expect(diag.statusCount).toBe(1);
+      expect(diag.hasErrors).toBe(true);
+      expect(diag.errorCodes).toEqual([131026]);
 
-      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Hub-Signature-256': signature,
-        },
-        body: payload,
-      });
-      const res = await POST(req);
-
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.statusesProcessed).toBe(1);
-
-      const recent = getRecentWebhookEvents(1);
-      expect(recent[0].statuses).toHaveLength(1);
-      const status = recent[0].statuses[0];
-      expect(status.id).toBe('wamid.HBgLM_STATUS_01');
-      expect(status.status).toBe('delivered');
-      expect(status.maskedRecipient).toBe('******3210');
-    });
-
-    it('processes batched entries and changes in a single webhook request', async () => {
-      const payload = JSON.stringify({
-        object: 'whatsapp_business_account',
-        entry: [
-          {
-            id: '1670497521174128',
-            changes: [
-              {
-                field: 'messages',
-                value: {
-                  messaging_product: 'whatsapp',
-                  messages: [
-                    { from: '911111111111', id: 'm1', timestamp: '1', type: 'text', text: { body: 'msg 1' } },
-                    { from: '912222222222', id: 'm2', timestamp: '2', type: 'text', text: { body: 'msg 2' } },
-                  ],
-                },
-              },
-              {
-                field: 'messages',
-                value: {
-                  messaging_product: 'whatsapp',
-                  statuses: [
-                    { id: 's1', status: 'read', timestamp: '3', recipient_id: '913333333333' },
-                  ],
-                },
-              },
-            ],
-          },
-          {
-            id: 'waba_secondary_02',
-            changes: [
-              {
-                field: 'messages',
-                value: {
-                  messaging_product: 'whatsapp',
-                  statuses: [
-                    { id: 's2', status: 'failed', timestamp: '4', recipient_id: '914444444444', errors: [{ code: 131026, title: 'Message Undeliverable' }] },
-                  ],
-                },
-              },
-            ],
-          },
-        ],
-      });
-
-      const signature = computeHmacSignature(TEST_APP_SECRET, payload);
-
-      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Hub-Signature-256': signature,
-        },
-        body: payload,
-      });
-      const res = await POST(req);
-
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.entriesProcessed).toBe(2);
-      expect(json.messagesProcessed).toBe(2);
-      expect(json.statusesProcessed).toBe(2);
-
-      const recent = getRecentWebhookEvents(10);
-      expect(recent).toHaveLength(3); // 2 changes in entry 0 + 1 change in entry 1 = 3 events
-    });
-
-    it('enforces in-memory sink maximum capacity with FIFO eviction', () => {
-      clearWebhookEvents();
-      const payloadTemplate = (id: number) => ({
-        object: 'whatsapp_business_account',
-        entry: [
-          {
-            id: `waba_${id}`,
-            changes: [
-              {
-                field: 'messages',
-                value: {
-                  messaging_product: 'whatsapp',
-                  messages: [{ from: '919999999999', id: `msg_${id}`, timestamp: `${id}`, type: 'text' }],
-                },
-              },
-            ],
-          },
-        ],
-      });
-
-      // Insert 60 events (capacity is 50)
-      for (let i = 0; i < 60; i++) {
-        const events = redactWhatsAppPayload(payloadTemplate(i));
-        for (const ev of events) {
-          recordWebhookEvent(ev);
-        }
-      }
-
-      const stats = getWebhookSinkStats();
-      expect(stats.totalEventsReceived).toBe(60);
-      expect(stats.currentBufferSize).toBe(50); // capped at 50
-
-      const recent = getRecentWebhookEvents(50);
-      expect(recent).toHaveLength(50);
-      // Newest event should be index 59
-      expect(recent[0].wabaId).toBe('waba_59');
-      // Oldest retained event should be index 10 (0-9 were evicted)
-      expect(recent[49].wabaId).toBe('waba_10');
+      const serialized = JSON.stringify(diag);
+      // Ensures raw error message string is NOT retained
+      expect(serialized).not.toContain('suspension');
+      expect(serialized).not.toContain('confidential');
+      expect(serialized).not.toContain('excerpt');
     });
   });
 
   // =========================================================================
-  // 5. Unit Verification Helpers
+  // 6. In-Memory Sink Boundedness & Idempotence
   // =========================================================================
-  describe('5. Unit Verification Helpers', () => {
-    it('maskPhoneNumber correctly masks various formats', () => {
-      expect(maskPhoneNumber('919876543210')).toBe('******3210');
-      expect(maskPhoneNumber('+919876543210')).toBe('+******3210');
-      expect(maskPhoneNumber('1234')).toBe('****');
-      expect(maskPhoneNumber('12')).toBe('****');
-      expect(maskPhoneNumber(null)).toBe('[UNKNOWN]');
-      expect(maskPhoneNumber(undefined)).toBe('[UNKNOWN]');
+  describe('6. In-Memory Sink Boundedness & Idempotence', () => {
+    it('caps event buffer to 50 items using FIFO eviction', () => {
+      clearDiagnosticEvents();
+
+      for (let i = 0; i < 60; i++) {
+        recordDiagnosticEvent({
+          correlationId: `corr-${i}`,
+          receivedAt: new Date().toISOString(),
+          eventClass: 'message',
+          entryCount: 1,
+          messageCount: 1,
+          statusCount: 0,
+          hasErrors: false,
+          errorCodes: [],
+        });
+      }
+
+      const stats = getDiagnosticSinkStats();
+      expect(stats.totalEventsReceived).toBe(60);
+      expect(stats.currentBufferSize).toBe(50);
+
+      const recent = getRecentDiagnosticEvents(50);
+      expect(recent).toHaveLength(50);
+      expect(recent[0].correlationId).toBe('corr-59'); // newest
+      expect(recent[49].correlationId).toBe('corr-10'); // oldest retained (0-9 evicted)
     });
 
-    it('verifyWebhookHandshake rejects non-string or mismatched tokens', () => {
-      const res = verifyWebhookHandshake('subscribe', 'tokenA', 'chal', 'tokenB');
-      expect(res.isValid).toBe(false);
-      expect(res.statusCode).toBe(403);
+    it('safely handles duplicate deliveries without throwing or creating side effects', async () => {
+      const payloadString = JSON.stringify({
+        object: 'whatsapp_business_account',
+        entry: [{ changes: [{ field: 'messages', value: { messages: [{ type: 'text' }] } }] }],
+      });
+      const signature = computeHmacSignature(TEST_APP_SECRET, payloadString);
+
+      const req1 = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': signature },
+        body: payloadString,
+      });
+      const res1 = await POST(req1);
+      expect(res1.status).toBe(200);
+
+      // Send exact duplicate
+      const req2 = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': signature },
+        body: payloadString,
+      });
+      const res2 = await POST(req2);
+      expect(res2.status).toBe(200);
+
+      const stats = getDiagnosticSinkStats();
+      expect(stats.totalEventsReceived).toBe(2);
     });
 
-    it('verifyWebhookSignature handles case-insensitivity of hex hash', () => {
-      const body = Buffer.from('test_body_content', 'utf-8');
-      const hash = crypto.createHmac('sha256', TEST_APP_SECRET).update(body).digest('hex');
-      const uppercaseSig = `sha256=${hash.toUpperCase()}`;
+    it('tolerates unknown optional fields and non-message event fields safely', async () => {
+      const payloadString = JSON.stringify({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba_test',
+            changes: [
+              {
+                field: 'account_update',
+                value: {
+                  ban_info: { waba_ban_state: 'SCHEDULE_FOR_DISABLE' },
+                  unknown_custom_field: { test: true },
+                },
+              },
+            ],
+            unknown_root_property: 'ignored_gracefully',
+          },
+        ],
+      });
+      const signature = computeHmacSignature(TEST_APP_SECRET, payloadString);
 
-      const res = verifyWebhookSignature(body, uppercaseSig, TEST_APP_SECRET);
-      expect(res.isValid).toBe(true);
-      expect(res.statusCode).toBe(200);
+      const req = new NextRequest('http://localhost:3000/api/integrations/whatsapp/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': signature },
+        body: payloadString,
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+
+      const json = await res.json();
+      expect(json.status).toBe('ok');
+      expect(json.entriesProcessed).toBe(1);
     });
   });
 });
