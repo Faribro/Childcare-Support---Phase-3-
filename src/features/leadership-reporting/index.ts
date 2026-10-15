@@ -3,3 +3,8 @@ export * from './synthetic-dataset';
 export * from './metrics-calculator';
 export * from './intent-router';
 export * from './reporting-agent';
+export * from './data-source-adapter';
+export * from './sender-identity-resolver';
+export * from './export-contract-service';
+export * from './whatsapp-formatter';
+export * from './whatsapp-pipeline';

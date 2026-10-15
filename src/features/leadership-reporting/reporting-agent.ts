@@ -1,4 +1,5 @@
 import {
+  calculateCohortMetrics,
   calculateJuneCohortMetrics,
   calculateKpiSummary,
   calculateStateComparison,
@@ -9,6 +10,7 @@ import {
 import {
   classifyQueryIntent,
   DeterministicRuleIntentClassifier,
+  extractCohortFilter,
   extractStateFilter,
 } from './intent-router';
 import {
@@ -16,11 +18,23 @@ import {
   SYNTHETIC_JUNE_ASSESSMENT_DATASET,
 } from './synthetic-dataset';
 import {
+  AuthorizedReportingDataAdapter,
+  SyntheticAuthorizedDataAdapter,
+} from './data-source-adapter';
+import { WhatsAppFormatter } from './whatsapp-formatter';
+import { ExportContractService } from './export-contract-service';
+import {
   AssistantMessage,
   CallerSecurityContext,
+  ClarificationPrompt,
+  CohortFilterQuery,
+  CohortSummaryResult,
   DateBasis,
+  ExportDeliveryJob,
+  ExportPreviewContract,
   IntentClassifierProvider,
   ReportingSession,
+  SourceFreshness,
   SyntheticAssessmentRecord,
   SyntheticChildRecord,
 } from './types';
@@ -37,22 +51,44 @@ import {
  *    provider (DeterministicRuleIntentClassifier). It does not claim general natural language
  *    understanding.
  * 4. Grounded Reporting: All reported numbers, counts, and breakdowns are deterministically
- *    computed from local synthetic fixtures.
+ *    computed from local synthetic fixtures or authorized data sources.
+ * 5. Data Freshness: Derived explicitly from data adapter metadata, never an ephemeral generated timestamp.
  */
-
 export class LeadershipReportingAgent {
-  private readonly nutritionRecords: readonly SyntheticChildRecord[];
-  private readonly assessmentRecords: readonly SyntheticAssessmentRecord[];
+  private readonly dataAdapter: AuthorizedReportingDataAdapter;
   private readonly classifier: IntentClassifierProvider;
+  private readonly formatter: WhatsAppFormatter;
+  private readonly exportService: ExportContractService;
 
   constructor(
-    nutritionRecords: readonly SyntheticChildRecord[] = SYNTHETIC_EVALUATION_DATASET,
-    assessmentRecords: readonly SyntheticAssessmentRecord[] = SYNTHETIC_JUNE_ASSESSMENT_DATASET,
-    classifier: IntentClassifierProvider = new DeterministicRuleIntentClassifier()
+    dataAdapterOrNutrition?: AuthorizedReportingDataAdapter | readonly SyntheticChildRecord[],
+    classifierOrAssessments?: IntentClassifierProvider | readonly SyntheticAssessmentRecord[],
+    classifierProvider?: IntentClassifierProvider,
+    formatter: WhatsAppFormatter = new WhatsAppFormatter(),
+    exportService: ExportContractService = new ExportContractService()
   ) {
-    this.nutritionRecords = nutritionRecords;
-    this.assessmentRecords = assessmentRecords;
-    this.classifier = classifier;
+    if (Array.isArray(dataAdapterOrNutrition)) {
+      // Backwards-compatible legacy signature: (nutritionRecords, assessmentRecords, classifier)
+      const nutrition = dataAdapterOrNutrition;
+      const assessments = Array.isArray(classifierOrAssessments)
+        ? classifierOrAssessments
+        : SYNTHETIC_JUNE_ASSESSMENT_DATASET;
+      this.dataAdapter = new SyntheticAuthorizedDataAdapter(assessments, nutrition);
+      this.classifier = classifierProvider ?? new DeterministicRuleIntentClassifier();
+    } else if (dataAdapterOrNutrition && 'fetchAssessmentRecords' in dataAdapterOrNutrition) {
+      this.dataAdapter = dataAdapterOrNutrition;
+      this.classifier =
+        (classifierOrAssessments as IntentClassifierProvider) ??
+        new DeterministicRuleIntentClassifier();
+    } else {
+      this.dataAdapter = new SyntheticAuthorizedDataAdapter();
+      this.classifier =
+        (classifierOrAssessments as IntentClassifierProvider) ??
+        new DeterministicRuleIntentClassifier();
+    }
+
+    this.formatter = formatter;
+    this.exportService = exportService;
   }
 
   public createSession(
@@ -61,15 +97,28 @@ export class LeadershipReportingAgent {
       userId: 'usr_leadership_01',
       role: 'LEADERSHIP',
       permittedStates: ['*'],
+    },
+    options?: {
+      confirmedYear?: number;
+      confirmedDateBasis?: DateBasis;
+      isConfirmedPolicy?: boolean;
     }
   ): ReportingSession {
     const now = new Date().toISOString();
+    const isConfirmed = options?.isConfirmedPolicy ?? true;
+
     return {
       sessionId,
       ownerUserId: caller.userId,
       callerScope: caller,
       activeStateFilter: null,
-      activeDateBasis: 'VISIT_DATE',
+      activeDateBasis: options?.confirmedDateBasis ?? 'VISIT_DATE',
+      confirmedYear: options?.confirmedYear ?? (isConfirmed ? 2026 : undefined),
+      confirmedDateBasis: options?.confirmedDateBasis ?? (isConfirmed ? 'VISIT_DATE' : undefined),
+      isConfirmedPolicy: isConfirmed,
+      pendingClarification: null,
+      pendingExport: null,
+      lastCohortResult: null,
       messages: [
         {
           id: `msg_welcome_${Date.now()}`,
@@ -173,7 +222,6 @@ export class LeadershipReportingAgent {
     // 4. State scoping resolution
     let activeState = session.activeStateFilter;
     if (classification.stateFilter) {
-      // Validate caller permission for this state
       const auth = validateCallerAccess(effectiveCaller, classification.stateFilter);
       if (!auth.allowed) {
         const response: AssistantMessage = {
@@ -194,9 +242,203 @@ export class LeadershipReportingAgent {
       activeState = null;
     }
 
-    // 5. Detect if previous turns established an active cohort scenario
+    // 5. Export Flow: Confirmations, Cancellations, and Requests
+    if (classification.intent === 'EXPORT_CONFIRM') {
+      if (!session.pendingExport) {
+        const response: AssistantMessage = {
+          id: `msg_asst_${Date.now()}`,
+          role: 'assistant',
+          content:
+            'ℹ️ *No Pending Export Preview*\n\nThere is no active export preview awaiting confirmation. Please query a report first and ask to export it.',
+          timestamp: now,
+          intent: 'HELP_AND_CAPABILITIES',
+          isSynthetic: true,
+        };
+        return {
+          updatedSession: this.appendMessages(session, userQuery, response, activeState, now),
+          response,
+        };
+      }
+
+      const jobResult = this.exportService.confirmExportDelivery(
+        session.pendingExport,
+        effectiveCaller,
+        userQuery
+      );
+
+      if (!jobResult.success || !jobResult.job) {
+        const response: AssistantMessage = {
+          id: `msg_asst_${Date.now()}`,
+          role: 'assistant',
+          content: `⚠️ *Export Failed:* ${jobResult.errorReason || 'Unable to confirm export job.'}`,
+          timestamp: now,
+          intent: 'AUTHORIZATION_DENIED',
+          isSynthetic: true,
+        };
+        return {
+          updatedSession: this.appendMessages(session, userQuery, response, activeState, now),
+          response,
+        };
+      }
+
+      const formattedJob = this.formatter.formatExportJobQueued(jobResult.job);
+      const response: AssistantMessage = {
+        id: `msg_asst_${Date.now()}`,
+        role: 'assistant',
+        content: formattedJob,
+        timestamp: now,
+        intent: 'EXPORT_CONFIRM',
+        structuredData: { exportJob: jobResult.job },
+        isSynthetic: true,
+      };
+
+      const updated = {
+        ...this.appendMessages(session, userQuery, response, activeState, now),
+        pendingExport: null,
+      };
+      return { updatedSession: updated, response };
+    }
+
+    if (classification.intent === 'EXPORT_CANCEL') {
+      const response: AssistantMessage = {
+        id: `msg_asst_${Date.now()}`,
+        role: 'assistant',
+        content: session.pendingExport
+          ? '❌ *Export Cancelled*\n\nThe pending export preview has been discarded.'
+          : 'ℹ️ No active export preview was found to cancel.',
+        timestamp: now,
+        intent: 'EXPORT_CANCEL',
+        isSynthetic: true,
+      };
+      const updated = {
+        ...this.appendMessages(session, userQuery, response, activeState, now),
+        pendingExport: null,
+      };
+      return { updatedSession: updated, response };
+    }
+
+    if (classification.intent === 'EXPORT_REQUEST') {
+      const preview = this.exportService.createExportPreview(
+        session,
+        effectiveCaller,
+        session.lastCohortResult
+      );
+
+      const formattedPreview = this.formatter.formatExportPreview(preview);
+      const response: AssistantMessage = {
+        id: `msg_asst_${Date.now()}`,
+        role: 'assistant',
+        content: formattedPreview,
+        timestamp: now,
+        intent: 'EXPORT_REQUEST',
+        structuredData: { exportPreview: preview },
+        isSynthetic: true,
+      };
+
+      const updated = {
+        ...this.appendMessages(session, userQuery, response, activeState, now),
+        pendingExport: preview,
+      };
+      return { updatedSession: updated, response };
+    }
+
+    // 6. Clarification Flow: Responding to missing parameters
+    if (session.pendingClarification && (classification.intent === 'CLARIFICATION_ANSWER' || classification.parsedFilter)) {
+      let resolvedYear = session.confirmedYear;
+      let resolvedDateBasis = session.confirmedDateBasis;
+
+      const lower = userQuery.toLowerCase();
+      if (/^(use defaults?|defaults?|standard)$/i.test(lower)) {
+        resolvedYear = 2026;
+        resolvedDateBasis = 'VISIT_DATE';
+      } else {
+        if (classification.parsedFilter?.year) {
+          resolvedYear = classification.parsedFilter.year;
+        }
+        if (classification.parsedFilter?.dateBasis) {
+          resolvedDateBasis = classification.parsedFilter.dateBasis;
+        }
+      }
+
+      if (resolvedYear && resolvedDateBasis) {
+        // Both parameters now resolved! Clear clarification and execute the pending cohort query
+        const pendingQuery = session.pendingClarification.pendingFilter;
+        const targetMonth = pendingQuery?.month ?? 'June';
+        const targetOrphan = pendingQuery?.orphanCategory ?? 'SINGLE_ORPHAN';
+        const targetSchool = pendingQuery?.schoolCategory ?? 'GOVERNMENT_SCHOOL';
+
+        const { records, freshness } = this.dataAdapter.fetchAssessmentRecordsSync(effectiveCaller, {
+          stateFilter: activeState,
+        });
+
+        const metrics = calculateCohortMetrics(
+          effectiveCaller,
+          records,
+          {
+            year: resolvedYear,
+            month: targetMonth,
+            dateBasis: resolvedDateBasis,
+            orphanCategory: targetOrphan,
+            schoolCategory: targetSchool,
+            stateFilter: activeState,
+          },
+          freshness
+        );
+
+        const scopeTitle = activeState
+          ? `in **${activeState}**`
+          : effectiveCaller.permittedStates.includes('*')
+          ? 'Nationally (All Authorized States)'
+          : `in **${effectiveCaller.permittedStates.join(', ')}**`;
+
+        const dateBasisLabel =
+          resolvedDateBasis === 'VISIT_DATE' ? 'Visit-Date Basis' : 'Submission-Date Basis';
+
+        const responseContent =
+          `### ${targetMonth} Single-Orphan Children in Government School (${scopeTitle})\n\n` +
+          `> **Evaluation Clarification & Accounting Basis:**\n` +
+          `> * **Year:** **${resolvedYear}** (Confirmed evaluation calendar).\n` +
+          `> * **Date Basis:** **${dateBasisLabel}**.\n` +
+          `> * **Cohort Definition:** Orphan Status = \`${targetOrphan}\`. School Type = \`${targetSchool}\`.\n\n` +
+          `#### Summary Metrics\n` +
+          `* **Unique Beneficiaries:** **${metrics.uniqueBeneficiariesCount}** children\n` +
+          `* **Total Assessments:** **${metrics.totalAssessmentsCount}** assessment events *(includes repeat assessments for active cases)*\n\n` +
+          `#### Approval & Verification Status\n` +
+          `* **Approved:** **${metrics.approvedAssessmentsCount}** assessments\n` +
+          `* **Pending Supervisor Verification:** **${metrics.pendingAssessmentsCount}** assessments\n` +
+          `* **Flagged / Audit Queries:** **${metrics.flaggedAssessmentsCount}** assessments\n` +
+          `* **Rejected:** **${metrics.rejectedAssessmentsCount}** assessments\n\n` +
+          `#### Data Quality & Missing-Value Treatment\n` +
+          `* **Excluded due to Missing School Type:** **${metrics.recordsExcludedMissingSchool}** records\n` +
+          `* **Excluded due to Missing Orphan Status:** **${metrics.recordsExcludedMissingOrphanStatus}** records\n\n` +
+          `_Data Freshness: Synced ${freshness.lastSyncedAt} (${freshness.sourceVersion})_`;
+
+        const response: AssistantMessage = {
+          id: `msg_asst_${Date.now()}`,
+          role: 'assistant',
+          content: responseContent,
+          timestamp: now,
+          intent: 'JUNE_ORPHAN_SCHOOL_COHORT',
+          structuredData: { cohortMetrics: metrics },
+          isSynthetic: true,
+        };
+
+        const updated: ReportingSession = {
+          ...this.appendMessages(session, userQuery, response, activeState, now),
+          confirmedYear: resolvedYear,
+          confirmedDateBasis: resolvedDateBasis,
+          isConfirmedPolicy: true,
+          pendingClarification: null,
+          lastCohortResult: metrics,
+        };
+        return { updatedSession: updated, response };
+      }
+    }
+
+    // 7. Detect if previous turns established an active cohort scenario
     const isScenarioQuery =
       classification.intent === 'JUNE_ORPHAN_SCHOOL_COHORT' ||
+      classification.intent === 'COHORT_SURVEILLANCE' ||
       classification.intent === 'DISTRICT_BREAKDOWN' ||
       (classification.stateFilter !== null && this.wasInScenarioContext(session));
 
@@ -204,7 +446,7 @@ export class LeadershipReportingAgent {
     let structuredData: Record<string, unknown> | undefined;
     let finalIntent: typeof classification.intent = classification.intent;
 
-    // 6. Handle Intent Dispatches
+    // 8. Handle Intent Dispatches
     if (classification.intent === 'RESET_FILTERS') {
       activeState = null;
       const permittedScopeStr = effectiveCaller.permittedStates.includes('*')
@@ -219,11 +461,68 @@ export class LeadershipReportingAgent {
           ? 'DISTRICT_BREAKDOWN'
           : 'JUNE_ORPHAN_SCHOOL_COHORT';
 
-      const metrics = calculateJuneCohortMetrics(effectiveCaller, this.assessmentRecords, {
+      // Gap Check: If session policy is unconfirmed AND query didn't provide year/dateBasis, ASK for clarification!
+      const queryYear = classification.parsedFilter?.year;
+      const queryDateBasis = classification.parsedFilter?.dateBasis;
+
+      const hasResolvedYear = queryYear !== undefined || (session.isConfirmedPolicy && session.confirmedYear !== undefined);
+      const hasResolvedDateBasis = queryDateBasis !== undefined || (session.isConfirmedPolicy && session.confirmedDateBasis !== undefined);
+
+      if (!hasResolvedYear || !hasResolvedDateBasis) {
+        const promptText =
+          `Before calculating the single-orphan government school cohort, please clarify:\n` +
+          `1. **Calendar Year**: Which year would you like to evaluate (e.g., 2026 or 2025)?\n` +
+          `2. **Date Accounting Basis**: Should we filter by **Visit Date** (in-person assessment date) or **Submission Date** (when the record was synced to central systems)?\n\n` +
+          `*(Alternatively, reply 'use defaults' to proceed with Calendar Year 2026 on Visit-Date basis)*.`;
+
+        const clarificationPrompt: ClarificationPrompt = {
+          queryType: 'COHORT_SURVEILLANCE',
+          missingYear: !hasResolvedYear,
+          missingDateBasis: !hasResolvedDateBasis,
+          promptText,
+          pendingFilter: classification.parsedFilter,
+        };
+
+        const response: AssistantMessage = {
+          id: `msg_asst_${Date.now()}`,
+          role: 'assistant',
+          content: `❓ **Surveillance Scope Clarification**\n\n${promptText}`,
+          timestamp: now,
+          intent: 'CLARIFICATION_ANSWER',
+          structuredData: { clarification: clarificationPrompt },
+          isSynthetic: true,
+        };
+
+        const updated: ReportingSession = {
+          ...this.appendMessages(session, userQuery, response, activeState, now),
+          pendingClarification: clarificationPrompt,
+        };
+        return { updatedSession: updated, response };
+      }
+
+      const effectiveYear = queryYear ?? session.confirmedYear ?? 2026;
+      const effectiveDateBasis = queryDateBasis ?? session.confirmedDateBasis ?? session.activeDateBasis;
+      const effectiveMonth = classification.parsedFilter?.month ?? 'June';
+      const effectiveOrphan = classification.parsedFilter?.orphanCategory ?? 'SINGLE_ORPHAN';
+      const effectiveSchool = classification.parsedFilter?.schoolCategory ?? 'GOVERNMENT_SCHOOL';
+
+      const { records, freshness } = this.dataAdapter.fetchAssessmentRecordsSync(effectiveCaller, {
         stateFilter: activeState,
-        dateBasis: session.activeDateBasis,
-        year: 2026,
       });
+
+      const metrics = calculateCohortMetrics(
+        effectiveCaller,
+        records,
+        {
+          year: effectiveYear,
+          month: effectiveMonth,
+          dateBasis: effectiveDateBasis,
+          orphanCategory: effectiveOrphan,
+          schoolCategory: effectiveSchool,
+          stateFilter: activeState,
+        },
+        freshness
+      );
 
       structuredData = { cohortMetrics: metrics };
       const scopeTitle = activeState
@@ -247,12 +546,15 @@ export class LeadershipReportingAgent {
         }
       }
 
-      responseContent = `### June Single-Orphan Children in Government School (${scopeTitle})
+      const dateBasisLabel =
+        effectiveDateBasis === 'VISIT_DATE' ? 'Visit-Date Basis' : 'Submission-Date Basis';
+
+      responseContent = `### ${effectiveMonth} Single-Orphan Children in Government School (${scopeTitle})
 
 > **Evaluation Clarification & Accounting Basis:**
-> * **Year:** **2026** (Synthetic evaluation calendar).
-> * **Date Basis:** **Visit-Date Basis** (tracks in-person assessment visits conducted in June 2026). *Records synced in June for May visits are excluded under this basis.*
-> * **Cohort Definition:** Orphan Status = \`SINGLE_ORPHAN\` (maternal/paternal single-orphan; excluding double-orphan & non-orphan). School Type = \`GOVERNMENT_SCHOOL\` (excluding private, non-formal, and out-of-school).
+> * **Year:** **${effectiveYear}** (Synthetic evaluation calendar).
+> * **Date Basis:** **${dateBasisLabel}** (tracks in-person assessment visits conducted in ${effectiveMonth} ${effectiveYear}). *Records synced in ${effectiveMonth} for May visits are excluded under this basis.*
+> * **Cohort Definition:** Orphan Status = \`${effectiveOrphan}\` (maternal/paternal single-orphan; excluding double-orphan & non-orphan). School Type = \`${effectiveSchool}\` (excluding private, non-formal, and out-of-school).
 
 #### Summary Metrics
 * **Unique Beneficiaries:** **${metrics.uniqueBeneficiariesCount}** children
@@ -268,16 +570,17 @@ export class LeadershipReportingAgent {
 * **Excluded due to Missing School Type:** **${metrics.recordsExcludedMissingSchool}** records *(flagged as incomplete for field revisits)*
 * **Excluded due to Missing Orphan Status:** **${metrics.recordsExcludedMissingOrphanStatus}** records *(flagged as incomplete for field revisits)*${districtSection}
 
-*Deterministic calculation from synthetic local evaluation fixtures.*`;
+_Data Freshness: Synced ${freshness.lastSyncedAt} (${freshness.sourceVersion})_`;
     } else {
       switch (classification.intent) {
         case 'HELP_AND_CAPABILITIES': {
-          responseContent = `### Leadership Reporting Assistant Capabilities\n\nI provide deterministic surveillance insights for programme leadership:\n\n* **Orphan & School Cohorts:** Query *"June single-orphan children in government school"* with drilldowns like *"Only Maharashtra"*, *"district-wise"*, and *"reset filters"*.\n* **Programme Overview:** Ask *"Show national overview"* or *"Madhya Pradesh KPIs"*.\n* **State Comparisons:** Ask *"Compare states"* for cross-state benchmarks.\n* **High-Risk Cohorts:** Ask *"List high-risk children"*.\n\n*Note: All data is synthetic and operations are strictly read-only.*`;
+          responseContent = `### Leadership Reporting Assistant Capabilities\n\nI provide deterministic surveillance insights for programme leadership:\n\n* **Orphan & School Cohorts:** Query *"June single-orphan children in government school"* with drilldowns like *"Only Maharashtra"*, *"district-wise"*, and *"reset filters"*.\n* **Programme Overview:** Ask *"Show national overview"* or *"Madhya Pradesh KPIs"*.\n* **State Comparisons:** Ask *"Compare states"* for cross-state benchmarks.\n* **High-Risk Cohorts:** Ask *"List high-risk children"*.\n* **Data Exports:** Say *"Export report"* for two-phase delivery to your registered email.\n\n*Note: All operations are strictly read-only.*`;
           break;
         }
 
         case 'STATE_COMPARISON': {
-          const comparisons = calculateStateComparison(this.nutritionRecords);
+          const { records } = this.dataAdapter.fetchNutritionRecordsSync(effectiveCaller);
+          const comparisons = calculateStateComparison(records);
           structuredData = { comparisons };
           const rows = comparisons
             .map(
@@ -291,7 +594,8 @@ export class LeadershipReportingAgent {
         }
 
         case 'MALNUTRITION_SAM_FOCUS': {
-          const kpi = calculateKpiSummary(this.nutritionRecords, activeState);
+          const { records } = this.dataAdapter.fetchNutritionRecordsSync(effectiveCaller, activeState);
+          const kpi = calculateKpiSummary(records, activeState);
           structuredData = { kpi };
           const scope = activeState ? `in **${activeState}**` : 'Nationally';
 
@@ -300,7 +604,8 @@ export class LeadershipReportingAgent {
         }
 
         case 'VERIFICATION_QUEUE': {
-          const pending = filterPendingApprovals(this.nutritionRecords, activeState);
+          const { records } = this.dataAdapter.fetchNutritionRecordsSync(effectiveCaller, activeState);
+          const pending = filterPendingApprovals(records, activeState);
           structuredData = { pendingCount: pending.length, records: pending };
           const scope = activeState ? `in **${activeState}**` : 'Across All States';
 
@@ -319,7 +624,8 @@ export class LeadershipReportingAgent {
         }
 
         case 'HIGH_RISK_DROPOUT': {
-          const highRisk = filterHighRiskCohorts(this.nutritionRecords, activeState);
+          const { records } = this.dataAdapter.fetchNutritionRecordsSync(effectiveCaller, activeState);
+          const highRisk = filterHighRiskCohorts(records, activeState);
           structuredData = { highRiskCount: highRisk.length, records: highRisk };
           const scope = activeState ? `in **${activeState}**` : 'Nationally';
 
@@ -334,13 +640,30 @@ export class LeadershipReportingAgent {
           break;
         }
 
-        case 'OVERVIEW_KPI':
-        default: {
-          const kpi = calculateKpiSummary(this.nutritionRecords, activeState);
+        case 'OVERVIEW_KPI': {
+          const { records, freshness } = this.dataAdapter.fetchNutritionRecordsSync(effectiveCaller, activeState);
+          const kpi = calculateKpiSummary(records, activeState);
           structuredData = { kpi };
           const scope = activeState ? `for **${activeState}**` : 'National Executive Summary';
 
-          responseContent = `### ${scope}\n\n* **Total Enrolled Children:** **${kpi.totalEnrolled}**\n* **Active Attendance Rate:** **${kpi.activeAttendanceRate}%** (${kpi.activeAttendanceCount} regular attendees)\n* **Active SAM Cases:** **${kpi.samCount}** (${kpi.samPercentage}%)\n* **Pending Supervisor Approvals:** **${kpi.pendingVerifications}**\n* **Flagged / Audit Concerns:** **${kpi.flaggedVerifications}**\n\n*Deterministic calculation from synthetic local evaluation fixtures.*`;
+          responseContent = `### ${scope}\n\n* **Total Enrolled Children:** **${kpi.totalEnrolled}**\n* **Active Attendance Rate:** **${kpi.activeAttendanceRate}%** (${kpi.activeAttendanceCount} regular attendees)\n* **Active SAM Cases:** **${kpi.samCount}** (${kpi.samPercentage}%)\n* **Pending Supervisor Approvals:** **${kpi.pendingVerifications}**\n* **Flagged / Audit Concerns:** **${kpi.flaggedVerifications}**\n\n_Data Freshness: Synced ${freshness.lastSyncedAt} (${freshness.sourceVersion})_`;
+          break;
+        }
+
+        case 'UNKNOWN_OR_OUT_OF_SCOPE':
+        default: {
+          // Strict Gap Closure: Unsupported phrasing must clarify, NOT silently return generic KPIs!
+          finalIntent = 'UNKNOWN_OR_OUT_OF_SCOPE';
+          responseContent =
+            `❓ **Unsupported Phrasing / Query Clarification**\n\n` +
+            `I could not match your request to an available surveillance report.\n\n` +
+            `Supported surveillance requests include:\n` +
+            `• **Cohort Surveillance:** *"June 2026 single-orphan children in government school on visit date basis"*\n` +
+            `• **Geographic Filters:** *"Only Maharashtra"*, *"Show UP"*, *"district-wise"*\n` +
+            `• **Executive Overview:** *"Show national overview"* or *"Madhya Pradesh KPIs"*\n` +
+            `• **Cross-State Benchmarks:** *"Compare states"*\n` +
+            `• **Data Export:** *"Export report"*\n\n` +
+            `Could you please rephrase or specify the report you need?`;
           break;
         }
       }
@@ -371,6 +694,7 @@ export class LeadershipReportingAgent {
     return recentAssistantMsgs.some(
       (m) =>
         m.intent === 'JUNE_ORPHAN_SCHOOL_COHORT' ||
+        m.intent === 'COHORT_SURVEILLANCE' ||
         m.intent === 'DISTRICT_BREAKDOWN'
     );
   }

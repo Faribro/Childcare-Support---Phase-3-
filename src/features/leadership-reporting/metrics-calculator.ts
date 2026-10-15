@@ -1,9 +1,12 @@
 import {
   CallerSecurityContext,
+  CohortFilterQuery,
+  CohortSummaryResult,
   DateBasis,
   DistrictBreakdownItem,
   JuneCohortSummaryResult,
   KpiSummary,
+  SourceFreshness,
   StateComparisonMetric,
   SyntheticAssessmentRecord,
   SyntheticChildRecord,
@@ -81,7 +84,7 @@ export function validateCallerAccess(
 }
 
 // -------------------------------------------------------------
-// Scenario Engine: "June single-orphan children in government school"
+// Generic Cohort Surveillance Engine
 // -------------------------------------------------------------
 
 export interface CohortCalculationOptions {
@@ -90,19 +93,46 @@ export interface CohortCalculationOptions {
   readonly year?: number;
 }
 
-export function calculateJuneCohortMetrics(
+function parseMonthPrefix(monthStr: string | undefined): string | null {
+  if (!monthStr || monthStr.toLowerCase() === 'all' || monthStr === '*') {
+    return null;
+  }
+  const months: Record<string, string> = {
+    january: '01', jan: '01', '01': '01',
+    february: '02', feb: '02', '02': '02',
+    march: '03', mar: '03', '03': '03',
+    april: '04', apr: '04', '04': '04',
+    may: '05', '05': '05',
+    june: '06', jun: '06', '06': '06',
+    july: '07', jul: '07', '07': '07',
+    august: '08', aug: '08', '08': '08',
+    september: '09', sep: '09', '09': '09',
+    october: '10', oct: '10', '10': '10',
+    november: '11', nov: '11', '11': '11',
+    december: '12', dec: '12', '12': '12',
+  };
+  return months[monthStr.toLowerCase()] || '06';
+}
+
+export function calculateCohortMetrics(
   caller: CallerSecurityContext,
   records: readonly SyntheticAssessmentRecord[],
-  options?: CohortCalculationOptions
-): JuneCohortSummaryResult {
-  const auth = validateCallerAccess(caller, options?.stateFilter);
+  query?: CohortFilterQuery,
+  freshness?: SourceFreshness
+): CohortSummaryResult {
+  const auth = validateCallerAccess(caller, query?.stateFilter);
   if (!auth.allowed) {
     throw new Error(auth.denialReason || 'Unauthorized state access attempt');
   }
 
-  const year = options?.year ?? 2026;
-  const dateBasis = options?.dateBasis ?? 'VISIT_DATE';
-  const targetPrefix = `${year}-06`;
+  const year = query?.year ?? 2026;
+  const monthName = query?.month ?? 'June';
+  const monthPrefix = parseMonthPrefix(monthName);
+  const dateBasis = query?.dateBasis ?? 'VISIT_DATE';
+  const targetPrefix = monthPrefix ? `${year}-${monthPrefix}` : `${year}`;
+
+  const targetOrphan = query?.orphanCategory ?? 'SINGLE_ORPHAN';
+  const targetSchool = query?.schoolCategory ?? 'GOVERNMENT_SCHOOL';
 
   // 1. Filter by authorized states
   let stateFiltered: readonly SyntheticAssessmentRecord[];
@@ -113,8 +143,8 @@ export function calculateJuneCohortMetrics(
     stateFiltered = records.filter((r) => allowedLower.has(r.state.toLowerCase()));
   }
 
-  // 2. Identify records occurring in June based on the requested dateBasis
-  const juneRecords = stateFiltered.filter((r) => {
+  // 2. Identify records occurring in target period based on the requested dateBasis
+  const timeFiltered = stateFiltered.filter((r) => {
     const dateToCheck = dateBasis === 'VISIT_DATE' ? r.visitDate : r.submissionDate;
     return dateToCheck.startsWith(targetPrefix);
   });
@@ -123,19 +153,22 @@ export function calculateJuneCohortMetrics(
   let missingSchoolCount = 0;
   let missingOrphanCount = 0;
 
-  for (const r of juneRecords) {
-    if (r.orphanStatus === 'SINGLE_ORPHAN' && r.schoolType === null) {
+  for (const r of timeFiltered) {
+    if (targetOrphan !== 'ALL' && r.orphanStatus === targetOrphan && r.schoolType === null) {
       missingSchoolCount++;
     }
-    if (r.schoolType === 'GOVERNMENT_SCHOOL' && r.orphanStatus === null) {
+    if (targetSchool !== 'ALL' && r.schoolType === targetSchool && r.orphanStatus === null) {
       missingOrphanCount++;
     }
   }
 
-  // 4. Exact cohort matching: SINGLE_ORPHAN and GOVERNMENT_SCHOOL
-  const matching = juneRecords.filter(
-    (r) => r.orphanStatus === 'SINGLE_ORPHAN' && r.schoolType === 'GOVERNMENT_SCHOOL'
-  );
+  // 4. Exact cohort matching
+  const matching = timeFiltered.filter((r) => {
+    const orphanMatches = targetOrphan === 'ALL' || r.orphanStatus === targetOrphan;
+    const schoolMatches = targetSchool === 'ALL' || r.schoolType === targetSchool;
+    const districtMatches = !query?.districtFilter || r.district === query.districtFilter;
+    return orphanMatches && schoolMatches && districtMatches;
+  });
 
   // 5. Unique beneficiaries vs total assessments
   const totalAssessments = matching.length;
@@ -189,18 +222,26 @@ export function calculateJuneCohortMetrics(
   districtBreakdown.sort((a, b) => a.district.localeCompare(b.district));
 
   const effectiveState =
-    options?.stateFilter ||
+    query?.stateFilter ||
     (!auth.effectiveStates.includes('*') && auth.effectiveStates.length === 1
       ? auth.effectiveStates[0]
       : null);
 
+  const effectiveFreshness: SourceFreshness = freshness ?? {
+    lastSyncedAt: '2026-10-15T18:00:00.000Z',
+    sourceVersion: 'synthetic-bridge-v1.3.0',
+    recordCount: records.length,
+    isSynthetic: true,
+  };
+
   return {
     year,
-    month: 'June',
+    month: monthName,
     dateBasis,
     stateFilter: effectiveState,
-    orphanCategory: 'SINGLE_ORPHAN',
-    schoolCategory: 'GOVERNMENT_SCHOOL',
+    districtFilter: query?.districtFilter,
+    orphanCategory: targetOrphan,
+    schoolCategory: targetSchool,
     uniqueBeneficiariesCount: uniqueBeneficiaries,
     totalAssessmentsCount: totalAssessments,
     approvedAssessmentsCount: approved,
@@ -210,8 +251,30 @@ export function calculateJuneCohortMetrics(
     recordsExcludedMissingSchool: missingSchoolCount,
     recordsExcludedMissingOrphanStatus: missingOrphanCount,
     districtBreakdown,
+    sourceFreshness: effectiveFreshness,
     isSynthetic: true,
   };
+}
+
+export function calculateJuneCohortMetrics(
+  caller: CallerSecurityContext,
+  records: readonly SyntheticAssessmentRecord[],
+  options?: CohortCalculationOptions,
+  freshness?: SourceFreshness
+): JuneCohortSummaryResult {
+  return calculateCohortMetrics(
+    caller,
+    records,
+    {
+      year: options?.year ?? 2026,
+      month: 'June',
+      dateBasis: options?.dateBasis ?? 'VISIT_DATE',
+      orphanCategory: 'SINGLE_ORPHAN',
+      schoolCategory: 'GOVERNMENT_SCHOOL',
+      stateFilter: options?.stateFilter,
+    },
+    freshness
+  ) as JuneCohortSummaryResult;
 }
 
 // -------------------------------------------------------------

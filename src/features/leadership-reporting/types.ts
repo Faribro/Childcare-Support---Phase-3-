@@ -86,14 +86,32 @@ export interface DistrictBreakdownItem {
   readonly flaggedAssessments: number;
 }
 
-export interface JuneCohortSummaryResult {
+export interface SourceFreshness {
+  readonly lastSyncedAt: string; // ISO string from data adapter
+  readonly sourceVersion: string; // e.g. "bridge-v1.3.0"
+  readonly recordCount: number;
+  readonly isSynthetic: boolean;
+}
+
+export interface CohortFilterQuery {
+  readonly year?: number;
+  readonly month?: string; // e.g. "June", "All"
+  readonly dateBasis?: DateBasis;
+  readonly orphanCategory?: OrphanCategory | 'ALL';
+  readonly schoolCategory?: SchoolCategory | 'ALL';
+  readonly stateFilter?: string | null;
+  readonly districtFilter?: string | null;
+}
+
+export interface CohortSummaryResult {
   readonly year: number; // e.g. 2026
-  readonly month: 'June';
+  readonly month: string; // e.g. "June"
   readonly dateBasis: DateBasis;
   readonly stateFilter: string | null;
-  readonly orphanCategory: 'SINGLE_ORPHAN';
-  readonly schoolCategory: 'GOVERNMENT_SCHOOL';
-  
+  readonly districtFilter?: string | null;
+  readonly orphanCategory: OrphanCategory | 'ALL';
+  readonly schoolCategory: SchoolCategory | 'ALL';
+
   // Beneficiary vs Assessment Counting
   readonly uniqueBeneficiariesCount: number;
   readonly totalAssessmentsCount: number;
@@ -111,7 +129,16 @@ export interface JuneCohortSummaryResult {
   // District Breakdown (when requested or grouped)
   readonly districtBreakdown: readonly DistrictBreakdownItem[];
 
+  // Source Freshness derived from data adapter
+  readonly sourceFreshness: SourceFreshness;
+
   readonly isSynthetic: true;
+}
+
+export interface JuneCohortSummaryResult extends CohortSummaryResult {
+  readonly month: 'June';
+  readonly orphanCategory: 'SINGLE_ORPHAN';
+  readonly schoolCategory: 'GOVERNMENT_SCHOOL';
 }
 
 // -------------------------------------------------------------
@@ -128,15 +155,64 @@ export interface CallerSecurityContext {
   readonly permittedStates: readonly string[];
 }
 
+export interface SenderIdentity {
+  readonly authorized: boolean;
+  readonly callerScope?: CallerSecurityContext;
+  readonly senderPhoneMasked: string; // e.g. "+91 ******3210"
+  readonly rawSenderPhoneHash: string; // SHA-256 for audit without storing raw phone
+  readonly recipientEmailMasked?: string; // e.g. "d****@allianceindia.org"
+  readonly denialReason?: string;
+}
+
+export interface ClarificationPrompt {
+  readonly queryType: 'COHORT_SURVEILLANCE' | 'UNKNOWN';
+  readonly missingYear: boolean;
+  readonly missingDateBasis: boolean;
+  readonly promptText: string;
+  readonly pendingFilter?: CohortFilterQuery;
+}
+
+export interface ExportPreviewContract {
+  readonly exportId: string;
+  readonly reportType: 'COHORT_SUMMARY' | 'STATE_SURVEILLANCE';
+  readonly title: string;
+  readonly stateFilter: string | null;
+  readonly year: number;
+  readonly month: string;
+  readonly dateBasis: DateBasis;
+  readonly uniqueBeneficiaries: number;
+  readonly totalAssessments: number;
+  readonly recipientUserId: string;
+  readonly recipientEmailMasked: string;
+  readonly confirmationCode: string;
+  readonly expiresAt: string;
+}
+
+export interface ExportDeliveryJob {
+  readonly jobId: string;
+  readonly exportId: string;
+  readonly reportType: string;
+  readonly recipientUserId: string;
+  readonly recipientEmailMasked: string;
+  readonly status: 'QUEUED' | 'SENT' | 'FAILED';
+  readonly queuedAt: string;
+  readonly deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER';
+}
+
 export type QueryIntent =
   | 'OVERVIEW_KPI'
   | 'STATE_COMPARISON'
   | 'MALNUTRITION_SAM_FOCUS'
   | 'VERIFICATION_QUEUE'
   | 'HIGH_RISK_DROPOUT'
+  | 'COHORT_SURVEILLANCE'
   | 'JUNE_ORPHAN_SCHOOL_COHORT'
   | 'DISTRICT_BREAKDOWN'
   | 'RESET_FILTERS'
+  | 'CLARIFICATION_ANSWER'
+  | 'EXPORT_REQUEST'
+  | 'EXPORT_CONFIRM'
+  | 'EXPORT_CANCEL'
   | 'AUTHORIZATION_DENIED'
   | 'HELP_AND_CAPABILITIES'
   | 'MUTATION_REJECTED'
@@ -146,6 +222,7 @@ export type QueryIntent =
 export interface IntentClassification {
   readonly intent: QueryIntent;
   readonly stateFilter: string | null;
+  readonly parsedFilter?: CohortFilterQuery;
   readonly confidence: number;
   readonly rawQuery: string;
   readonly safetyRejectionReason?: string;
@@ -173,7 +250,14 @@ export interface ReportingSession {
   readonly callerScope: CallerSecurityContext;
   readonly activeStateFilter: string | null;
   readonly activeDateBasis: DateBasis;
+  readonly confirmedYear?: number;
+  readonly confirmedDateBasis?: DateBasis;
+  readonly isConfirmedPolicy?: boolean;
+  readonly pendingClarification?: ClarificationPrompt | null;
+  readonly pendingExport?: ExportPreviewContract | null;
+  readonly lastCohortResult?: CohortSummaryResult | null;
   readonly messages: AssistantMessage[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
+

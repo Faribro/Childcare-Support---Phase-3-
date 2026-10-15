@@ -133,7 +133,57 @@ export function classifyQueryIntent(
     };
   }
 
-  // 6. District Breakdown
+  // 6. Export Confirmations & Cancellations
+  if (/^(confirm export|confirm|yes export|approve export)$/i.test(lower)) {
+    return {
+      intent: 'EXPORT_CONFIRM',
+      stateFilter,
+      confidence: 1.0,
+      rawQuery: trimmed,
+    };
+  }
+
+  if (/^(cancel export|cancel|discard export|no export)$/i.test(lower)) {
+    return {
+      intent: 'EXPORT_CANCEL',
+      stateFilter,
+      confidence: 1.0,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 7. Export Requests
+  if (
+    /\b(export report|export data|email me the report|email report|send export|download report|export)\b/i.test(
+      lower
+    )
+  ) {
+    return {
+      intent: 'EXPORT_REQUEST',
+      stateFilter,
+      confidence: 0.95,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 8. Clarification Answers (e.g. "2026, visit date", "use defaults", "visit date", "2026")
+  if (
+    /^(use defaults?|defaults?|standard)$/i.test(lower) ||
+    /^(\d{4})[, ]+(visit[- ]date|submission[- ]date|visit|submission)$/i.test(lower) ||
+    /^(visit[- ]date|submission[- ]date|visit basis|submission basis)$/i.test(lower) ||
+    /^(\d{4})$/i.test(lower)
+  ) {
+    const parsedFilter = extractCohortFilter(trimmed);
+    return {
+      intent: 'CLARIFICATION_ANSWER',
+      stateFilter,
+      parsedFilter,
+      confidence: 0.95,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 9. District Breakdown
   if (/\b(district[- ]wise|by district|districts? breakdown|across districts?)\b/i.test(lower)) {
     return {
       intent: 'DISTRICT_BREAKDOWN',
@@ -143,20 +193,31 @@ export function classifyQueryIntent(
     };
   }
 
-  // 7. Core Scenario: "June single-orphan children in government school"
+  // 10. Cohort Surveillance: "June single-orphan children in government school" or generic cohort
+  const hasOrphanPattern = /\b(single[- ]orphan|double[- ]orphan|orphan)\b/i.test(lower);
+  const hasSchoolPattern = /\b(government school|gov school|private school|school)\b/i.test(lower);
+  const hasMonthPattern = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(lower);
+
   if (
-    (/\b(single[- ]orphan|orphan)\b/i.test(lower) && /\b(government school|school)\b/i.test(lower)) ||
-    (/\bjune\b/i.test(lower) && /\b(orphan|school)\b/i.test(lower))
+    (hasOrphanPattern && hasSchoolPattern) ||
+    (hasMonthPattern && (hasOrphanPattern || hasSchoolPattern))
   ) {
+    const parsedFilter = extractCohortFilter(trimmed);
+    const isJuneCohort =
+      (!parsedFilter.month || parsedFilter.month.toLowerCase() === 'june') &&
+      (!parsedFilter.orphanCategory || parsedFilter.orphanCategory === 'SINGLE_ORPHAN') &&
+      (!parsedFilter.schoolCategory || parsedFilter.schoolCategory === 'GOVERNMENT_SCHOOL');
+
     return {
-      intent: 'JUNE_ORPHAN_SCHOOL_COHORT',
+      intent: isJuneCohort ? 'JUNE_ORPHAN_SCHOOL_COHORT' : 'COHORT_SURVEILLANCE',
       stateFilter,
+      parsedFilter,
       confidence: 0.95,
       rawQuery: trimmed,
     };
   }
 
-  // 8. Help / Capabilities
+  // 11. Help / Capabilities
   if (/^(hi|hello|help|who are you|what can you do|capabilities)\b/i.test(lower)) {
     return {
       intent: 'HELP_AND_CAPABILITIES',
@@ -166,7 +227,7 @@ export function classifyQueryIntent(
     };
   }
 
-  // 9. State Comparison
+  // 12. State Comparison
   if (
     /\b(compare|state breakdown|by state|cross-state|across states|which state|ranking)\b/i.test(
       lower
@@ -180,7 +241,7 @@ export function classifyQueryIntent(
     };
   }
 
-  // 10. Malnutrition / SAM Focus
+  // 13. Malnutrition / SAM Focus
   if (
     /\b(sam|mam|malnutrition|nutritional recovery|severe acute|recovered|recovery rate)\b/i.test(
       lower
@@ -194,7 +255,7 @@ export function classifyQueryIntent(
     };
   }
 
-  // 11. Verification / Approval Queue
+  // 14. Verification / Approval Queue
   if (/\b(verification|pending|approval|queue|unverified|flagged)\b/i.test(lower)) {
     return {
       intent: 'VERIFICATION_QUEUE',
@@ -204,7 +265,7 @@ export function classifyQueryIntent(
     };
   }
 
-  // 12. High Risk / Dropouts
+  // 15. High Risk / Dropouts
   if (/\b(high risk|dropout|defaulted|absent|attendance|missed visits|irregular)\b/i.test(lower)) {
     return {
       intent: 'HIGH_RISK_DROPOUT',
@@ -214,8 +275,12 @@ export function classifyQueryIntent(
     };
   }
 
-  // 13. State-Only Scoping Query (e.g. "Only Maharashtra", "Maharashtra", "Show UP")
-  if (stateFilter && (/^only\s+/i.test(lower) || /^(show\s+)?(maharashtra|mp|up|madhya pradesh|uttar pradesh)$/i.test(lower))) {
+  // 16. State-Only Scoping Query (e.g. "Only Maharashtra", "Maharashtra", "Show UP")
+  if (
+    stateFilter &&
+    (/^only\s+/i.test(lower) ||
+      /^(show\s+)?(maharashtra|mp|up|madhya pradesh|uttar pradesh)$/i.test(lower))
+  ) {
     return {
       intent: 'OVERVIEW_KPI',
       stateFilter,
@@ -224,9 +289,9 @@ export function classifyQueryIntent(
     };
   }
 
-  // 14. General KPI Overview
+  // 17. General KPI Overview (explicit keywords only)
   if (
-    /\b(overview|summary|kpi|metrics|total enrolled|how many|status|dashboard|report)\b/i.test(
+    /\b(overview|summary|kpi|metrics|total enrolled|how many enrolled|status overview|dashboard)\b/i.test(
       lower
     )
   ) {
@@ -238,12 +303,69 @@ export function classifyQueryIntent(
     };
   }
 
-  // Fallback
+  // Fallback: Unsupported or unrecognized phrasing MUST NOT return KPIs
   return {
     intent: 'UNKNOWN_OR_OUT_OF_SCOPE',
     stateFilter,
-    confidence: 0.5,
+    confidence: 0.0,
     rawQuery: trimmed,
+  };
+}
+
+export function extractCohortFilter(query: string): import('./types').CohortFilterQuery {
+  const lower = query.toLowerCase();
+
+  // Year: e.g. 2026, 2025
+  const yearMatch = lower.match(/\b(202[0-9])\b/);
+  const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
+
+  // Month
+  let month: string | undefined = undefined;
+  const monthMatch = lower.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
+  );
+  if (monthMatch) {
+    const raw = monthMatch[1].toLowerCase();
+    month = raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+
+  // Date Basis
+  let dateBasis: import('./types').DateBasis | undefined = undefined;
+  if (/\b(visit[- ]date|visit basis|on visit date|visit)\b/i.test(lower)) {
+    dateBasis = 'VISIT_DATE';
+  } else if (
+    /\b(submission[- ]date|submission basis|on submission date|submission|sync date)\b/i.test(lower)
+  ) {
+    dateBasis = 'SUBMISSION_DATE';
+  }
+
+  // Orphan category
+  let orphanCategory: import('./types').OrphanCategory | 'ALL' | undefined = undefined;
+  if (/\b(single[- ]orphan)\b/i.test(lower)) {
+    orphanCategory = 'SINGLE_ORPHAN';
+  } else if (/\b(double[- ]orphan)\b/i.test(lower)) {
+    orphanCategory = 'DOUBLE_ORPHAN';
+  } else if (/\b(non[- ]orphan)\b/i.test(lower)) {
+    orphanCategory = 'NON_ORPHAN';
+  }
+
+  // School category
+  let schoolCategory: import('./types').SchoolCategory | 'ALL' | undefined = undefined;
+  if (/\b(government school|gov school)\b/i.test(lower)) {
+    schoolCategory = 'GOVERNMENT_SCHOOL';
+  } else if (/\b(private school)\b/i.test(lower)) {
+    schoolCategory = 'PRIVATE_SCHOOL';
+  }
+
+  const stateFilter = extractStateFilter(query);
+
+  return {
+    year,
+    month,
+    dateBasis,
+    orphanCategory,
+    schoolCategory,
+    stateFilter,
   };
 }
 
@@ -255,3 +377,4 @@ export class DeterministicRuleIntentClassifier implements IntentClassifierProvid
     return classifyQueryIntent(query, caller);
   }
 }
+
