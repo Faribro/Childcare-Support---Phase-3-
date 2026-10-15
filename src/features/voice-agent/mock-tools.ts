@@ -17,15 +17,13 @@ import {
 } from './types';
 
 export const FIXED_SYNTHETIC_TASK: SyntheticFollowupTask = {
-  taskId: 'SYNTH-TASK-2026-001',
-  mockCaregiverName: 'Sunita Devi (Synthetic Profile)',
-  mockChildInitials: 'A.K.',
-  programmeContext: 'Community Child Nutrition Support Programme Phase 3',
-  taskDescription: 'Follow-up regarding scheduled growth monitoring session and nutritional kit receipt confirmation.',
+  taskId: 'SYNTH-TASK-001',
+  taskDescription: 'A staff-created follow-up task needs assistance.',
   generalInstructions: [
-    'Confirm if the monthly dry ration package was collected from the local centre.',
-    'Ask if caregiver requires assistance with scheduling the next infant weight check.',
-    'Remind that services are completely free and no payments or bank details are ever requested.'
+    'A staff-created follow-up task needs assistance.',
+    'Offer general instructions if requested.',
+    'Record a mock callback request if requested, explicitly stating it is a test.',
+    'Hand the matter to staff if requested, explicitly stating it is a test.'
   ],
   isSynthetic: true,
 };

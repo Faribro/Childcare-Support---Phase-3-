@@ -35,7 +35,7 @@ describe('Calling-Agent Voice Prototype Acceptance Suite', () => {
   it('2. Hindi greeting: announces automated assistant identity and checks convenience/privacy in Hindi', () => {
     const greeting = sm.startSession('hi');
     expect(greeting.state).toBe('PRIVACY_CONSENT_PENDING');
-    expect(greeting.assistantUtterance).toContain('ऑटोमेटेड असिस्टेंट');
+    expect(greeting.assistantUtterance).toContain('ऑटोमेटेड प्रोग्राम असिस्टेंट');
     expect(greeting.assistantUtterance).toContain('सही और सुरक्षित समय');
     expect(greeting.language).toBe('hi');
   });
@@ -45,11 +45,11 @@ describe('Calling-Agent Voice Prototype Acceptance Suite', () => {
     runner.startMicrophone();
     sm.startSession('en');
 
-    // Caregiver responds in Hinglish
+    // User responds in Hinglish
     const { output } = await runner.simulateTurn('Haan, main bol sakti hoon, boliye');
     expect(output.language).toBe('hinglish');
     expect(output.state).toBe('AWAITING_USER_INPUT');
-    expect(output.assistantUtterance).toContain('nutrition ration kit');
+    expect(output.assistantUtterance).toContain('follow-up task');
   });
 
   // Test 4: Interruption while the assistant is speaking (barge-in)
@@ -100,14 +100,14 @@ describe('Calling-Agent Voice Prototype Acceptance Suite', () => {
   });
 
   // Test 7: Wrong number
-  it('7. Wrong number: apologizes, terminates gracefully, and records mock outcome', async () => {
+  it('7. Wrong number: states test disclaimer, terminates gracefully, and records mock outcome', async () => {
     runner.startMicrophone();
     sm.startSession('en');
 
-    const { output } = await runner.simulateTurn('This is the wrong number, I am not Sunita');
+    const { output } = await runner.simulateTurn('This is the wrong number');
     expect(output.shouldTerminate).toBe(true);
     expect(output.state).toBe('WRONG_NUMBER_TERMINATED');
-    expect(output.assistantUtterance).toContain('remove this number');
+    expect(output.assistantUtterance).toContain('This is a test; no records were changed');
 
     const outcomes = store.getOutcomes();
     expect(outcomes.length).toBe(1);
@@ -115,14 +115,14 @@ describe('Calling-Agent Voice Prototype Acceptance Suite', () => {
   });
 
   // Test 8: Caregiver unavailable / Call later
-  it('8. Caregiver unavailable: respects busy status, confirms later contact, and records mock callback', async () => {
+  it('8. Caregiver unavailable: respects busy status, confirms test disclaimer, and records mock callback', async () => {
     runner.startMicrophone();
     sm.startSession('en');
 
     const { output } = await runner.simulateTurn('I am very busy right now, please call later');
     expect(output.shouldTerminate).toBe(true);
     expect(output.state).toBe('CARE_UNAVAILABLE_TERMINATED');
-    expect(output.assistantUtterance).toContain('follow up later');
+    expect(output.assistantUtterance).toContain('This is a test; no real callback or staff notification was created');
 
     const callbacks = store.getCallbacks();
     expect(callbacks.length).toBe(1);
@@ -130,14 +130,14 @@ describe('Calling-Agent Voice Prototype Acceptance Suite', () => {
   });
 
   // Test 9: Stop / opt-out
-  it('9. Stop/opt-out: immediately honors stop request, confirms opt-out, and logs mock record', async () => {
+  it('9. Stop/opt-out: immediately honors stop request, confirms test disclaimer, and logs mock record', async () => {
     runner.startMicrophone();
     sm.startSession('en');
 
     const { output } = await runner.simulateTurn('Stop calling me, unsubscribe');
     expect(output.shouldTerminate).toBe(true);
     expect(output.state).toBe('OPT_OUT_PROCESSED');
-    expect(output.assistantUtterance).toContain('recorded your request to stop calls');
+    expect(output.assistantUtterance).toContain('This is a test; your preference has been recorded for this test session only');
 
     const optOuts = store.getOptOuts();
     expect(optOuts.length).toBe(1);
@@ -145,31 +145,30 @@ describe('Calling-Agent Voice Prototype Acceptance Suite', () => {
   });
 
   // Test 10: Callback request without inventing a confirmed appointment
-  it('10. Callback request: logs window without fabricating confirmed time appointment', async () => {
+  it('10. Callback request: logs window without fabricating confirmed time appointment and confirms test', async () => {
     runner.startMicrophone();
     sm.startSession('en');
 
-    // Caregiver declines privacy consent
+    // Declines privacy consent
     const { output } = await runner.simulateTurn('No, this is not a convenient time');
     expect(output.shouldTerminate).toBe(true);
     expect(output.state).toBe('CARE_UNAVAILABLE_TERMINATED');
-    expect(output.assistantUtterance).toContain('staff member will follow up at a more convenient time');
+    expect(output.assistantUtterance).toContain('This is a test; no real callback or staff notification was created');
 
     const callbacks = store.getCallbacks();
     expect(callbacks.length).toBe(1);
-    // Verifies window is recorded as need rather than a fabricated appointment time
     expect(callbacks[0].requestedWindow).toBe('Private time callback needed');
   });
 
   // Test 11: Human assistance request
-  it('11. Human assistance request: escalates immediately to staff handoff tool', async () => {
+  it('11. Human assistance request: escalates immediately to staff handoff tool with test disclaimer', async () => {
     runner.startMicrophone();
     sm.startSession('en');
 
     const { output } = await runner.simulateTurn('Can I please talk to a human staff member?');
     expect(output.shouldTerminate).toBe(true);
     expect(output.state).toBe('HUMAN_HANDOFF');
-    expect(output.assistantUtterance).toContain('requested our programme staff to follow up with you directly');
+    expect(output.assistantUtterance).toContain('This is a test; no real callback or staff notification was created');
 
     const handoffs = store.getHandoffs();
     expect(handoffs.length).toBe(1);

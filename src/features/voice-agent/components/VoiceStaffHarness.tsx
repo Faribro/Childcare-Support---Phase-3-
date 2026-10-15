@@ -35,6 +35,23 @@ export function VoiceStaffHarness() {
     };
   }, [pipelineRunner]);
 
+  const handleEmergencyStop = useCallback(
+    (reason: string = 'Staff terminated session') => {
+      if (stateMachine && sessionActive) {
+        stateMachine.terminateSession('COMPLETED', 'Session ended by staff operator.', reason);
+        setCurrentState(stateMachine.getState());
+        setTurns(stateMachine.getTurns());
+      }
+      if (pipelineRunner) {
+        pipelineRunner.stopMicrophone();
+      }
+      setSessionActive(false);
+      setMicActive(false);
+      setStatusMessage(`Session terminated: ${reason}`);
+    },
+    [stateMachine, sessionActive, pipelineRunner]
+  );
+
   // Session duration timer
   useEffect(() => {
     if (sessionActive && stateMachine) {
@@ -51,7 +68,7 @@ export function VoiceStaffHarness() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [sessionActive, stateMachine]);
+  }, [sessionActive, stateMachine, handleEmergencyStop]);
 
   const handleStartSession = (lang: LanguageTarget) => {
     store.clear();
@@ -71,20 +88,6 @@ export function VoiceStaffHarness() {
     setTurns(sm.getTurns());
     setSessionActive(true);
     setStatusMessage(`Session active (${lang.toUpperCase()}). Microphone listening.`);
-  };
-
-  const handleEmergencyStop = (reason: string = 'Staff terminated session') => {
-    if (stateMachine && sessionActive) {
-      stateMachine.terminateSession('COMPLETED', 'Session ended by staff operator.', reason);
-      setCurrentState(stateMachine.getState());
-      setTurns(stateMachine.getTurns());
-    }
-    if (pipelineRunner) {
-      pipelineRunner.stopMicrophone();
-    }
-    setSessionActive(false);
-    setMicActive(false);
-    setStatusMessage(`Session terminated: ${reason}`);
   };
 
   const handleToggleMute = () => {
@@ -251,27 +254,18 @@ export function VoiceStaffHarness() {
 
         {/* Middle Column: Fixed Synthetic Task & Live Controls */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
-          <h2 className="text-base font-semibold text-slate-800 border-b pb-2">Synthetic Task Context</h2>
+          <h2 className="text-base font-semibold text-slate-800 border-b pb-2">Neutral Mock Task Context</h2>
           <div className="bg-slate-50 p-3 rounded text-xs space-y-1.5 border border-slate-200">
             <div>
               <span className="font-semibold text-slate-600">Task ID:</span>{' '}
               <span className="font-mono text-slate-900">{FIXED_SYNTHETIC_TASK.taskId}</span>
             </div>
             <div>
-              <span className="font-semibold text-slate-600">Caregiver (Mock):</span>{' '}
-              <span className="text-slate-900">{FIXED_SYNTHETIC_TASK.mockCaregiverName}</span>
+              <span className="font-semibold text-slate-600">Task:</span>{' '}
+              <span className="text-slate-900 font-medium">{FIXED_SYNTHETIC_TASK.taskDescription}</span>
             </div>
-            <div>
-              <span className="font-semibold text-slate-600">Child (Mock Initials):</span>{' '}
-              <span className="text-slate-900">{FIXED_SYNTHETIC_TASK.mockChildInitials}</span>
-            </div>
-            <div>
-              <span className="font-semibold text-slate-600">Context:</span>{' '}
-              <span className="text-slate-700">{FIXED_SYNTHETIC_TASK.programmeContext}</span>
-            </div>
-            <div className="pt-1">
-              <span className="font-semibold text-slate-600">Follow-up Task:</span>
-              <p className="text-slate-700 mt-0.5">{FIXED_SYNTHETIC_TASK.taskDescription}</p>
+            <div className="pt-1 text-[11px] text-amber-800 bg-amber-50 p-2 rounded border border-amber-200 font-mono">
+              Note: This is a test; no real callback or staff notification was created. No beneficiary records or clinical data accessed.
             </div>
           </div>
 

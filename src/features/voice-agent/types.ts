@@ -29,9 +29,6 @@ export type LanguageTarget = 'en' | 'hi' | 'hinglish';
 
 export interface SyntheticFollowupTask {
   readonly taskId: string;
-  readonly mockCaregiverName: string;
-  readonly mockChildInitials: string;
-  readonly programmeContext: string;
   readonly taskDescription: string;
   readonly generalInstructions: string[];
   readonly isSynthetic: true;

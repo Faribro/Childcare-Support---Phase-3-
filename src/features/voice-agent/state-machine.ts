@@ -118,13 +118,13 @@ export class VoiceConversationStateMachine {
     let greeting: string;
     if (preferredLanguage === 'hi') {
       greeting =
-        'नमस्ते। मैं कम्युनिटी चाइल्ड न्यूट्रिशन सपोर्ट प्रोग्राम से एक ऑटोमेटेड असिस्टेंट बोल रहा हूँ। क्या यह आपसे बात करने के लिए सही और सुरक्षित समय है?';
+        'नमस्ते। मैं एक ऑटोमेटेड प्रोग्राम असिस्टेंट बोल रहा हूँ। क्या यह आपसे बात करने के लिए सही और सुरक्षित समय है?';
     } else if (preferredLanguage === 'hinglish') {
       greeting =
-        'Namaste. Main Community Child Nutrition Support Programme se ek automated assistant bol raha hoon. Kya yeh aapse baat karne ke liye convenient aur safe time hai?';
+        'Namaste. Main ek automated programme assistant bol raha hoon. Kya yeh aapse baat karne ke liye convenient aur safe time hai?';
     } else {
       greeting =
-        'Hello. I am an automated programme assistant calling from the Community Child Nutrition Support Programme. Is this a convenient and private time for you to speak?';
+        'Hello. I am an automated programme assistant. Is this a convenient and private time to speak?';
     }
 
     this.isAssistantSpeaking = true;
@@ -331,9 +331,9 @@ export class VoiceConversationStateMachine {
       return this.terminateSession(
         'OPT_OUT_PROCESSED',
         this.getLocalizedText({
-          en: 'Understood. We have recorded your request to stop calls. You will not receive automated calls from us. Have a good day.',
-          hi: 'समझ गया। हमने कॉल रोकने का आपका अनुरोध दर्ज कर लिया है। अब आपको कॉल नहीं की जाएगी। धन्यवाद।',
-          hinglish: 'Samajh gaya. Humne calls stop karne ki request record kar li hai. Aage se automated calls nahi aayengi. Dhanyawad.',
+          en: 'This is a test; your preference has been recorded for this test session only. Have a good day.',
+          hi: 'यह एक परीक्षण है; आपकी प्राथमिकता केवल इस परीक्षण सत्र के लिए दर्ज की गई है। धन्यवाद।',
+          hinglish: 'Yeh ek test hai; aapki preference sirf is test session ke liye record ki gayi hai. Dhanyawad.',
         }),
         'User opted out'
       );
@@ -351,9 +351,9 @@ export class VoiceConversationStateMachine {
       return this.terminateSession(
         'WRONG_NUMBER_TERMINATED',
         this.getLocalizedText({
-          en: 'I apologize for the misunderstanding. We will remove this number from our contact task. Have a good day.',
-          hi: 'माफ़ कीजियेगा, गलत नंबर पर कॉल करने के लिए खेद है। हम यह नंबर हटा देंगे। धन्यवाद।',
-          hinglish: 'Sorry, lagta hai galat number dial ho gaya. Hum is number ko update kar denge. Dhanyawad.',
+          en: 'This is a test; no records were changed. Have a good day.',
+          hi: 'यह एक परीक्षण है; कोई रिकॉर्ड नहीं बदला गया है। धन्यवाद।',
+          hinglish: 'Yeh ek test hai; koi records change nahi kiye gaye hain. Dhanyawad.',
         }),
         'Wrong number reported'
       );
@@ -369,9 +369,9 @@ export class VoiceConversationStateMachine {
       return this.terminateSession(
         'HUMAN_HANDOFF',
         this.getLocalizedText({
-          en: 'Certainly. I have requested our programme staff to follow up with you directly by phone. Thank you for letting us know.',
-          hi: 'बिल्कुल। मैंने हमारे प्रोग्राम स्टाफ को आपसे सीधे बात करने का अनुरोध भेज दिया है। वे आपसे संपर्क करेंगे। धन्यवाद।',
-          hinglish: 'Bilkul. Maine staff member ko aapse directly baat karne ke liye request bhej di hai. Wo aapse contact karenge. Dhanyawad.',
+          en: 'This is a test; no real callback or staff notification was created. Thank you.',
+          hi: 'यह एक परीक्षण है; कोई वास्तविक कॉलबैक या स्टाफ सूचना नहीं बनाई गई है। धन्यवाद।',
+          hinglish: 'Yeh ek test hai; koi real callback ya staff notification create nahi hua hai. Dhanyawad.',
         }),
         'Human handoff requested'
       );
@@ -387,9 +387,9 @@ export class VoiceConversationStateMachine {
       return this.terminateSession(
         'CARE_UNAVAILABLE_TERMINATED',
         this.getLocalizedText({
-          en: 'No problem at all. We have recorded that this was not a convenient time and will follow up later. Thank you.',
-          hi: 'कोई बात नहीं। हमने दर्ज कर लिया है कि अभी सही समय नहीं है। हम बाद में संपर्क करेंगे। धन्यवाद।',
-          hinglish: 'Koi baat nahi. Humne note kar liya hai aur baad mein call karenge. Dhanyawad.',
+          en: 'This is a test; no real callback or staff notification was created. Thank you for your time.',
+          hi: 'यह एक परीक्षण है; कोई वास्तविक कॉलबैक या स्टाफ सूचना नहीं बनाई गई है। आपके समय के लिए धन्यवाद।',
+          hinglish: 'Yeh ek test hai; koi real callback ya staff notification create nahi hua hai. Aapke samay ke liye shukriya.',
         }),
         'Caregiver unavailable / Call later'
       );
@@ -401,9 +401,9 @@ export class VoiceConversationStateMachine {
         this.state = 'TASK_EXPLANATION';
         const taskInfo = this.store.getSyntheticFollowupTask(this.task.taskId);
         const explanation = this.getLocalizedText({
-          en: `Thank you. This call is regarding ${taskInfo.programmeContext}. Our records show a follow-up task to verify your nutrition ration package. Did you receive your monthly nutrition kit?`,
-          hi: `धन्यवाद। यह कॉल ${taskInfo.programmeContext} के संबंध में है। हम यह जानने के लिए कॉल कर रहे हैं कि क्या आपको इस महीने का पोषण राशन किट मिल गया है?`,
-          hinglish: `Shukriya. Yeh call ${taskInfo.programmeContext} ke bare mein hai. Kya aapko is month ka nutrition ration kit mil gaya hai?`,
+          en: `Thank you. ${taskInfo.taskDescription} Would you like general instructions, or would you like to request a callback?`,
+          hi: `धन्यवाद। ${taskInfo.taskDescription} क्या आप सामान्य निर्देश सुनना चाहते हैं, या कॉलबैक का अनुरोध करना चाहते हैं?`,
+          hinglish: `Shukriya. ${taskInfo.taskDescription} Kya aap general instructions sunna chahte hain, ya callback request karna chahte hain?`,
         });
         this.isAssistantSpeaking = true;
         this.state = 'AWAITING_USER_INPUT';
@@ -424,57 +424,73 @@ export class VoiceConversationStateMachine {
         return this.terminateSession(
           'CARE_UNAVAILABLE_TERMINATED',
           this.getLocalizedText({
-            en: 'Understood. We will not take your time now. A staff member will follow up at a more convenient time. Thank you.',
-            hi: 'समझ गया। हम अभी आपका समय नहीं लेंगे। स्टाफ बाद में उपयुक्त समय पर संपर्क करेगा। धन्यवाद।',
-            hinglish: 'Samajh gaya. Hum baad mein convenient time par follow-up karenge. Dhanyawad.',
+            en: 'This is a test; no real callback or staff notification was created. Thank you for your time.',
+            hi: 'यह एक परीक्षण है; कोई वास्तविक कॉलबैक या स्टाफ सूचना नहीं बनाई गई है। आपके समय के लिए धन्यवाद।',
+            hinglish: 'Yeh ek test hai; koi real callback ya staff notification create nahi hua hai. Aapke samay ke liye shukriya.',
           }),
           'Consent declined / Inconvenient time'
         );
       }
     }
 
-    // State: AWAITING_USER_INPUT (General inquiry & kit verification)
+    // State: AWAITING_USER_INPUT (General inquiry & neutral task completion)
     if (this.state === 'AWAITING_USER_INPUT' || this.state === 'TASK_EXPLANATION') {
-      if (this.matchesYes(input)) {
+      if (this.matchesInstructionsRequest(input)) {
+        const instructions = this.getLocalizedText({
+          en: 'General instructions: Keep your verification forms handy and contact your field office during regular working hours for any queries. Would you like a callback, or can I close this call?',
+          hi: 'सामान्य निर्देश: कृपया अपने सत्यापन प्रपत्र तैयार रखें और किसी भी प्रश्न के लिए नियमित कार्य समय के दौरान अपने फील्ड कार्यालय से संपर्क करें। क्या आप कॉलबैक चाहते हैं, या कॉल समाप्त करें?',
+          hinglish: 'General instructions: Apne verification forms ready rakhein aur working hours mein office se contact karein. Kya aap callback chahte hain ya call end karein?',
+        });
+        this.isAssistantSpeaking = true;
+        this.recordTurn('assistant', instructions, this.currentLanguage);
+        return {
+          state: this.state,
+          assistantUtterance: instructions,
+          language: this.currentLanguage,
+          shouldTerminate: false,
+        };
+      }
+
+      if (this.matchesYes(input) || this.matchesCloseCall(input)) {
         this.store.recordMockContactOutcome({
           taskId: this.task.taskId,
           finalState: 'COMPLETED',
           durationSeconds: this.getSessionDuration(),
           turnsCount: this.turns.length,
-          notes: 'Caregiver confirmed receipt of nutrition ration package.',
+          notes: 'Caregiver acknowledged follow-up task assistance.',
         });
         return this.terminateSession(
           'COMPLETED',
           this.getLocalizedText({
-            en: 'Wonderful, thank you for confirming. Please remember that all infant weight and growth checks at your local centre are free. Have a safe and healthy week!',
-            hi: 'बहुत अच्छा, पुष्टि करने के लिए धन्यवाद। कृपया ध्यान रखें कि केंद्र पर बच्चे का वजन और विकास जांच निःशुल्क है। आपका सप्ताह शुभ हो!',
-            hinglish: 'Bohat badiya, confirm karne ke liye shukriya. Centre par bacche ki growth checking bilkul free hai. Have a nice day!',
+            en: 'This is a test; the mock follow-up task has been marked complete in this local test session. Thank you.',
+            hi: 'यह एक परीक्षण है; इस स्थानीय परीक्षण सत्र में कार्य पूर्ण चिह्नित कर दिया गया है। धन्यवाद।',
+            hinglish: 'Yeh ek test hai; is local test session mein task complete mark ho gaya hai. Dhanyawad.',
           }),
           'Task confirmed and completed'
         );
       } else if (this.matchesNo(input)) {
         this.store.requestMockStaffHandoff({
           taskId: this.task.taskId,
-          reason: 'Caregiver reported monthly nutrition kit NOT received. Staff follow-up needed.',
-          priority: 'HIGH',
+          reason: 'Caregiver requested additional follow-up assistance.',
+          priority: 'NORMAL',
         });
         return this.terminateSession(
           'HUMAN_HANDOFF',
           this.getLocalizedText({
-            en: 'I have noted that the kit has not been received yet. I am alerting our field staff to check on your delivery and assist you. Thank you for letting us know.',
-            hi: 'मैंने नोट कर लिया है कि अभी तक किट नहीं मिला है। मैं हमारे फील्ड स्टाफ को सूचित कर रहा हूँ ताकि वे आपकी सहायता कर सकें। धन्यवाद।',
-            hinglish: 'Maine note kar liya hai ki kit abhi nahi mila hai. Main field staff ko notify kar raha hoon taaki wo aapki help kar sakein. Dhanyawad.',
+            en: 'This is a test; no real callback or staff notification was created. Thank you.',
+            hi: 'यह एक परीक्षण है; कोई वास्तविक कॉलबैक या स्टाफ सूचना नहीं बनाई गई है। धन्यवाद।',
+            hinglish: 'Yeh ek test hai; koi real callback ya staff notification create nahi hua hai. Dhanyawad.',
           }),
-          'Kit not received - escalated to staff'
+          'Follow-up assistance escalated to mock handoff'
         );
       }
     }
 
     // General fallback response
     const fallbackResponse = this.getLocalizedText({
-      en: 'I am an automated assistant. If you need any specific guidance or want to leave a message for the team, please let me know, or say "staff" to connect with a person.',
-      hi: 'मैं एक ऑटोमेटेड असिस्टेंट हूँ। यदि आपको कोई विशेष जानकारी चाहिए या टीम के लिए कोई संदेश छोड़ना है, तो कृपया बताएं, या स्टाफ से बात करने के लिए "स्टाफ" कहें।',
-      hinglish: 'Main ek automated assistant hoon. Agar aapko koi help chahiye ya staff se baat karni hai, toh please batayein.',
+      en: 'I am an automated assistant. A staff-created follow-up task needs assistance. Say "instructions" for general guidance, "callback" for a callback request, or "staff" to request a person.',
+      hi: 'मैं एक ऑटोमेटेड असिस्टेंट हूँ। एक स्टाफ-द्वारा बनाए गए फॉलो-अप कार्य में सहायता की आवश्यकता है। निर्देशों के लिए "निर्देश", कॉलबैक के लिए "कॉलबैक", या व्यक्ति के लिए "स्टाफ" कहें।',
+      hinglish: 'Main ek automated assistant hoon. Follow-up task ke liye "instructions" bolein, callback ke liye "callback", ya person ke liye "staff" bolein.',
     });
     this.isAssistantSpeaking = true;
     this.recordTurn('assistant', fallbackResponse, this.currentLanguage);
@@ -617,6 +633,14 @@ export class VoiceConversationStateMachine {
 
   private matchesNo(text: string): boolean {
     return /\b(no|didn'?t\s*get|not\s*received|nahi\s*mila|nahi|नहीं|नहीं\s*मिला)\b/i.test(text);
+  }
+
+  private matchesInstructionsRequest(text: string): boolean {
+    return /\b(instruction|instructions|guidance|help|details|निर्देश|जानकारी)\b/i.test(text);
+  }
+
+  private matchesCloseCall(text: string): boolean {
+    return /\b(close|end|finish|done|all\s*good|बस|समाप्त|theek\s*hai)\b/i.test(text);
   }
 
   private getLocalizedText(options: { en: string; hi: string; hinglish: string }): string {
