@@ -14,7 +14,7 @@ Last Updated: 2026-10-15 (Overnight Cycle 1)
 | **Thread-Combined** | `Childcare-Combined` | `test/combined-validation-82-83` | `6720a17` | — | **Pass** | Integration harness validating PR #82 + PR #83 joint execution without regression. |
 | **Thread-WhatsApp** | `Childcare-Support-Phase-3(1)` | `feat/whatsapp-test-webhook` | `05072ee` | **PR #84** | **Pass (All Green)** | Complete. Isolated receive-only test sink, timing-safe HMAC-SHA256 verification, PII redaction. No outbound messaging. |
 | **Thread-Leadership-UI** | `Childcare-Leadership-Assistant` | `feat/leadership-reporting-assistant` | `b690e40` | TBD | **In Progress** | WhatsApp conversational assistant: intent routing, cohort metrics calculation, export preview contracts. |
-| **Thread-Backend-Hardening** | `Childcare-Support-Phase-3(1)` *(Current)* | `feat/staging-destination-hardening` | `6ce5ee6` | TBD | **In Progress** | Authoritative reporting query adapter, Apps Script MailApp delivery, idempotency duplicate-suppression, 10MB attachment bounds. |
+| **Thread-Backend-Hardening** | `Childcare-Support-Phase-3(1)` *(Current)* | `feat/staging-destination-hardening` | `6ce5ee6` | TBD | **Pass (90/90 Tests)** | Complete: Read-only query adapter, artifact generator, registered recipient allowlist, duplicate suppression, dry-run delivery. Handoff published: `docs/REPORTING_DATA_EMAIL_HANDOFF.md`. |
 
 ---
 
