@@ -15,6 +15,10 @@ export type ConversationState =
   | 'PRIVACY_CONSENT_PENDING'
   | 'TASK_EXPLANATION'
   | 'AWAITING_USER_INPUT'
+  | 'DOCUMENT_EXPLANATION'
+  | 'WHATSAPP_HANDOFF_OFFERED'
+  | 'WHATSAPP_HANDOFF_DISPATCHED'
+  | 'DOCUMENT_STATUS_CHECKED'
   | 'CALLBACK_COLLECTION'
   | 'HUMAN_HANDOFF'
   | 'OPT_OUT_PROCESSED'
@@ -27,11 +31,49 @@ export type ConversationState =
 
 export type LanguageTarget = 'en' | 'hi' | 'hinglish';
 
+export type DocumentType = 'NUTRITION_CARD' | 'GROWTH_CHART' | 'IMMUNIZATION_RECORD';
+export type DocumentStatus = 'MISSING' | 'PENDING_UPLOAD' | 'UPLOADED' | 'VERIFIED' | 'REJECTED';
+
+export interface SyntheticDocumentRecord {
+  readonly documentId: string;
+  readonly documentType: DocumentType;
+  readonly documentName: string;
+  readonly status: DocumentStatus;
+  readonly childName: string;
+  readonly caregiverPhoneMasked: string;
+  readonly uploadedAt?: string;
+  readonly verifiedAt?: string;
+}
+
+export interface MockWhatsAppHandoffRecord {
+  readonly id: string;
+  readonly taskId: string;
+  readonly documentType: DocumentType;
+  readonly phoneMasked: string;
+  readonly uploadLinkToken: string;
+  readonly uploadUrl: string;
+  readonly requestedAt: string;
+  readonly deliveryStatus: 'SIMULATED_DISPATCHED';
+  readonly isSynthetic: true;
+}
+
+export interface MissingDocumentEvent {
+  readonly eventId: string;
+  readonly taskId: string;
+  readonly document: SyntheticDocumentRecord;
+  readonly triggeredAt: string;
+  readonly isSynthetic: true;
+}
+
 export interface SyntheticFollowupTask {
   readonly taskId: string;
   readonly taskDescription: string;
   readonly generalInstructions: string[];
   readonly isSynthetic: true;
+}
+
+export interface SyntheticDocumentFollowupTask extends SyntheticFollowupTask {
+  readonly missingDocument: SyntheticDocumentRecord;
 }
 
 export interface ConversationTurn {

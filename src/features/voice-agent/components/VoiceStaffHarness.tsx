@@ -3,7 +3,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Room, RoomEvent, Track, RemoteTrack, RemoteParticipant } from 'livekit-client';
 import { VoiceConversationStateMachine, StateMachineOutput } from '../state-machine';
-import { MockDisposableStateStore, FIXED_SYNTHETIC_TASK } from '../mock-tools';
+import {
+  MockDisposableStateStore,
+  FIXED_SYNTHETIC_TASK,
+  FIXED_DOCUMENT_FOLLOWUP_TASK,
+} from '../mock-tools';
 import {
   SyntheticVoicePipelineRunner,
   fetchVoiceTokenStatus,
@@ -18,6 +22,8 @@ export function VoiceStaffHarness() {
   const [store] = useState(() => new MockDisposableStateStore());
   const [stateMachine, setStateMachine] = useState<VoiceConversationStateMachine | null>(null);
   const [pipelineRunner, setPipelineRunner] = useState<SyntheticVoicePipelineRunner | null>(null);
+  const [selectedScenario, setSelectedScenario] = useState<'DOCUMENT' | 'GENERAL'>('DOCUMENT');
+  const [docStatusCounter, setDocStatusCounter] = useState<number>(0);
 
   // Server Provider Config Status
   const [providerConfig, setProviderConfig] = useState<ProviderConfigStatus>({
@@ -159,7 +165,8 @@ export function VoiceStaffHarness() {
   const handleStartSession = async (lang: LanguageTarget) => {
     setMicPermissionDenied(null);
     store.clear();
-    const sm = new VoiceConversationStateMachine(store, { defaultLanguage: lang });
+    const task = selectedScenario === 'DOCUMENT' ? FIXED_DOCUMENT_FOLLOWUP_TASK : FIXED_SYNTHETIC_TASK;
+    const sm = new VoiceConversationStateMachine(store, { defaultLanguage: lang }, task);
     const runner = new SyntheticVoicePipelineRunner(sm, store);
 
     setStateMachine(sm);
@@ -457,19 +464,105 @@ export function VoiceStaffHarness() {
 
         {/* Middle Column: Fixed Synthetic Task & Live Controls */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
-          <h2 className="text-base font-semibold text-slate-800 border-b pb-2">Neutral Mock Task Context</h2>
-          <div className="bg-slate-50 p-3 rounded text-xs space-y-1.5 border border-slate-200">
-            <div>
-              <span className="font-semibold text-slate-600">Task ID:</span>{' '}
-              <span className="font-mono text-slate-900">{FIXED_SYNTHETIC_TASK.taskId}</span>
+          <div className="border-b pb-2 flex justify-between items-center">
+            <h2 className="text-base font-semibold text-slate-800">Synthetic Scenario Context</h2>
+            {!sessionActive && (
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setSelectedScenario('DOCUMENT')}
+                  className={`px-2 py-0.5 text-[11px] rounded border transition ${
+                    selectedScenario === 'DOCUMENT'
+                      ? 'bg-blue-100 border-blue-300 text-blue-900 font-semibold'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Document Follow-up
+                </button>
+                <button
+                  onClick={() => setSelectedScenario('GENERAL')}
+                  className={`px-2 py-0.5 text-[11px] rounded border transition ${
+                    selectedScenario === 'GENERAL'
+                      ? 'bg-blue-100 border-blue-300 text-blue-900 font-semibold'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  General Task
+                </button>
+              </div>
+            )}
+          </div>
+
+          {selectedScenario === 'DOCUMENT' ? (
+            <div className="bg-slate-50 p-3 rounded text-xs space-y-2 border border-slate-200">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-slate-700">Task: {FIXED_DOCUMENT_FOLLOWUP_TASK.taskId}</span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                  (store.getDocument(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId)?.status || 'MISSING') === 'VERIFIED'
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : (store.getDocument(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId)?.status || 'MISSING') === 'UPLOADED'
+                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                    : (store.getDocument(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId)?.status || 'MISSING') === 'PENDING_UPLOAD'
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                    : 'bg-rose-100 text-rose-800 border border-rose-300'
+                }`}>
+                  DB STATUS: {store.getDocument(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId)?.status || 'MISSING'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div><span className="text-slate-500">Child:</span> <span className="font-medium text-slate-900">Baby Ananya</span></div>
+                <div><span className="text-slate-500">Phone:</span> <span className="font-mono text-slate-900">+91 98XXX-XX123</span></div>
+                <div className="col-span-2"><span className="text-slate-500">Document:</span> <span className="font-medium text-slate-900">Child Nutrition & Growth Card</span></div>
+              </div>
+
+              {/* Status Simulation Helpers */}
+              <div className="pt-2 border-t border-slate-200">
+                <p className="text-[10px] font-semibold text-slate-500 mb-1">Simulate Database Document Status:</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => {
+                      store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'UPLOADED');
+                      setDocStatusCounter((c) => c + 1);
+                    }}
+                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 text-[10px] rounded border border-blue-200 transition"
+                  >
+                    Simulate Uploaded
+                  </button>
+                  <button
+                    onClick={() => {
+                      store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'VERIFIED');
+                      setDocStatusCounter((c) => c + 1);
+                    }}
+                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] rounded border border-emerald-200 transition"
+                  >
+                    Simulate Verified
+                  </button>
+                  <button
+                    onClick={() => {
+                      store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'MISSING');
+                      setDocStatusCounter((c) => c + 1);
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded border border-slate-200 transition"
+                  >
+                    Reset Missing
+                  </button>
+                </div>
+              </div>
             </div>
-            <div>
-              <span className="font-semibold text-slate-600">Task:</span>{' '}
-              <span className="text-slate-900 font-medium">{FIXED_SYNTHETIC_TASK.taskDescription}</span>
+          ) : (
+            <div className="bg-slate-50 p-3 rounded text-xs space-y-1.5 border border-slate-200">
+              <div>
+                <span className="font-semibold text-slate-600">Task ID:</span>{' '}
+                <span className="font-mono text-slate-900">{FIXED_SYNTHETIC_TASK.taskId}</span>
+              </div>
+              <div>
+                <span className="font-semibold text-slate-600">Task:</span>{' '}
+                <span className="text-slate-900 font-medium">{FIXED_SYNTHETIC_TASK.taskDescription}</span>
+              </div>
             </div>
-            <div className="pt-1 text-[11px] text-amber-800 bg-amber-50 p-2 rounded border border-amber-200 font-mono">
-              Note: This is a test; no real callback or staff notification was created. No beneficiary records or clinical data accessed.
-            </div>
+          )}
+
+          <div className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded border border-amber-200 font-mono">
+            Note: This is a test; no real callback, WhatsApp message or staff notification was created. No beneficiary records or clinical data accessed.
           </div>
 
           {sessionActive && (
@@ -480,7 +573,7 @@ export function VoiceStaffHarness() {
                   type="text"
                   value={userInputText}
                   onChange={(e) => setUserInputText(e.target.value)}
-                  placeholder="e.g. Yes, I received the kit / Baad me baat karo"
+                  placeholder="e.g. Yes, please send the link on WhatsApp / I already sent it"
                   className="flex-1 text-xs border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && userInputText.trim()) {
@@ -495,6 +588,30 @@ export function VoiceStaffHarness() {
                   Speak
                 </button>
               </div>
+
+              {/* Quick Prompt Suggestions */}
+              {selectedScenario === 'DOCUMENT' && (
+                <div className="flex gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => handleSimulateUtterance('Yes, please send the link on WhatsApp')}
+                    className="px-2 py-0.5 bg-emerald-50 text-emerald-900 border border-emerald-200 rounded text-[10px] hover:bg-emerald-100"
+                  >
+                    Send on WhatsApp
+                  </button>
+                  <button
+                    onClick={() => handleSimulateUtterance('I already sent it yesterday')}
+                    className="px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 rounded text-[10px] hover:bg-amber-100"
+                  >
+                    Claim: &quot;I already sent it&quot;
+                  </button>
+                  <button
+                    onClick={() => handleSimulateUtterance('No, I do not use WhatsApp')}
+                    className="px-2 py-0.5 bg-rose-50 text-rose-900 border border-rose-200 rounded text-[10px] hover:bg-rose-100"
+                  >
+                    Decline WhatsApp
+                  </button>
+                </div>
+              )}
 
               {/* Edge Case Simulation Buttons */}
               <div className="pt-2 border-t border-slate-100">
@@ -571,6 +688,12 @@ export function VoiceStaffHarness() {
               <div>Callbacks: {store.getCallbacks().length}</div>
               <div>Opt-outs: {store.getOptOuts().length}</div>
               <div>Handoffs: {store.getHandoffs().length}</div>
+              <div className="font-medium text-emerald-700">WhatsApp Handoffs: {store.getWhatsAppHandoffs().length}</div>
+              {store.getWhatsAppHandoffs().length > 0 && (
+                <div className="text-[10px] font-mono bg-emerald-50 p-1.5 rounded border border-emerald-200 mt-1">
+                  Dispatched: {store.getWhatsAppHandoffs()[store.getWhatsAppHandoffs().length - 1].uploadLinkToken}
+                </div>
+              )}
               <div>Outcomes: {store.getOutcomes().length}</div>
             </div>
           </div>

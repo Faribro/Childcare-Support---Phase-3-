@@ -9,11 +9,17 @@
 
 import {
   SyntheticFollowupTask,
+  SyntheticDocumentFollowupTask,
+  SyntheticDocumentRecord,
+  MissingDocumentEvent,
+  MockWhatsAppHandoffRecord,
   MockCallbackRecord,
   MockOptOutRecord,
   MockStaffHandoffRecord,
   MockContactOutcomeRecord,
   ConversationState,
+  DocumentType,
+  DocumentStatus,
 } from './types';
 
 export const FIXED_SYNTHETIC_TASK: SyntheticFollowupTask = {
@@ -28,24 +34,131 @@ export const FIXED_SYNTHETIC_TASK: SyntheticFollowupTask = {
   isSynthetic: true,
 };
 
+export const FIXED_DOCUMENT_FOLLOWUP_TASK: SyntheticDocumentFollowupTask = {
+  taskId: 'SYNTH-DOC-002',
+  taskDescription: 'Verification document (Child Nutrition & Growth Card) is missing for registered child profile.',
+  generalInstructions: [
+    'A required Child Nutrition & Growth Card is missing for Baby Ananya.',
+    'Verify convenient and safe time to speak.',
+    'Explain the missing document requirement clearly and concisely.',
+    'Offer secure WhatsApp photo-upload handoff link.',
+    'Strict rule: Do NOT mark document complete on verbal claim alone; completion requires stored document status.',
+    'If user claims sent, verify stored status. If still pending, offer WhatsApp link.',
+    'End call cleanly after WhatsApp handoff or resolution.'
+  ],
+  missingDocument: {
+    documentId: 'DOC-SYNTH-881',
+    documentType: 'NUTRITION_CARD',
+    documentName: 'Child Nutrition & Growth Card',
+    status: 'MISSING',
+    childName: 'Baby Ananya',
+    caregiverPhoneMasked: '+91 98XXX-XX123',
+  },
+  isSynthetic: true,
+};
+
+export function createSyntheticMissingDocumentEvent(
+  task: SyntheticDocumentFollowupTask = FIXED_DOCUMENT_FOLLOWUP_TASK
+): MissingDocumentEvent {
+  return {
+    eventId: `ev-missing-doc-${Date.now()}`,
+    taskId: task.taskId,
+    document: { ...task.missingDocument },
+    triggeredAt: new Date().toISOString(),
+    isSynthetic: true,
+  };
+}
+
 export class MockDisposableStateStore {
   private callbacks: MockCallbackRecord[] = [];
   private optOuts: MockOptOutRecord[] = [];
   private handoffs: MockStaffHandoffRecord[] = [];
   private outcomes: MockContactOutcomeRecord[] = [];
+  private documents: Map<string, SyntheticDocumentRecord> = new Map();
+  private whatsappHandoffs: MockWhatsAppHandoffRecord[] = [];
+
+  constructor() {
+    this.resetDocuments();
+  }
+
+  private resetDocuments(): void {
+    this.documents.clear();
+    this.documents.set(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, {
+      ...FIXED_DOCUMENT_FOLLOWUP_TASK.missingDocument,
+    });
+  }
 
   public clear(): void {
     this.callbacks = [];
     this.optOuts = [];
     this.handoffs = [];
     this.outcomes = [];
+    this.whatsappHandoffs = [];
+    this.resetDocuments();
   }
 
-  public getSyntheticFollowupTask(taskId?: string): SyntheticFollowupTask {
+  private isValidSyntheticTaskId(taskId?: string): boolean {
+    return taskId === FIXED_SYNTHETIC_TASK.taskId || taskId === FIXED_DOCUMENT_FOLLOWUP_TASK.taskId;
+  }
+
+  public getSyntheticFollowupTask(taskId?: string): SyntheticFollowupTask | SyntheticDocumentFollowupTask {
+    if (taskId === FIXED_DOCUMENT_FOLLOWUP_TASK.taskId) {
+      return {
+        ...FIXED_DOCUMENT_FOLLOWUP_TASK,
+        missingDocument: this.documents.get(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId) || FIXED_DOCUMENT_FOLLOWUP_TASK.missingDocument,
+      };
+    }
     if (taskId && taskId !== FIXED_SYNTHETIC_TASK.taskId) {
       throw new Error(`Invalid synthetic task ID: "${taskId}". Only fixed synthetic tasks are permitted in this prototype.`);
     }
     return FIXED_SYNTHETIC_TASK;
+  }
+
+  public getDocument(taskId: string): SyntheticDocumentRecord | undefined {
+    return this.documents.get(taskId);
+  }
+
+  public setDocumentStatus(taskId: string, status: DocumentStatus): void {
+    const doc = this.documents.get(taskId);
+    if (doc) {
+      this.documents.set(taskId, {
+        ...doc,
+        status,
+        ...(status === 'UPLOADED' ? { uploadedAt: new Date().toISOString() } : {}),
+        ...(status === 'VERIFIED' ? { verifiedAt: new Date().toISOString() } : {}),
+      });
+    }
+  }
+
+  public recordMockWhatsAppHandoff(args: {
+    taskId: string;
+    documentType?: DocumentType;
+    phoneMasked?: string;
+  }): MockWhatsAppHandoffRecord {
+    if (!this.isValidSyntheticTaskId(args.taskId)) {
+      throw new Error('WhatsApp handoff rejected: Must reference valid synthetic taskId.');
+    }
+    const doc = this.documents.get(args.taskId) || FIXED_DOCUMENT_FOLLOWUP_TASK.missingDocument;
+    const token = `upload-synth-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const record: MockWhatsAppHandoffRecord = {
+      id: `mock-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      taskId: args.taskId,
+      documentType: args.documentType || doc.documentType,
+      phoneMasked: args.phoneMasked || doc.caregiverPhoneMasked,
+      uploadLinkToken: token,
+      uploadUrl: `https://wa.me/mock-bot?text=UPLOAD_${token}`,
+      requestedAt: new Date().toISOString(),
+      deliveryStatus: 'SIMULATED_DISPATCHED',
+      isSynthetic: true,
+    };
+    this.whatsappHandoffs.push(record);
+
+    // When link is dispatched, transition status from MISSING to PENDING_UPLOAD
+    if (doc.status === 'MISSING') {
+      this.setDocumentStatus(args.taskId, 'PENDING_UPLOAD');
+    }
+
+    return record;
   }
 
   public recordMockCallbackRequest(args: {
@@ -53,7 +166,7 @@ export class MockDisposableStateStore {
     requestedWindow: string;
     notes?: string;
   }): MockCallbackRecord {
-    if (!args.taskId || args.taskId !== FIXED_SYNTHETIC_TASK.taskId) {
+    if (!args.taskId || !this.isValidSyntheticTaskId(args.taskId)) {
       throw new Error('Callback request rejected: Must reference valid synthetic taskId.');
     }
     if (!args.requestedWindow || args.requestedWindow.trim().length === 0) {
@@ -92,7 +205,7 @@ export class MockDisposableStateStore {
     reason: string;
     priority?: 'NORMAL' | 'HIGH';
   }): MockStaffHandoffRecord {
-    if (!args.taskId || args.taskId !== FIXED_SYNTHETIC_TASK.taskId) {
+    if (!args.taskId || !this.isValidSyntheticTaskId(args.taskId)) {
       throw new Error('Handoff rejected: Must reference valid synthetic taskId.');
     }
     if (!args.reason || args.reason.trim().length === 0) {
@@ -118,7 +231,7 @@ export class MockDisposableStateStore {
     turnsCount: number;
     notes: string;
   }): MockContactOutcomeRecord {
-    if (!args.taskId || args.taskId !== FIXED_SYNTHETIC_TASK.taskId) {
+    if (!args.taskId || !this.isValidSyntheticTaskId(args.taskId)) {
       throw new Error('Outcome record rejected: Must reference valid synthetic taskId.');
     }
 
@@ -148,5 +261,8 @@ export class MockDisposableStateStore {
   }
   public getOutcomes(): readonly MockContactOutcomeRecord[] {
     return [...this.outcomes];
+  }
+  public getWhatsAppHandoffs(): readonly MockWhatsAppHandoffRecord[] {
+    return [...this.whatsappHandoffs];
   }
 }

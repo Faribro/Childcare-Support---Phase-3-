@@ -12,6 +12,7 @@ import {
   SessionConfig,
   SessionMetrics,
   SyntheticFollowupTask,
+  SyntheticDocumentFollowupTask,
 } from './types';
 import { FIXED_SYNTHETIC_TASK, MockDisposableStateStore } from './mock-tools';
 
@@ -67,7 +68,7 @@ export class VoiceConversationStateMachine {
   private state: ConversationState = 'IDLE';
   private config: SessionConfig;
   private store: MockDisposableStateStore;
-  private task: SyntheticFollowupTask;
+  private task: SyntheticFollowupTask | SyntheticDocumentFollowupTask;
 
   private turns: ConversationTurn[] = [];
   private currentLanguage: LanguageTarget = 'en';
@@ -82,7 +83,7 @@ export class VoiceConversationStateMachine {
   constructor(
     store: MockDisposableStateStore,
     config: Partial<SessionConfig> = {},
-    syntheticTask: SyntheticFollowupTask = FIXED_SYNTHETIC_TASK
+    syntheticTask: SyntheticFollowupTask | SyntheticDocumentFollowupTask = FIXED_SYNTHETIC_TASK
   ) {
     this.store = store;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -115,16 +116,20 @@ export class VoiceConversationStateMachine {
     this.currentLanguage = preferredLanguage;
     this.state = 'IDENTITY_ANNOUNCED';
 
+    const isDocTask = 'missingDocument' in this.task;
     let greeting: string;
     if (preferredLanguage === 'hi') {
-      greeting =
-        'नमस्ते। मैं एक ऑटोमेटेड प्रोग्राम असिस्टेंट बोल रहा हूँ। क्या यह आपसे बात करने के लिए सही और सुरक्षित समय है?';
+      greeting = isDocTask
+        ? 'नमस्ते। मैं बाल पोषण सहायता के लिए आवश्यक दस्तावेज़ के संबंध में बात करने वाला एक ऑटोमेटेड प्रोग्राम असिस्टेंट बोल रहा हूँ। क्या यह बात करने के लिए सही और सुरक्षित समय है?'
+        : 'नमस्ते। मैं एक ऑटोमेटेड प्रोग्राम असिस्टेंट बोल रहा हूँ। क्या यह आपसे बात करने के लिए सही और सुरक्षित समय है?';
     } else if (preferredLanguage === 'hinglish') {
-      greeting =
-        'Namaste. Main ek automated programme assistant bol raha hoon. Kya yeh aapse baat karne ke liye convenient aur safe time hai?';
+      greeting = isDocTask
+        ? 'Namaste. Main child nutrition support ke missing document ke regarding call kar raha hoon. Kya yeh baat karne ke liye convenient aur safe time hai?'
+        : 'Namaste. Main ek automated programme assistant bol raha hoon. Kya yeh aapse baat karne ke liye convenient aur safe time hai?';
     } else {
-      greeting =
-        'Hello. I am an automated programme assistant. Is this a convenient and private time to speak?';
+      greeting = isDocTask
+        ? 'Hello. I am an automated programme assistant calling regarding a missing document for child nutrition support. Is this a convenient and private time to speak?'
+        : 'Hello. I am an automated programme assistant. Is this a convenient and private time to speak?';
     }
 
     this.isAssistantSpeaking = true;
@@ -398,6 +403,27 @@ export class VoiceConversationStateMachine {
     // State: PRIVACY_CONSENT_PENDING
     if (this.state === 'PRIVACY_CONSENT_PENDING') {
       if (this.matchesConsentYes(input)) {
+        const isDocTask = 'missingDocument' in this.task;
+        if (isDocTask) {
+          this.state = 'WHATSAPP_HANDOFF_OFFERED';
+          const docTask = this.task as SyntheticDocumentFollowupTask;
+          const currentDoc = this.store.getDocument(this.task.taskId) || docTask.missingDocument;
+          const explanation = this.getLocalizedText({
+            en: `Thank you. Our records show that the ${currentDoc.documentName} for ${currentDoc.childName} is missing. You can take a photo and upload it via WhatsApp. Would you like me to send a secure upload link to this WhatsApp number?`,
+            hi: `धन्यवाद। हमारे रिकॉर्ड के अनुसार ${currentDoc.childName} का ${currentDoc.documentName} अभी जमा नहीं हुआ है। आप व्हाट्सएप पर फोटो अपलोड कर सकते हैं। क्या मैं इस नंबर पर सुरक्षित व्हाट्सएप लिंक भेज दूँ?`,
+            hinglish: `Shukriya. Records ke mutabiq ${currentDoc.childName} ka ${currentDoc.documentName} missing hai. Aap photo WhatsApp par upload kar sakte hain. Kya main is number par secure WhatsApp link bhej doon?`,
+          });
+          this.isAssistantSpeaking = true;
+          this.recordTurn('assistant', explanation, this.currentLanguage);
+          return {
+            state: this.state,
+            assistantUtterance: explanation,
+            language: this.currentLanguage,
+            shouldTerminate: false,
+            toolInvoked: 'get_synthetic_followup_task()',
+          };
+        }
+
         this.state = 'TASK_EXPLANATION';
         const taskInfo = this.store.getSyntheticFollowupTask(this.task.taskId);
         const explanation = this.getLocalizedText({
@@ -429,6 +455,96 @@ export class VoiceConversationStateMachine {
             hinglish: 'Yeh ek test hai; koi real callback ya staff notification create nahi hua hai. Aapke samay ke liye shukriya.',
           }),
           'Consent declined / Inconvenient time'
+        );
+      }
+    }
+
+    // State: WHATSAPP_HANDOFF_OFFERED or DOCUMENT_STATUS_CHECKED
+    if (this.state === 'WHATSAPP_HANDOFF_OFFERED' || this.state === 'DOCUMENT_STATUS_CHECKED') {
+      // 1. Strict Stored Document Status Enforcement:
+      // Verbal claim alone CANNOT mark completion. We inspect stored record status.
+      if (this.matchesClaimedSent(input)) {
+        const currentDoc = this.store.getDocument(this.task.taskId);
+        const status = currentDoc?.status || 'MISSING';
+
+        if (status === 'VERIFIED' || status === 'UPLOADED') {
+          this.store.recordMockContactOutcome({
+            taskId: this.task.taskId,
+            finalState: 'COMPLETED',
+            durationSeconds: this.getSessionDuration(),
+            turnsCount: this.turns.length,
+            notes: `Caregiver stated document sent; confirmed by stored ${status} status.`,
+          });
+          return this.terminateSession(
+            'COMPLETED',
+            this.getLocalizedText({
+              en: 'I checked our system, and the document is confirmed received and verified. Your follow-up task is complete. Thank you!',
+              hi: 'मैंने सिस्टम में जांच की है, और आपका दस्तावेज़ प्राप्त और सत्यापित हो गया है। आपका कार्य पूर्ण हो चुका है। धन्यवाद!',
+              hinglish: 'Maine system check kiya, aur document verify ho chuka hai. Aapka task complete hai. Dhanyawad!',
+            }),
+            'Document verified via stored status check'
+          );
+        } else {
+          // Status is MISSING or PENDING_UPLOAD - Reject verbal completion claim
+          this.state = 'DOCUMENT_STATUS_CHECKED';
+          const pendingNotice = this.getLocalizedText({
+            en: 'I checked our system, but the document has not yet been received in our records. It is still marked as pending. Would you like me to send a WhatsApp upload link so you can submit the photo?',
+            hi: 'मैंने सिस्टम में जांच की है, लेकिन दस्तावेज़ अभी तक हमारे रिकॉर्ड में प्राप्त नहीं हुआ है। यह अभी भी लंबित है। क्या मैं व्हाट्सएप अपलोड लिंक भेज दूँ?',
+            hinglish: 'Maine system check kiya, par document abhi tak record mein receive nahi hua hai. Yeh abhi bhi pending hai. Kya main WhatsApp upload link bhej doon?',
+          });
+          this.isAssistantSpeaking = true;
+          this.recordTurn('assistant', pendingNotice, this.currentLanguage);
+          return {
+            state: this.state,
+            assistantUtterance: pendingNotice,
+            language: this.currentLanguage,
+            shouldTerminate: false,
+            toolInvoked: 'check_stored_document_status()',
+          };
+        }
+      }
+
+      // 2. User declines WhatsApp upload (Prioritize refusal over agreement)
+      if (
+        this.matchesNo(input) ||
+        /\b(don'?t\s*use|no\s*whatsapp|not\s*on\s*whatsapp|nahi\s*chahiye)\b/i.test(input)
+      ) {
+        this.store.requestMockStaffHandoff({
+          taskId: this.task.taskId,
+          reason: 'Caregiver declined WhatsApp photo-upload handoff; physical verification assistance requested.',
+          priority: 'NORMAL',
+        });
+        return this.terminateSession(
+          'HUMAN_HANDOFF',
+          this.getLocalizedText({
+            en: 'This is a test; no real callback or staff notification was created. A staff member can follow up with physical submission details. Thank you.',
+            hi: 'यह एक परीक्षण है; कोई वास्तविक कॉलबैक या स्टाफ सूचना नहीं बनाई गई है। हमारी टीम आपसे व्यक्तिगत सहायता के लिए संपर्क करेगी। धन्यवाद।',
+            hinglish: 'Yeh ek test hai; koi real callback create nahi hua hai. Humari team physically verification ke liye follow-up karegi. Dhanyawad.',
+          }),
+          'Caregiver declined WhatsApp handoff; routed to human staff'
+        );
+      }
+
+      // 3. User agrees to WhatsApp photo upload handoff
+      if (this.matchesWhatsAppAgreement(input) || this.matchesYes(input)) {
+        const handoff = this.store.recordMockWhatsAppHandoff({
+          taskId: this.task.taskId,
+        });
+        this.store.recordMockContactOutcome({
+          taskId: this.task.taskId,
+          finalState: 'COMPLETED',
+          durationSeconds: this.getSessionDuration(),
+          turnsCount: this.turns.length,
+          notes: `WhatsApp photo upload link dispatched to ${handoff.phoneMasked} (Token: ${handoff.uploadLinkToken})`,
+        });
+        return this.terminateSession(
+          'WHATSAPP_HANDOFF_DISPATCHED',
+          this.getLocalizedText({
+            en: 'This is a test; a mock WhatsApp upload link has been sent to your registered number ending in 123. Please upload the photo when ready. Our team will review it. Thank you and have a good day.',
+            hi: 'यह एक परीक्षण है; आपके पंजीकृत नंबर पर एक व्हाट्सएप अपलोड लिंक भेज दिया गया है। फोटो अपलोड करने के बाद हमारी टीम जांच करेगी। धन्यवाद।',
+            hinglish: 'Yeh ek test hai; aapke registered number par WhatsApp upload link bhej diya gaya hai. Photo upload ke baad team verify karegi. Dhanyawad.',
+          }),
+          'WhatsApp upload handoff link dispatched'
         );
       }
     }
@@ -620,27 +736,55 @@ export class VoiceConversationStateMachine {
   }
 
   private matchesConsentYes(text: string): boolean {
-    return /\b(yes|yeah|sure|okay|ok|fine|haan|ha|haa|हाँ|हां|हाँजी|theek\s*hai|boliye)\b/i.test(text);
+    const ascii = /\b(yes|yeah|sure|okay|ok|fine|haan|ha|haa|theek\s*hai|boliye)\b/i.test(text);
+    const unicode = /(?:^|[^\p{L}\p{N}])(हाँ|हां|हाँजी|बोलिये|ठीक\s*है)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
   }
 
   private matchesConsentNo(text: string): boolean {
-    return /\b(no|nope|not\s*now|busy|later|nahi|nahin|नहीं|mat\s*karo)\b/i.test(text);
+    const ascii = /\b(no|nope|not\s*now|busy|later|nahi|nahin|mat\s*karo)\b/i.test(text);
+    const unicode = /(?:^|[^\p{L}\p{N}])(नहीं|मत\s*करो|व्यस्त)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
   }
 
   private matchesYes(text: string): boolean {
-    return /\b(yes|got\s*it|received|haan|mil\s*gaya|ha|हाँ|हां|मिल\s*गया)\b/i.test(text);
+    const ascii = /\b(yes|got\s*it|received|haan|mil\s*gaya|ha)\b/i.test(text);
+    const unicode = /(?:^|[^\p{L}\p{N}])(हाँ|हां|मिल\s*गया|प्राप्त)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
   }
 
   private matchesNo(text: string): boolean {
-    return /\b(no|didn'?t\s*get|not\s*received|nahi\s*mila|nahi|नहीं|नहीं\s*मिला)\b/i.test(text);
+    const ascii = /\b(no|didn'?t\s*get|not\s*received|nahi\s*mila|nahi)\b/i.test(text);
+    const unicode = /(?:^|[^\p{L}\p{N}])(नहीं|नहीं\s*मिला)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
+  }
+
+  private matchesClaimedSent(text: string): boolean {
+    const ascii = /\b(already\s*(sent|submitted|uploaded)|i\s*sent\s*it|sent\s*it|maine\s*(bhej\s*diya|upload\s*kar\s*diya)|bhej\s*diya|de\s*diya|pehle\s*hi)\b/i.test(
+      text
+    );
+    const unicode = /(?:^|[^\p{L}\p{N}])(जमा\s*कर\s*दिया|भेज\s*दिया|अपलोड\s*कर\s*दिया)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
+  }
+
+  private matchesWhatsAppAgreement(text: string): boolean {
+    const ascii = /\b(whatsapp|send\s*(it|link)?|upload|bhej\s*do|link\s*bhejo|link|haan\s*bhej|yes|sure|okay|ok|haan|theek\s*hai)\b/i.test(
+      text
+    );
+    const unicode = /(?:^|[^\p{L}\p{N}])(हाँ|हां|व्हाट्सएप|लिंक|भेज\s*दीजिये|भेज\s*दो)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
   }
 
   private matchesInstructionsRequest(text: string): boolean {
-    return /\b(instruction|instructions|guidance|help|details|निर्देश|जानकारी)\b/i.test(text);
+    const ascii = /\b(instruction|instructions|guidance|help|details)\b/i.test(text);
+    const unicode = /(?:^|[^\p{L}\p{N}])(निर्देश|जानकारी|मदद)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
   }
 
   private matchesCloseCall(text: string): boolean {
-    return /\b(close|end|finish|done|all\s*good|बस|समाप्त|theek\s*hai)\b/i.test(text);
+    const ascii = /\b(close|end|finish|done|all\s*good|theek\s*hai)\b/i.test(text);
+    const unicode = /(?:^|[^\p{L}\p{N}])(बस|समाप्त|बंद\s*करो)(?:$|[^\p{L}\p{N}])/u.test(text);
+    return ascii || unicode;
   }
 
   private getLocalizedText(options: { en: string; hi: string; hinglish: string }): string {
