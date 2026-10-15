@@ -426,8 +426,15 @@ export default function EditRecordPage() {
           '';
         setAmendmentReason(reason);
 
+        const cleanPhotoVal = (val: any): string => {
+          if (!val || typeof val !== 'string') return '';
+          const trimmed = val.trim();
+          if (trimmed === 'DATA_URL_STORED_PENDING_AUTH' || trimmed.toLowerCase() === 'data_url_stored_pending_auth') return '';
+          return trimmed;
+        };
+
         // Comprehensive document photo extraction across all potential storage keys
-        const passbookPhoto =
+        const passbookPhoto = cleanPhotoVal(
           b.passbookPhotoUrl ||
           b.passbook_photo_url ||
           foundRecord.passbookPhotoUrl ||
@@ -438,9 +445,10 @@ export default function EditRecordPage() {
           remoteRecord?.passbookPhotoUrl ||
           remoteRecord?.passbook_photo_url ||
           foundRecord['25\nPassbook Front Page Link'] ||
-          '';
+          ''
+        );
 
-        const aadhaarPhoto =
+        const aadhaarPhoto = cleanPhotoVal(
           b.aadhaarCardPhotoUrl ||
           b.aadhaar_card_photo_url ||
           foundRecord.aadhaarCardPhotoUrl ||
@@ -451,9 +459,10 @@ export default function EditRecordPage() {
           remoteRecord?.aadhaarCardPhotoUrl ||
           remoteRecord?.aadhaar_card_photo_url ||
           foundRecord['26\nAadhaar Card Link'] ||
-          '';
+          ''
+        );
 
-        const childPhoto =
+        const childPhoto = cleanPhotoVal(
           b.childPhotoUrl ||
           b.child_photo_url ||
           foundRecord.childPhotoUrl ||
@@ -464,9 +473,10 @@ export default function EditRecordPage() {
           remoteRecord?.childPhotoUrl ||
           remoteRecord?.child_photo_url ||
           foundRecord['27\nPassport Size Photo Link'] ||
-          '';
+          ''
+        );
 
-        const feeReceiptPhoto =
+        const feeReceiptPhoto = cleanPhotoVal(
           exp.feeReceiptPhotoUrl ||
           exp.fee_receipt_photo_url ||
           foundRecord.feeReceiptPhotoUrl ||
@@ -477,9 +487,10 @@ export default function EditRecordPage() {
           remoteRecord?.feeReceiptPhotoUrl ||
           remoteRecord?.fee_receipt_photo_url ||
           foundRecord['64\nSchool Fee Receipt Link'] ||
-          '';
+          ''
+        );
 
-        const marksheetPhoto =
+        const marksheetPhoto = cleanPhotoVal(
           exp.marksheetPhotoUrl ||
           exp.marksheet_photo_url ||
           foundRecord.marksheetPhotoUrl ||
@@ -490,9 +501,10 @@ export default function EditRecordPage() {
           remoteRecord?.marksheetPhotoUrl ||
           remoteRecord?.marksheet_photo_url ||
           foundRecord['65\nMarksheet Photo Link'] ||
-          '';
+          ''
+        );
 
-        const sigDataUrl =
+        const sigDataUrl = cleanPhotoVal(
           c.signatureDataUrl ||
           c.signatureUrl ||
           c.signature_data_url ||
@@ -505,7 +517,8 @@ export default function EditRecordPage() {
           remoteRecord?.signatureDataUrl ||
           remoteRecord?.signature_data_url ||
           foundRecord['72\nSignature Link'] ||
-          '';
+          ''
+        );
 
         if (sigDataUrl) {
           setExistingSignatureUrl(sigDataUrl);
@@ -563,12 +576,31 @@ export default function EditRecordPage() {
           return fallback;
         };
 
+        const toDateInputString = (val: any): string => {
+          if (!val) return '';
+          if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed.includes('T')) return trimmed.split('T')[0];
+            if (trimmed.includes(' ')) return trimmed.split(' ')[0];
+            if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+            const parsed = new Date(trimmed);
+            if (!isNaN(parsed.getTime())) {
+              return parsed.toISOString().split('T')[0];
+            }
+            return trimmed;
+          }
+          if (val instanceof Date && !isNaN(val.getTime())) {
+            return val.toISOString().split('T')[0];
+          }
+          return '';
+        };
+
         const loadedFormData = {
           artNumber: d.artNumber || foundRecord['1\nUnique ID'] || foundRecord.uniqueId || submissionId,
           koboId: foundRecord.koboId || d.artNumber || '',
-          dateOfFilling: d.dateOfFilling || foundRecord['7\nVisit Date'] || new Date().toISOString().split('T')[0],
+          dateOfFilling: toDateInputString(d.dateOfFilling || foundRecord['7\nVisit Date']) || new Date().toISOString().split('T')[0],
           childName: d.childName || foundRecord['9\nChild Name'] || foundRecord.child_name || '',
-          dob: d.dob || foundRecord['10\nDate of Birth'] || '',
+          dob: toDateInputString(d.dob || foundRecord['10\nDate of Birth'] || ''),
           gender: (d.gender || foundRecord['12\nGender'] || 'Male') as Gender,
           orphanStatus: (d.orphanStatus || foundRecord['13\nOrphan Status'] || 'Both parents alive') as OrphanStatus,
           caregiverName: d.caregiverName || foundRecord['14\nCaregiver Full Name'] || foundRecord.caregiver_name || '',
@@ -605,10 +637,10 @@ export default function EditRecordPage() {
           otherHealthConditions: h.otherHealthConditions || [],
           otherHealthConditionSpecify: h.otherHealthConditionSpecify || '',
           artStatus: (h.artStatus || foundRecord['40\nART Status'] || 'On ART') as ARTStatus,
-          artRegistrationDate: h.artRegistrationDate || foundRecord['41\nART Registration Date'] || '',
+          artRegistrationDate: toDateInputString(h.artRegistrationDate || foundRecord['41\nART Registration Date'] || ''),
           artIdNumber: h.artIdNumber || foundRecord['42\nART ID Number'] || '',
           vlStatus: (h.vlStatus || foundRecord['43\nVL Status'] || 'Tested in last 6 months') as VLStatus,
-          vlDate: h.vlDate || foundRecord['44\nVL Date'] || '',
+          vlDate: toDateInputString(h.vlDate || foundRecord['44\nVL Date'] || ''),
           viralLoad: String(h.viralLoad || foundRecord['45\nViral Load'] || '< 50'),
 
           appetite: (n.appetite || foundRecord['47\nAppetite'] || 'Good') as AppetiteLevel,
@@ -617,7 +649,7 @@ export default function EditRecordPage() {
           educationStatus: (ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school') as EducationStatus,
           educationStatusSpecify: ed.educationStatusSpecify || '',
           schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
-          schoolSessionStartDate: ed.schoolSessionStartDate || foundRecord['52\nSchool Session Start Date'] || '',
+          schoolSessionStartDate: toDateInputString(ed.schoolSessionStartDate || foundRecord['52\nSchool Session Start Date'] || ''),
           schoolType: (ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school') as SchoolType,
           currentClass: (ed.currentClass !== undefined ? ed.currentClass : (ed.schoolGrade || foundRecord['54\nCurrent Class'] || '')) || '',
           currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',

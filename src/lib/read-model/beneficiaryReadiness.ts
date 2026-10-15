@@ -147,7 +147,7 @@ export function isAttachmentPresent(val: any, confirmedBoolean?: boolean): boole
     if (typeof rawAssetId === 'string') {
       const trimmedAsset = rawAssetId.trim();
       const lowerAsset = trimmedAsset.toLowerCase();
-      const invalidAssetPlaceholders = ['—', '-', 'n/a', 'none', 'null', 'undefined', 'missing', 'pending', 'not uploaded'];
+      const invalidAssetPlaceholders = ['—', '-', 'n/a', 'none', 'null', 'undefined', 'missing', 'pending', 'not uploaded', 'data_url_stored_pending_auth'];
       if (trimmedAsset && !invalidAssetPlaceholders.includes(lowerAsset)) {
         return true;
       }
@@ -180,7 +180,9 @@ export function isAttachmentPresent(val: any, confirmedBoolean?: boolean): boole
       lower === 'no fee receipt' ||
       lower === 'no marksheet' ||
       lower === 'pending' ||
-      lower === 'missing'
+      lower === 'missing' ||
+      lower === 'data_url_stored_pending_auth' ||
+      trimmed === 'DATA_URL_STORED_PENDING_AUTH'
     ) {
       return false;
     }
