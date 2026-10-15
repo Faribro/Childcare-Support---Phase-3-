@@ -32,7 +32,7 @@ export async function POST(
       );
     }
 
-    const scope = resolveUserAccessScope(req);
+    const scope = await resolveUserAccessScope(req);
     if (!scope.isVerified) {
       logSecurityEvent({
         actor: scope.userId,
@@ -206,7 +206,7 @@ export async function GET(
     );
   }
 
-  const scope = resolveUserAccessScope(req);
+  const scope = await resolveUserAccessScope(req);
   if (!scope.isVerified) {
     logSecurityEvent({
       actor: scope.userId,
