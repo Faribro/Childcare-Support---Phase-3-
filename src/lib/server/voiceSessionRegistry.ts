@@ -1,13 +1,14 @@
 /**
  * Voice Evaluation In-Memory Session Registry
  * 
- * ARCHITECTURAL LIMITATION & SCOPE NOTICE:
- * 1. Single-Process / Local Only: This session map is stored strictly in memory
- *    within the running Node.js process.
- * 2. Non-Distributed: It does NOT provide a distributed lock across multiple serverless
- *    lambdas, cluster pods, or container replicas.
- * 3. Enforces a local concurrency ceiling (1 active evaluation session max)
- *    to prevent runaway local resource consumption.
+ * ARCHITECTURAL BOUNDARY & CONCURRENCY CLAIM:
+ * 1. Scope of Concurrency Limit: This registry limits *unexpired session reservations*
+ *    in the web application process. It does NOT track or poll the OS-level worker
+ *    process or LiveKit media server active participant state.
+ * 2. Single-Process / Local Only: This session map is stored in-memory within this Node.js instance.
+ * 3. Non-Distributed: It does not coordinate locks across multiple serverless runtimes.
+ * 4. Authenticated Ownership: Releases are authorized strictly against server-held reservation
+ *    data (the `userId` that performed the reservation), NOT any caller-supplied payload.
  */
 
 export const MAX_CONCURRENT_EVALUATION_SESSIONS = 1;
@@ -17,6 +18,13 @@ export interface ActiveEvaluationSession {
   userId: string;
   startedAt: number;
   expiresAt: number;
+}
+
+export interface ReleaseSessionResult {
+  success: boolean;
+  released: boolean;
+  reason?: string;
+  statusCode?: number;
 }
 
 const activeSessionsMap = new Map<string, ActiveEvaluationSession>();
@@ -64,8 +72,60 @@ export function reserveEvaluationSession(
   return { success: true };
 }
 
-export function releaseEvaluationSession(roomName: string): boolean {
+/**
+ * Release an active evaluation session with authenticated ownership verification.
+ * 
+ * Enforces that only the user who reserved the session (or an ADMIN) can release it,
+ * using server-held reservation data rather than any client-supplied user identifier.
+ */
+export function releaseEvaluationSession(
+  roomName: string,
+  authenticatedUserId: string,
+  userRole?: string
+): ReleaseSessionResult {
+  pruneExpiredSessions();
+
+  const session = activeSessionsMap.get(roomName);
+  if (!session) {
+    return {
+      success: true,
+      released: false,
+      reason: 'Session reservation not found or already expired',
+    };
+  }
+
+  const isOwner = session.userId === authenticatedUserId;
+  const isAdmin = userRole === 'ADMIN';
+
+  if (!isOwner && !isAdmin) {
+    return {
+      success: false,
+      released: false,
+      statusCode: 403,
+      reason: `Forbidden: User '${authenticatedUserId}' is not authorized to release reservation for room '${roomName}' owned by '${session.userId}'`,
+    };
+  }
+
+  activeSessionsMap.delete(roomName);
+  return {
+    success: true,
+    released: true,
+  };
+}
+
+/**
+ * Force release helper used for internal cleanup (e.g. when token generation fails after reservation).
+ */
+export function forceReleaseEvaluationSession(roomName: string): boolean {
   return activeSessionsMap.delete(roomName);
+}
+
+/**
+ * Retrieve active session details for test inspection.
+ */
+export function getActiveSession(roomName: string): ActiveEvaluationSession | undefined {
+  pruneExpiredSessions();
+  return activeSessionsMap.get(roomName);
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   isSessionSlotAvailable,
   reserveEvaluationSession,
   releaseEvaluationSession,
+  forceReleaseEvaluationSession,
 } from '@/lib/server/voiceSessionRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -206,8 +207,8 @@ export async function POST(req: NextRequest) {
       user: auth.user,
     });
   } catch (error: any) {
-    // If token generation throws, release the reserved slot immediately
-    releaseEvaluationSession(roomName);
+    // If token generation throws, release the acquired reservation immediately
+    forceReleaseEvaluationSession(roomName);
     console.error('[Voice Token Error] Token issuance failed:', error);
     return NextResponse.json(
       { error: 'Failed to generate voice token' },
@@ -219,7 +220,8 @@ export async function POST(req: NextRequest) {
 /**
  * DELETE: Explicitly release an active session reservation.
  * 
- * Called when an evaluation session disconnects, cancels, fails on startup, or unmounts.
+ * Enforces authenticated ownership: Only the user who created the reservation
+ * (or an ADMIN) can release it. Server-held reservation data is used.
  */
 export async function DELETE(req: NextRequest) {
   const auth = authorizeVoiceStaffAccess(req);
@@ -238,9 +240,30 @@ export async function DELETE(req: NextRequest) {
   }
 
   if (roomName) {
-    const released = releaseEvaluationSession(roomName);
+    // Release using server-held authenticated user context (not client-supplied user ID)
+    const result = releaseEvaluationSession(
+      roomName,
+      auth.user?.userId || 'unknown',
+      auth.user?.role
+    );
 
-    if (released) {
+    if (!result.success) {
+      logSecurityEvent({
+        actor: auth.user?.userId || 'unknown',
+        actorRole: auth.user?.role || 'UNKNOWN',
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: `/api/staff/voice/token:${roomName}`,
+        details: result.reason || 'Unauthorized attempt to release another user\'s session reservation',
+      });
+
+      return NextResponse.json(
+        { error: result.reason },
+        { status: result.statusCode || 403 }
+      );
+    }
+
+    if (result.released) {
       logSecurityEvent({
         actor: auth.user?.userId || 'unknown',
         actorRole: auth.user?.role || 'UNKNOWN',
@@ -252,8 +275,9 @@ export async function DELETE(req: NextRequest) {
     }
 
     return NextResponse.json({
-      released,
+      released: result.released,
       roomName,
+      message: result.reason,
       activeSessions: getActiveSessionsCount(),
     });
   }

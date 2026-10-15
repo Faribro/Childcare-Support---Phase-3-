@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { AccessToken } from 'livekit-server-sdk';
 import { authorizeVoiceStaffAccess, isLoopbackHost } from '@/lib/server/voiceStaffAuth';
 import { createSessionToken } from '@/lib/server/sessionService';
 import {
@@ -15,7 +16,10 @@ import {
   POST as tokenPostHandler,
   DELETE as tokenDeleteHandler,
 } from '@/app/api/staff/voice/token/route';
-import { _resetActiveSessionsForTesting } from '@/lib/server/voiceSessionRegistry';
+import {
+  getActiveSessionsCount,
+  _resetActiveSessionsForTesting,
+} from '@/lib/server/voiceSessionRegistry';
 
 describe('Voice Staff Authorization & Token Endpoint Suite', () => {
   const originalEnv = { ...process.env };
@@ -456,6 +460,192 @@ describe('Voice Staff Authorization & Token Endpoint Suite', () => {
       expect(res3.status).toBe(200);
       const data3 = await res3.json();
       expect(data3.roomName).toBeDefined();
+    });
+
+    it('enforces authenticated reservation ownership on DELETE (preventing cross-user release)', async () => {
+      process.env.LIVEKIT_URL = 'wss://eval-livekit.example.com';
+      process.env.LIVEKIT_API_KEY = 'test_api_key_lk';
+      process.env.LIVEKIT_API_SECRET = 'test_api_secret_lk_32_characters_minimum!';
+
+      const aliceToken = createSessionToken({
+        userId: 'staff-alice',
+        role: 'STATE_REVIEWER',
+        name: 'Staff Alice',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const bobToken = createSessionToken({
+        userId: 'staff-bob',
+        role: 'STATE_REVIEWER',
+        name: 'Staff Bob',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      // 1. Alice reserves a session
+      const reqAlicePost = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        method: 'POST',
+        headers: { Cookie: `evaluation_session_token=${aliceToken}` },
+      });
+      const resAlicePost = await tokenPostHandler(reqAlicePost);
+      expect(resAlicePost.status).toBe(200);
+      const dataAlice = await resAlicePost.json();
+      expect(dataAlice.roomName).toBeDefined();
+      expect(getActiveSessionsCount()).toBe(1);
+
+      // 2. Bob attempts to release Alice's session using her roomName
+      const reqBobDel = new NextRequest(
+        `http://localhost:3000/api/staff/voice/token?roomName=${dataAlice.roomName}`,
+        {
+          method: 'DELETE',
+          headers: { Cookie: `evaluation_session_token=${bobToken}` },
+        }
+      );
+      const resBobDel = await tokenDeleteHandler(reqBobDel);
+      expect(resBobDel.status).toBe(403);
+      const dataBobDel = await resBobDel.json();
+      expect(dataBobDel.error).toContain('not authorized to release reservation');
+
+      // Crucial: Alice's reservation MUST NOT be released by Bob's attempt
+      expect(getActiveSessionsCount()).toBe(1);
+
+      // 3. Alice releases her own session
+      const reqAliceDel = new NextRequest(
+        `http://localhost:3000/api/staff/voice/token?roomName=${dataAlice.roomName}`,
+        {
+          method: 'DELETE',
+          headers: { Cookie: `evaluation_session_token=${aliceToken}` },
+        }
+      );
+      const resAliceDel = await tokenDeleteHandler(reqAliceDel);
+      expect(resAliceDel.status).toBe(200);
+      const dataAliceDel = await resAliceDel.json();
+      expect(dataAliceDel.released).toBe(true);
+      expect(getActiveSessionsCount()).toBe(0);
+    });
+
+    it('ensures stale release isolation (delayed DELETE of session A does not release newer session B)', async () => {
+      process.env.LIVEKIT_URL = 'wss://eval-livekit.example.com';
+      process.env.LIVEKIT_API_KEY = 'test_api_key_lk';
+      process.env.LIVEKIT_API_SECRET = 'test_api_secret_lk_32_characters_minimum!';
+
+      const staffToken = createSessionToken({
+        userId: 'staff-operator',
+        role: 'ADMIN',
+        name: 'Operator Admin',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      // 1. Reserve Session A
+      const reqA = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        method: 'POST',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resA = await tokenPostHandler(reqA);
+      expect(resA.status).toBe(200);
+      const dataA = await resA.json();
+      const roomA = dataA.roomName;
+
+      // 2. Release Session A
+      const reqDelA = new NextRequest(`http://localhost:3000/api/staff/voice/token?roomName=${roomA}`, {
+        method: 'DELETE',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resDelA = await tokenDeleteHandler(reqDelA);
+      expect(resDelA.status).toBe(200);
+      expect(getActiveSessionsCount()).toBe(0);
+
+      // 3. Reserve Session B
+      const reqB = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        method: 'POST',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resB = await tokenPostHandler(reqB);
+      expect(resB.status).toBe(200);
+      const dataB = await resB.json();
+      const roomB = dataB.roomName;
+      expect(roomB).not.toBe(roomA);
+      expect(getActiveSessionsCount()).toBe(1);
+
+      // 4. Stale/delayed DELETE for Session A arrives while Session B is active
+      const reqDelayedDelA = new NextRequest(`http://localhost:3000/api/staff/voice/token?roomName=${roomA}`, {
+        method: 'DELETE',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resDelayedDelA = await tokenDeleteHandler(reqDelayedDelA);
+      expect(resDelayedDelA.status).toBe(200);
+      const dataDelayed = await resDelayedDelA.json();
+      expect(dataDelayed.released).toBe(false);
+
+      // CRITICAL CHECK: Session B must remain actively reserved
+      expect(getActiveSessionsCount()).toBe(1);
+
+      // A third session C must still be rejected with 429 concurrency limit
+      const reqC = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        method: 'POST',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resC = await tokenPostHandler(reqC);
+      expect(resC.status).toBe(429);
+
+      // Clean up Session B
+      const reqDelB = new NextRequest(`http://localhost:3000/api/staff/voice/token?roomName=${roomB}`, {
+        method: 'DELETE',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resDelB = await tokenDeleteHandler(reqDelB);
+      expect(resDelB.status).toBe(200);
+      expect(getActiveSessionsCount()).toBe(0);
+    });
+
+    it('releases acquired reservation on token-generation failure without leaking secrets or blocking capacity', async () => {
+      process.env.LIVEKIT_URL = 'wss://eval-livekit.example.com';
+      process.env.LIVEKIT_API_KEY = 'test_api_key_lk';
+      process.env.LIVEKIT_API_SECRET = 'test_api_secret_lk_32_characters_minimum!';
+
+      const staffToken = createSessionToken({
+        userId: 'staff-eval',
+        role: 'ADMIN',
+        name: 'Staff Evaluator',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      // Mock AccessToken.prototype.toJwt to simulate crypto/signing failure
+      const toJwtSpy = vi
+        .spyOn(AccessToken.prototype, 'toJwt')
+        .mockRejectedValueOnce(new Error('Simulated crypto signing exception'));
+
+      const reqFail = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        method: 'POST',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+
+      const resFail = await tokenPostHandler(reqFail);
+      expect(resFail.status).toBe(500);
+      const dataFail = await resFail.json();
+
+      // Ensure generic error without leaking server secrets or internal traces
+      expect(dataFail.error).toBe('Failed to generate voice token');
+      expect(JSON.stringify(dataFail)).not.toContain('test_api_secret');
+
+      // Crucial check: Reservation MUST be released immediately so capacity is not stuck
+      expect(getActiveSessionsCount()).toBe(0);
+
+      toJwtSpy.mockRestore();
+
+      // Verify capacity is not stuck: subsequent token generation succeeds
+      const reqRecover = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        method: 'POST',
+        headers: { Cookie: `evaluation_session_token=${staffToken}` },
+      });
+      const resRecover = await tokenPostHandler(reqRecover);
+      expect(resRecover.status).toBe(200);
+      const dataRecover = await resRecover.json();
+      expect(dataRecover.token).toBeDefined();
+      expect(getActiveSessionsCount()).toBe(1);
     });
   });
 });
