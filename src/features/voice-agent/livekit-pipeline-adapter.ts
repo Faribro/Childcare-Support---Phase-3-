@@ -66,9 +66,23 @@ export function checkVoiceProviderConfiguration(): ProviderConfigStatus {
   };
 }
 
+export interface VoiceSessionReservation {
+  success: boolean;
+  configured: boolean;
+  serverUrl?: string;
+  token?: string;
+  roomName?: string;
+  identity?: string;
+  agentName?: string;
+  maxDurationSeconds?: number;
+  error?: string;
+  statusCode?: number;
+}
+
 /**
  * Fetches token and configuration status from the authorized server-side endpoint.
  * Zero secrets or API keys are exposed to the browser.
+ * Calling GET does NOT reserve a session and does NOT consume concurrency capacity.
  */
 export async function fetchVoiceTokenStatus(): Promise<ProviderConfigStatus> {
   try {
@@ -96,11 +110,6 @@ export async function fetchVoiceTokenStatus(): Promise<ProviderConfigStatus> {
       status: data.status || (data.configured ? 'READY' : 'NOT_CONFIGURED'),
       statusDescription: data.message || (data.configured ? 'LiveKit Server Ready' : 'AI/Audio Path: NOT EXECUTED'),
       requiredVariables: data.requiredVariables,
-      serverUrl: data.serverUrl,
-      token: data.token,
-      roomName: data.roomName,
-      identity: data.identity,
-      maxDurationSeconds: data.maxDurationSeconds || 180,
     };
   } catch (e: any) {
     return {
@@ -110,6 +119,68 @@ export async function fetchVoiceTokenStatus(): Promise<ProviderConfigStatus> {
       status: 'NOT_CONFIGURED',
       statusDescription: `Connection error: ${e?.message || 'Failed to reach token endpoint'}`,
     };
+  }
+}
+
+/**
+ * Explicitly reserves an evaluation session and requests a short-lived token via POST.
+ */
+export async function requestVoiceSessionToken(): Promise<VoiceSessionReservation> {
+  try {
+    const res = await fetch('/api/staff/voice/token', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      return {
+        success: false,
+        configured: false,
+        error: data.error || `HTTP ${res.status}: Request failed`,
+        statusCode: res.status,
+      };
+    }
+
+    return {
+      success: Boolean(data.configured && data.token),
+      configured: Boolean(data.configured),
+      serverUrl: data.serverUrl,
+      token: data.token,
+      roomName: data.roomName,
+      identity: data.identity,
+      agentName: data.agentName,
+      maxDurationSeconds: data.maxDurationSeconds || 180,
+    };
+  } catch (e: any) {
+    return {
+      success: false,
+      configured: false,
+      error: `Network error: ${e?.message || 'Failed to request token'}`,
+      statusCode: 500,
+    };
+  }
+}
+
+/**
+ * Explicitly releases an active evaluation session reservation via DELETE.
+ */
+export async function releaseVoiceSessionReservation(roomName: string): Promise<boolean> {
+  if (!roomName) return false;
+  try {
+    const res = await fetch(`/api/staff/voice/token?roomName=${encodeURIComponent(roomName)}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn('[VoiceAdapter] Failed to release session reservation:', e);
+    return false;
   }
 }
 

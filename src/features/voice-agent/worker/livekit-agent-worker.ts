@@ -57,6 +57,8 @@ export function checkWorkerCredentials(): MissingCredentialsCheckResult {
 /**
  * Defines the real LiveKit Voice Agent entrypoint.
  */
+import { RoomEvent } from '@livekit/rtc-node';
+
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     // 1. Enforce worker-level credential validation
@@ -73,17 +75,7 @@ export default defineAgent({
     console.info(`[Agent Worker] Connecting to room: ${ctx.room.name}`);
     await ctx.connect();
 
-    // 2. Set up server-enforced session duration timeout (180 seconds hard ceiling)
-    // Token expiry (e.g. 10m) does NOT sever an active WebRTC session; explicit cutoff is required.
-    const maxDurationSeconds = 180;
-    const sessionTimer = setTimeout(() => {
-      console.info(
-        `[Agent Worker] Session duration ceiling reached (${maxDurationSeconds}s). Disconnecting room.`
-      );
-      ctx.room.disconnect();
-    }, maxDurationSeconds * 1000);
-
-    // 3. Initialize exact selected models
+    // 2. Initialize exact selected models
     const stt = new sarvam.STT({
       model: 'saaras:v3',
       languageCode: 'hi-IN',
@@ -103,7 +95,7 @@ export default defineAgent({
 
     const vad = await silero.VAD.load();
 
-    // 4. Construct AgentSession and Voice Agent
+    // 3. Construct AgentSession and Voice Agent
     const session = new voice.AgentSession({
       stt,
       llm,
@@ -116,10 +108,41 @@ export default defineAgent({
       instructions: SYNTHETIC_SYSTEM_PROMPT,
     });
 
+    // 4. Set up server-enforced session duration timeout (180 seconds hard ceiling)
+    // Token expiry (e.g. 10m) does NOT sever an active WebRTC session; explicit cutoff is required.
+    const maxDurationSeconds = 180;
+    const sessionTimer = setTimeout(async () => {
+      console.info(
+        `[Agent Worker] Session duration ceiling reached (${maxDurationSeconds}s). Closing provider session.`
+      );
+      try {
+        // Explicitly close provider sessions (Sarvam STT/TTS streams, OpenAI LLM, Silero VAD)
+        await session.close();
+      } catch (err) {
+        console.warn('[Agent Worker] Error during session.close():', err);
+      }
+      // Disconnect agent participant from room.
+      // NOTE: In LiveKit, ctx.room.disconnect() disconnects ONLY this agent participant.
+      // It does NOT forcibly disconnect browser participants or delete the room unless
+      // RoomServiceClient.deleteRoom() is executed by a server administrative API.
+      ctx.room.disconnect();
+    }, maxDurationSeconds * 1000);
+
     // Clean up timer when session closes
     session.on(voice.AgentSessionEventTypes.Close, () => {
       clearTimeout(sessionTimer);
       console.info('[Agent Worker] Session closed. Cleaned up duration timers.');
+    });
+
+    // Ensure session teardown when room disconnects
+    ctx.room.on(RoomEvent.Disconnected, async () => {
+      clearTimeout(sessionTimer);
+      console.info('[Agent Worker] Room disconnected. Ensuring provider session is closed.');
+      try {
+        await session.close();
+      } catch {
+        // Session already closed
+      }
     });
 
     // 5. Start session bound to room

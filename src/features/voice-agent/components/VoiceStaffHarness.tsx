@@ -7,6 +7,8 @@ import { MockDisposableStateStore, FIXED_SYNTHETIC_TASK } from '../mock-tools';
 import {
   SyntheticVoicePipelineRunner,
   fetchVoiceTokenStatus,
+  requestVoiceSessionToken,
+  releaseVoiceSessionReservation,
   ProviderConfigStatus,
   LatencyReport,
 } from '../livekit-pipeline-adapter';
@@ -44,8 +46,9 @@ export function VoiceStaffHarness() {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const audioContainerRef = useRef<HTMLDivElement | null>(null);
+  const currentRoomNameRef = useRef<string | null>(null);
 
-  // Fetch server configuration status on mount
+  // Fetch server configuration status on mount (read-only; does not reserve a session)
   useEffect(() => {
     let isMounted = true;
     fetchVoiceTokenStatus().then((status) => {
@@ -63,10 +66,14 @@ export function VoiceStaffHarness() {
     };
   }, []);
 
-  // Clean up all media tracks, room connections, and timers on unmount
+  // Clean up all media tracks, room connections, session reservations, and timers on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (currentRoomNameRef.current) {
+        releaseVoiceSessionReservation(currentRoomNameRef.current);
+        currentRoomNameRef.current = null;
+      }
       if (livekitRoom) {
         livekitRoom.disconnect();
       }
@@ -86,7 +93,13 @@ export function VoiceStaffHarness() {
         setTurns(stateMachine.getTurns());
       }
 
-      // 2. Disconnect real WebRTC session and stop local tracks
+      // 2. Release server session reservation
+      if (currentRoomNameRef.current) {
+        releaseVoiceSessionReservation(currentRoomNameRef.current);
+        currentRoomNameRef.current = null;
+      }
+
+      // 3. Disconnect real WebRTC session and stop local tracks
       if (livekitRoom) {
         try {
           if (livekitRoom.localParticipant) {
@@ -106,12 +119,12 @@ export function VoiceStaffHarness() {
         setRemoteAudioAttached(false);
       }
 
-      // 3. Stop synthetic runner
+      // 4. Stop synthetic runner
       if (pipelineRunner) {
         pipelineRunner.stopMicrophone();
       }
 
-      // 4. Detach any audio DOM nodes
+      // 5. Detach any audio DOM nodes
       if (audioContainerRef.current) {
         audioContainerRef.current.innerHTML = '';
       }
@@ -159,74 +172,93 @@ export function VoiceStaffHarness() {
     setSessionActive(true);
     setIsMuted(false);
 
-    // Refresh token and server configuration status
-    const freshConfig = await fetchVoiceTokenStatus();
-    setProviderConfig(freshConfig);
+    // If LiveKit credentials are ready, reserve an evaluation session and initiate real WebRTC room connection
+    if (providerConfig.configured) {
+      setStatusMessage('Reserving session and generating LiveKit token...');
+      const reservation = await requestVoiceSessionToken();
 
-    // If LiveKit credentials are ready, initiate real WebRTC room connection
-    if (freshConfig.configured && freshConfig.serverUrl && freshConfig.token) {
-      try {
-        setStatusMessage('Connecting to LiveKit WebRTC audio room...');
-        const room = new Room({
-          adaptiveStream: true,
-          dynacast: true,
-          audioCaptureDefaults: {
-            autoGainControl: true,
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
-        });
-
-        // Listen for agent participant connection
-        room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
-          setStatusMessage(`Participant joined room: ${participant.identity}`);
-        });
-
-        // Track subscriptions
-        room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication, participant: RemoteParticipant) => {
-          if (track.kind === Track.Kind.Audio) {
-            const audioEl = track.attach();
-            audioEl.autoplay = true;
-            if (audioContainerRef.current) {
-              audioContainerRef.current.appendChild(audioEl);
-            }
-            setRemoteAudioAttached(true);
-            setStatusMessage(`Agent voice audio connected (${participant.identity || 'Agent'}).`);
-          }
-        });
-
-        room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
-          track.detach();
-          setRemoteAudioAttached(false);
-        });
-
-        room.on(RoomEvent.Disconnected, () => {
-          setIsWebRtcConnected(false);
-          setRemoteAudioAttached(false);
-        });
-
-        // Connect room
-        await room.connect(freshConfig.serverUrl, freshConfig.token);
-        setLivekitRoom(room);
-        setIsWebRtcConnected(true);
-
-        // Publish local microphone
-        try {
-          await room.localParticipant.setMicrophoneEnabled(true);
-          setMicActive(true);
-          setStatusMessage(`Live WebRTC session connected (${lang.toUpperCase()}). Microphone live.`);
-        } catch (micErr: any) {
-          const errMsg = micErr?.message || 'Microphone access was denied by browser.';
-          setMicPermissionDenied(`Microphone permission error: ${errMsg}. Real audio input unavailable.`);
-          setMicActive(false);
-          // Fall back to synthetic speech input simulation
-          runner.startMicrophone();
+      if (!reservation.success) {
+        if (reservation.statusCode === 429) {
+          setStatusMessage(reservation.error || 'Concurrency ceiling reached (1 session max). Please wait.');
+          setSessionActive(false);
+          return;
         }
-      } catch (connErr: any) {
-        console.error('[VoiceHarness] WebRTC connection failed:', connErr);
-        setStatusMessage(`LiveKit connection failed (${connErr?.message || 'error'}). Falling back to synthetic harness.`);
+        console.warn('[VoiceHarness] Token reservation failed:', reservation.error);
+        setStatusMessage(`Reservation failed: ${reservation.error}. Falling back to synthetic harness.`);
         runner.startMicrophone();
         setMicActive(true);
+        return;
+      }
+
+      if (reservation.configured && reservation.serverUrl && reservation.token && reservation.roomName) {
+        currentRoomNameRef.current = reservation.roomName;
+        try {
+          setStatusMessage('Connecting to LiveKit WebRTC audio room...');
+          const room = new Room({
+            adaptiveStream: true,
+            dynacast: true,
+            audioCaptureDefaults: {
+              autoGainControl: true,
+              echoCancellation: true,
+              noiseSuppression: true,
+            },
+          });
+
+          // Listen for agent participant connection
+          room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+            setStatusMessage(`Participant joined room: ${participant.identity}`);
+          });
+
+          // Track subscriptions
+          room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication, participant: RemoteParticipant) => {
+            if (track.kind === Track.Kind.Audio) {
+              const audioEl = track.attach();
+              audioEl.autoplay = true;
+              if (audioContainerRef.current) {
+                audioContainerRef.current.appendChild(audioEl);
+              }
+              setRemoteAudioAttached(true);
+              setStatusMessage(`Agent voice audio connected (${participant.identity || 'Agent'}).`);
+            }
+          });
+
+          room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+            track.detach();
+            setRemoteAudioAttached(false);
+          });
+
+          room.on(RoomEvent.Disconnected, () => {
+            setIsWebRtcConnected(false);
+            setRemoteAudioAttached(false);
+          });
+
+          // Connect room
+          await room.connect(reservation.serverUrl, reservation.token);
+          setLivekitRoom(room);
+          setIsWebRtcConnected(true);
+
+          // Publish local microphone
+          try {
+            await room.localParticipant.setMicrophoneEnabled(true);
+            setMicActive(true);
+            setStatusMessage(`Live WebRTC session connected (${lang.toUpperCase()}). Microphone live.`);
+          } catch (micErr: any) {
+            const errMsg = micErr?.message || 'Microphone access was denied by browser.';
+            setMicPermissionDenied(`Microphone permission error: ${errMsg}. Real audio input unavailable.`);
+            setMicActive(false);
+            // Fall back to synthetic speech input simulation
+            runner.startMicrophone();
+          }
+        } catch (connErr: any) {
+          console.error('[VoiceHarness] WebRTC connection failed:', connErr);
+          if (currentRoomNameRef.current) {
+            releaseVoiceSessionReservation(currentRoomNameRef.current);
+            currentRoomNameRef.current = null;
+          }
+          setStatusMessage(`LiveKit connection failed (${connErr?.message || 'error'}). Falling back to synthetic harness.`);
+          runner.startMicrophone();
+          setMicActive(true);
+        }
       }
     } else {
       // Offline/Synthetic evaluation mode
