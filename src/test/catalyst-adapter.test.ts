@@ -21,6 +21,10 @@ import {
   getRecentDiagnosticEvents,
 } from '@/lib/server/whatsappEventSink';
 import { MAX_RAW_BODY_SIZE } from '@/lib/server/whatsappWebhookParser';
+import {
+  STATIC_SYNTHETIC_FIXTURES,
+  createSignedWebhookPayload,
+} from '@/test/fixtures/whatsappSyntheticFixtures';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
@@ -971,6 +975,234 @@ describe('Zoho Catalyst Advanced I/O Webhook Adapter', () => {
         JSON.stringify(regeneratedContent, null, 2) + '\n',
         'utf8'
       );
+    });
+  });
+
+  describe('11. Synthetic Fixture Factory Integration Suite', () => {
+    it('processes synthetic inbound text message fixture with full PII redaction', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.inboundTextMessage,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.status).toBe('ok');
+      expect(response.json?.entriesProcessed).toBe(1);
+      expect(response.json?.messagesProcessed).toBe(1);
+      expect(response.json?.statusesProcessed).toBe(0);
+
+      // Verify PII redaction
+      const responseStr = JSON.stringify(response.json);
+      expect(responseStr).not.toContain('919876543210');
+      expect(responseStr).not.toContain('Synthetic Mother');
+      expect(responseStr).not.toContain('nutrition kit received');
+      expect(responseStr).not.toContain('STATIC_MSG_001');
+
+      // Verify diagnostic sink
+      const recent = getRecentDiagnosticEvents(5);
+      expect(recent.length).toBe(1);
+      expect(recent[0].eventClass).toBe('message');
+      expect(recent[0].hasErrors).toBe(false);
+    });
+
+    it('processes synthetic delivery delivered receipt fixture', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.deliveryDeliveredReceipt,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.statusesProcessed).toBe(1);
+
+      const recent = getRecentDiagnosticEvents(5);
+      expect(recent[0].eventClass).toBe('status');
+      expect(recent[0].statusCount).toBe(1);
+      expect(recent[0].hasErrors).toBe(false);
+    });
+
+    it('processes synthetic delivery read receipt fixture', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.deliveryReadReceipt,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.statusesProcessed).toBe(1);
+
+      const recent = getRecentDiagnosticEvents(5);
+      expect(recent[0].eventClass).toBe('status');
+      expect(recent[0].hasErrors).toBe(false);
+    });
+
+    it('processes delivery window expired failure fixture and captures error code 131047 in sink', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.deliveryWindowExpiredFailure,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.statusesProcessed).toBe(1);
+
+      const recent = getRecentDiagnosticEvents(5);
+      expect(recent[0].eventClass).toBe('status');
+      expect(recent[0].hasErrors).toBe(true);
+      expect(recent[0].errorCodes).toContain(131047);
+    });
+
+    it('processes undeliverable failure fixture and captures error code 131026 in sink', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.deliveryUndeliverableFailure,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.statusesProcessed).toBe(1);
+
+      const recent = getRecentDiagnosticEvents(5);
+      expect(recent[0].hasErrors).toBe(true);
+      expect(recent[0].errorCodes).toContain(131026);
+    });
+
+    it('processes non-message account alert fixture safely', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.nonMessageTemplateUpdate,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.status).toBe('ok');
+    });
+
+    it('rejects unsupported object type fixture with HTTP 400 UNSUPPORTED_OBJECT', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.unsupportedObjectType,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json?.code).toBe('UNSUPPORTED_OBJECT');
+    });
+
+    it('rejects malformed JSON string fixture with HTTP 400 INVALID_JSON', async () => {
+      const signed = createSignedWebhookPayload(
+        STATIC_SYNTHETIC_FIXTURES.malformedJsonString,
+        TEST_APP_SECRET
+      );
+
+      const req = new MockIncomingMessage({
+        method: 'POST',
+        url: '/',
+        headers: signed.headers,
+      });
+      const res = new MockServerResponse();
+
+      const response = await invokeHandler(
+        catalystWebhookHandler,
+        req,
+        res,
+        Buffer.from(signed.rawBody)
+      );
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json?.code).toBe('INVALID_JSON');
     });
   });
 });
