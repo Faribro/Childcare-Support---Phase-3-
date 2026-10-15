@@ -5,7 +5,7 @@ import path from 'path';
 import { BoundedOvernightController } from '@/controller/orchestrator';
 import { loadControllerConfig } from '@/controller/config';
 import type { ControllerConfig } from '@/controller/config';
-import { MockPerplexityPlanner, PerplexityApiClient, isCommandPermitted } from '@/controller/perplexityPlanner';
+import { MockPerplexityPlanner, PerplexityApiClient, AntigravityNativePlanner, isCommandPermitted } from '@/controller/perplexityPlanner';
 import { MockAntigravityExecutor } from '@/controller/antigravityExecutor';
 import { WorktreeLockManager } from '@/controller/worktreeLock';
 import type { TaskDefinition } from '@/controller/types';
@@ -348,6 +348,86 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       expect(finalState.metrics.tasksAttempted).toBe(1);
       expect(finalState.status).toBe('STOPPED');
       expect(finalState.stopReason).toContain('BOUND_REACHED');
+    });
+  });
+
+  describe('6. Antigravity-Native & Fallback Planning Mode', () => {
+    it('AntigravityNativePlanner plans tasks deterministically without external credentials', async () => {
+      const nativePlanner = new AntigravityNativePlanner();
+      const plan = await nativePlanner.planTask(sampleTasks[0], 'Project Brief');
+
+      expect(plan.taskId).toBe('TASK-001');
+      expect(plan.approvedToExecute).toBe(true);
+      expect(plan.strategyExplanation).toContain('Antigravity Native Planner');
+      expect(plan.verificationCommands).toContain('npm run typecheck');
+      expect(plan.filesToInspect).toEqual(['src/test/baseline.test.ts']);
+      expect(plan.requiresHumanApproval).toBe(false);
+    });
+
+    it('runs BoundedOvernightController in Antigravity-only mode without PERPLEXITY_API_KEY', async () => {
+      const antigravityOnlyConfig = {
+        ...testConfig,
+        perplexityApiKey: undefined,
+        plannerMode: 'ANTIGRAVITY_NATIVE' as const,
+      };
+
+      const mockExecutor = new MockAntigravityExecutor({
+        success: true,
+        exitCode: 0,
+        verificationOutputs: [
+          {
+            command: 'npm run typecheck',
+            exitCode: 0,
+            passed: true,
+            outputSnippet: 'Found 0 errors.',
+          },
+        ],
+      });
+
+      // Controller initialized WITHOUT explicit planner; defaults to AntigravityNativePlanner
+      const controller = new BoundedOvernightController({
+        config: antigravityOnlyConfig,
+        executor: mockExecutor,
+        lockManager,
+        initialTasks: [sampleTasks[0]],
+      });
+
+      const finalState = await controller.runLoop();
+      expect(finalState.metrics.tasksAttempted).toBe(1);
+      expect(finalState.metrics.tasksVerified).toBe(1);
+      expect(finalState.metrics.tasksFailed).toBe(0);
+
+      const verifiedTask = finalState.taskQueue.find((t) => t.task.id === 'TASK-001');
+      expect(verifiedTask?.status).toBe('VERIFIED');
+      expect(verifiedTask?.evidence?.plannerNotes).toContain('Antigravity Native Planner');
+    });
+
+    it('falls back to AntigravityNativePlanner when external planner throws CREDENTIALS_MISSING', async () => {
+      const failingPerplexityClient = {
+        planTask: async () => {
+          throw new Error('CREDENTIALS_MISSING: PERPLEXITY_API_KEY is not configured.');
+        },
+      };
+
+      const mockExecutor = new MockAntigravityExecutor({
+        success: true,
+        exitCode: 0,
+      });
+
+      const controller = new BoundedOvernightController({
+        config: testConfig,
+        planner: failingPerplexityClient,
+        executor: mockExecutor,
+        lockManager,
+        initialTasks: [sampleTasks[0]],
+      });
+
+      const finalState = await controller.runLoop();
+      // Should NOT fail the task; should gracefully fallback to AntigravityNativePlanner
+      expect(finalState.metrics.tasksVerified).toBe(1);
+      const verifiedTask = finalState.taskQueue.find((t) => t.task.id === 'TASK-001');
+      expect(verifiedTask?.status).toBe('VERIFIED');
+      expect(verifiedTask?.evidence?.plannerNotes).toContain('Antigravity Native Planner');
     });
   });
 });

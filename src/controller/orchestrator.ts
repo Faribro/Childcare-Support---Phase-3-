@@ -22,7 +22,7 @@ import type {
   TaskDefinition,
 } from './types';
 import { WorktreeLockManager } from './worktreeLock';
-import type { IPlannerClient } from './perplexityPlanner';
+import { type IPlannerClient, AntigravityNativePlanner, PerplexityApiClient } from './perplexityPlanner';
 import type { IAntigravityExecutor } from './antigravityExecutor';
 
 export class BoundedOvernightController {
@@ -35,20 +35,27 @@ export class BoundedOvernightController {
 
   constructor(params: {
     config: ControllerConfig;
-    planner: IPlannerClient;
+    planner?: IPlannerClient;
     executor: IAntigravityExecutor;
     lockManager?: WorktreeLockManager;
     initialTasks?: TaskDefinition[];
     projectBrief?: string;
   }) {
     this.config = params.config;
-    this.planner = params.planner;
     this.executor = params.executor;
     this.lockManager = params.lockManager || new WorktreeLockManager();
     this.projectBrief = params.projectBrief || 'Paediatric nutrition intake & linelist management platform';
 
     this.state = this.loadOrInitializeState(params.initialTasks || []);
     this.reconcileCrashedState();
+
+    if (params.planner) {
+      this.planner = params.planner;
+    } else if (this.config.plannerMode === 'PERPLEXITY' && this.config.perplexityApiKey) {
+      this.planner = new PerplexityApiClient(this.config, this.state.metrics);
+    } else {
+      this.planner = new AntigravityNativePlanner();
+    }
   }
 
   private loadOrInitializeState(initialTasks: TaskDefinition[]): ControllerState {
@@ -246,19 +253,25 @@ export class BoundedOvernightController {
     }
 
     try {
-      // 2. Optional Bounded Perplexity Planning
+      // 2. Optional Bounded Planning
       let plannerOutput: any;
       try {
         plannerOutput = await this.planner.planTask(task, this.projectBrief);
       } catch (err: any) {
-        // Planner failure fails closed on this task
-        taskRecord.status = 'FAILED';
-        taskRecord.blockedReason = `Planner error: ${err.message}`;
-        taskRecord.lastUpdated = new Date().toISOString();
-        this.state.metrics.tasksFailed += 1;
-        this.state.metrics.tasksAttempted += 1;
-        this.saveStateAtomically();
-        return { executed: true, taskId: task.id, reason: `PLANNER_FAILED: ${err.message}` };
+        if (err.message && err.message.includes('CREDENTIALS_MISSING')) {
+          // Graceful fallback to Antigravity Native Planner when external key is missing
+          const nativePlanner = new AntigravityNativePlanner();
+          plannerOutput = await nativePlanner.planTask(task, this.projectBrief);
+        } else {
+          // Unrecoverable planner failure fails closed on this task
+          taskRecord.status = 'FAILED';
+          taskRecord.blockedReason = `Planner error: ${err.message}`;
+          taskRecord.lastUpdated = new Date().toISOString();
+          this.state.metrics.tasksFailed += 1;
+          this.state.metrics.tasksAttempted += 1;
+          this.saveStateAtomically();
+          return { executed: true, taskId: task.id, reason: `PLANNER_FAILED: ${err.message}` };
+        }
       }
 
       // Check if planner determined human approval is required

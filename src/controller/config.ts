@@ -9,10 +9,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { ControllerBounds } from './types';
+import type { ControllerBounds, PlannerMode } from './types';
 
 export interface ControllerConfig {
   readonly perplexityApiKey?: string;
+  readonly plannerMode: PlannerMode;
   readonly perplexityBaseUrl: string;
   readonly perplexityModel: string;
   readonly perplexityMaxTokens: number;
@@ -59,6 +60,15 @@ export function loadControllerConfig(customSecretsPath?: string): ControllerConf
 
   const perplexityApiKey = fileEnv.PERPLEXITY_API_KEY || process.env.PERPLEXITY_API_KEY || undefined;
 
+  const rawMode = (fileEnv.CONTROLLER_PLANNER_MODE || process.env.CONTROLLER_PLANNER_MODE || '').toUpperCase();
+  const plannerMode: PlannerMode = rawMode === 'PERPLEXITY'
+    ? 'PERPLEXITY'
+    : rawMode === 'DIRECT'
+    ? 'DIRECT'
+    : perplexityApiKey
+    ? 'PERPLEXITY'
+    : 'ANTIGRAVITY_NATIVE';
+
   const maxTasks = parseInt(fileEnv.CONTROLLER_MAX_TASKS || process.env.CONTROLLER_MAX_TASKS || '2', 10);
   const maxMinutes = parseInt(fileEnv.CONTROLLER_MAX_MINUTES || process.env.CONTROLLER_MAX_MINUTES || '15', 10);
   const maxRequests = parseInt(fileEnv.CONTROLLER_MAX_REQUESTS || process.env.CONTROLLER_MAX_REQUESTS || '4', 10);
@@ -70,6 +80,7 @@ export function loadControllerConfig(customSecretsPath?: string): ControllerConf
 
   return {
     perplexityApiKey,
+    plannerMode,
     perplexityBaseUrl: fileEnv.PERPLEXITY_API_BASE_URL || process.env.PERPLEXITY_API_BASE_URL || 'https://api.perplexity.ai',
     perplexityModel: fileEnv.PERPLEXITY_MODEL || process.env.PERPLEXITY_MODEL || 'sonar-pro',
     perplexityMaxTokens: parseInt(fileEnv.PERPLEXITY_MAX_TOKENS || '2048', 10),

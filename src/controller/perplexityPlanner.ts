@@ -63,6 +63,50 @@ export class MockPerplexityPlanner implements IPlannerClient {
   }
 }
 
+/**
+ * Antigravity Native Planner
+ *
+ * Operates autonomously within Antigravity without requiring external LLM API credentials.
+ * Synthesizes execution strategy directly from approved task specifications, target files,
+ * and whitelisted verification commands.
+ *
+ * Truthful attribution: This is a deterministic rule-based planner implementing
+ * verified safety bounds, whitelist enforcement, and structured schema conformity.
+ * It does not pretend to be an external model.
+ */
+export class AntigravityNativePlanner implements IPlannerClient {
+  public planCallCount = 0;
+
+  public async planTask(task: TaskDefinition, projectBrief: string): Promise<PlannerStructuredResponse> {
+    this.planCallCount += 1;
+
+    // Filter verification commands through strict whitelist
+    const verificationCommands = (task.verificationRules || [])
+      .map((r) => r.command)
+      .filter((cmd) => isCommandPermitted(cmd));
+
+    if (verificationCommands.length === 0) {
+      verificationCommands.push('git status');
+    }
+
+    return {
+      taskId: task.id,
+      approvedToExecute: !task.requiresApproval,
+      strategyExplanation: `Antigravity Native Planner: Autonomous local planning for "${task.title}". Worktree: ${task.assignedWorktree}, Branch: ${task.assignedBranch}. Whitelisted commands: ${verificationCommands.length}. Mode: Credential-free local execution.`,
+      boundedInstructions: task.promptContext || `Execute approved local action for ${task.title}.`,
+      filesToInspect: task.targetFiles ? [...task.targetFiles] : [],
+      filesToModify: (task.actionType === 'INSPECTION' || task.actionType === 'TEST_EXECUTION' || task.actionType === 'TYPECHECK')
+        ? []
+        : (task.targetFiles ? [...task.targetFiles] : []),
+      verificationCommands,
+      potentialRisks: task.requiresApproval
+        ? ['Requires explicit human approval prior to local execution']
+        : ['Preserve single-writer worktree lock', 'Zero unapproved network egress'],
+      requiresHumanApproval: !!task.requiresApproval,
+    };
+  }
+}
+
 export class PerplexityApiClient implements IPlannerClient {
   private readonly config: ControllerConfig;
   private readonly metrics: ControllerMetrics;

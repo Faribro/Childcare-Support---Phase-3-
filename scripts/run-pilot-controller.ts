@@ -14,7 +14,7 @@ import path from 'path';
 import fs from 'fs';
 import { loadControllerConfig } from '../src/controller/config';
 import { BoundedOvernightController } from '../src/controller/orchestrator';
-import { PerplexityApiClient, MockPerplexityPlanner } from '../src/controller/perplexityPlanner';
+import { PerplexityApiClient, AntigravityNativePlanner } from '../src/controller/perplexityPlanner';
 import { AntigravityExecutor } from '../src/controller/antigravityExecutor';
 import { WorktreeLockManager } from '../src/controller/worktreeLock';
 import type { TaskDefinition } from '../src/controller/types';
@@ -26,7 +26,8 @@ async function main() {
 
   const config = loadControllerConfig();
   console.log(`[Config] Secrets File Path : ${config.secretsFilePath}`);
-  console.log(`[Config] Perplexity Key    : ${config.perplexityApiKey ? 'CONFIGURED (Redacted)' : 'NOT CONFIGURED (Fallback to Mock Planner)'}`);
+  console.log(`[Config] Planner Mode      : ${config.plannerMode}`);
+  console.log(`[Config] Perplexity Key    : ${config.perplexityApiKey ? 'CONFIGURED (Redacted)' : 'NOT CONFIGURED (Antigravity-Only Mode)'}`);
   console.log(`[Config] Max Tasks Allowed : ${config.bounds.maxTasks}`);
   console.log(`[Config] Max Minutes       : ${config.bounds.maxMinutes}`);
   console.log(`[Config] State File Path   : ${config.bounds.stateFilePath}`);
@@ -47,14 +48,9 @@ async function main() {
     lastCycleAt: new Date().toISOString(),
   };
 
-  const planner = config.perplexityApiKey
+  const planner = (config.plannerMode === 'PERPLEXITY' && config.perplexityApiKey)
     ? new PerplexityApiClient(config, metrics)
-    : new MockPerplexityPlanner({
-        approvedToExecute: true,
-        strategyExplanation: 'Preflight pilot: Perform non-destructive worktree inspection and baseline test verification.',
-        boundedInstructions: 'Inspect working directory status and run baseline tests with zero side effects.',
-        verificationCommands: ['git status', 'npx vitest run src/test/baseline.test.ts'],
-      });
+    : new AntigravityNativePlanner();
 
   const pilotTasks: TaskDefinition[] = [
     {

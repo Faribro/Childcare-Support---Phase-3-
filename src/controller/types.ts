@@ -10,6 +10,8 @@ export type TaskStatus =
   | 'BLOCKED_APPROVAL'
   | 'BLOCKED_DEPENDENCY';
 
+export type PlannerMode = 'PERPLEXITY' | 'ANTIGRAVITY_NATIVE' | 'DIRECT';
+
 export type TaskActionType =
   | 'INSPECTION'
   | 'CODE_CHANGE'
