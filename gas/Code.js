@@ -15,22 +15,144 @@
  * - Automatic onOpen(e) trigger and custom UI menu for 1-click sheet formatting
  */
 
+// Operational Spreadsheet IDs for collision rejection & backward compatibility
 var TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
-// Retain legacy sheet ID reference for test backward-compatibility
 var LEGACY_TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';
+var OPERATIONAL_SPREADSHEET_ID = TARGET_SPREADSHEET_ID;
+var LEGACY_OPERATIONAL_SPREADSHEET_ID = LEGACY_TARGET_SPREADSHEET_ID;
+var OPERATIONAL_SPREADSHEET_IDS = [
+  OPERATIONAL_SPREADSHEET_ID,
+  LEGACY_OPERATIONAL_SPREADSHEET_ID
+];
+
 var PRIMARY_SHEET_NAME = 'Child_Nutrition';
 var AUDIT_SHEET_NAME = 'Audit_Log';
 var HEADER_ROW_INDEX = 3;
 var LOCK_TIMEOUT_MS = 30000;
 var BANNER_TITLE = 'CHILD HIV CARE & NUTRITION LINELIST';
-var ROOT_DOCUMENTS_FOLDER_NAME = 'Alliance India Child PDFs';
-var CANDIDATE_ROOT_FOLDER_NAMES = [
-  'Alliance India Child PDFs',
-  'Child_Nutrition_Phase3_Documents',
-  'ChildCare Attachments'
-];
 var ASSET_REGISTRY_SHEET_NAME = '_Asset_Containers';
 var STAGING_RUNS_FOLDER_NAME = '_e2e_staging_runs';
+
+// ============================================================================
+// EXPLICIT BACKEND DESTINATION & ENVIRONMENT CONFIGURATION
+// ============================================================================
+
+function getAppEnv_() {
+  var props = PropertiesService.getScriptProperties();
+  var env = props ? props.getProperty('APP_ENV') : null;
+  return env ? String(env).trim().toLowerCase() : '';
+}
+
+function getTargetSpreadsheetId_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props ? props.getProperty('TARGET_SPREADSHEET_ID') : null;
+  return id ? String(id).trim() : '';
+}
+
+function getRootDocumentsFolderId_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props ? props.getProperty('ROOT_DOCUMENTS_FOLDER_ID') : null;
+  return id ? String(id).trim() : '';
+}
+
+function isOperationalSpreadsheetId_(spreadsheetId) {
+  if (!spreadsheetId) return false;
+  var cleanId = String(spreadsheetId).trim();
+  for (var i = 0; i < OPERATIONAL_SPREADSHEET_IDS.length; i++) {
+    if (cleanId === OPERATIONAL_SPREADSHEET_IDS[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Validates backend destination configuration strictly and fails closed:
+ * 1. APP_ENV must be explicitly 'staging' or 'production'.
+ * 2. TARGET_SPREADSHEET_ID must be explicitly set in Script Properties.
+ * 3. In staging (APP_ENV === 'staging'), targeting operational spreadsheet ID is rejected.
+ * 4. In production (APP_ENV === 'production'), operational spreadsheet ID is permitted.
+ * 5. ROOT_DOCUMENTS_FOLDER_ID must be explicitly set in Script Properties.
+ */
+function validateBackendConfiguration_(requestId) {
+  var appEnv = getAppEnv_();
+  if (!appEnv || (appEnv !== 'staging' && appEnv !== 'production')) {
+    return {
+      valid: false,
+      response: errorResponse_(
+        'Server configuration error: Explicit APP_ENV ("staging" or "production") must be configured in Script Properties.',
+        'CONFIGURATION_ERROR',
+        503,
+        requestId
+      )
+    };
+  }
+
+  var targetSpreadsheetId = getTargetSpreadsheetId_();
+  if (!targetSpreadsheetId) {
+    return {
+      valid: false,
+      response: errorResponse_(
+        'Server configuration error: Explicit TARGET_SPREADSHEET_ID must be configured in Script Properties.',
+        'CONFIGURATION_ERROR',
+        503,
+        requestId
+      )
+    };
+  }
+
+  // Staging environment protection: Never allow staging backend to write to or read from operational sheet
+  if (appEnv === 'staging' && isOperationalSpreadsheetId_(targetSpreadsheetId)) {
+    return {
+      valid: false,
+      response: errorResponse_(
+        'Destination violation: Staging environment rejected targeting operational spreadsheet ID (' + targetSpreadsheetId + ').',
+        'CONFIGURATION_ERROR',
+        503,
+        requestId
+      )
+    };
+  }
+
+  var rootFolderId = getRootDocumentsFolderId_();
+  if (!rootFolderId) {
+    return {
+      valid: false,
+      response: errorResponse_(
+        'Server configuration error: Explicit ROOT_DOCUMENTS_FOLDER_ID must be configured in Script Properties.',
+        'CONFIGURATION_ERROR',
+        503,
+        requestId
+      )
+    };
+  }
+
+  return {
+    valid: true,
+    appEnv: appEnv,
+    targetSpreadsheetId: targetSpreadsheetId,
+    rootFolderId: rootFolderId
+  };
+}
+
+/**
+ * Authoritative spreadsheet resolver.
+ * Replaces getActiveSpreadsheet() and hardcoded openById() across all backend data/asset paths.
+ * Enforces explicit configuration and staging destination isolation.
+ */
+function getTargetSpreadsheet_() {
+  var targetSpreadsheetId = getTargetSpreadsheetId_();
+  if (!targetSpreadsheetId) {
+    throw new Error('Server configuration error: TARGET_SPREADSHEET_ID must be configured in Script Properties.');
+  }
+
+  var appEnv = getAppEnv_();
+  if (appEnv === 'staging' && isOperationalSpreadsheetId_(targetSpreadsheetId)) {
+    throw new Error('Destination violation: Staging environment rejected targeting operational spreadsheet ID (' + targetSpreadsheetId + ').');
+  }
+
+  return SpreadsheetApp.openById(targetSpreadsheetId);
+}
 
 // Exact 73 Rectified Column Headers (Number on top + newline)
 var COLUMN_HEADERS = [
@@ -298,6 +420,12 @@ function doPost(e) {
       return auth.response;
     }
 
+    // Enforce explicit destination configuration and environment safety before any write or read
+    var configValidation = validateBackendConfiguration_(requestId);
+    if (!configValidation.valid) {
+      return configValidation.response;
+    }
+
     if (action === 'schema') {
       var schema = getValidatedSheetSchema_();
       return ContentService.createTextOutput(
@@ -516,22 +644,23 @@ function applyColumnWidths_(sheet) {
 var LAST_STORAGE_ERROR_ = '';
 
 function getOrCreateRootDocumentsFolder_() {
-  try {
-    for (var i = 0; i < CANDIDATE_ROOT_FOLDER_NAMES.length; i++) {
-      var candidate = CANDIDATE_ROOT_FOLDER_NAMES[i];
-      var folders = DriveApp.getFoldersByName(candidate);
-      if (folders.hasNext()) {
-        return folders.next();
-      }
-    }
-    // Create folder with default restricted domain/owner ACLs (Public link sharing disabled)
-    var root = DriveApp.createFolder(ROOT_DOCUMENTS_FOLDER_NAME);
-    return root;
-  } catch (err) {
-    LAST_STORAGE_ERROR_ = 'DriveAppRoot: ' + (err && err.message ? err.message : err);
-    Logger.log('DriveApp root folder exception (pending authorization): ' + err);
+  var rootFolderId = getRootDocumentsFolderId_();
+  if (!rootFolderId) {
+    LAST_STORAGE_ERROR_ = 'DriveAppRoot: ROOT_DOCUMENTS_FOLDER_ID is not configured in Script Properties.';
+    Logger.log(LAST_STORAGE_ERROR_);
     return null;
   }
+  try {
+    return DriveApp.getFolderById(rootFolderId);
+  } catch (err) {
+    LAST_STORAGE_ERROR_ = 'DriveAppRoot: ' + (err && err.message ? err.message : err);
+    Logger.log('DriveApp root folder exception: ' + err);
+    return null;
+  }
+}
+
+function getRootDocumentsFolder_() {
+  return getOrCreateRootDocumentsFolder_();
 }
 
 /**
@@ -581,12 +710,10 @@ function getOrCreateAssetContainer_(remoteSubmissionId) {
     var assessFolder = assessFolders.hasNext() ? assessFolders.next() : rootFolder.createFolder('assessments');
 
     // 2. Query internal registry sheet
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      try {
-        ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-      } catch (e) {}
-    }
+    var ss = null;
+    try {
+      ss = getTargetSpreadsheet_();
+    } catch (e) {}
 
     var registrySheet = ss ? getOrCreateAssetRegistrySheet_(ss) : null;
     var assetContainerId = null;
@@ -821,26 +948,7 @@ function formatDataRow_(sheet, rowIndex) {
 }
 
 function getSheetAndColMap_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    try {
-      ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-    } catch (err) {
-      Logger.log('Could not openById TARGET_SPREADSHEET_ID: ' + err);
-    }
-  }
-
-  if (!ss && typeof LEGACY_TARGET_SPREADSHEET_ID !== 'undefined') {
-    try {
-      ss = SpreadsheetApp.openById(LEGACY_TARGET_SPREADSHEET_ID);
-    } catch (err) {
-      Logger.log('Could not openById LEGACY_TARGET_SPREADSHEET_ID: ' + err);
-    }
-  }
-
-  if (!ss) {
-    throw new Error('Unable to open spreadsheet with ID: ' + TARGET_SPREADSHEET_ID);
-  }
+  var ss = getTargetSpreadsheet_();
 
   // 1. Resilient Tab Detection
   var sheets = ss.getSheets();
@@ -871,7 +979,7 @@ function getSheetAndColMap_() {
   }
 
   if (!sheet) {
-    throw new Error('No valid sheet found in spreadsheet: ' + TARGET_SPREADSHEET_ID);
+    throw new Error('No valid sheet found in spreadsheet: ' + getTargetSpreadsheetId_());
   }
 
   // 2. Dynamic Header Row Scanning (scan rows 1 to 5 to find row with "Unique ID")
@@ -1664,7 +1772,7 @@ function getValidatedSheetSchema_() {
   try {
     if (typeof Sheets !== 'undefined' && Sheets && Sheets.Spreadsheets && Sheets.Spreadsheets.Values) {
       var range = PRIMARY_SHEET_NAME + '!A3:BU3';
-      var res = Sheets.Spreadsheets.Values.get(TARGET_SPREADSHEET_ID, range);
+      var res = Sheets.Spreadsheets.Values.get(getTargetSpreadsheetId_(), range);
       if (res && res.values && res.values.length > 0) {
         actualHeaders = res.values[0];
         totalCols = actualHeaders.length;
@@ -1882,11 +1990,11 @@ function listSubmissions_(params, requestId) {
     if (typeof Sheets !== 'undefined' && Sheets && Sheets.Spreadsheets && Sheets.Spreadsheets.Values) {
       var sheetTitle = sheet.getName();
       var rangeA1 = sheetTitle + '!R' + cursor + 'C1:R' + endRow + 'C' + numCols;
-      var valuesRes = Sheets.Spreadsheets.Values.get(TARGET_SPREADSHEET_ID, rangeA1, {
+      var valuesRes = Sheets.Spreadsheets.Values.get(getTargetSpreadsheetId_(), rangeA1, {
         valueRenderOption: 'UNFORMATTED_VALUE',
         dateTimeRenderOption: 'FORMATTED_STRING'
       });
-      var formulaRes = Sheets.Spreadsheets.Values.get(TARGET_SPREADSHEET_ID, rangeA1, {
+      var formulaRes = Sheets.Spreadsheets.Values.get(getTargetSpreadsheetId_(), rangeA1, {
         valueRenderOption: 'FORMULA'
       });
       if (valuesRes && valuesRes.values) {
@@ -2726,10 +2834,7 @@ function menuRefreshSheetPresentation() {
 // ============================================================================
 
 function runSetupAndInsertSampleRows() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-  }
+  var ss = getTargetSpreadsheet_();
   var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
   sheet.setName(PRIMARY_SHEET_NAME);
 
@@ -3150,10 +3255,7 @@ function cleanupStagingRun_(payload, requestId) {
 }
 
 function setupCleanSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-  }
+  var ss = getTargetSpreadsheet_();
   var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
   sheet.setName(PRIMARY_SHEET_NAME);
 
