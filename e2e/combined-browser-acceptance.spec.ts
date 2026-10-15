@@ -431,25 +431,29 @@ test.describe('PR #83: Leadership Email Authentication Browser Acceptance', () =
     const activeSession: LeaderSessionRecord = {
       sessionId: 'sess-timeout-test',
       leaderId: 'lead-ananya-roy',
+      email: 'ananya.roy@example.org',
+      name: 'Dr. Ananya Roy',
+      title: 'National Programme Director',
+      role: 'LEADERSHIP',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
       authVersion: 1,
       deviceBindingHash: 'hash-xyz',
-      userAgentHash: 'ua-xyz',
-      ip: '127.0.0.1',
       createdAt: now,
-      lastActiveAt: now,
-      expiresAt: now + 8 * 60 * 60 * 1000,
+      lastActivityAt: now,
+      absoluteExpiresAt: now + 8 * 60 * 60 * 1000,
       isRevoked: false,
     };
 
     // Initially within idle window
-    expect(activeSession.lastActiveAt + LEADER_IDLE_TIMEOUT_MS > now).toBe(true);
+    expect(activeSession.lastActivityAt + LEADER_IDLE_TIMEOUT_MS > now).toBe(true);
 
     // Simulate 31 minutes of elapsed time
     const expiredIdle = now - (LEADER_IDLE_TIMEOUT_MS + 60000);
-    const mockExpiredSession = { ...activeSession, lastActiveAt: expiredIdle };
+    const mockExpiredSession = { ...activeSession, lastActivityAt: expiredIdle };
 
     // Validating against idle timeout returns expired
-    const isStillActive = mockExpiredSession.lastActiveAt + LEADER_IDLE_TIMEOUT_MS > now;
+    const isStillActive = mockExpiredSession.lastActivityAt + LEADER_IDLE_TIMEOUT_MS > now;
     expect(isStillActive).toBe(false);
 
     // Background polling detection verification
