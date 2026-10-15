@@ -54,6 +54,32 @@ export function checkWorkerCredentials(): MissingCredentialsCheckResult {
   };
 }
 
+export interface WorkerAcknowledgmentPayload {
+  serverBaseUrl?: string;
+  roomName: string;
+  workerSessionId: string;
+  reservationSecret: string;
+  status: 'STARTED' | 'CLEANUP_REQUESTED' | 'CLEANUP_COMPLETED' | 'CLEANUP_FAILED_OR_UNCERTAIN';
+  details?: string;
+}
+
+export async function postWorkerAcknowledgment(
+  params: WorkerAcknowledgmentPayload
+): Promise<boolean> {
+  const url = `${params.serverBaseUrl || 'http://127.0.0.1:3000'}/api/staff/voice/worker-acknowledgment`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('[Agent Worker] Failed to post worker acknowledgment to server:', err);
+    return false;
+  }
+}
+
 /**
  * Defines the real LiveKit Voice Agent entrypoint.
  */
@@ -72,8 +98,31 @@ export default defineAgent({
       );
     }
 
-    console.info(`[Agent Worker] Connecting to room: ${ctx.room.name}`);
+    // Parse dispatch metadata if present
+    let workerSessionId = `worker-${ctx.room.name}`;
+    let reservationSecret = '';
+    try {
+      if (ctx.job && ctx.job.metadata) {
+        const parsed = JSON.parse(ctx.job.metadata);
+        if (parsed.workerSessionId) workerSessionId = parsed.workerSessionId;
+        if (parsed.reservationSecret) reservationSecret = parsed.reservationSecret;
+      }
+    } catch {
+      // Non-JSON or missing metadata
+    }
+
+    console.info(`[Agent Worker] Connecting to room: ${ctx.room.name} (workerSessionId: ${workerSessionId})`);
     await ctx.connect();
+
+    // Report connection acknowledgment
+    if (reservationSecret) {
+      await postWorkerAcknowledgment({
+        roomName: ctx.room.name || 'unnamed-room',
+        workerSessionId,
+        reservationSecret,
+        status: 'STARTED',
+      });
+    }
 
     // 2. Initialize exact selected models
     const stt = new sarvam.STT({
@@ -128,10 +177,24 @@ export default defineAgent({
       ctx.room.disconnect();
     }, maxDurationSeconds * 1000);
 
+    let teardownAcknowledged = false;
+    const reportTeardown = async (status: 'CLEANUP_COMPLETED' | 'CLEANUP_FAILED_OR_UNCERTAIN', details?: string) => {
+      if (teardownAcknowledged || !reservationSecret) return;
+      teardownAcknowledged = true;
+      await postWorkerAcknowledgment({
+        roomName: ctx.room.name || 'unnamed-room',
+        workerSessionId,
+        reservationSecret,
+        status,
+        details,
+      });
+    };
+
     // Clean up timer when session closes
-    session.on(voice.AgentSessionEventTypes.Close, () => {
+    session.on(voice.AgentSessionEventTypes.Close, async () => {
       clearTimeout(sessionTimer);
       console.info('[Agent Worker] Session closed. Cleaned up duration timers.');
+      await reportTeardown('CLEANUP_COMPLETED', 'Session closed normally');
     });
 
     // Ensure session teardown when room disconnects
@@ -140,8 +203,9 @@ export default defineAgent({
       console.info('[Agent Worker] Room disconnected. Ensuring provider session is closed.');
       try {
         await session.close();
-      } catch {
-        // Session already closed
+        await reportTeardown('CLEANUP_COMPLETED', 'Room disconnected; session closed');
+      } catch (err: any) {
+        await reportTeardown('CLEANUP_FAILED_OR_UNCERTAIN', err?.message || 'Error during room disconnect teardown');
       }
     });
 

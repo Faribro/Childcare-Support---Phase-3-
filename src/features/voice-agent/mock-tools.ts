@@ -69,6 +69,12 @@ export function createSyntheticMissingDocumentEvent(
   };
 }
 
+import {
+  VoiceDocumentCoordinatorAdapter,
+  DocumentLoopStatus,
+  DocumentLoopDocType,
+} from './adapters/document-loop-adapter';
+
 export class MockDisposableStateStore {
   private callbacks: MockCallbackRecord[] = [];
   private optOuts: MockOptOutRecord[] = [];
@@ -76,8 +82,10 @@ export class MockDisposableStateStore {
   private outcomes: MockContactOutcomeRecord[] = [];
   private documents: Map<string, SyntheticDocumentRecord> = new Map();
   private whatsappHandoffs: MockWhatsAppHandoffRecord[] = [];
+  private coordinatorAdapter: VoiceDocumentCoordinatorAdapter;
 
   constructor() {
+    this.coordinatorAdapter = new VoiceDocumentCoordinatorAdapter();
     this.resetDocuments();
   }
 
@@ -86,6 +94,16 @@ export class MockDisposableStateStore {
     this.documents.set(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, {
       ...FIXED_DOCUMENT_FOLLOWUP_TASK.missingDocument,
     });
+    this.coordinatorAdapter.clear();
+    this.coordinatorAdapter.registerDocument(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, {
+      docType: 'nutritionGrowthCard',
+      canonicalLabel: 'Child Nutrition & Growth Card',
+      status: 'MISSING',
+    });
+  }
+
+  public getCoordinatorAdapter(): VoiceDocumentCoordinatorAdapter {
+    return this.coordinatorAdapter;
   }
 
   public clear(): void {
@@ -121,12 +139,14 @@ export class MockDisposableStateStore {
   public setDocumentStatus(taskId: string, status: DocumentStatus): void {
     const doc = this.documents.get(taskId);
     if (doc) {
+      const normalizedStatus: DocumentLoopStatus = status === 'PENDING_UPLOAD' ? 'REQUESTED' : (status as DocumentLoopStatus);
       this.documents.set(taskId, {
         ...doc,
         status,
         ...(status === 'UPLOADED' ? { uploadedAt: new Date().toISOString() } : {}),
         ...(status === 'VERIFIED' ? { verifiedAt: new Date().toISOString() } : {}),
       });
+      this.coordinatorAdapter.updateDocumentStatus(taskId, normalizedStatus);
     }
   }
 
@@ -152,6 +172,10 @@ export class MockDisposableStateStore {
       isSynthetic: true,
     };
     this.whatsappHandoffs.push(record);
+    this.coordinatorAdapter.dispatchWhatsAppUploadHandoff({
+      submissionId: args.taskId,
+      phoneMasked: record.phoneMasked,
+    });
 
     // When link is dispatched, transition status from MISSING to PENDING_UPLOAD
     if (doc.status === 'MISSING') {

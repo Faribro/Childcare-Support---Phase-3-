@@ -31,8 +31,24 @@ export type ConversationState =
 
 export type LanguageTarget = 'en' | 'hi' | 'hinglish';
 
-export type DocumentType = 'NUTRITION_CARD' | 'GROWTH_CHART' | 'IMMUNIZATION_RECORD';
-export type DocumentStatus = 'MISSING' | 'PENDING_UPLOAD' | 'UPLOADED' | 'VERIFIED' | 'REJECTED';
+import type {
+  DocumentLoopDocType,
+  DocumentLoopStatus,
+  DocumentMetadataAdapter,
+  VoiceMissingDocumentEvent,
+  OutboundHandoffDispatch,
+} from './adapters/document-loop-adapter';
+
+export type {
+  DocumentLoopDocType,
+  DocumentLoopStatus,
+  DocumentMetadataAdapter,
+  VoiceMissingDocumentEvent,
+  OutboundHandoffDispatch,
+};
+
+export type DocumentType = DocumentLoopDocType | 'NUTRITION_CARD' | 'GROWTH_CHART' | 'IMMUNIZATION_RECORD';
+export type DocumentStatus = DocumentLoopStatus | 'PENDING_UPLOAD';
 
 export interface SyntheticDocumentRecord {
   readonly documentId: string;

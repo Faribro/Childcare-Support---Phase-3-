@@ -467,22 +467,39 @@ export class VoiceConversationStateMachine {
         const currentDoc = this.store.getDocument(this.task.taskId);
         const status = currentDoc?.status || 'MISSING';
 
-        if (status === 'VERIFIED' || status === 'UPLOADED') {
+        if (status === 'VERIFIED') {
           this.store.recordMockContactOutcome({
             taskId: this.task.taskId,
             finalState: 'COMPLETED',
             durationSeconds: this.getSessionDuration(),
             turnsCount: this.turns.length,
-            notes: `Caregiver stated document sent; confirmed by stored ${status} status.`,
+            notes: 'Caregiver stated document sent; confirmed by stored VERIFIED status (approved and verified).',
           });
           return this.terminateSession(
             'COMPLETED',
             this.getLocalizedText({
-              en: 'I checked our system, and the document is confirmed received and verified. Your follow-up task is complete. Thank you!',
-              hi: 'मैंने सिस्टम में जांच की है, और आपका दस्तावेज़ प्राप्त और सत्यापित हो गया है। आपका कार्य पूर्ण हो चुका है। धन्यवाद!',
-              hinglish: 'Maine system check kiya, aur document verify ho chuka hai. Aapka task complete hai. Dhanyawad!',
+              en: 'I checked our system, and your document has been approved and verified in our records. Your follow-up task is complete. Thank you!',
+              hi: 'मैंने सिस्टम में जांच की है, और आपका दस्तावेज़ हमारे रिकॉर्ड में स्वीकृत और सत्यापित हो चुका है। आपका कार्य पूर्ण हो चुका है। धन्यवाद!',
+              hinglish: 'Maine system check kiya, aur aapka document approve aur verify ho chuka hai. Aapka task complete hai. Dhanyawad!',
             }),
-            'Document verified via stored status check'
+            'Document verified via stored status check (approved and verified)'
+          );
+        } else if (status === 'UPLOADED') {
+          this.store.recordMockContactOutcome({
+            taskId: this.task.taskId,
+            finalState: 'COMPLETED',
+            durationSeconds: this.getSessionDuration(),
+            turnsCount: this.turns.length,
+            notes: 'Caregiver stated document sent; stored status is UPLOADED (received and pending review, not yet approved or complete).',
+          });
+          return this.terminateSession(
+            'COMPLETED',
+            this.getLocalizedText({
+              en: 'I checked our system, and we see your document photo was received. It is currently under review by our verification team and is not yet approved or complete, but you do not need to upload it again. Thank you for your patience!',
+              hi: 'मैंने सिस्टम में जांच की है, और आपका दस्तावेज़ फोटो प्राप्त हो गया है। वर्तमान में हमारी सत्यापन टीम द्वारा इसकी समीक्षा की जा रही है और यह अभी स्वीकृत या पूर्ण नहीं है, लेकिन आपको इसे दोबारा अपलोड करने की आवश्यकता नहीं है। धन्यवाद!',
+              hinglish: 'Maine system check kiya, aur aapka document photo receive ho chuka hai. Yeh abhi verification team ke review mein hai aur abhi approve ya complete nahi hua hai, par aapko dobara upload karne ki zaroorat nahi hai. Dhanyawad!',
+            }),
+            'Document status is UPLOADED (received and pending review)'
           );
         } else {
           // Status is MISSING or PENDING_UPLOAD - Reject verbal completion claim

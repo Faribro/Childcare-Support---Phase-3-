@@ -179,6 +179,11 @@ export async function POST(req: NextRequest) {
       agents: [
         new RoomAgentDispatch({
           agentName: 'childcare-voice-evaluator',
+          metadata: JSON.stringify({
+            workerSessionId: reservation.workerSessionId,
+            reservationSecret: reservation.reservationSecret,
+            roomName,
+          }),
         }),
       ],
     });
@@ -203,6 +208,7 @@ export async function POST(req: NextRequest) {
       token,
       identity,
       agentName: 'childcare-voice-evaluator',
+      workerSessionId: reservation.workerSessionId,
       maxDurationSeconds,
       user: auth.user,
     });

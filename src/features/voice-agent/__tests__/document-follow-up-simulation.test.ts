@@ -125,7 +125,7 @@ describe('Document-Follow-Up Call Flow Simulation Suite', () => {
   });
 
   // Test 4: Genuine completion when stored document status is confirmed verified
-  it('4. genuine completion: user claiming "I sent it" completes call only when stored document status is verified', async () => {
+  it('4. genuine completion: user claiming "I sent it" completes call when stored document status is verified', async () => {
     runner.startMicrophone();
     sm.startSession('en');
     await runner.simulateTurn('Yes, go ahead.');
@@ -137,17 +137,45 @@ describe('Document-Follow-Up Call Flow Simulation Suite', () => {
     // User states they sent it
     const turn = await runner.simulateTurn('I already uploaded and submitted the document.');
 
-    // Assistant queries stored status, sees VERIFIED, and completes call
+    // Assistant queries stored status, sees VERIFIED, and completes call with approved wording
     expect(turn.output.shouldTerminate).toBe(true);
     expect(turn.output.state).toBe('COMPLETED');
-    expect(turn.output.assistantUtterance).toContain('confirmed received and verified');
+    expect(turn.output.assistantUtterance).toContain('approved and verified in our records');
     expect(turn.output.assistantUtterance).toContain('follow-up task is complete');
 
-    // Outcome is logged in store as completed
+    // Outcome is logged in store as completed with approved notes
     const outcomes = store.getOutcomes();
     expect(outcomes.length).toBe(1);
     expect(outcomes[0].finalState).toBe('COMPLETED');
-    expect(outcomes[0].notes).toContain('confirmed by stored VERIFIED status');
+    expect(outcomes[0].notes).toContain('confirmed by stored VERIFIED status (approved and verified)');
+  });
+
+  // Test 4b: Stored status UPLOADED indicates received/under review, not approved or submission complete
+  it('4b. uploaded distinction: stored status UPLOADED confirms received pending review, not approved/complete', async () => {
+    runner.startMicrophone();
+    sm.startSession('en');
+    await runner.simulateTurn('Yes, go ahead.');
+
+    // Simulate document was uploaded (e.g. via WhatsApp) but NOT yet verified by staff
+    store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'UPLOADED');
+    expect(store.getDocument(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId)?.status).toBe('UPLOADED');
+
+    // User states they already sent it
+    const turn = await runner.simulateTurn('I already sent the photo earlier today.');
+
+    // Assistant confirms photo received under review, explicitly stating NOT yet approved or complete
+    expect(turn.output.shouldTerminate).toBe(true);
+    expect(turn.output.state).toBe('COMPLETED');
+    expect(turn.output.assistantUtterance).toContain('document photo was received');
+    expect(turn.output.assistantUtterance).toContain('currently under review by our verification team');
+    expect(turn.output.assistantUtterance).toContain('not yet approved or complete');
+    expect(turn.output.assistantUtterance).toContain('do not need to upload it again');
+
+    // Outcome notes record UPLOADED status received and pending review
+    const outcomes = store.getOutcomes();
+    expect(outcomes.length).toBe(1);
+    expect(outcomes[0].finalState).toBe('COMPLETED');
+    expect(outcomes[0].notes).toContain('stored status is UPLOADED (received and pending review, not yet approved or complete)');
   });
 
   // Test 5: Interruption (Barge-in) during document explanation

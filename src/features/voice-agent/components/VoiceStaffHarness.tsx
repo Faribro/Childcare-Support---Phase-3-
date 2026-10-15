@@ -514,39 +514,44 @@ export function VoiceStaffHarness() {
                 <div className="col-span-2"><span className="text-slate-500">Document:</span> <span className="font-medium text-slate-900">Child Nutrition & Growth Card</span></div>
               </div>
 
-              {/* Status Simulation Helpers */}
-              <div className="pt-2 border-t border-slate-200">
-                <p className="text-[10px] font-semibold text-slate-500 mb-1">Simulate Database Document Status:</p>
-                <div className="flex gap-1.5 flex-wrap">
-                  <button
-                    onClick={() => {
-                      store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'UPLOADED');
-                      setDocStatusCounter((c) => c + 1);
-                    }}
-                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 text-[10px] rounded border border-blue-200 transition"
-                  >
-                    Simulate Uploaded
-                  </button>
-                  <button
-                    onClick={() => {
-                      store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'VERIFIED');
-                      setDocStatusCounter((c) => c + 1);
-                    }}
-                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] rounded border border-emerald-200 transition"
-                  >
-                    Simulate Verified
-                  </button>
-                  <button
-                    onClick={() => {
-                      store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'MISSING');
-                      setDocStatusCounter((c) => c + 1);
-                    }}
-                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded border border-slate-200 transition"
-                  >
-                    Reset Missing
-                  </button>
+              {/* Status Simulation Helpers (Strictly Non-Production) */}
+              {process.env.NODE_ENV !== 'production' && (
+                <div className="pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] font-semibold text-slate-500">Simulate Database Document Status:</p>
+                    <span className="text-[9px] bg-amber-100 text-amber-800 font-mono px-1 rounded">TEST_ONLY</span>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button
+                      onClick={() => {
+                        store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'UPLOADED');
+                        setDocStatusCounter((c) => c + 1);
+                      }}
+                      className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 text-[10px] rounded border border-blue-200 transition"
+                    >
+                      Simulate Uploaded
+                    </button>
+                    <button
+                      onClick={() => {
+                        store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'VERIFIED');
+                        setDocStatusCounter((c) => c + 1);
+                      }}
+                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] rounded border border-emerald-200 transition"
+                    >
+                      Simulate Verified
+                    </button>
+                    <button
+                      onClick={() => {
+                        store.setDocumentStatus(FIXED_DOCUMENT_FOLLOWUP_TASK.taskId, 'MISSING');
+                        setDocStatusCounter((c) => c + 1);
+                      }}
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded border border-slate-200 transition"
+                    >
+                      Reset Missing
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             <div className="bg-slate-50 p-3 rounded text-xs space-y-1.5 border border-slate-200">
@@ -691,7 +696,7 @@ export function VoiceStaffHarness() {
               <div className="font-medium text-emerald-700">WhatsApp Handoffs: {store.getWhatsAppHandoffs().length}</div>
               {store.getWhatsAppHandoffs().length > 0 && (
                 <div className="text-[10px] font-mono bg-emerald-50 p-1.5 rounded border border-emerald-200 mt-1">
-                  Dispatched: {store.getWhatsAppHandoffs()[store.getWhatsAppHandoffs().length - 1].uploadLinkToken}
+                  Dispatched: {store.getWhatsAppHandoffs()[store.getWhatsAppHandoffs().length - 1].uploadLinkToken.substring(0, 12)}***
                 </div>
               )}
               <div>Outcomes: {store.getOutcomes().length}</div>
