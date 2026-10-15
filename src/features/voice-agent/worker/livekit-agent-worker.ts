@@ -1,35 +1,19 @@
 /**
- * LiveKit Agent Worker Scaffolding: Voice Pipeline Agent with Sarvam AI & OpenAI
+ * LiveKit Real-Audio Calling-Agent Worker
  * 
- * SYSTEM ARCHITECTURE:
- * 1. Framework: LiveKit Agents Voice Pipeline
- * 2. Speech-to-Text (STT): Sarvam AI 'saaras:v1' / 'saaras:v2' (Indic streaming ASR for Hindi/Indian English)
- * 3. Language Model (LLM): OpenAI 'gpt-4o-mini' with strict synthetic system instructions
- * 4. Text-to-Speech (TTS): Sarvam AI 'bulbul:v1' / 'bulbul:v2' (Natural Indic voices, e.g. 'meera')
- * 5. Voice Activity Detection (VAD): Silero VAD for interruptibility / barge-in handling
- * 6. Safety Enforcements:
- *    - Zero sensitive clinical / HIV status references
- *    - Zero financial, bank, Aadhaar, OTP inquiries
- *    - Zero claim to be human or clinician
- *    - Mock confirmations explicitly state: "This is a test; no real callback or staff notification was created."
- *    - Strict 180-second hard session ceiling
- * 
- * EXECUTION GATE:
- * If provider credentials are not present in process.env, this worker logs:
- * "AI/Audio Path: NOT EXECUTED (LiveKit/Provider credentials not configured)"
- * and terminates cleanly without throwing unhandled exceptions.
+ * INSTALLED DEPENDENCIES (Pinned & Synchronized):
+ * - @livekit/agents: 1.9.3
+ * - @livekit/agents-plugin-sarvam: 1.9.3 (STT model: 'saaras:v3', TTS model: 'bulbul:v2')
+ * - @livekit/agents-plugin-openai: 1.9.3 (LLM model: 'gpt-4o-mini')
+ * - @livekit/agents-plugin-silero: 1.9.3 (VAD: Silero)
  */
 
+import { fileURLToPath } from 'node:url';
+import { defineAgent, JobContext, ServerOptions, cli, voice } from '@livekit/agents';
+import * as sarvam from '@livekit/agents-plugin-sarvam';
+import * as openai from '@livekit/agents-plugin-openai';
+import * as silero from '@livekit/agents-plugin-silero';
 import { FIXED_SYNTHETIC_TASK } from '../mock-tools';
-
-export interface LiveKitWorkerConfig {
-  livekitUrl?: string;
-  livekitApiKey?: string;
-  livekitApiSecret?: string;
-  sarvamApiKey?: string;
-  openAiApiKey?: string;
-  maxSessionSeconds: number;
-}
 
 export const SYNTHETIC_SYSTEM_PROMPT = `
 You are an automated programme assistant conducting a synthetic staff-only evaluation call.
@@ -50,10 +34,12 @@ CRITICAL CONFIDENTIALITY & SAFETY PROHIBITIONS:
 - Keep responses short, concise, and conversational (under 2 sentences per turn).
 `.trim();
 
-export function validateWorkerEnvironment(): {
+export interface MissingCredentialsCheckResult {
   isConfigured: boolean;
   missingVariables: string[];
-} {
+}
+
+export function checkWorkerCredentials(): MissingCredentialsCheckResult {
   const required = [
     'LIVEKIT_URL',
     'LIVEKIT_API_KEY',
@@ -61,7 +47,6 @@ export function validateWorkerEnvironment(): {
     'SARVAM_API_KEY',
     'OPENAI_API_KEY',
   ];
-
   const missing = required.filter((v) => !process.env[v] || process.env[v]!.trim() === '');
   return {
     isConfigured: missing.length === 0,
@@ -70,52 +55,126 @@ export function validateWorkerEnvironment(): {
 }
 
 /**
- * Entry point for LiveKit Agent Worker.
+ * Defines the real LiveKit Voice Agent entrypoint.
  */
-export async function runLiveKitAgentWorker(): Promise<void> {
-  const envCheck = validateWorkerEnvironment();
+export default defineAgent({
+  entry: async (ctx: JobContext) => {
+    // 1. Enforce worker-level credential validation
+    const creds = checkWorkerCredentials();
+    if (!creds.isConfigured) {
+      console.error(
+        `[Agent Worker Error] Missing required provider credentials: ${creds.missingVariables.join(', ')}`
+      );
+      throw new Error(
+        `Worker cannot start voice pipeline: Missing credentials: ${creds.missingVariables.join(', ')}`
+      );
+    }
 
-  if (!envCheck.isConfigured) {
-    console.info('================================================================');
-    console.info('[LiveKit Agent Worker] Execution Gate Check:');
-    console.info('Status: AI/Audio Path: NOT EXECUTED');
-    console.info(`Reason: Provider credentials not configured in environment.`);
-    console.info(`Missing variables: ${envCheck.missingVariables.join(', ')}`);
-    console.info('Worker will remain idle in synthetic simulation mode.');
-    console.info('================================================================');
-    return;
+    console.info(`[Agent Worker] Connecting to room: ${ctx.room.name}`);
+    await ctx.connect();
+
+    // 2. Set up server-enforced session duration timeout (180 seconds hard ceiling)
+    // Token expiry (e.g. 10m) does NOT sever an active WebRTC session; explicit cutoff is required.
+    const maxDurationSeconds = 180;
+    const sessionTimer = setTimeout(() => {
+      console.info(
+        `[Agent Worker] Session duration ceiling reached (${maxDurationSeconds}s). Disconnecting room.`
+      );
+      ctx.room.disconnect();
+    }, maxDurationSeconds * 1000);
+
+    // 3. Initialize exact selected models
+    const stt = new sarvam.STT({
+      model: 'saaras:v3',
+      languageCode: 'hi-IN',
+      mode: 'codemix',
+    });
+
+    const llm = new openai.LLM({
+      model: 'gpt-4o-mini',
+      temperature: 0.3,
+    });
+
+    const tts = new sarvam.TTS({
+      model: 'bulbul:v2',
+      speaker: 'anushka',
+      targetLanguageCode: 'hi-IN',
+    });
+
+    const vad = await silero.VAD.load();
+
+    // 4. Construct AgentSession and Voice Agent
+    const session = new voice.AgentSession({
+      stt,
+      llm,
+      tts,
+      vad,
+      maxToolSteps: 3,
+    });
+
+    const agent = new voice.Agent({
+      instructions: SYNTHETIC_SYSTEM_PROMPT,
+    });
+
+    // Clean up timer when session closes
+    session.on(voice.AgentSessionEventTypes.Close, () => {
+      clearTimeout(sessionTimer);
+      console.info('[Agent Worker] Session closed. Cleaned up duration timers.');
+    });
+
+    // 5. Start session bound to room
+    await session.start({
+      agent,
+      room: ctx.room,
+    });
+
+    // 6. Trigger initial assistant greeting
+    session.say(
+      'Namaste, I am an automated programme assistant calling regarding a pending follow-up task. Is this a convenient and private time to speak?'
+    );
+  },
+  onSessionEnd: () => {
+    console.info('[Agent Worker] Lifecycle onSessionEnd: Completed room evaluation.');
+  },
+});
+
+/**
+ * Worker CLI entry point.
+ * 
+ * Execution Modes:
+ * - Development:   `npx tsx src/features/voice-agent/worker/livekit-agent-worker.ts dev`
+ * - Production:    `npx tsx src/features/voice-agent/worker/livekit-agent-worker.ts start`
+ * - Startup Check: `npx tsx src/features/voice-agent/worker/livekit-agent-worker.ts check`
+ */
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const command = process.argv[2];
+
+  if (command === 'check' || command === '--check') {
+    const check = checkWorkerCredentials();
+    console.log(JSON.stringify({
+      status: check.isConfigured ? 'READY' : 'CREDENTIALS_MISSING',
+      isConfigured: check.isConfigured,
+      missingVariables: check.missingVariables,
+      installedVersions: {
+        '@livekit/agents': '1.9.3',
+        '@livekit/agents-plugin-sarvam': '1.9.3',
+        '@livekit/agents-plugin-openai': '1.9.3',
+        '@livekit/agents-plugin-silero': '1.9.3',
+      },
+      selectedModels: {
+        stt: 'saaras:v3 (hi-IN, codemix)',
+        llm: 'gpt-4o-mini',
+        tts: 'bulbul:v2 (anushka, hi-IN)',
+        vad: 'silero',
+      },
+    }, null, 2));
+    process.exit(check.isConfigured ? 0 : 2);
   }
 
-  console.info('[LiveKit Agent Worker] Initializing real-audio voice agent worker...');
-  console.info(`[LiveKit Agent Worker] LiveKit URL: ${process.env.LIVEKIT_URL}`);
-  console.info('[LiveKit Agent Worker] STT Provider: Sarvam AI (saaras:v1, hi-IN / en-IN)');
-  console.info('[LiveKit Agent Worker] LLM Provider: OpenAI (gpt-4o-mini)');
-  console.info('[LiveKit Agent Worker] TTS Provider: Sarvam AI (bulbul:v1, voice: meera)');
-  console.info('[LiveKit Agent Worker] VAD: Silero VAD (sub-50ms barge-in enabled)');
-  console.info(`[LiveKit Agent Worker] Task Context: ${FIXED_SYNTHETIC_TASK.taskId}`);
-
-  /**
-   * Production LiveKit Agent Worker dispatch pipeline:
-   * 
-   * In a deployed environment with livekit-agents:
-   * 1. Register with LiveKit server worker pool.
-   * 2. On job request for room 'synth-eval-room-*':
-   *    const agent = new VoicePipelineAgent({
-   *      vad: new silero.VAD.load(),
-   *      stt: new sarvam.STT({ model: 'saaras:v1', language: 'hi-IN' }),
-   *      llm: new openai.LLM({ model: 'gpt-4o-mini', temperature: 0.3 }),
-   *      tts: new sarvam.TTS({ model: 'bulbul:v1', speaker: 'meera' }),
-   *      chatCtx: new ChatContext().append({ role: 'system', text: SYNTHETIC_SYSTEM_PROMPT }),
-   *      maxDuration: 180,
-   *    });
-   *    await agent.start(room);
-   */
-  console.info('[LiveKit Agent Worker] Worker listening for staff evaluation room dispatches.');
-}
-
-if (require.main === module) {
-  runLiveKitAgentWorker().catch((err) => {
-    console.error('[LiveKit Agent Worker] Fatal error:', err);
-    process.exit(1);
-  });
+  cli.runApp(
+    new ServerOptions({
+      agent: fileURLToPath(import.meta.url),
+      agentName: 'childcare-voice-evaluator',
+    })
+  );
 }

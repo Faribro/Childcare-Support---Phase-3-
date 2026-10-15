@@ -208,6 +208,27 @@ describe('Voice Staff Authorization & Token Endpoint Suite', () => {
       expect(result.statusCode).toBe(200);
       expect(result.reason).toBe('local_loopback_bypass');
     });
+
+    it('rejects local bypass when X-Forwarded-For contains an external IP', () => {
+      (process.env as any).NODE_ENV = 'development';
+      process.env.ALLOW_LOCAL_STAFF_VOICE_BYPASS = 'true';
+
+      const mockReq = {
+        cookies: { get: () => undefined },
+        headers: {
+          get: (name: string) => {
+            if (name === 'host') return '127.0.0.1:3000';
+            if (name === 'x-forwarded-for') return '203.0.113.195, 127.0.0.1';
+            return null;
+          },
+        },
+      };
+
+      const result = authorizeVoiceStaffAccess(mockReq);
+      expect(result.authorized).toBe(false);
+      expect(result.statusCode).toBe(401);
+      expect(result.reason).toContain('X-Forwarded-For contains external non-loopback IP');
+    });
   });
 
   describe('/api/staff/voice/token Endpoint Behavior', () => {
@@ -241,12 +262,15 @@ describe('Voice Staff Authorization & Token Endpoint Suite', () => {
 
       expect(data.configured).toBe(false);
       expect(data.status).toBe('NOT_CONFIGURED');
+      expect(data.statusTiers).toBeDefined();
+      expect(data.statusTiers.browserConnectionConfigured).toBe(false);
+      expect(data.statusTiers.actualAudioSessionExecuted).toBe(false);
       expect(data.message).toContain('AI/Audio Path: NOT EXECUTED');
       expect(data.requiredVariables).toContain('LIVEKIT_URL');
       expect(data.requiredVariables).toContain('SARVAM_API_KEY');
     });
 
-    it('returns signed LiveKit room token when credentials are provided', async () => {
+    it('returns signed LiveKit room token with tiered status when credentials are provided', async () => {
       process.env.LIVEKIT_URL = 'wss://eval-livekit.example.com';
       process.env.LIVEKIT_API_KEY = 'test_api_key_lk';
       process.env.LIVEKIT_API_SECRET = 'test_api_secret_lk_32_characters_minimum!';
@@ -271,11 +295,47 @@ describe('Voice Staff Authorization & Token Endpoint Suite', () => {
 
       expect(data.configured).toBe(true);
       expect(data.status).toBe('READY');
+      expect(data.statusTiers.browserConnectionConfigured).toBe(true);
+      expect(data.statusTiers.actualAudioSessionExecuted).toBe(false);
       expect(data.serverUrl).toBe('wss://eval-livekit.example.com');
       expect(data.roomName).toMatch(/^synth-eval-room-/);
       expect(data.token).toBeDefined();
       expect(typeof data.token).toBe('string');
+      expect(data.agentName).toBe('childcare-voice-evaluator');
       expect(data.maxDurationSeconds).toBe(180);
+    });
+
+    it('enforces server-side concurrency ceiling (HTTP 429 on concurrent session)', async () => {
+      process.env.LIVEKIT_URL = 'wss://eval-livekit.example.com';
+      process.env.LIVEKIT_API_KEY = 'test_api_key_lk';
+      process.env.LIVEKIT_API_SECRET = 'test_api_secret_lk_32_characters_minimum!';
+
+      const adminToken = createSessionToken({
+        userId: 'admin-concurrent',
+        role: 'ADMIN',
+        name: 'Concurrent Admin',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      // Session 1: succeeds (concurrency = 1)
+      const req1 = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      });
+      const res1 = await tokenGetHandler(req1);
+      // If a previous test left 1 session active, this may be 429; otherwise it's 200 then next is 429
+      if (res1.status === 200) {
+        // Session 2: concurrent attempt should be rejected with 429
+        const req2 = new NextRequest('http://localhost:3000/api/staff/voice/token', {
+          headers: { Cookie: `evaluation_session_token=${adminToken}` },
+        });
+        const res2 = await tokenGetHandler(req2);
+        expect(res2.status).toBe(429);
+        const data2 = await res2.json();
+        expect(data2.error).toContain('concurrency ceiling reached');
+      } else {
+        expect(res1.status).toBe(429);
+      }
     });
   });
 });

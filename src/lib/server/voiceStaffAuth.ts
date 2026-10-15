@@ -95,13 +95,43 @@ export function authorizeVoiceStaffAccess(
   const isBypassEnabled = process.env.ALLOW_LOCAL_STAFF_VOICE_BYPASS === 'true';
 
   if (!isProduction && isBypassEnabled) {
-    const hostHeader = req.headers.get('host') || req.headers.get('x-forwarded-host');
-    const remoteIp = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip');
+    const hostHeader = req.headers.get('host');
+    const xForwardedHost = req.headers.get('x-forwarded-host');
+    const xForwardedFor = req.headers.get('x-forwarded-for');
+    const xRealIp = req.headers.get('x-real-ip');
+
+    // Reject immediately if any proxy header routes from an external IP/host
+    if (xForwardedHost && !isLoopbackHost(xForwardedHost)) {
+      return {
+        authorized: false,
+        reason: 'Local bypass rejected: X-Forwarded-Host points to external domain.',
+        statusCode: 401,
+      };
+    }
+
+    if (xForwardedFor) {
+      const hops = xForwardedFor.split(',').map((h) => h.trim());
+      const allLoopback = hops.every((hop) => isLoopbackHost(hop));
+      if (!allLoopback) {
+        return {
+          authorized: false,
+          reason: 'Local bypass rejected: X-Forwarded-For contains external non-loopback IP.',
+          statusCode: 401,
+        };
+      }
+    }
+
+    if (xRealIp && !isLoopbackHost(xRealIp)) {
+      return {
+        authorized: false,
+        reason: 'Local bypass rejected: X-Real-IP is non-loopback.',
+        statusCode: 401,
+      };
+    }
 
     const hostIsLoopback = isLoopbackHost(hostHeader);
-    const ipIsLoopback = !remoteIp || isLoopbackHost(remoteIp.split(',')[0].trim());
 
-    if (hostIsLoopback && ipIsLoopback) {
+    if (hostIsLoopback) {
       return {
         authorized: true,
         user: {

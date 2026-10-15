@@ -159,8 +159,12 @@ export function VoiceStaffHarness() {
     setSessionActive(true);
     setIsMuted(false);
 
+    // Refresh token and server configuration status
+    const freshConfig = await fetchVoiceTokenStatus();
+    setProviderConfig(freshConfig);
+
     // If LiveKit credentials are ready, initiate real WebRTC room connection
-    if (providerConfig.configured && providerConfig.serverUrl && providerConfig.token) {
+    if (freshConfig.configured && freshConfig.serverUrl && freshConfig.token) {
       try {
         setStatusMessage('Connecting to LiveKit WebRTC audio room...');
         const room = new Room({
@@ -171,6 +175,11 @@ export function VoiceStaffHarness() {
             echoCancellation: true,
             noiseSuppression: true,
           },
+        });
+
+        // Listen for agent participant connection
+        room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+          setStatusMessage(`Participant joined room: ${participant.identity}`);
         });
 
         // Track subscriptions
@@ -197,7 +206,7 @@ export function VoiceStaffHarness() {
         });
 
         // Connect room
-        await room.connect(providerConfig.serverUrl, providerConfig.token);
+        await room.connect(freshConfig.serverUrl, freshConfig.token);
         setLivekitRoom(room);
         setIsWebRtcConnected(true);
 
