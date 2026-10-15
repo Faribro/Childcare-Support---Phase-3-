@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "targets": [
+      "whatsapp_webhook"
+    ],
+    "ignore": [
+      "node_modules",
+      ".git",
+      "*.log",
+      ".next",
+      "dist",
+      "coverage"
+    ],
+    "source": "functions"
+  }
+}
