@@ -363,12 +363,34 @@ export class InMemoryIdempotencyTracker implements IdempotencyStore {
   }
 }
 
+export interface DatabaseEmailIdempotencyRepository {
+  get(key: string): Promise<IdempotencyRecord | undefined>;
+  record(entry: IdempotencyRecord): Promise<void>;
+  has(key: string): Promise<boolean>;
+  deleteExpired(now?: Date): Promise<number>;
+}
+
+/**
+ * File-backed Idempotency Store
+ *
+ * STORAGE AUDIT NOTE:
+ * This store persists to the local filesystem (.cache/).
+ * It is strictly LOCAL_DEVELOPMENT_ONLY and does NOT guarantee durability across
+ * serverless restarts, scale-outs, or multi-container deployments.
+ * In production (NODE_ENV === 'production'), it fails closed unless explicitly overridden.
+ */
 export class PersistentFileIdempotencyStore implements IdempotencyStore {
+  public readonly storageType = 'LOCAL_DEVELOPMENT_ONLY' as const;
   private inMemory = new Map<string, IdempotencyRecord>();
   private readonly filePath: string;
   private readonly ttlMs: number;
 
-  constructor(options?: { filePath?: string; ttlMs?: number }) {
+  constructor(options?: { filePath?: string; ttlMs?: number; allowLocalFilesystemInProduction?: boolean }) {
+    if (process.env.NODE_ENV === 'production' && !options?.allowLocalFilesystemInProduction) {
+      throw new Error(
+        'STORAGE_UNCONFIGURED: PersistentFileIdempotencyStore uses local filesystem storage and is strictly LOCAL_DEVELOPMENT_ONLY. It cannot be used in production serverless environments. Configure a durable PostgreSQL / Supabase repository.'
+      );
+    }
     this.ttlMs = options?.ttlMs ?? 24 * 60 * 60 * 1000;
     this.filePath = options?.filePath || path.join(process.cwd(), '.cache', 'reporting_idempotency.json');
     this.loadFromDisk();
@@ -808,4 +830,80 @@ export function executeAuthorizedReportingQuery(
       recordCount: matched.length,
     },
   };
+}
+
+
+/**
+ * Loads synthetic linelist fixtures from disk.
+ * Used for offline leadership query simulations and staging tests.
+ */
+export function loadStagingLinelistFixtures(customPath?: string): readonly any[] {
+  const filePath = customPath || path.join(process.cwd(), 'fixtures', 'staging-linelist-synthetic.json');
+  try {
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('[reportingEmailDelivery] Failed to load synthetic linelist fixtures:', err);
+  }
+  return [];
+}
+
+/**
+ * Executes a reporting query against the local synthetic staging linelist.
+ * Explicitly marks provenance as `LOCAL_SYNTHETIC_FIXTURES` and `isSynthetic: true`.
+ * Fails closed if caller requires live data (`liveOnly: true`).
+ */
+export function executeStagingReportingQuery(
+  request: ReportingQueryRequest,
+  customFixturePath?: string
+): ReportingQueryResult {
+  const startTime = Date.now();
+  if (request.liveOnly) {
+    return {
+      status: 'error',
+      code: 'SYNTHETIC_DATA_DISALLOWED',
+      error: 'Caller explicitly requested live data (liveOnly: true), but only synthetic staging fixtures are available.',
+      records: [],
+      totalMatchingCount: 0,
+      hasMore: false,
+      executionTimeMs: Date.now() - startTime,
+      freshness: {
+        lastSyncedAt: new Date().toISOString(),
+        sourceVersion: 'synthetic-bridge-v1.3.0',
+        recordCount: 0,
+        isSynthetic: true,
+        upstreamOrigin: 'LOCAL_SYNTHETIC_FIXTURES',
+      },
+    };
+  }
+
+  const rows = loadStagingLinelistFixtures(customFixturePath);
+  if (rows.length === 0) {
+    return {
+      status: 'error',
+      code: 'FIXTURE_NOT_FOUND',
+      error: 'Synthetic staging linelist fixture is empty or could not be loaded.',
+      records: [],
+      totalMatchingCount: 0,
+      hasMore: false,
+      executionTimeMs: Date.now() - startTime,
+      freshness: {
+        lastSyncedAt: new Date().toISOString(),
+        sourceVersion: 'synthetic-bridge-v1.3.0',
+        recordCount: 0,
+        isSynthetic: true,
+        upstreamOrigin: 'LOCAL_SYNTHETIC_FIXTURES',
+      },
+    };
+  }
+
+  return executeAuthorizedReportingQuery(rows, request, {
+    upstreamOrigin: 'LOCAL_SYNTHETIC_FIXTURES',
+    isSynthetic: true,
+  });
 }

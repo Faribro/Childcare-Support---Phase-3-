@@ -11,7 +11,7 @@
 | Domain | Worktree Directory | Branch Name | Full Commit SHA | Conversation / Context | Verified Local Results | Deployment & Safety Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Receive-Only Webhook / Catalyst** | `Childcare-Catalyst-Adapter` | `feat/catalyst-whatsapp-adapter` | `8d6b6e9cf41a0939e417334fd66b36e21e815bb9` | Peer Thread (`docs/WHATSAPP_CATALYST_INTEGRATION_HANDOFF.md`) | 66 adapter tests pass (100%), full suite 797/797 tests pass, packaging verified | Isolated receive-only test sink. Retains ingress/validation boundary only. No outbound messaging. |
-| **Leadership Reporting** | `Childcare-Leadership-Assistant` | `feat/leadership-reporting-assistant` | `b690e40f0dfdfd32ad93b263a4de74b41522f9d3` | `7f9096aa-8621-496d-bc00-c5b5bcc1b24e` | June single-orphan scenario, intent parsing, 500-record benchmark eval pass | Local synthetic prototype. Disconnected from live Sheet. Uses local synthetic dataset. |
+| **Leadership Reporting & Inbound Document Loop** | `Childcare-Leadership-Assistant` | `feat/leadership-reporting-assistant` | `21d5a18cd45da40e2014a2bdb9212c344fb291d4` | Leadership Assistant Thread *(Current)* | 72 loop/reporting tests pass (100%), full suite 803/803 tests pass (100%), tsc clean | Reconciled backend storage worker + leadership assistant. Disconnected from live Meta/Sheet. Zero live sends. |
 | **Submission Intake & Stage Readiness** | `Childcare-PR82` | `feat/staged-readiness-bank-queue` | `b6de72543b24ed20ccf5acc35b8c78556f6d1e15` | PR #82 Review Thread | 751 tests pass; stage calculation, leading zeros in bank accounts, offline outbox sync verified | Clean local branch. Awaiting maintainer merge authorization into candidate. |
 | **Apps Script, Reporting Email & Media Service** | `Childcare-Support-Phase-3(1)` | `feat/staging-destination-hardening` | `eb0bedef21521b33f7c962df26abac51e85bdeb0` | Integration Coordinator Thread *(Current)* | 40 tests pass (14 destination guard, 26 reporting email); tsc 0 errors | Owns authoritative linelist, reporting email delivery, and Media Processing Service. |
 | **Voice Calling Agent** | `Childcare-Voice-Prototype` | `prototype/calling-agent-voice-harness` | `b2fc5a1b497e09f8f075ca8fcb310bb9e6dabfce` | Voice Prototype Thread | Mock token issuing, room reservation lifecycle, session cleanup, synthetic missing-doc event pass | In-memory synthetic store only. Disconnected from live telephony / Meta API. |
@@ -26,10 +26,10 @@ To prevent silent assumption of capabilities, critical pipeline responsibilities
 
 | Pipeline Function | Assigned Owner | Worktree / Reference | Evidence Level & Current State | Reason / Unassigned Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Outbound WhatsApp Requests** | **UNASSIGNED** | None | Not implemented | `Childcare-Catalyst-Adapter` is strictly receive-only. It explicitly strips phone numbers/text and executes zero outbound Graph API calls (`messages` endpoint). No thread owns outbound WhatsApp delivery. |
-| **Conversational Message Processing** | **SPLIT / PARTIAL** | 1. Leadership: `Childcare-Leadership-Assistant` (`b690e40`)<br>2. Beneficiary Dialog: **UNASSIGNED** | Simulated (Leadership)<br>Missing (Beneficiary) | Leadership conversational reporting (intent parsing, KPI query answering) is owned by `Childcare-Leadership-Assistant`. Inbound beneficiary conversational dialog (processing caregiver responses to missing document prompts) is **UNASSIGNED** (Catalyst adapter strips message bodies). |
-| **Document/Media Download & Storage Linkage** | **Apps Script / Backend Owner** | `Childcare-Support-Phase-3(1)` (`feat/staging-destination-hardening`) | Verified Local Implementation (7/7 tests pass) | Implemented in `mediaProcessingService.ts` and `webhookHandoffContract.ts`. Ingress webhook enqueues reference; service validates SHA256/10MB bounds, downloads bytes, and stores in Drive folder `<ChildName> - <UniqueID>`. |
-| **Submission / Missing-Document Orchestration** | **SPLIT / PARTIAL** | 1. Detection: `Childcare-PR82` (`b6de725`)<br>2. Voice Follow-up: `Childcare-Voice-Prototype` (`b2fc5a1`)<br>3. End-to-End Orchestrator: **UNASSIGNED** | Staged Readiness (PR #82)<br>In-Memory Mock (Voice)<br>Missing Glue | PR #82 detects missing documents (`DOCS_PENDING` / `ACTION_REQUIRED`). Voice Prototype simulates an outreach call for `SYNTH-DOC-002`. However, the event bus / dispatcher that takes a detected missing doc in PR #82 and automatically schedules outreach is **UNASSIGNED**. |
+| **Outbound WhatsApp Requests** | **Backend Document Storage Worker** | `Childcare-Leadership-Assistant` (`21d5a18`) | Verified Local Implementation (`PREPARED` status) | Prepared by `WhatsAppRequestBuilder` with deterministic idempotency (`req_doc_<subId>_<hash>`), private `recipientPhoneRef`, and display-masked phone. Live Graph API dispatch is approval-gated. |
+| **Conversational Message Processing** | **SPLIT / PARTIAL** | 1. Leadership: `Childcare-Leadership-Assistant` (`21d5a18`)<br>2. Beneficiary Dialog: **UNASSIGNED** | Verified (Leadership)<br>Missing (Beneficiary) | Leadership conversational reporting (intent parsing, KPI query answering, 2-phase export contract) is verified in `Childcare-Leadership-Assistant`. Inbound beneficiary conversational dialog remains unassigned. |
+| **Document/Media Download & Storage Linkage** | **Backend Document Storage Worker & Apps Script Backend** | `Childcare-Leadership-Assistant` (`21d5a18`) & `Childcare-Support-Phase-3(1)` | Verified Local Implementations | Ingress webhook validates HMAC and forwards reference; backend worker validates magic bytes + size bounds (10MB image, 15MB PDF), stores in Tigris/Drive, links record as `UPLOADED` (not `VERIFIED`), and rolls back storage on DB failure. |
+| **Submission / Missing-Document Orchestration** | **Backend Document Storage Worker & PR #82 Readiness** | `Childcare-Leadership-Assistant` (`21d5a18`) & `Childcare-PR82` (`b6de725`) | Verified Domain Orchestrator | PR #82 defines pure readiness rules (`submissionStages.ts`). Document loop service detects missing intake docs, coordinates request preparation, tracks receipt durability across restarts, and separates `UPLOADED` from `VERIFIED`. |
 
 ---
 
@@ -94,22 +94,22 @@ sequenceDiagram
    - *Status*: **VERIFIED SIMULATED**.
    - *Evidence*: `mock-tools.ts` dispatches `recordMockWhatsAppHandoff` with `uploadUrl: https://wa.me/...`. Operates in-memory; no live telephony.
 4. **WhatsApp Upload**:
-   - *Owner*: Receive-Only Webhook (`Childcare-Catalyst-Adapter` @ `28a4c6a`).
-   - *Status*: **VERIFIED LOCAL RECEIVE-ONLY**.
-   - *Evidence*: 66 tests pass in `Childcare-Catalyst-Adapter`. Webhook receives test payloads, verifies HMAC, enforces 256 KB limit, strips PII.
-   - *Blocker*: **UNASSIGNED**. Webhook is strictly receive-only; Meta App is unpublished; media bytes are not retrieved.
+   - *Owner*: Receive-Only Webhook (`Childcare-Catalyst-Adapter` @ `8d6b6e9`) + Backend Document Storage Worker (`Childcare-Leadership-Assistant` @ `21d5a18`).
+   - *Status*: **VERIFIED LOCAL INTEGRATION (72/72 tests pass)**.
+   - *Evidence*: Webhook verifies HMAC-SHA256, strips PII; backend storage worker validates magic bytes + size bounds (10MB image, 15MB PDF).
+   - *Blocker*: External network egress for live Meta Graph API media downloading is approval-gated.
 5. **Stored Document**:
-   - *Owner*: Apps Script Backend (`Childcare-Support-Phase-3(1)` @ `6ce5ee6`).
+   - *Owner*: Apps Script Backend (`Childcare-Support-Phase-3(1)` @ `eb0bede`) & Tigris Storage Adapter (`Childcare-Leadership-Assistant` @ `21d5a18`).
    - *Status*: **VERIFIED LOCAL MOCK**.
    - *Evidence*: `gas/Code.js` creates child folder `<ChildName> - <UniqueID>` and writes `=HYPERLINK(url, "View Document")`.
    - *Blocker*: Staging Google Sheet and Drive folder are **NOT YET PROVISIONED**.
 6. **Completion Confirmation**:
-   - *Owner*: **UNASSIGNED** (Outbound WhatsApp sender required).
-   - *Status*: **MISSING LINK**.
-   - *Evidence*: Read-model transitions to `READY_FOR_SUPERVISOR_REVIEW` in PR #82, but outward confirmation to caregiver requires unassigned outbound WhatsApp service.
+   - *Owner*: Backend Document Storage Worker (`Childcare-Leadership-Assistant` @ `21d5a18`).
+   - *Status*: **VERIFIED LOCAL PREPARATION (`PREPARED` status)**.
+   - *Evidence*: Confirmation receipts generated upon durable storage acknowledging receipt (`DOCUMENTS_RECEIVED`), while supervisor verification remains pending. Zero live Graph API dispatch without approval.
 7. **Leadership Status Query**:
-   - *Owner*: Leadership Assistant (`Childcare-Leadership-Assistant` @ `b690e40`) + Apps Script Delivery (`Childcare-Support-Phase-3(1)` @ `6ce5ee6`).
-   - *Status*: **VERIFIED LOCAL SIMULATED**.
+   - *Owner*: Leadership Assistant (`Childcare-Leadership-Assistant` @ `21d5a18`) + Apps Script Delivery (`Childcare-Support-Phase-3(1)` @ `eb0bede`).
+   - *Status*: **VERIFIED LOCAL SIMULATED (803/803 full-suite tests pass)**.
    - *Evidence*: Intent parsing and cohort metrics verified in `june-orphan-school-scenario.test.ts` (Leadership thread) and `reporting-email-integration.test.ts` (current thread).
 
 ---

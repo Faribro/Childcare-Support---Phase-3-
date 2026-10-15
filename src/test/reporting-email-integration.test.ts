@@ -12,6 +12,8 @@ import {
   executeAuthorizedReportingQuery,
   MockReportingEmailTransport,
   PersistentFileIdempotencyStore,
+  loadStagingLinelistFixtures,
+  executeStagingReportingQuery,
   MAX_ATTACHMENT_BYTES,
 } from '@/lib/server/reportingEmailDelivery';
 import type {
@@ -707,6 +709,151 @@ describe('Reporting Email & Data Integration Suite', () => {
       const record = await store.get('short-lived-key');
       expect(record).toBeUndefined();
       expect(await store.has('short-lived-key')).toBe(false);
+    });
+  });
+
+  describe('7. Staging Linelist Fixtures & Synthetic Query Simulation Bridge', () => {
+    it('loads 50 diverse synthetic records adhering to canonical schema', () => {
+      const records = loadStagingLinelistFixtures();
+      expect(records.length).toBe(50);
+
+      // Verify explicit data provenance invariant across ALL fixture rows
+      for (const row of records) {
+        expect(row.isSynthetic).toBe(true);
+        expect(row.uniqueId).toMatch(/^SYN-(MH|MP|WB|DL|TN)-2026-\d{3}$/);
+        expect(row.state).toBeDefined();
+        expect(row.district).toBeDefined();
+        expect(row.orphanStatus).toBeDefined();
+        expect(row.schoolType).toBeDefined();
+      }
+    });
+
+    it('filters the June 2026 Single-Orphan Government-School cohort accurately (15 records)', () => {
+      const result = executeStagingReportingQuery({
+        securityContext: {
+          userId: 'user-leadership-dir',
+          role: 'LEADERSHIP',
+          permittedStates: ['*'],
+        },
+        filters: {
+          dateBasis: 'VISIT_DATE',
+          startDate: '2026-06-01',
+          endDate: '2026-06-30',
+          orphanStatus: 'SINGLE_ORPHAN',
+          schoolType: 'GOVERNMENT_SCHOOL',
+        },
+        limit: 100,
+      });
+
+      expect(result.status).toBe('success');
+      expect(result.totalMatchingCount).toBe(15);
+      expect(result.records.length).toBe(15);
+      expect(result.freshness.isSynthetic).toBe(true);
+      expect(result.freshness.upstreamOrigin).toBe('LOCAL_SYNTHETIC_FIXTURES');
+
+      for (const rec of result.records) {
+        expect(rec.orphanStatus).toBe('SINGLE_ORPHAN');
+        expect(rec.schoolType).toBe('GOVERNMENT_SCHOOL');
+        expect(rec.visitDate >= '2026-06-01' && rec.visitDate <= '2026-06-30').toBe(true);
+      }
+    });
+
+    it('enforces DPDP PII masking on all returned synthetic records', () => {
+      const result = executeStagingReportingQuery({
+        securityContext: {
+          userId: 'user-leadership-dir',
+          role: 'LEADERSHIP',
+          permittedStates: ['*'],
+        },
+        filters: {
+          dateBasis: 'VISIT_DATE',
+          orphanStatus: 'ALL',
+          schoolType: 'ALL',
+        },
+        limit: 50,
+      });
+
+      expect(result.status).toBe('success');
+      expect(result.records.length).toBe(50);
+
+      for (const rec of result.records) {
+        expect(rec.maskedAadhaar).toMatch(/^XXXX-XXXX-\d{4}$/);
+        expect(rec.maskedBankAccount).toMatch(/^XXXX-XXXX-\d{4}$/);
+        expect(rec.maskedCaregiverPhone).toMatch(/^\*{6}\d{4}$/);
+        expect(rec.isSynthetic).toBe(true);
+      }
+    });
+
+    it('enforces state RBAC boundaries on state lead queries', () => {
+      // 1. Maharashtra state lead querying Maharashtra -> success
+      const mhSuccess = executeStagingReportingQuery({
+        securityContext: {
+          userId: 'lead-mh',
+          role: 'STATE_LEAD',
+          permittedStates: ['Maharashtra'],
+        },
+        filters: {
+          state: 'Maharashtra',
+          dateBasis: 'VISIT_DATE',
+        },
+      });
+      expect(mhSuccess.status).toBe('success');
+      expect(mhSuccess.totalMatchingCount).toBe(20);
+
+      // 2. Maharashtra state lead querying Madhya Pradesh -> forbidden
+      const mhForbidden = executeStagingReportingQuery({
+        securityContext: {
+          userId: 'lead-mh',
+          role: 'STATE_LEAD',
+          permittedStates: ['Maharashtra'],
+        },
+        filters: {
+          state: 'Madhya Pradesh',
+          dateBasis: 'VISIT_DATE',
+        },
+      });
+      expect(mhForbidden.status).toBe('error');
+      expect(mhForbidden.code).toBe('FORBIDDEN_SCOPE');
+      expect(mhForbidden.records.length).toBe(0);
+    });
+
+    it('fails closed when caller requires live data (liveOnly: true)', () => {
+      const result = executeStagingReportingQuery({
+        securityContext: {
+          userId: 'user-leadership-dir',
+          role: 'LEADERSHIP',
+          permittedStates: ['*'],
+        },
+        filters: {
+          dateBasis: 'VISIT_DATE',
+        },
+        liveOnly: true,
+      });
+
+      expect(result.status).toBe('error');
+      expect(result.code).toBe('SYNTHETIC_DATA_DISALLOWED');
+      expect(result.error).toContain('only synthetic staging fixtures are available');
+      expect(result.records.length).toBe(0);
+    });
+
+    it('handles missing or invalid fixture path gracefully', () => {
+      const result = executeStagingReportingQuery(
+        {
+          securityContext: {
+            userId: 'user-leadership-dir',
+            role: 'LEADERSHIP',
+            permittedStates: ['*'],
+          },
+          filters: {
+            dateBasis: 'VISIT_DATE',
+          },
+        },
+        path.join(process.cwd(), 'fixtures', 'non-existent-fixture.json')
+      );
+
+      expect(result.status).toBe('error');
+      expect(result.code).toBe('FIXTURE_NOT_FOUND');
+      expect(result.records.length).toBe(0);
     });
   });
 });
