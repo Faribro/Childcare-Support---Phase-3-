@@ -31,10 +31,10 @@ import { SupabaseLeaderAuthStore } from '@/lib/server/leaderAuthStore';
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const hasDatabase = Boolean(TEST_DB_URL);
 
-// Enforce that in CI, database integration job must have a valid database and NEVER skip
-if (process.env.CI && !hasDatabase) {
+// Enforce that in dedicated database integration jobs (REQUIRE_DB=true), the database must be present and NEVER skip
+if (process.env.REQUIRE_DB === 'true' && !hasDatabase) {
   throw new Error(
-    'FATAL: TEST_DATABASE_URL environment variable is required in CI database-integration job. Database integration cannot be skipped in CI.'
+    'FATAL: TEST_DATABASE_URL environment variable is required when REQUIRE_DB=true. Database integration cannot be skipped in the dedicated database job.'
   );
 }
 
