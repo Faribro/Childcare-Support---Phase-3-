@@ -142,51 +142,31 @@ describe.skipIf(!hasDatabase)('1. Database Integration: Ephemeral PostgreSQL 15 
       }
     });
 
-    it('denies direct table queries and function execution to anon role (fail closed)', async () => {
+    const assertRoleDenied = async (role: string, queryStr: string) => {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        await client.query('SET LOCAL ROLE anon');
-
-        // Cannot read leader_identities
-        await expect(client.query('SELECT * FROM public.leader_identities')).rejects.toThrow(/permission denied/i);
-        // Cannot read leader_sessions
-        await expect(client.query('SELECT * FROM public.leader_sessions')).rejects.toThrow(/permission denied/i);
-        // Cannot read leader_auth_challenges
-        await expect(client.query('SELECT * FROM public.leader_auth_challenges')).rejects.toThrow(/permission denied/i);
-        // Cannot execute stored procedures
-        await expect(
-          client.query("SELECT public.check_and_record_leader_rate_limit('test', 3, 900, 10, 86400)")
-        ).rejects.toThrow(/permission denied/i);
-
-        await client.query('ROLLBACK');
-      } catch (err: any) {
-        await client.query('ROLLBACK').catch(() => {});
-        throw err;
+        await client.query(`SET LOCAL ROLE ${role}`);
+        await expect(client.query(queryStr)).rejects.toThrow(/permission denied/i);
       } finally {
+        await client.query('ROLLBACK').catch(() => {});
         client.release();
       }
+    };
+
+    it('denies direct table queries and function execution to anon role (fail closed)', async () => {
+      await assertRoleDenied('anon', 'SELECT * FROM public.leader_identities');
+      await assertRoleDenied('anon', 'SELECT * FROM public.leader_sessions');
+      await assertRoleDenied('anon', 'SELECT * FROM public.leader_auth_challenges');
+      await assertRoleDenied('anon', "SELECT public.check_and_record_leader_rate_limit('test', 3, 900, 10, 86400)");
+      await assertRoleDenied('anon', "SELECT public.consume_leader_challenge_and_create_session('00000000-0000-0000-0000-000000000000', 'c', 'd', 's')");
     });
 
     it('denies direct table queries and function execution to authenticated role (fail closed)', async () => {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query('SET LOCAL ROLE authenticated');
-
-        await expect(client.query('SELECT * FROM public.leader_identities')).rejects.toThrow(/permission denied/i);
-        await expect(client.query('SELECT * FROM public.leader_sessions')).rejects.toThrow(/permission denied/i);
-        await expect(
-          client.query("SELECT public.check_and_record_leader_rate_limit('test', 3, 900, 10, 86400)")
-        ).rejects.toThrow(/permission denied/i);
-
-        await client.query('ROLLBACK');
-      } catch (err: any) {
-        await client.query('ROLLBACK').catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
+      await assertRoleDenied('authenticated', 'SELECT * FROM public.leader_identities');
+      await assertRoleDenied('authenticated', 'SELECT * FROM public.leader_sessions');
+      await assertRoleDenied('authenticated', "SELECT public.check_and_record_leader_rate_limit('test', 3, 900, 10, 86400)");
+      await assertRoleDenied('authenticated', "SELECT public.consume_leader_challenge_and_create_session('00000000-0000-0000-0000-000000000000', 'c', 'd', 's')");
     });
 
     it('permits authorized operations when executed as service_role', async () => {
@@ -277,14 +257,16 @@ describe.skipIf(!hasDatabase)('1. Database Integration: Ephemeral PostgreSQL 15 
 
   describe('1.4 Independent-Connection Concurrency Races & Atomic Operations', () => {
     let testLeaderId: string;
-    const testEmail = 'priya.concurrent@example.org';
+    let testEmail: string;
 
     beforeEach(async () => {
       testLeaderId = crypto.randomUUID();
-      await pool.query(
-        'SELECT public.provision_leader_identity($1, $2, $3, $4, $5, $6, $7, $8)',
+      testEmail = `priya.concurrent-${crypto.randomBytes(6).toString('hex')}@example.org`;
+      const res = await pool.query(
+        'SELECT public.provision_leader_identity($1, $2, $3, $4, $5, $6, $7, $8) as res',
         [testLeaderId, testEmail, 'Priya Menon (Synthetic Race)', 'State Reviewer', ['*'], ['*'], true, 1]
       );
+      testLeaderId = res.rows[0].res.leaderId;
     });
 
     it('enforces that concurrent verification of the same challenge yields at most ONE session across independent connections', async () => {
