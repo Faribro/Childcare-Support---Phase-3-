@@ -1,24 +1,30 @@
 /**
- * LiveKit Voice Pipeline Adapter & Environment Gate
+ * LiveKit Voice Pipeline Adapter & Synthetic Evaluation Harness
  * 
  * DESIGN PRINCIPLES:
- * 1. Safe credentials check: Never logs or exposes API keys.
- * 2. If provider keys are absent, sets execution status to:
- *    "AI/Audio Path: NOT EXECUTED (Provider credentials not configured)"
- * 3. Provides a deterministic synthetic pipeline adapter for testing & staff browser harness.
+ * 1. Server-Only Secret Boundary: Client bundle NEVER reads or verifies server-side
+ *    API keys directly. Credentials status is supplied via `/api/staff/voice/token`.
+ * 2. Unconfigured Fail-Safe: If provider credentials are unconfigured, status is:
+ *    "AI/Audio Path: NOT EXECUTED (Provider credentials not configured in environment)"
+ * 3. Provides a deterministic synthetic pipeline runner for staff testing & edge case verification.
+ * 4. Simulated latencies are explicitly labeled as hypothetical/simulated.
  */
 
 import { VoiceConversationStateMachine, StateMachineOutput } from './state-machine';
 import { MockDisposableStateStore } from './mock-tools';
-import { LanguageTarget } from './types';
 
 export interface ProviderConfigStatus {
-  hasLiveKitConfig: boolean;
-  hasSttConfig: boolean;
-  hasLlmConfig: boolean;
-  hasTtsConfig: boolean;
-  executionMode: 'REAL_LIVEKIT_STREAM' | 'SYNTHETIC_EVALUATION_HARNESS';
+  configured: boolean;
+  hasLiveKitConfig?: boolean;
+  executionMode?: 'REAL_LIVEKIT_STREAM' | 'SYNTHETIC_EVALUATION_HARNESS';
+  status: 'READY' | 'NOT_CONFIGURED';
   statusDescription: string;
+  requiredVariables?: string[];
+  serverUrl?: string;
+  token?: string;
+  roomName?: string;
+  identity?: string;
+  maxDurationSeconds?: number;
 }
 
 export interface LatencyReport {
@@ -27,29 +33,84 @@ export interface LatencyReport {
   ttsTtfaMs: number;
   bargeInMs: number;
   totalEndToEndMs: number;
+  isSimulated: boolean;
 }
 
+/**
+ * Checks server/runtime environment variables without leaking credential values.
+ */
 export function checkVoiceProviderConfiguration(): ProviderConfigStatus {
-  // Check server environment variables safely without leaking values
   const hasLiveKit = Boolean(
     process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET
   );
-  const hasStt = Boolean(process.env.DEEPGRAM_API_KEY || process.env.SARVAM_API_KEY);
+  const hasStt = Boolean(process.env.SARVAM_API_KEY || process.env.DEEPGRAM_API_KEY);
   const hasLlm = Boolean(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY);
-  const hasTts = Boolean(process.env.CARTESIA_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.SARVAM_API_KEY);
-
+  const hasTts = Boolean(process.env.SARVAM_API_KEY || process.env.CARTESIA_API_KEY);
   const isRealExecutionPossible = hasLiveKit && hasStt && hasLlm && hasTts;
 
   return {
+    configured: isRealExecutionPossible,
     hasLiveKitConfig: hasLiveKit,
-    hasSttConfig: hasStt,
-    hasLlmConfig: hasLlm,
-    hasTtsConfig: hasTts,
     executionMode: isRealExecutionPossible ? 'REAL_LIVEKIT_STREAM' : 'SYNTHETIC_EVALUATION_HARNESS',
+    status: isRealExecutionPossible ? 'READY' : 'NOT_CONFIGURED',
     statusDescription: isRealExecutionPossible
       ? 'LiveKit and Voice Providers configured for live WebRTC audio.'
       : 'AI/Audio Path: NOT EXECUTED (Provider credentials not configured in environment)',
+    requiredVariables: [
+      'LIVEKIT_URL',
+      'LIVEKIT_API_KEY',
+      'LIVEKIT_API_SECRET',
+      'SARVAM_API_KEY',
+      'OPENAI_API_KEY',
+    ],
   };
+}
+
+/**
+ * Fetches token and configuration status from the authorized server-side endpoint.
+ * Zero secrets or API keys are exposed to the browser.
+ */
+export async function fetchVoiceTokenStatus(): Promise<ProviderConfigStatus> {
+  try {
+    const res = await fetch('/api/staff/voice/token', {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return {
+        configured: false,
+        status: 'NOT_CONFIGURED',
+        statusDescription: err.error || `HTTP ${res.status}: Access unauthorized`,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      configured: Boolean(data.configured),
+      hasLiveKitConfig: Boolean(data.configured),
+      executionMode: data.configured ? 'REAL_LIVEKIT_STREAM' : 'SYNTHETIC_EVALUATION_HARNESS',
+      status: data.status || (data.configured ? 'READY' : 'NOT_CONFIGURED'),
+      statusDescription: data.message || (data.configured ? 'LiveKit Server Ready' : 'AI/Audio Path: NOT EXECUTED'),
+      requiredVariables: data.requiredVariables,
+      serverUrl: data.serverUrl,
+      token: data.token,
+      roomName: data.roomName,
+      identity: data.identity,
+      maxDurationSeconds: data.maxDurationSeconds || 180,
+    };
+  } catch (e: any) {
+    return {
+      configured: false,
+      hasLiveKitConfig: false,
+      executionMode: 'SYNTHETIC_EVALUATION_HARNESS',
+      status: 'NOT_CONFIGURED',
+      statusDescription: `Connection error: ${e?.message || 'Failed to reach token endpoint'}`,
+    };
+  }
 }
 
 export class SyntheticVoicePipelineRunner {
@@ -57,16 +118,10 @@ export class SyntheticVoicePipelineRunner {
   private store: MockDisposableStateStore;
   private isMicActive: boolean = false;
   private isMuted: boolean = false;
-  private configStatus: ProviderConfigStatus;
 
   constructor(stateMachine: VoiceConversationStateMachine, store: MockDisposableStateStore) {
     this.stateMachine = stateMachine;
     this.store = store;
-    this.configStatus = checkVoiceProviderConfiguration();
-  }
-
-  public getStatus(): ProviderConfigStatus {
-    return this.configStatus;
   }
 
   public startMicrophone(): { success: boolean; message: string } {
@@ -74,7 +129,7 @@ export class SyntheticVoicePipelineRunner {
     this.isMuted = false;
     return {
       success: true,
-      message: 'Microphone stream initialized for staff evaluation.',
+      message: 'Synthetic evaluation microphone stream initialized for staff.',
     };
   }
 
@@ -95,11 +150,12 @@ export class SyntheticVoicePipelineRunner {
   }
 
   /**
-   * Simulates a user speaking turn with latency breakdown tracking.
+   * Simulates a user speaking turn with hypothetical latency breakdown tracking.
+   * NOTE: Latencies are synthetic/simulated estimates based on published provider benchmarks,
+   * NOT measured hardware or network audio streams.
    */
   public async simulateTurn(
-    userInput: string,
-    simulatedSpeechDurationMs: number = 800
+    userInput: string
   ): Promise<{
     output: StateMachineOutput;
     latencies: LatencyReport;
@@ -116,15 +172,14 @@ export class SyntheticVoicePipelineRunner {
     if (this.stateMachine.isSpeaking()) {
       const startBarge = Date.now();
       this.stateMachine.handleInterruption();
-      bargeInLatencyMs = Math.max(15, Date.now() - startBarge); // Typical sub-50ms barge-in
+      bargeInLatencyMs = Math.max(15, Date.now() - startBarge);
     }
 
-    // Simulate pipeline stage latencies
-    // In actual LiveKit + Deepgram + GPT-4o-mini + Cartesia pipeline:
-    // STT TTFT: ~150ms, LLM TTFT: ~200ms, TTS TTFA: ~90ms => Total ~440ms
-    const sttTtft = 145 + Math.floor(Math.random() * 20);
-    const llmTtft = 190 + Math.floor(Math.random() * 30);
-    const ttsTtfa = 85 + Math.floor(Math.random() * 15);
+    // Simulated benchmark targets (Hypothetical/Simulated):
+    // Sarvam STT: ~180ms, GPT-4o-mini LLM TTFT: ~210ms, Sarvam TTS TTFA: ~190ms => Total ~580ms
+    const sttTtft = 180 + Math.floor(Math.random() * 20);
+    const llmTtft = 210 + Math.floor(Math.random() * 25);
+    const ttsTtfa = 190 + Math.floor(Math.random() * 20);
     const totalE2E = sttTtft + llmTtft + ttsTtfa;
 
     const output = this.stateMachine.processUserInput(userInput, totalE2E);
@@ -137,6 +192,7 @@ export class SyntheticVoicePipelineRunner {
         ttsTtfaMs: ttsTtfa,
         bargeInMs: bargeInLatencyMs,
         totalEndToEndMs: totalE2E,
+        isSimulated: true,
       },
     };
   }

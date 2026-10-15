@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Room, RoomEvent, Track, RemoteTrack, RemoteParticipant } from 'livekit-client';
 import { VoiceConversationStateMachine, StateMachineOutput } from '../state-machine';
 import { MockDisposableStateStore, FIXED_SYNTHETIC_TASK } from '../mock-tools';
-import { SyntheticVoicePipelineRunner, checkVoiceProviderConfiguration, LatencyReport } from '../livekit-pipeline-adapter';
+import {
+  SyntheticVoicePipelineRunner,
+  fetchVoiceTokenStatus,
+  ProviderConfigStatus,
+  LatencyReport,
+} from '../livekit-pipeline-adapter';
 import { ConversationState, LanguageTarget, ConversationTurn } from '../types';
 
 export function VoiceStaffHarness() {
@@ -11,6 +17,20 @@ export function VoiceStaffHarness() {
   const [stateMachine, setStateMachine] = useState<VoiceConversationStateMachine | null>(null);
   const [pipelineRunner, setPipelineRunner] = useState<SyntheticVoicePipelineRunner | null>(null);
 
+  // Server Provider Config Status
+  const [providerConfig, setProviderConfig] = useState<ProviderConfigStatus>({
+    configured: false,
+    status: 'NOT_CONFIGURED',
+    statusDescription: 'Checking server credentials status...',
+  });
+
+  // Real WebRTC Media Session State
+  const [livekitRoom, setLivekitRoom] = useState<Room | null>(null);
+  const [isWebRtcConnected, setIsWebRtcConnected] = useState<boolean>(false);
+  const [micPermissionDenied, setMicPermissionDenied] = useState<string | null>(null);
+  const [remoteAudioAttached, setRemoteAudioAttached] = useState<boolean>(false);
+
+  // Common UI & Evaluation State
   const [sessionActive, setSessionActive] = useState<boolean>(false);
   const [micActive, setMicActive] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -22,37 +42,89 @@ export function VoiceStaffHarness() {
   const [statusMessage, setStatusMessage] = useState<string>('Ready for staff evaluation');
   const [userInputText, setUserInputText] = useState<string>('');
 
-  const configStatus = checkVoiceProviderConfiguration();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Clean up timer and media resources on unmount
+  // Fetch server configuration status on mount
+  useEffect(() => {
+    let isMounted = true;
+    fetchVoiceTokenStatus().then((status) => {
+      if (isMounted) {
+        setProviderConfig(status);
+        if (!status.configured) {
+          setStatusMessage('Server providers not configured. Synthetic simulator active.');
+        } else {
+          setStatusMessage('LiveKit server ready for WebRTC audio session.');
+        }
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Clean up all media tracks, room connections, and timers on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (livekitRoom) {
+        livekitRoom.disconnect();
+      }
       if (pipelineRunner) {
         pipelineRunner.stopMicrophone();
       }
     };
-  }, [pipelineRunner]);
+  }, [livekitRoom, pipelineRunner]);
 
+  // Emergency Stop / Graceful Hang-up Handler
   const handleEmergencyStop = useCallback(
-    (reason: string = 'Staff terminated session') => {
+    async (reason: string = 'Staff terminated session') => {
+      // 1. Terminate state machine
       if (stateMachine && sessionActive) {
         stateMachine.terminateSession('COMPLETED', 'Session ended by staff operator.', reason);
         setCurrentState(stateMachine.getState());
         setTurns(stateMachine.getTurns());
       }
+
+      // 2. Disconnect real WebRTC session and stop local tracks
+      if (livekitRoom) {
+        try {
+          if (livekitRoom.localParticipant) {
+            await livekitRoom.localParticipant.setMicrophoneEnabled(false);
+            livekitRoom.localParticipant.trackPublications.forEach((pub) => {
+              if (pub.track) {
+                pub.track.stop();
+              }
+            });
+          }
+          await livekitRoom.disconnect();
+        } catch (e) {
+          console.warn('[VoiceHarness] Error disconnecting LiveKit room:', e);
+        }
+        setLivekitRoom(null);
+        setIsWebRtcConnected(false);
+        setRemoteAudioAttached(false);
+      }
+
+      // 3. Stop synthetic runner
       if (pipelineRunner) {
         pipelineRunner.stopMicrophone();
       }
+
+      // 4. Detach any audio DOM nodes
+      if (audioContainerRef.current) {
+        audioContainerRef.current.innerHTML = '';
+      }
+
       setSessionActive(false);
       setMicActive(false);
+      setIsMuted(false);
       setStatusMessage(`Session terminated: ${reason}`);
     },
-    [stateMachine, sessionActive, pipelineRunner]
+    [stateMachine, sessionActive, livekitRoom, pipelineRunner]
   );
 
-  // Session duration timer
+  // Session duration timer with strict 180s ceiling
   useEffect(() => {
     if (sessionActive && stateMachine) {
       timerRef.current = setInterval(() => {
@@ -70,7 +142,9 @@ export function VoiceStaffHarness() {
     };
   }, [sessionActive, stateMachine, handleEmergencyStop]);
 
-  const handleStartSession = (lang: LanguageTarget) => {
+  // Start Session (Real WebRTC if configured, or Deterministic Synthetic Simulator)
+  const handleStartSession = async (lang: LanguageTarget) => {
+    setMicPermissionDenied(null);
     store.clear();
     const sm = new VoiceConversationStateMachine(store, { defaultLanguage: lang });
     const runner = new SyntheticVoicePipelineRunner(sm, store);
@@ -78,26 +152,99 @@ export function VoiceStaffHarness() {
     setStateMachine(sm);
     setPipelineRunner(runner);
 
-    const micRes = runner.startMicrophone();
-    setMicActive(micRes.success);
-    setIsMuted(false);
-
     const greeting = sm.startSession(lang);
     setCurrentState(greeting.state);
     setCurrentLanguage(greeting.language);
     setTurns(sm.getTurns());
     setSessionActive(true);
-    setStatusMessage(`Session active (${lang.toUpperCase()}). Microphone listening.`);
+    setIsMuted(false);
+
+    // If LiveKit credentials are ready, initiate real WebRTC room connection
+    if (providerConfig.configured && providerConfig.serverUrl && providerConfig.token) {
+      try {
+        setStatusMessage('Connecting to LiveKit WebRTC audio room...');
+        const room = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+          audioCaptureDefaults: {
+            autoGainControl: true,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
+
+        // Track subscriptions
+        room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication, participant: RemoteParticipant) => {
+          if (track.kind === Track.Kind.Audio) {
+            const audioEl = track.attach();
+            audioEl.autoplay = true;
+            if (audioContainerRef.current) {
+              audioContainerRef.current.appendChild(audioEl);
+            }
+            setRemoteAudioAttached(true);
+            setStatusMessage(`Agent voice audio connected (${participant.identity || 'Agent'}).`);
+          }
+        });
+
+        room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+          track.detach();
+          setRemoteAudioAttached(false);
+        });
+
+        room.on(RoomEvent.Disconnected, () => {
+          setIsWebRtcConnected(false);
+          setRemoteAudioAttached(false);
+        });
+
+        // Connect room
+        await room.connect(providerConfig.serverUrl, providerConfig.token);
+        setLivekitRoom(room);
+        setIsWebRtcConnected(true);
+
+        // Publish local microphone
+        try {
+          await room.localParticipant.setMicrophoneEnabled(true);
+          setMicActive(true);
+          setStatusMessage(`Live WebRTC session connected (${lang.toUpperCase()}). Microphone live.`);
+        } catch (micErr: any) {
+          const errMsg = micErr?.message || 'Microphone access was denied by browser.';
+          setMicPermissionDenied(`Microphone permission error: ${errMsg}. Real audio input unavailable.`);
+          setMicActive(false);
+          // Fall back to synthetic speech input simulation
+          runner.startMicrophone();
+        }
+      } catch (connErr: any) {
+        console.error('[VoiceHarness] WebRTC connection failed:', connErr);
+        setStatusMessage(`LiveKit connection failed (${connErr?.message || 'error'}). Falling back to synthetic harness.`);
+        runner.startMicrophone();
+        setMicActive(true);
+      }
+    } else {
+      // Offline/Synthetic evaluation mode
+      runner.startMicrophone();
+      setMicActive(true);
+      setStatusMessage(`Synthetic session active (${lang.toUpperCase()}). AI/Audio Path: NOT EXECUTED.`);
+    }
   };
 
-  const handleToggleMute = () => {
-    if (!pipelineRunner) return;
+  // Toggle Mute / Unmute
+  const handleToggleMute = async () => {
     const newMute = !isMuted;
-    pipelineRunner.setMute(newMute);
+    if (livekitRoom?.localParticipant) {
+      try {
+        await livekitRoom.localParticipant.setMicrophoneEnabled(!newMute);
+      } catch (e) {
+        console.warn('[VoiceHarness] Failed to toggle LiveKit mic:', e);
+      }
+    }
+    if (pipelineRunner) {
+      pipelineRunner.setMute(newMute);
+    }
     setIsMuted(newMute);
     setStatusMessage(newMute ? 'Microphone muted' : 'Microphone active');
   };
 
+  // Simulate Staff Speech Utterance
   const handleSimulateUtterance = async (text: string) => {
     if (!pipelineRunner || !stateMachine || !sessionActive) return;
     try {
@@ -110,10 +257,7 @@ export function VoiceStaffHarness() {
       setUserInputText('');
 
       if (res.output.shouldTerminate) {
-        setSessionActive(false);
-        setMicActive(false);
-        pipelineRunner.stopMicrophone();
-        setStatusMessage(`Session finished: ${res.output.terminationReason || 'Completed'}`);
+        await handleEmergencyStop(res.output.terminationReason || 'Conversation finished');
       } else {
         setStatusMessage('Assistant responded. Awaiting next turn.');
       }
@@ -135,11 +279,10 @@ export function VoiceStaffHarness() {
     setCurrentState(out.state);
     setTurns(stateMachine.getTurns());
     if (out.shouldTerminate) {
-      setSessionActive(false);
-      setMicActive(false);
-      pipelineRunner.stopMicrophone();
+      handleEmergencyStop('Silence timeout reached (max prompts)');
+    } else {
+      setStatusMessage('Silence detected: Re-prompted user.');
     }
-    setStatusMessage(`Silence detected: ${out.shouldTerminate ? 'Call ended' : 'Re-prompted user'}`);
   };
 
   const handleUnclearSpeech = () => {
@@ -152,6 +295,9 @@ export function VoiceStaffHarness() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6 bg-slate-50 text-slate-900 rounded-xl shadow-lg border border-slate-200">
+      {/* Hidden container for WebRTC audio playback elements */}
+      <div ref={audioContainerRef} className="hidden" aria-hidden="true" />
+
       {/* Strict Boundary Alert Banner */}
       <div className="bg-amber-100 border-l-4 border-amber-600 p-4 rounded-r shadow-sm">
         <div className="flex items-start">
@@ -164,15 +310,23 @@ export function VoiceStaffHarness() {
               audio is <strong>NOT recorded</strong> by default, and no real beneficiary data is accessed.
             </p>
             <div className="mt-2 text-xs font-mono bg-amber-200/60 px-2 py-1 rounded inline-block text-amber-950">
-              Provider Mode: {configStatus.statusDescription}
+              Provider Mode: {providerConfig.statusDescription}
             </div>
           </div>
         </div>
       </div>
 
+      {/* Mic Permission Denied Alert */}
+      {micPermissionDenied && (
+        <div className="bg-rose-50 border-l-4 border-rose-600 p-3 rounded-r text-xs text-rose-800">
+          <span className="font-bold">Microphone Notice: </span>
+          {micPermissionDenied}
+        </div>
+      )}
+
       {/* Main Control Panel */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left Column: Session Status & Config */}
+        {/* Left Column: Session Telemetry & Controls */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
           <h2 className="text-base font-semibold text-slate-800 border-b pb-2">Session Telemetry</h2>
 
@@ -180,7 +334,7 @@ export function VoiceStaffHarness() {
             <div className="flex justify-between py-1 border-b border-slate-100">
               <span className="text-slate-500">Status:</span>
               <span className={`font-semibold ${sessionActive ? 'text-emerald-600' : 'text-slate-600'}`}>
-                {sessionActive ? '● ACTIVE CALL' : '○ IDLE'}
+                {sessionActive ? (isWebRtcConnected ? '● LIVE WEBRTC' : '● ACTIVE (SYNTHETIC)') : '○ IDLE'}
               </span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-100">
@@ -197,6 +351,14 @@ export function VoiceStaffHarness() {
                 {isMuted ? 'MUTED' : micActive ? 'LIVE' : 'OFF'}
               </span>
             </div>
+            {isWebRtcConnected && (
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Agent Audio:</span>
+                <span className={`font-semibold ${remoteAudioAttached ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {remoteAudioAttached ? 'RECEIVING' : 'WAITING'}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between py-1 border-b border-slate-100">
               <span className="text-slate-500">Duration / Ceiling:</span>
               <span className="font-mono">{sessionDuration}s / 180s</span>
@@ -210,7 +372,7 @@ export function VoiceStaffHarness() {
           {/* Start Actions */}
           {!sessionActive ? (
             <div className="pt-2 space-y-2">
-              <p className="text-xs font-medium text-slate-600">Start Synthetic Session in:</p>
+              <p className="text-xs font-medium text-slate-600">Start Session in:</p>
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => handleStartSession('en')}
@@ -323,7 +485,13 @@ export function VoiceStaffHarness() {
 
         {/* Right Column: Latency Metrics & Disposable State */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
-          <h2 className="text-base font-semibold text-slate-800 border-b pb-2">Latency Budget & Metrics</h2>
+          <div className="border-b pb-2 flex justify-between items-center">
+            <h2 className="text-base font-semibold text-slate-800">Latency Telemetry</h2>
+            <span className="text-[10px] bg-slate-100 text-slate-600 font-mono px-2 py-0.5 rounded">
+              {latestLatency?.isSimulated ? 'Simulated' : 'Measured'}
+            </span>
+          </div>
+
           {latestLatency ? (
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
@@ -348,9 +516,12 @@ export function VoiceStaffHarness() {
                   <span className="font-mono font-semibold">{latestLatency.bargeInMs} ms</span>
                 </div>
               )}
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                Values reflect synthetic simulation benchmarks based on published provider specifications.
+              </p>
             </div>
           ) : (
-            <p className="text-xs text-slate-400 italic">No turn latency measured yet.</p>
+            <p className="text-xs text-slate-400 italic">No turn latency recorded yet.</p>
           )}
 
           <div className="border-t pt-3">
@@ -399,4 +570,5 @@ export function VoiceStaffHarness() {
     </div>
   );
 }
+
 export default VoiceStaffHarness;

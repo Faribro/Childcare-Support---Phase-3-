@@ -1,6 +1,6 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { verifySessionToken } from '@/lib/server/sessionService';
+import { authorizeVoiceStaffAccess } from '@/lib/server/voiceStaffAuth';
 import VoiceStaffHarness from '@/features/voice-agent/components/VoiceStaffHarness';
 
 export const metadata = {
@@ -9,15 +9,19 @@ export const metadata = {
 };
 
 export default function VoicePrototypePage() {
-  const isDev = process.env.NODE_ENV === 'development';
+  const cookieStore = cookies();
+  const headerStore = headers();
 
-  if (!isDev) {
-    const cookieStore = cookies();
-    const token = cookieStore.get('evaluation_session_token')?.value;
-    const session = token ? verifySessionToken(token) : null;
-    if (!session || !['ADMIN', 'LEADERSHIP', 'STATE_REVIEWER'].includes(session.role)) {
-      redirect('/login?returnUrl=/staff/voice-prototype');
-    }
+  // Strict server-side authorization check:
+  // Requires ADMIN, LEADERSHIP, or STATE_REVIEWER session.
+  // Local bypass strictly requires ALLOW_LOCAL_STAFF_VOICE_BYPASS === 'true' and loopback host.
+  const auth = authorizeVoiceStaffAccess({
+    cookies: cookieStore,
+    headers: headerStore,
+  });
+
+  if (!auth.authorized) {
+    redirect('/login?returnUrl=/staff/voice-prototype');
   }
 
   return (
@@ -33,9 +37,16 @@ export default function VoicePrototypePage() {
               External telephone trunks and WhatsApp calling are disconnected.
             </p>
           </div>
-          <span className="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-mono font-semibold rounded-full border border-amber-300">
-            STAFF TEST ONLY
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-amber-100 text-amber-900 text-xs font-mono font-semibold rounded-full border border-amber-300">
+              STAFF TEST ONLY
+            </span>
+            {auth.user && (
+              <span className="px-2 py-1 bg-slate-200 text-slate-700 text-xs font-mono rounded">
+                User: {auth.user.userId} ({auth.user.role})
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <VoiceStaffHarness />
