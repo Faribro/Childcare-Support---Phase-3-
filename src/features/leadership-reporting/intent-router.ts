@@ -1,7 +1,18 @@
-import { IntentClassification, QueryIntent } from './types';
+import {
+  CallerSecurityContext,
+  IntentClassification,
+  IntentClassifierProvider,
+  QueryIntent,
+} from './types';
 
 /**
  * Intent router and security parser for the Leadership Reporting Assistant.
+ *
+ * INTERPRETATION BOUNDARY:
+ * - This classifier uses DETERMINISTIC RULES and Regular Expressions.
+ * - It is NOT a live LLM model or general semantic natural-language understanding engine.
+ * - It implements the `IntentClassifierProvider` interface so that an evaluation mock
+ *   or live LLM provider can be swapped in without altering agent logic.
  */
 
 const STATE_MAPPINGS: Record<string, string> = {
@@ -45,12 +56,15 @@ export function extractStateFilter(query: string): string | null {
   return null;
 }
 
-export function classifyQueryIntent(query: string): IntentClassification {
+export function classifyQueryIntent(
+  query: string,
+  caller?: CallerSecurityContext
+): IntentClassification {
   const trimmed = query.trim();
   const lower = trimmed.toLowerCase();
   const stateFilter = extractStateFilter(trimmed);
 
-  // 1. Guardrail: Mutation attempt rejection
+  // 1. Guardrail: Mutation attempt rejection (Supplementary keyword defense)
   for (const pattern of MUTATION_PATTERNS) {
     if (pattern.test(lower)) {
       return {
@@ -78,7 +92,7 @@ export function classifyQueryIntent(query: string): IntentClassification {
     }
   }
 
-  // 2. Guardrail: PII / Clinical disclosure attempt rejection
+  // 3. Guardrail: PII / Clinical disclosure attempt rejection
   for (const pattern of PII_PATTERNS) {
     if (pattern.test(lower)) {
       return {
@@ -92,7 +106,57 @@ export function classifyQueryIntent(query: string): IntentClassification {
     }
   }
 
-  // 3. Help / Capabilities
+  // 4. Authorization check: If caller scope is provided and cannot access requested state
+  if (caller && stateFilter) {
+    const isNational = caller.permittedStates.includes('*');
+    const isPermitted = caller.permittedStates
+      .map((s) => s.toLowerCase())
+      .includes(stateFilter.toLowerCase());
+    if (!isNational && !isPermitted) {
+      return {
+        intent: 'AUTHORIZATION_DENIED',
+        stateFilter,
+        confidence: 1.0,
+        rawQuery: trimmed,
+        authorizationDenialReason: `Scope Denied: Caller '${caller.userId}' (${caller.role}) is unauthorized for '${stateFilter}'. Permitted states: [${caller.permittedStates.join(', ')}].`,
+      };
+    }
+  }
+
+  // 5. Reset Filters
+  if (/^(reset|clear|remove) (filters?|filter|scope|all)$/i.test(lower) || /^reset$/i.test(lower)) {
+    return {
+      intent: 'RESET_FILTERS',
+      stateFilter: null,
+      confidence: 1.0,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 6. District Breakdown
+  if (/\b(district[- ]wise|by district|districts? breakdown|across districts?)\b/i.test(lower)) {
+    return {
+      intent: 'DISTRICT_BREAKDOWN',
+      stateFilter,
+      confidence: 0.95,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 7. Core Scenario: "June single-orphan children in government school"
+  if (
+    (/\b(single[- ]orphan|orphan)\b/i.test(lower) && /\b(government school|school)\b/i.test(lower)) ||
+    (/\bjune\b/i.test(lower) && /\b(orphan|school)\b/i.test(lower))
+  ) {
+    return {
+      intent: 'JUNE_ORPHAN_SCHOOL_COHORT',
+      stateFilter,
+      confidence: 0.95,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 8. Help / Capabilities
   if (/^(hi|hello|help|who are you|what can you do|capabilities)\b/i.test(lower)) {
     return {
       intent: 'HELP_AND_CAPABILITIES',
@@ -102,7 +166,7 @@ export function classifyQueryIntent(query: string): IntentClassification {
     };
   }
 
-  // 4. State Comparison
+  // 9. State Comparison
   if (
     /\b(compare|state breakdown|by state|cross-state|across states|which state|ranking)\b/i.test(
       lower
@@ -116,7 +180,7 @@ export function classifyQueryIntent(query: string): IntentClassification {
     };
   }
 
-  // 5. Malnutrition / SAM Focus
+  // 10. Malnutrition / SAM Focus
   if (
     /\b(sam|mam|malnutrition|nutritional recovery|severe acute|recovered|recovery rate)\b/i.test(
       lower
@@ -130,7 +194,7 @@ export function classifyQueryIntent(query: string): IntentClassification {
     };
   }
 
-  // 6. Verification / Approval Queue
+  // 11. Verification / Approval Queue
   if (/\b(verification|pending|approval|queue|unverified|flagged)\b/i.test(lower)) {
     return {
       intent: 'VERIFICATION_QUEUE',
@@ -140,7 +204,7 @@ export function classifyQueryIntent(query: string): IntentClassification {
     };
   }
 
-  // 7. High Risk / Dropouts
+  // 12. High Risk / Dropouts
   if (/\b(high risk|dropout|defaulted|absent|attendance|missed visits|irregular)\b/i.test(lower)) {
     return {
       intent: 'HIGH_RISK_DROPOUT',
@@ -150,7 +214,17 @@ export function classifyQueryIntent(query: string): IntentClassification {
     };
   }
 
-  // 8. General KPI Overview
+  // 13. State-Only Scoping Query (e.g. "Only Maharashtra", "Maharashtra", "Show UP")
+  if (stateFilter && (/^only\s+/i.test(lower) || /^(show\s+)?(maharashtra|mp|up|madhya pradesh|uttar pradesh)$/i.test(lower))) {
+    return {
+      intent: 'OVERVIEW_KPI',
+      stateFilter,
+      confidence: 0.9,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 14. General KPI Overview
   if (
     /\b(overview|summary|kpi|metrics|total enrolled|how many|status|dashboard|report)\b/i.test(
       lower
@@ -171,4 +245,13 @@ export function classifyQueryIntent(query: string): IntentClassification {
     confidence: 0.5,
     rawQuery: trimmed,
   };
+}
+
+export class DeterministicRuleIntentClassifier implements IntentClassifierProvider {
+  readonly providerType = 'DETERMINISTIC_RULES' as const;
+
+  classify(query: string, context?: Record<string, unknown>): IntentClassification {
+    const caller = context?.caller as CallerSecurityContext | undefined;
+    return classifyQueryIntent(query, caller);
+  }
 }

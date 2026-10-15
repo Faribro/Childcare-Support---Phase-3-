@@ -1,4 +1,4 @@
-import { SyntheticChildRecord } from './types';
+import { SyntheticAssessmentRecord, SyntheticChildRecord } from './types';
 
 /**
  * Deterministic synthetic dataset for leadership reporting prototype.
@@ -251,3 +251,155 @@ export const SYNTHETIC_EVALUATION_DATASET: readonly SyntheticChildRecord[] = Obj
     isSynthetic: true,
   },
 ]);
+
+/**
+ * Deterministic synthetic assessment dataset specifically modeling the scenario:
+ * "June single-orphan children in government school".
+ *
+ * Ground-truth structural fixtures:
+ * - REC-MH-01 & REC-MH-02: Same child (CH-MH-01), two assessments in June.
+ * - REC-MH-03: CH-MH-02, single-orphan, government school, PENDING verification.
+ * - REC-MH-04: CH-MH-03, single-orphan, PRIVATE_SCHOOL (excluded from gov school count).
+ * - REC-MH-05: CH-MH-04, visit in May 30, submission in June 02 (highlights visit-date vs submission-date basis).
+ * - REC-MH-06: CH-MH-05, schoolType is null (missing value fixture).
+ * - REC-MP-01: CH-MP-01, single-orphan, government school, APPROVED.
+ * - REC-MP-02: CH-MP-02, single-orphan, government school, FLAGGED.
+ * - REC-UP-01: CH-UP-01, single-orphan, government school, APPROVED.
+ * - REC-UP-02: CH-UP-02, DOUBLE_ORPHAN (excluded from single-orphan count).
+ * - REC-UP-03: CH-UP-03, orphanStatus is null (missing value fixture).
+ */
+export const SYNTHETIC_JUNE_ASSESSMENT_DATASET: readonly SyntheticAssessmentRecord[] = Object.freeze([
+  {
+    assessmentId: 'REC-MH-01',
+    childId: 'CH-MH-01',
+    state: 'Maharashtra',
+    district: 'Pune',
+    visitDate: '2026-06-05',
+    submissionDate: '2026-06-06',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MH-02',
+    childId: 'CH-MH-01',
+    state: 'Maharashtra',
+    district: 'Pune',
+    visitDate: '2026-06-25',
+    submissionDate: '2026-06-26',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MH-03',
+    childId: 'CH-MH-02',
+    state: 'Maharashtra',
+    district: 'Thane',
+    visitDate: '2026-06-10',
+    submissionDate: '2026-06-12',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'PENDING',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MH-04',
+    childId: 'CH-MH-03',
+    state: 'Maharashtra',
+    district: 'Mumbai Suburban',
+    visitDate: '2026-06-14',
+    submissionDate: '2026-06-15',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'PRIVATE_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MH-05',
+    childId: 'CH-MH-04',
+    state: 'Maharashtra',
+    district: 'Pune',
+    visitDate: '2026-05-30',
+    submissionDate: '2026-06-02',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MH-06',
+    childId: 'CH-MH-05',
+    state: 'Maharashtra',
+    district: 'Nashik',
+    visitDate: '2026-06-18',
+    submissionDate: '2026-06-20',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: null, // missing school type
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MP-01',
+    childId: 'CH-MP-01',
+    state: 'Madhya Pradesh',
+    district: 'Bhopal',
+    visitDate: '2026-06-08',
+    submissionDate: '2026-06-09',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-MP-02',
+    childId: 'CH-MP-02',
+    state: 'Madhya Pradesh',
+    district: 'Indore',
+    visitDate: '2026-06-11',
+    submissionDate: '2026-06-13',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'FLAGGED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-UP-01',
+    childId: 'CH-UP-01',
+    state: 'Uttar Pradesh',
+    district: 'Lucknow',
+    visitDate: '2026-06-07',
+    submissionDate: '2026-06-08',
+    orphanStatus: 'SINGLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-UP-02',
+    childId: 'CH-UP-02',
+    state: 'Uttar Pradesh',
+    district: 'Varanasi',
+    visitDate: '2026-06-15',
+    submissionDate: '2026-06-16',
+    orphanStatus: 'DOUBLE_ORPHAN',
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+  {
+    assessmentId: 'REC-UP-03',
+    childId: 'CH-UP-03',
+    state: 'Uttar Pradesh',
+    district: 'Lucknow',
+    visitDate: '2026-06-20',
+    submissionDate: '2026-06-21',
+    orphanStatus: null, // missing orphan status
+    schoolType: 'GOVERNMENT_SCHOOL',
+    verificationStatus: 'APPROVED',
+    isSynthetic: true,
+  },
+]);
+

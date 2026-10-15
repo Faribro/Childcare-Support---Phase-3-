@@ -76,15 +76,15 @@ describe('Leadership Assistant - AI Engineering Benchmark & Eval Harness', () =>
       expect(result.response.content).toContain(`Total Enrolled Children:** **${nationalKpi.totalEnrolled}**`);
       expect(result.response.content).toContain(`Active SAM Cases:** **${nationalKpi.samCount}**`);
       expect(result.response.content).toContain(`Active Attendance Rate:** **${nationalKpi.activeAttendanceRate}%**`);
-      expect(result.response.content).toContain(`Nutritional Recovery Rate:** **${nationalKpi.recoveryRate}%**`);
+      expect(result.response.content).toContain(`Pending Supervisor Approvals:** **${nationalKpi.pendingVerifications}**`);
       
       // Zero hallucination check: structuredData must match exactly
       expect(result.response.structuredData).toEqual({ kpi: nationalKpi });
     });
   });
 
-  describe('Dimension 4: Latency Benchmark (< 50ms Deterministic Execution)', () => {
-    it('executes full pipeline (intent + calculation + formatting) within SLA', () => {
+  describe('Dimension 4: Local Synthetic Latency Benchmark (< 50ms Execution)', () => {
+    it('executes full pipeline (intent + calculation + formatting) within local synthetic benchmark target', () => {
       const session = agent.createSession('perf_benchmark');
       const start = performance.now();
 

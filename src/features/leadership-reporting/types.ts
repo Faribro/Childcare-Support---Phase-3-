@@ -55,12 +55,89 @@ export interface StateComparisonMetric {
   readonly pendingApprovals: number;
 }
 
+// -------------------------------------------------------------
+// Scenario Domain: Orphan Status & Education Surveillance
+// -------------------------------------------------------------
+
+export type OrphanCategory = 'SINGLE_ORPHAN' | 'DOUBLE_ORPHAN' | 'NON_ORPHAN';
+export type SchoolCategory = 'GOVERNMENT_SCHOOL' | 'PRIVATE_SCHOOL' | 'NON_FORMAL' | 'OUT_OF_SCHOOL';
+export type RecordVerificationStatus = 'APPROVED' | 'PENDING' | 'FLAGGED' | 'REJECTED';
+export type DateBasis = 'VISIT_DATE' | 'SUBMISSION_DATE';
+
+export interface SyntheticAssessmentRecord {
+  readonly assessmentId: string;
+  readonly childId: string;
+  readonly state: string;
+  readonly district: string;
+  readonly visitDate: string; // ISO YYYY-MM-DD
+  readonly submissionDate: string; // ISO YYYY-MM-DD
+  readonly orphanStatus: OrphanCategory | null; // null represents missing value
+  readonly schoolType: SchoolCategory | null; // null represents missing value
+  readonly verificationStatus: RecordVerificationStatus;
+  readonly isSynthetic: true;
+}
+
+export interface DistrictBreakdownItem {
+  readonly district: string;
+  readonly uniqueBeneficiaries: number;
+  readonly totalAssessments: number;
+  readonly approvedAssessments: number;
+  readonly pendingAssessments: number;
+  readonly flaggedAssessments: number;
+}
+
+export interface JuneCohortSummaryResult {
+  readonly year: number; // e.g. 2026
+  readonly month: 'June';
+  readonly dateBasis: DateBasis;
+  readonly stateFilter: string | null;
+  readonly orphanCategory: 'SINGLE_ORPHAN';
+  readonly schoolCategory: 'GOVERNMENT_SCHOOL';
+  
+  // Beneficiary vs Assessment Counting
+  readonly uniqueBeneficiariesCount: number;
+  readonly totalAssessmentsCount: number;
+
+  // Approval Status Breakdown
+  readonly approvedAssessmentsCount: number;
+  readonly pendingAssessmentsCount: number;
+  readonly flaggedAssessmentsCount: number;
+  readonly rejectedAssessmentsCount: number;
+
+  // Missing Value Treatment
+  readonly recordsExcludedMissingSchool: number;
+  readonly recordsExcludedMissingOrphanStatus: number;
+
+  // District Breakdown (when requested or grouped)
+  readonly districtBreakdown: readonly DistrictBreakdownItem[];
+
+  readonly isSynthetic: true;
+}
+
+// -------------------------------------------------------------
+// Authorization & Security Model
+// -------------------------------------------------------------
+
+export interface CallerSecurityContext {
+  readonly userId: string;
+  readonly role: 'LEADERSHIP' | 'STATE_LEAD' | 'SUPERVISOR';
+  /**
+   * Permitted states: ['*'] for national scope (LEADERSHIP),
+   * or explicit state list (e.g. ['Maharashtra'] for STATE_LEAD).
+   */
+  readonly permittedStates: readonly string[];
+}
+
 export type QueryIntent =
   | 'OVERVIEW_KPI'
   | 'STATE_COMPARISON'
   | 'MALNUTRITION_SAM_FOCUS'
   | 'VERIFICATION_QUEUE'
   | 'HIGH_RISK_DROPOUT'
+  | 'JUNE_ORPHAN_SCHOOL_COHORT'
+  | 'DISTRICT_BREAKDOWN'
+  | 'RESET_FILTERS'
+  | 'AUTHORIZATION_DENIED'
   | 'HELP_AND_CAPABILITIES'
   | 'MUTATION_REJECTED'
   | 'PII_REQUEST_REJECTED'
@@ -72,6 +149,12 @@ export interface IntentClassification {
   readonly confidence: number;
   readonly rawQuery: string;
   readonly safetyRejectionReason?: string;
+  readonly authorizationDenialReason?: string;
+}
+
+export interface IntentClassifierProvider {
+  readonly providerType: 'DETERMINISTIC_RULES' | 'MOCK_PROVIDER' | 'LIVE_MODEL';
+  classify(query: string, context?: Record<string, unknown>): IntentClassification;
 }
 
 export interface AssistantMessage {
@@ -86,8 +169,10 @@ export interface AssistantMessage {
 
 export interface ReportingSession {
   readonly sessionId: string;
-  readonly userRole: 'LEADERSHIP' | 'ADMIN' | 'STATE_EVALUATOR';
+  readonly ownerUserId: string;
+  readonly callerScope: CallerSecurityContext;
   readonly activeStateFilter: string | null;
+  readonly activeDateBasis: DateBasis;
   readonly messages: AssistantMessage[];
   readonly createdAt: string;
   readonly updatedAt: string;
