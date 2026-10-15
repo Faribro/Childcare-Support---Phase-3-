@@ -12,24 +12,64 @@
    - prefers-reduced-motion disables every entrance effect.
    ========================================================================== */
 
-/* --- Brief hero entrance: transform-only, runs once on load ------------- */
+/* ──────────────────────────────────────────────────────────────────────────
+   HERO ENTRANCE — composed, multi-part, one-shot
+   The opening-note wrapper receives .heroRise which drives the whole folder.
+   Sub-elements within NotebookHero get .heroFolder, .heroHeadline, .heroDevice
+   for staggered entrance within the same play.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Outer folder: light unfold from slight rotation + scale */
 .heroRise {
-  animation: landing-hero-rise 0.48s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: landing-hero-rise 0.55s cubic-bezier(0.22, 0.9, 0.36, 1) both;
 }
 
 @keyframes landing-hero-rise {
   from {
-    transform: translateY(10px);
+    transform: rotate(-0.8deg) scale(0.985) translateY(14px);
+    opacity: 0.82;
   }
   to {
     transform: none;
+    opacity: 1;
   }
 }
 
-/* --- Restrained section reveals ------------------------------------------
-   Default state: natural position, fully visible.
-   JS adds .armed (12px offset — content still fully visible and readable),
-   then .shown returns the block to its natural place once on screen. */
+/* Left column: headline group rises with slight delay */
+.heroHeadline {
+  animation: landing-hero-headline 0.52s 0.15s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+}
+
+@keyframes landing-hero-headline {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Right column: device slides in from right */
+.heroDevice {
+  animation: landing-hero-device 0.55s 0.28s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+}
+
+@keyframes landing-hero-device {
+  from {
+    transform: translateX(24px) translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   SECTION REVEAL — default gentle rise (generic Reveal wrapper)
+   ────────────────────────────────────────────────────────────────────────── */
 .armed {
   transform: translateY(12px);
   transition: transform 0.35s ease-out;
@@ -39,13 +79,142 @@
   transform: none;
 }
 
-/* --- Reduced motion: complete, usable static alternative ----------------- */
+/* ──────────────────────────────────────────────────────────────────────────
+   SELECTIVE SECTION ENTRANCE VARIANTS
+   Applied per-section by passing className to <Reveal>.
+   JS adds .armed first, then .shown replaces it. The named variant overrides
+   the translateY direction/distance only; .shown always resolves to none.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* WholeChildSnapshot — slide from left, terrain framing context */
+.revealFromLeft.armed {
+  transform: translateX(-20px) translateY(6px);
+  transition: transform 0.42s ease-out;
+}
+.revealFromLeft.shown {
+  transform: none;
+}
+
+/* FieldRhythm — pure fade, text-forward section */
+.revealFade.armed {
+  opacity: 0.3;
+  transform: none;
+  transition: opacity 0.4s ease-out;
+}
+.revealFade.shown {
+  opacity: 1;
+  transform: none;
+}
+
+/* FieldReadiness — gentle zoom-up */
+.revealZoom.armed {
+  transform: scale(0.982) translateY(10px);
+  transition: transform 0.38s cubic-bezier(0.22, 0.9, 0.36, 1);
+}
+.revealZoom.shown {
+  transform: none;
+}
+
+/* DesignPrinciples — pure fade, clean */
+.revealPure.armed {
+  opacity: 0.25;
+  transform: none;
+  transition: opacity 0.45s ease-out;
+}
+.revealPure.shown {
+  opacity: 1;
+  transform: none;
+}
+
+/* ExperiencePreview — rise with hint of clockwise tilt */
+.revealTilt.armed {
+  transform: translateY(16px) rotate(0.4deg);
+  transition: transform 0.42s cubic-bezier(0.22, 0.9, 0.36, 1);
+}
+.revealTilt.shown {
+  transform: none;
+}
+
+/* FinalCta — spread: rise + very slight horizontal expansion feel */
+.revealSpread.armed {
+  transform: translateY(20px) scaleX(0.97);
+  transition: transform 0.45s cubic-bezier(0.22, 0.9, 0.36, 1);
+}
+.revealSpread.shown {
+  transform: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   RECORD JOURNEY — finite path-draw animation
+   Applied to .journeyPath elements inside WholeChildSnapshot via JS.
+   Once the section enters the viewport, JS adds .pathDrawActive.
+   Replay: JS removes .pathDrawActive, forces reflow, re-adds it.
+   ────────────────────────────────────────────────────────────────────────── */
+.pathDrawActive {
+  animation: landing-path-draw 1.2s 0.1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes landing-path-draw {
+  from {
+    stroke-dashoffset: var(--path-length, 350);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Station dot entrance — sequential pop-in */
+.stationDotActive {
+  animation: landing-station-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: center;
+}
+
+@keyframes landing-station-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Journey path base class */
+.journeyPath {
+  stroke-dasharray: var(--path-length, 350);
+  stroke-dashoffset: var(--path-length, 350);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   REDUCED MOTION: complete static fallback
+   Every named class above is reset. Content remains fully visible.
+   ────────────────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
+  .journeyPath,
   .heroRise,
+  .heroHeadline,
+  .heroDevice,
   .armed,
-  .shown {
-    animation: none;
-    transition: none;
-    transform: none;
+  .shown,
+  .revealFromLeft.armed,
+  .revealFromLeft.shown,
+  .revealFade.armed,
+  .revealFade.shown,
+  .revealZoom.armed,
+  .revealZoom.shown,
+  .revealPure.armed,
+  .revealPure.shown,
+  .revealTilt.armed,
+  .revealTilt.shown,
+  .revealSpread.armed,
+  .revealSpread.shown,
+  .pathDrawActive,
+  .stationDotActive {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+    stroke-dashoffset: 0 !important;
   }
 }

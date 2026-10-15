@@ -15,7 +15,10 @@ import styles from './landing-motion.module.css';
  *   the section enters the viewport.
  * - Any failure path (unsupported browser, reduced motion, observer error)
  *   leaves content completely visible with no transforms.
- * - Observers are disconnected on unmount.
+ * - Dynamic prefers-reduced-motion changes are respected: if the user enables
+ *   reduced motion after mount, the armed offset is immediately removed.
+ * - Observers are disconnected on unmount. Classes are left in place once
+ *   `shown` — no reverse animation on already-visible content.
  */
 export function Reveal({
   children,
@@ -32,24 +35,39 @@ export function Reveal({
 
     let observer: IntersectionObserver | null = null;
 
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    const handleMotionChange = () => {
+      if (reducedMotion.matches) {
+        // User switched to reduced-motion mid-session: disarm immediately.
+        el.classList.remove(styles.armed, styles.shown);
+        observer?.disconnect();
+        observer = null;
+      }
+    };
+
     try {
-      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
       if (reducedMotion.matches) return; // leave content in natural position
       if (typeof IntersectionObserver === 'undefined') return;
 
       el.classList.add(styles.armed);
+
       observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
             if (entry.isIntersecting) {
               el.classList.add(styles.shown);
               observer?.disconnect();
+              observer = null;
             }
           }
         },
         { threshold: 0.2 }
       );
       observer.observe(el);
+
+      // Listen for dynamic preference changes
+      reducedMotion.addEventListener('change', handleMotionChange);
     } catch {
       // Arming failed or observer threw: restore natural position so content
       // can never remain displaced.
@@ -59,7 +77,14 @@ export function Reveal({
 
     return () => {
       observer?.disconnect();
-      el.classList.remove(styles.armed, styles.shown);
+      reducedMotion.removeEventListener('change', handleMotionChange);
+      // Do NOT remove classes here when already shown — removing `armed` and
+      // `shown` on a visible element causes an awkward snap-back transform.
+      // Only remove `armed` if the element never reached `shown` (i.e.,
+      // component unmounted before it entered the viewport).
+      if (!el.classList.contains(styles.shown)) {
+        el.classList.remove(styles.armed);
+      }
     };
   }, []);
 

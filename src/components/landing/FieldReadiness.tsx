@@ -24,7 +24,7 @@ export function FieldReadiness() {
       title: 'IndexedDB Draft Cache',
       metric: 'IndexedDB',
       metricLabel: 'Browser-Isolated Storage',
-      description: 'Reliable client-side database retains active drafts, queued submissions, and attachments securely until network synchronization is initiated.',
+      description: 'Reliable client-side database retains active drafts, queued submissions, and attachments locally until network synchronization is initiated.',
     },
     {
       icon: Zap,
