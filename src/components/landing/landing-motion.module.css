@@ -1,0 +1,51 @@
+/* ==========================================================================
+   Landing-scoped motion system — "The Field Notebook, Set Straight"
+   Scope: imported ONLY by src/components/landing components.
+   Shared global keyframes in globals.css / tailwind.config.ts are untouched.
+
+   Progressive-enhancement contract:
+   - Server-rendered content is visible and untransformed by default.
+   - No rule hides content (no opacity gating, no visibility gating).
+   - The section offset (.armed) is applied from JS only AFTER an
+     IntersectionObserver initializes successfully; any failure path
+     (no JS, no observer, reduced motion) leaves content in place.
+   - prefers-reduced-motion disables every entrance effect.
+   ========================================================================== */
+
+/* --- Brief hero entrance: transform-only, runs once on load ------------- */
+.heroRise {
+  animation: landing-hero-rise 0.48s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes landing-hero-rise {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* --- Restrained section reveals ------------------------------------------
+   Default state: natural position, fully visible.
+   JS adds .armed (12px offset — content still fully visible and readable),
+   then .shown returns the block to its natural place once on screen. */
+.armed {
+  transform: translateY(12px);
+  transition: transform 0.35s ease-out;
+}
+
+.shown {
+  transform: none;
+}
+
+/* --- Reduced motion: complete, usable static alternative ----------------- */
+@media (prefers-reduced-motion: reduce) {
+  .heroRise,
+  .armed,
+  .shown {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+}
