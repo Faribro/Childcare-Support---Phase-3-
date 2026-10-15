@@ -348,6 +348,9 @@ export function BankDetailsEntryModal({
                 placeholder="Document reference or photo URL"
                 className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all text-slate-900"
               />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Provide document reference or link. Direct file upload/replacement requires verified ADMIN role.
+              </p>
             </div>
           </div>
 
