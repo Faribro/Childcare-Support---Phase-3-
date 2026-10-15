@@ -36,6 +36,7 @@ import {
   deriveBeneficiaryReadiness,
   type CanonicalDocumentType,
 } from '@/lib/read-model/beneficiaryReadiness';
+import { deriveSubmissionStages, maskBankAccountNumber } from '@/lib/shared/submissionStages';
 
 const CANONICAL_DOC_TO_PARAM: Record<CanonicalDocumentType, string> = {
   'Bank Passbook Front Page': 'passbookPhoto',
@@ -249,6 +250,11 @@ export default function RecordDetailPage() {
     return deriveBeneficiaryReadiness(record);
   }, [record]);
 
+  const stages = useMemo(() => {
+    if (!record) return null;
+    return deriveSubmissionStages(record);
+  }, [record]);
+
   const isApproved = useMemo(() => {
     if (!record) return false;
     const val =
@@ -396,12 +402,62 @@ export default function RecordDetailPage() {
               <ArrowLeft className="h-3.5 w-3.5 mr-1" />
               <span>Back to Surveys</span>
             </Link>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{childName}</h1>
               <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2 py-0.5 rounded-full flex items-center space-x-1">
                 <CheckCircle2 className="h-3 w-3 mr-1" />
                 <span>Synced (v{version})</span>
               </span>
+
+              {stages && (
+                <>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                      stages.intakeCompleteness === 'complete'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : 'bg-amber-50 text-amber-900 border-amber-300'
+                    }`}
+                  >
+                    <span>{stages.intakeCompleteness === 'complete' ? 'Intake Complete' : 'Intake Incomplete'}</span>
+                  </span>
+
+                  <span
+                    className={`text-xs font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                      stages.approvalState === 'approved'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : stages.approvalState === 'rejected'
+                        ? 'bg-rose-50 text-rose-800 border-rose-300'
+                        : 'bg-amber-50 text-amber-900 border-amber-300'
+                    }`}
+                  >
+                    <span>
+                      {stages.approvalState === 'approved'
+                        ? 'Approved'
+                        : stages.approvalState === 'rejected'
+                        ? 'Rejected'
+                        : 'Pending Approval'}
+                    </span>
+                  </span>
+
+                  <span
+                    className={`text-xs font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                      stages.bankWorkflow === 'complete'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : stages.bankWorkflow === 'pending'
+                        ? 'bg-amber-50 text-amber-900 border-amber-300'
+                        : 'bg-slate-100 text-slate-600 border-slate-300'
+                    }`}
+                  >
+                    <span>
+                      {stages.bankWorkflow === 'complete'
+                        ? 'Bank Details Complete'
+                        : stages.bankWorkflow === 'pending'
+                        ? 'Bank Details Pending'
+                        : 'Bank Details Not Yet Due'}
+                    </span>
+                  </span>
+                </>
+              )}
             </div>
             <p className="text-xs text-slate-500 font-mono mt-0.5">
               ID: {artNumber} • Remote ID: {remoteId}

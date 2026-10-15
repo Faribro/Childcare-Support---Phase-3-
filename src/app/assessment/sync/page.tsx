@@ -28,7 +28,11 @@ import {
   Clock,
   Trash2,
   ArrowLeft,
+  Landmark,
 } from 'lucide-react';
+import { deriveSubmissionStages, maskBankAccountNumber } from '@/lib/shared/submissionStages';
+import { BankDetailsEntryModal } from '@/components/sync/BankDetailsEntryModal';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 export interface UnifiedAssessmentItem {
   id: string;
@@ -378,18 +382,29 @@ function SyncCentreContent() {
     isLoading: isServerLoading,
   } = useSupervisorData();
 
-  // Tab State: 'all' | 'drafts' | 'outbox' | 'synced'
+  const { user, isUnlocked } = useEvaluationAccess();
+  const canEnterBankDetails = Boolean(
+    isUnlocked &&
+    (user?.role === 'ADMIN' || user?.role === 'LEADERSHIP')
+  );
+
+  const [bankTargetItem, setBankTargetItem] = useState<UnifiedAssessmentItem | null>(null);
+  const [bankSuccessToast, setBankSuccessToast] = useState<string | null>(null);
+
+  // Tab State: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending'
   const tabParam = searchParams.get('tab');
-  const initialTab: 'all' | 'drafts' | 'outbox' | 'synced' =
+  const initialTab: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending' =
     tabParam === 'drafts'
       ? 'drafts'
       : tabParam === 'outbox'
       ? 'outbox'
+      : tabParam === 'bank_pending' || tabParam === 'bank-pending'
+      ? 'bank_pending'
       : tabParam === 'synced' || tabParam === 'submitted'
       ? 'synced'
       : 'all';
 
-  const [activeTab, setActiveTab] = useState<'all' | 'drafts' | 'outbox' | 'synced'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending'>(initialTab);
   const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
 
   useEffect(() => {
@@ -397,6 +412,8 @@ function SyncCentreContent() {
       setActiveTab('drafts');
     } else if (tabParam === 'outbox') {
       setActiveTab('outbox');
+    } else if (tabParam === 'bank_pending' || tabParam === 'bank-pending') {
+      setActiveTab('bank_pending');
     } else if (tabParam === 'synced' || tabParam === 'submitted') {
       setActiveTab('synced');
     } else if (tabParam === 'all') {
@@ -850,6 +867,26 @@ function SyncCentreContent() {
   const pendingCount = actionableCount;
   const submittedCount = Math.max(syncedItems.length, serverTotal ?? 0);
 
+  const bankPendingItems = useMemo(() => {
+    const list = syncedItems.filter((item) => {
+      const stages = deriveSubmissionStages(item.rawRecord || item);
+      return stages.approvalState === 'approved' && stages.bankWorkflow === 'pending';
+    });
+
+    return [...list].sort((a, b) => {
+      const getApprovalTime = (x: UnifiedAssessmentItem) => {
+        const raw = x.rawRecord || {};
+        const t = raw.approvalDate || raw.approvedAt || raw['68\nDate of Approval'] || x.createdAt;
+        const ms = new Date(t).getTime();
+        return isNaN(ms) ? 0 : ms;
+      };
+      const tA = getApprovalTime(a);
+      const tB = getApprovalTime(b);
+      if (tA !== tB) return tA - tB; // oldest approval timestamp first
+      return String(a.id).localeCompare(String(b.id)); // stable record ID
+    });
+  }, [syncedItems]);
+
   // Filter with Tab + Search Query + From/To Date
   const filteredItems = useMemo(() => {
     const list =
@@ -857,6 +894,8 @@ function SyncCentreContent() {
         ? outboxItems
         : activeTab === 'synced'
         ? syncedItems
+        : activeTab === 'bank_pending'
+        ? bankPendingItems
         : unifiedItems;
 
     return list.filter((item) => {
@@ -881,7 +920,7 @@ function SyncCentreContent() {
 
       return true;
     });
-  }, [unifiedItems, outboxItems, syncedItems, activeTab, searchQuery, fromDate, toDate]);
+  }, [unifiedItems, outboxItems, syncedItems, bankPendingItems, activeTab, searchQuery, fromDate, toDate]);
 
   const handleDismissBanner = () => {
     setBannerDismissed(true);
@@ -892,6 +931,8 @@ function SyncCentreContent() {
     const isExpanded = expandedId === item.localId;
     const revisionCount = item.revisionNumber || 1;
     const isAmended = revisionCount > 1;
+    const stages = deriveSubmissionStages(item.rawRecord || item);
+    const isBankPending = stages.approvalState === 'approved' && stages.bankWorkflow === 'pending';
 
     return (
       <div
@@ -1320,6 +1361,23 @@ function SyncCentreContent() {
                 {submittedCount}
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('bank_pending')}
+              className={`px-3 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                activeTab === 'bank_pending'
+                  ? 'bg-amber-100 text-amber-950 border border-amber-300 shadow-2xs font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-transparent'
+              }`}
+            >
+              <span className="truncate">Approved — Bank Details Pending</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                bankPendingItems.length > 0 ? 'bg-amber-200 text-amber-950 border border-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
+              }`}>
+                {bankPendingItems.length}
+              </span>
+            </button>
           </div>
 
 
@@ -1427,6 +1485,8 @@ function SyncCentreContent() {
                   ? 'No surveys match your search or date filter'
                   : activeTab === 'outbox'
                   ? 'All records have been sent to the server. No pending items on this device.'
+                  : activeTab === 'bank_pending'
+                  ? 'No approved records awaiting bank details.'
                   : activeTab === 'synced'
                   ? 'No confirmed server records found.'
                   : 'No submitted surveys yet'}
@@ -1491,6 +1551,28 @@ function SyncCentreContent() {
             handleEditSubmission(item);
           }}
         />
+      )}
+
+      {bankTargetItem && (
+        <BankDetailsEntryModal
+          isOpen={true}
+          submission={bankTargetItem}
+          onClose={() => setBankTargetItem(null)}
+          onSuccess={async () => {
+            setBankTargetItem(null);
+            setBankSuccessToast('Bank details updated successfully.');
+            setTimeout(() => setBankSuccessToast(null), 4000);
+            await refreshServer();
+            await loadLocalData();
+          }}
+        />
+      )}
+
+      {bankSuccessToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-700 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{bankSuccessToast}</span>
+        </div>
       )}
     </AppShell>
   );
