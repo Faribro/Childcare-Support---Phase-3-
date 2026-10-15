@@ -1,45 +1,132 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Apple, GraduationCap, Users2, HeartHandshake, Check, Sparkles } from 'lucide-react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { Apple, GraduationCap, Users2, HeartHandshake, Check, Sparkles, RotateCcw } from 'lucide-react';
+import motionStyles from './landing-motion.module.css';
 
-export function WholeChildSnapshot() {
-  const sectionRef = useRef<HTMLElement>(null);
-  const [scrollProgress, setScrollProgress] = useState(0);
+/* ──────────────────────────────────────────────────────────────────────────
+   usePathDraw — IntersectionObserver-driven path-draw animation.
+   Fires once on first viewport entry; exposes a replay() function.
+   Uses CSS module class .pathDrawActive added to SVG path elements.
+   ────────────────────────────────────────────────────────────────────────── */
+function usePathDraw(sectionRef: React.RefObject<HTMLElement | null>) {
+  const [hasAnimated, setHasAnimated] = useState(false);
+  const [replayKey, setReplayKey] = useState(0);
 
   useEffect(() => {
-    let ticking = false;
-    const handleScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          if (sectionRef.current) {
-            const rect = sectionRef.current.getBoundingClientRect();
-            const windowHeight = window.innerHeight;
-            const totalDist = rect.height + windowHeight;
-            const currentDist = windowHeight - rect.top;
-            const progress = Math.min(Math.max(currentDist / totalDist, 0), 1);
-            setScrollProgress(progress);
-          }
-          ticking = false;
-        });
-        ticking = true;
+    const el = sectionRef.current;
+    if (!el) return;
+    const paths = el.querySelectorAll<SVGPathElement>('[data-journey-path]');
+    if (paths.length === 0) return;
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    const applyStaticReduced = () => {
+      paths.forEach((p) => {
+        p.classList.remove(motionStyles.pathDrawActive);
+        p.style.strokeDashoffset = '0';
+      });
+    };
+
+    const handleMotionChange = () => {
+      if (mediaQuery.matches) {
+        applyStaticReduced();
       }
     };
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+    if (mediaQuery.matches) {
+      applyStaticReduced();
+      setHasAnimated(true);
+      return;
+    }
 
+    if (typeof IntersectionObserver === 'undefined') {
+      applyStaticReduced();
+      setHasAnimated(true);
+      return;
+    }
+
+    mediaQuery.addEventListener('change', handleMotionChange);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setHasAnimated(true);
+            paths.forEach((p) => {
+              p.style.strokeDashoffset = '';
+              p.classList.add(motionStyles.pathDrawActive);
+            });
+            observer.disconnect();
+          }
+        }
+      },
+      { threshold: 0 }
+    );
+    observer.observe(el);
+
+    return () => {
+      observer.disconnect();
+      mediaQuery.removeEventListener('change', handleMotionChange);
+    };
+  }, [sectionRef, replayKey]);
+
+  const replay = useCallback(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const paths = el.querySelectorAll<SVGPathElement>('[data-journey-path]');
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    if (mediaQuery.matches) {
+      // Respect reduced-motion: do NOT trigger animation; keep fully drawn
+      paths.forEach((p) => {
+        p.classList.remove(motionStyles.pathDrawActive);
+        p.style.strokeDashoffset = '0';
+      });
+      return;
+    }
+
+    // Reset: remove class, force reflow, re-add
+    paths.forEach((p) => {
+      p.classList.remove(motionStyles.pathDrawActive);
+      p.style.strokeDashoffset = 'var(--path-length, 350)';
+      void (p as SVGPathElement & { offsetWidth?: number }).offsetWidth; // reflow
+    });
+    setReplayKey((k) => k + 1);
+    requestAnimationFrame(() => {
+      paths.forEach((p) => p.classList.add(motionStyles.pathDrawActive));
+    });
+  }, [sectionRef]);
+
+  return { hasAnimated, replay };
+}
+
+export function WholeChildSnapshot() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const { hasAnimated, replay } = usePathDraw(sectionRef);
   return (
     <section ref={sectionRef} id="whole-child" aria-labelledby="snapshot-heading" className="relative overflow-hidden">
       {/* ── Section Header (on light warm paper) ── */}
       <div className="py-12 sm:py-16 bg-[#F7F3E9] border-b border-[#E4D8C7]/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA] mb-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
-              Chapter II • The Illustrated Field Storybook
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold font-mono tracking-widest uppercase bg-[#EDE3D2] text-[#63513D] border border-[#D5C2AA]">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-800" />
+                Chapter II • The Illustrated Field Storybook
+              </div>
+              {/* Replay button — visible once animation has fired at least once */}
+              {hasAnimated && (
+                <button
+                  type="button"
+                  onClick={replay}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/40 cursor-pointer"
+                  aria-label="Replay journey animation"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Replay journey
+                </button>
+              )}
             </div>
             <h2
               id="snapshot-heading"
@@ -60,8 +147,7 @@ export function WholeChildSnapshot() {
       ══════════════════════════════════════════════════════════════════ */}
       {/* Horizon 1 Transition: Torn Paper & Gentle Hills from Sky to Terracotta */}
       <div 
-        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#F7F3E9] transition-transform duration-100 ease-out"
-        style={{ transform: `translateY(${scrollProgress * -30}px)` }}
+        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#F7F3E9]"
       >
         <svg
           className="relative block w-full h-12 sm:h-20 text-[#B8553A]"
@@ -93,8 +179,7 @@ export function WholeChildSnapshot() {
             {/* Illustrated Artwork: Caseworker, Child, Measuring Pole & Nutrition Basket */}
             <div className="lg:col-span-6 flex justify-center order-2 lg:order-1">
               <div 
-                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden transition-transform duration-150 ease-out"
-                style={{ transform: `translateY(${scrollProgress * 15}px)` }}
+                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden"
               >
                 {/* Continuous Dotted Journey Trail */}
                 <div className="absolute top-4 left-6 text-white/60 font-mono text-[11px] font-bold tracking-widest uppercase flex items-center gap-2">
@@ -200,15 +285,15 @@ export function WholeChildSnapshot() {
                     <ellipse cx="14" cy="45" rx="11" ry="5" fill="#D97706" />
                   </g>
 
-                  {/* Continuous Journey Dotted Connector Path - Scroll Animated */}
+                  {/* Journey Dotted Connector Path — driven by IntersectionObserver */}
                   <path
                     d="M30,220 Q120,250 200,230 T380,260"
                     stroke="#FEF3C7"
                     strokeWidth="3"
-                    strokeDasharray="10 6"
-                    strokeDashoffset={350 * Math.max(0, 1 - Math.min(scrollProgress * 2.8, 1))}
                     fill="none"
-                    className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
+                    data-journey-path
+                    className={motionStyles.journeyPath}
+                    style={{ '--path-length': '350' } as React.CSSProperties}
                   />
                 </svg>
               </div>
@@ -273,8 +358,7 @@ export function WholeChildSnapshot() {
       ══════════════════════════════════════════════════════════════════ */}
       {/* Horizon 2 Transition: Undulating Layered Meadow Hills from Terracotta to Green */}
       <div 
-        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#B8553A] transition-transform duration-100 ease-out"
-        style={{ transform: `translateY(${(scrollProgress - 0.25) * -35}px)` }}
+        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#B8553A]"
       >
         <svg
           className="relative block w-full h-14 sm:h-24 text-[#235339]"
@@ -305,8 +389,7 @@ export function WholeChildSnapshot() {
             {/* Pinned Schooling Grant Ledger Slip */}
             <div className="lg:col-span-6 order-1">
               <div 
-                className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet transition-transform duration-150 ease-out"
-                style={{ transform: `translateY(${(scrollProgress - 0.25) * 15}px)` }}
+                className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet"
               >
                 {/* Official Circular Stamp: DISTRICT AID MATCHED */}
                 <div className="absolute -top-3.5 right-8 px-3 py-1 rounded-md notebook-stamp text-[10px] font-bold">
@@ -352,8 +435,7 @@ export function WholeChildSnapshot() {
             {/* Illustrated Artwork: Stepping Stones (Class 1–12+), School Satchel, Soaring Kite */}
             <div className="lg:col-span-6 flex justify-center order-2">
               <div 
-                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden transition-transform duration-150 ease-out"
-                style={{ transform: `translateY(${(scrollProgress - 0.25) * 15}px)` }}
+                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden"
               >
                 <div className="absolute top-4 left-6 text-emerald-200 font-mono text-[11px] font-bold tracking-widest uppercase flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-300 animate-pulse" />
@@ -410,9 +492,8 @@ export function WholeChildSnapshot() {
                   </g>
 
                   {/* Flying Saffron & Teal Kite Soaring into the Sky Traversing Meadow */}
-                  <g 
-                    className="motion-safe:animate-kite-soar origin-center transition-transform duration-100 ease-out" 
-                    style={{ transform: `translate(${210 + (scrollProgress - 0.25) * 80}px, ${20 - (scrollProgress - 0.25) * 45}px)` }}
+                  <g
+                    className="motion-safe:animate-kite-soar origin-center"
                   >
                     {/* Diamond Kite Body */}
                     <polygon points="40,0 80,40 40,80 0,40" fill="#F97316" stroke="#EA580C" strokeWidth="1.5" />
@@ -427,15 +508,15 @@ export function WholeChildSnapshot() {
                     <polygon points="38,150 32,145 32,155" fill="#10B981" />
                   </g>
 
-                  {/* Connecting Dotted Trail - Scroll Animated */}
+                  {/* Journey Dotted Trail — driven by IntersectionObserver */}
                   <path
                     d="M10,250 Q120,240 200,210 T380,170"
                     stroke="#86EFAC"
                     strokeWidth="2.5"
-                    strokeDasharray="10 6"
-                    strokeDashoffset={350 * Math.max(0, 1 - Math.min(Math.max((scrollProgress - 0.25) * 2.8, 0), 1))}
                     fill="none"
-                    className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
+                    data-journey-path
+                    className={motionStyles.journeyPath}
+                    style={{ '--path-length': '350' } as React.CSSProperties}
                   />
                 </svg>
               </div>
@@ -449,8 +530,7 @@ export function WholeChildSnapshot() {
       ══════════════════════════════════════════════════════════════════ */}
       {/* Horizon 3 Transition: Rolling Ridge from Meadow Green to Marigold */}
       <div 
-        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#235339] transition-transform duration-100 ease-out"
-        style={{ transform: `translateY(${(scrollProgress - 0.5) * -35}px)` }}
+        className="w-full overflow-hidden leading-none relative z-10 -mb-1 bg-[#235339]"
       >
         <svg
           className="relative block w-full h-14 sm:h-24 text-[#C67E20]"
@@ -481,8 +561,7 @@ export function WholeChildSnapshot() {
             {/* Illustrated Artwork: Village Home, Protective Shield & Offline-to-Cloud Sync Waves */}
             <div className="lg:col-span-6 flex justify-center order-2 lg:order-1">
               <div 
-                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden transition-transform duration-150 ease-out"
-                style={{ transform: `translateY(${(scrollProgress - 0.5) * 15}px)` }}
+                className="relative w-full max-w-[440px] rounded-3xl p-4 sm:p-6 bg-white/10 backdrop-blur-xs border border-white/20 shadow-xl overflow-hidden"
               >
                 <div className="absolute top-4 left-6 text-amber-100 font-mono text-[11px] font-bold tracking-widest uppercase flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
@@ -553,15 +632,15 @@ export function WholeChildSnapshot() {
                     </g>
                   </g>
 
-                  {/* Completed Continuous Journey Dotted Trail - Scroll Animated */}
+                  {/* Journey Dotted Trail — driven by IntersectionObserver */}
                   <path
                     d="M10,240 Q100,220 200,230 T390,220"
                     stroke="#FEF3C7"
                     strokeWidth="3"
-                    strokeDasharray="10 6"
-                    strokeDashoffset={350 * Math.max(0, 1 - Math.min(Math.max((scrollProgress - 0.5) * 2.8, 0), 1))}
                     fill="none"
-                    className="support-path-draw transition-[stroke-dashoffset] duration-150 ease-out"
+                    data-journey-path
+                    className={motionStyles.journeyPath}
+                    style={{ '--path-length': '350' } as React.CSSProperties}
                   />
                 </svg>
               </div>
@@ -570,8 +649,7 @@ export function WholeChildSnapshot() {
             {/* Pinned Family Accord Slip */}
             <div className="lg:col-span-6 order-1 lg:order-2">
               <div 
-                className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet transition-transform duration-150 ease-out"
-                style={{ transform: `translateY(${(scrollProgress - 0.5) * 15}px)` }}
+                className="relative p-6 sm:p-8 rounded-2xl bg-[#FCFAF6] text-slate-900 border border-[#D5C2AA] shadow-xl notebook-paper-sheet"
               >
                 {/* Washi Tape Accent */}
                 <div
