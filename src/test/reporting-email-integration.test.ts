@@ -11,6 +11,7 @@ import {
   deliverReportingEmail,
   executeAuthorizedReportingQuery,
   MockReportingEmailTransport,
+  PersistentFileIdempotencyStore,
   MAX_ATTACHMENT_BYTES,
 } from '@/lib/server/reportingEmailDelivery';
 import type {
@@ -641,6 +642,71 @@ describe('Reporting Email & Data Integration Suite', () => {
       expect(parsed.code).toBe('RATE_LIMIT_EXCEEDED');
       expect(parsed.remainingDailyQuota).toBe(0);
       expect(mockMailAppSent.length).toBe(0);
+    });
+  });
+
+  describe('6. Persistent File Idempotency Store Verification', () => {
+    const testFilePath = path.join(process.cwd(), '.cache', 'test-idempotency-reporting.json');
+
+    beforeEach(async () => {
+      try {
+        if (fs.existsSync(testFilePath)) {
+          fs.unlinkSync(testFilePath);
+        }
+      } catch {}
+    });
+
+    it('persists and reloads idempotency records across simulated process restarts', async () => {
+      const store1 = new PersistentFileIdempotencyStore({ filePath: testFilePath });
+      const record = {
+        idempotencyKey: 'proc-restart-key-1',
+        messageId: 'msg-restart-1',
+        recipientEmail: 'reporting-lead@allianceindia.org',
+        reportType: 'JUNE_ORPHAN_GOV_SCHOOL_SURVEILLANCE',
+        acceptedAt: new Date().toISOString(),
+        status: 'DRY_RUN_ACCEPTED' as const,
+        dryRun: true,
+      };
+
+      await store1.record(record);
+      expect(await store1.has('proc-restart-key-1')).toBe(true);
+
+      // Verify file exists on disk
+      expect(fs.existsSync(testFilePath)).toBe(true);
+
+      // Simulate process restart by instantiating a new store instance pointing to the same file
+      const store2 = new PersistentFileIdempotencyStore({ filePath: testFilePath });
+      const reloaded = await store2.get('proc-restart-key-1');
+      expect(reloaded).toBeDefined();
+      expect(reloaded?.messageId).toBe('msg-restart-1');
+      expect(reloaded?.recipientEmail).toBe('reporting-lead@allianceindia.org');
+
+      // Clean up
+      await store2.clear();
+      expect(await store2.has('proc-restart-key-1')).toBe(false);
+      expect(fs.existsSync(testFilePath)).toBe(false);
+    });
+
+    it('automatically purges records older than TTL', async () => {
+      const store = new PersistentFileIdempotencyStore({
+        filePath: testFilePath,
+        ttlMs: 50, // 50ms TTL for test
+      });
+
+      await store.record({
+        idempotencyKey: 'short-lived-key',
+        messageId: 'msg-ttl-1',
+        recipientEmail: 'reporting-lead@allianceindia.org',
+        reportType: 'JUNE_ORPHAN_GOV_SCHOOL_SURVEILLANCE',
+        acceptedAt: new Date(Date.now() - 100).toISOString(), // Expired 100ms ago
+        status: 'DRY_RUN_ACCEPTED' as const,
+        dryRun: true,
+      });
+
+      // Should be expired upon retrieval
+      const record = await store.get('short-lived-key');
+      expect(record).toBeUndefined();
+      expect(await store.has('short-lived-key')).toBe(false);
     });
   });
 });

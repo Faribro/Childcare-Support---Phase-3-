@@ -363,7 +363,89 @@ export class InMemoryIdempotencyTracker implements IdempotencyStore {
   }
 }
 
-export const GlobalIdempotencyTracker = new InMemoryIdempotencyTracker();
+export class PersistentFileIdempotencyStore implements IdempotencyStore {
+  private inMemory = new Map<string, IdempotencyRecord>();
+  private readonly filePath: string;
+  private readonly ttlMs: number;
+
+  constructor(options?: { filePath?: string; ttlMs?: number }) {
+    this.ttlMs = options?.ttlMs ?? 24 * 60 * 60 * 1000;
+    this.filePath = options?.filePath || path.join(process.cwd(), '.cache', 'reporting_idempotency.json');
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk(): void {
+    try {
+      if (fs.existsSync(this.filePath)) {
+        const raw = fs.readFileSync(this.filePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const now = Date.now();
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && item.idempotencyKey && item.acceptedAt) {
+              const age = now - new Date(item.acceptedAt).getTime();
+              if (age < this.ttlMs) {
+                this.inMemory.set(item.idempotencyKey, item);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Fallback silently to memory
+    }
+  }
+
+  private flushToDisk(): void {
+    try {
+      const dir = path.dirname(this.filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const records = Array.from(this.inMemory.values());
+      fs.writeFileSync(this.filePath, JSON.stringify(records, null, 2), 'utf-8');
+    } catch {
+      // Ignore disk write errors on read-only runtimes
+    }
+  }
+
+  async get(key: string): Promise<IdempotencyRecord | undefined> {
+    const item = this.inMemory.get(key);
+    if (!item) return undefined;
+    const age = Date.now() - new Date(item.acceptedAt).getTime();
+    if (age >= this.ttlMs) {
+      this.inMemory.delete(key);
+      this.flushToDisk();
+      return undefined;
+    }
+    return item;
+  }
+
+  async record(entry: IdempotencyRecord): Promise<void> {
+    this.inMemory.set(entry.idempotencyKey, entry);
+    this.flushToDisk();
+  }
+
+  async has(key: string): Promise<boolean> {
+    const item = await this.get(key);
+    return item !== undefined;
+  }
+
+  async clear(): Promise<void> {
+    this.inMemory.clear();
+    try {
+      if (fs.existsSync(this.filePath)) {
+        fs.unlinkSync(this.filePath);
+      }
+    } catch {}
+  }
+
+  async size(): Promise<number> {
+    return this.inMemory.size;
+  }
+}
+
+export const GlobalIdempotencyTracker: IdempotencyStore = new PersistentFileIdempotencyStore();
 
 /**
  * Delivery Transport Interface
@@ -441,7 +523,7 @@ export const StagingMockEmailTransport = new MockReportingEmailTransport();
 export async function deliverReportingEmail(
   request: ReportingEmailDeliveryRequest,
   transport: ReportingEmailTransport = StagingMockEmailTransport,
-  tracker: InMemoryIdempotencyTracker = GlobalIdempotencyTracker
+  tracker: IdempotencyStore = GlobalIdempotencyTracker
 ): Promise<ReportingEmailDeliveryResult> {
   const now = new Date().toISOString();
   const maskedEmail = maskEmailAddress(request.recipientEmail);
@@ -461,7 +543,7 @@ export async function deliverReportingEmail(
     };
   }
 
-  const existingDelivery = tracker.get(request.idempotencyKey);
+  const existingDelivery = await tracker.get(request.idempotencyKey);
   if (existingDelivery) {
     return {
       status: 'DUPLICATE_SUPPRESSED',
@@ -511,7 +593,7 @@ export async function deliverReportingEmail(
   // 4. Dry-Run Handling
   if (isDryRun) {
     const dryRunMessageId = `dryrun-msg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    tracker.record({
+    await tracker.record({
       idempotencyKey: request.idempotencyKey,
       messageId: dryRunMessageId,
       recipientEmail: request.recipientEmail,
@@ -565,7 +647,7 @@ export async function deliverReportingEmail(
   const messageId = sendResult.messageId || `msg-gas-${Date.now()}`;
 
   // 6. Record in Idempotency Store
-  tracker.record({
+  await tracker.record({
     idempotencyKey: request.idempotencyKey,
     messageId,
     recipientEmail: request.recipientEmail,
