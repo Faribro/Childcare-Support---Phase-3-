@@ -18,15 +18,33 @@ function sendJson(
   res: http.ServerResponse,
   statusCode: number,
   data: Record<string, unknown>,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
+  req?: http.IncomingMessage
 ): void {
+  if (res.writableEnded || res.destroyed) return;
+
   const body = JSON.stringify(data);
-  res.writeHead(statusCode, {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body).toString(),
     ...NO_CACHE_HEADERS,
     ...extraHeaders,
-  });
+  };
+
+  if (statusCode === 413) {
+    headers['Connection'] = 'close';
+    if (req) {
+      res.on('finish', () => {
+        setImmediate(() => {
+          if (req.socket && !req.socket.destroyed) {
+            req.socket.destroy();
+          }
+        });
+      });
+    }
+  }
+
+  res.writeHead(statusCode, headers);
   res.end(body);
 }
 
@@ -36,6 +54,8 @@ function sendText(
   text: string,
   extraHeaders?: Record<string, string>
 ): void {
+  if (res.writableEnded || res.destroyed) return;
+
   res.writeHead(statusCode, {
     'Content-Type': 'text/plain; charset=utf-8',
     'Content-Length': Buffer.byteLength(text).toString(),
@@ -47,8 +67,14 @@ function sendText(
 
 /**
  * Reads request body stream with a hard byte-count ceiling for Node.js IncomingMessage.
- * If the byte limit is exceeded at any point during streaming, the stream
- * is paused and destroyed to prevent unbounded memory allocation.
+ *
+ * Connection and stream lifecycle:
+ * - Rejects immediately on Content-Length > MAX_RAW_BODY_SIZE (256 KB).
+ * - During streaming, when bytes exceed limit, detaches standard listener and drains
+ *   up to a bounded 64 KB ceiling to prevent immediate socket reset (ECONNRESET)
+ *   while the HTTP 413 response is in flight.
+ * - Destroys socket only after response is finished (via Connection: close + finish listener).
+ * - Does not perform unbounded buffering or unbounded draining.
  */
 export function readBoundedStream(
   req: http.IncomingMessage,
@@ -99,6 +125,7 @@ export function readBoundedStream(
       req.removeListener('data', onData);
       req.removeListener('end', onEnd);
       req.removeListener('error', onError);
+      req.removeListener('close', onClose);
     }
 
     function onData(chunk: Buffer | string) {
@@ -109,9 +136,19 @@ export function readBoundedStream(
         completed = true;
         cleanup();
         req.pause();
-        if (typeof req.destroy === 'function') {
-          req.destroy();
-        }
+
+        // Bounded drain: consume and discard up to 64KB so in-flight chunks do not reset TCP before 413 is sent
+        let drained = 0;
+        const MAX_DRAIN = 64 * 1024;
+        const drainListener = (drainChunk: Buffer | string) => {
+          drained += Buffer.byteLength(drainChunk);
+          if (drained > MAX_DRAIN) {
+            req.removeListener('data', drainListener);
+            req.pause();
+          }
+        };
+        req.on('data', drainListener);
+
         return resolve({
           success: false,
           statusCode: 413,
@@ -141,9 +178,22 @@ export function readBoundedStream(
       });
     }
 
+    function onClose() {
+      if (completed) return;
+      completed = true;
+      cleanup();
+      resolve({
+        success: false,
+        statusCode: 400,
+        code: 'CLIENT_ABORTED',
+        message: 'Client closed request prematurely.',
+      });
+    }
+
     req.on('data', onData);
     req.on('end', onEnd);
     req.on('error', onError);
+    req.on('close', onClose);
   });
 }
 
@@ -203,11 +253,17 @@ async function handlePost(
   // 1. Read bounded raw request bytes
   const bodyReadResult = await readBoundedStream(req, MAX_RAW_BODY_SIZE);
   if (!bodyReadResult.success) {
-    return sendJson(res, bodyReadResult.statusCode, {
-      status: 'error',
-      code: bodyReadResult.code,
-      message: bodyReadResult.message,
-    });
+    return sendJson(
+      res,
+      bodyReadResult.statusCode,
+      {
+        status: 'error',
+        code: bodyReadResult.code,
+        message: bodyReadResult.message,
+      },
+      undefined,
+      req
+    );
   }
 
   const rawBuffer = bodyReadResult.buffer;

@@ -93,16 +93,34 @@ module.exports.createCatalystWebhookHandler = exports.createCatalystWebhookHandl
 
 transpileFile('catalystWebhookAdapter.ts', 'index.js', (code) => code + '\n' + runtimeWrapper);
 
-// 5. Generate root catalyst.json
-const catalystJsonContent = {
-  functions: {
-    targets: ['whatsapp_webhook'],
-    ignore: ['node_modules', '.git', '*.log', '.next', 'dist', 'coverage'],
-    source: 'functions',
-  },
-};
+// 5. Non-destructive update of root catalyst.json (preserves unrelated configuration)
+let catalystJsonContent = {};
+if (fs.existsSync(catalystJsonPath)) {
+  try {
+    catalystJsonContent = JSON.parse(fs.readFileSync(catalystJsonPath, 'utf8'));
+  } catch {
+    catalystJsonContent = {};
+  }
+}
+
+catalystJsonContent.functions = catalystJsonContent.functions || {};
+catalystJsonContent.functions.source = catalystJsonContent.functions.source || 'functions';
+const existingTargets = Array.isArray(catalystJsonContent.functions.targets)
+  ? catalystJsonContent.functions.targets
+  : [];
+if (!existingTargets.includes('whatsapp_webhook')) {
+  catalystJsonContent.functions.targets = [...existingTargets, 'whatsapp_webhook'];
+}
+catalystJsonContent.functions.ignore = catalystJsonContent.functions.ignore || [
+  'node_modules',
+  '.git',
+  '*.log',
+  '.next',
+  'dist',
+  'coverage',
+];
 fs.writeFileSync(catalystJsonPath, JSON.stringify(catalystJsonContent, null, 2) + '\n', 'utf8');
-console.log('[PACKAGE-CATALYST] Generated catalyst.json at repo root');
+console.log('[PACKAGE-CATALYST] Updated catalyst.json at repo root (preserved unrelated configuration)');
 
 // 6. Generate function catalyst-config.json
 const catalystConfigContent = {

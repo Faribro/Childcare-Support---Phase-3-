@@ -3,6 +3,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
+import http from 'http';
+import fs from 'fs';
+import os from 'os';
+import { execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
 import { createRequire } from 'module';
@@ -45,6 +49,7 @@ class MockIncomingMessage extends EventEmitter {
     for (const [k, v] of Object.entries(options.headers || {})) {
       this.headers[k.toLowerCase()] = v;
     }
+    (this as any).socket = this;
   }
 
   pause() {
@@ -358,7 +363,7 @@ describe('Zoho Catalyst Advanced I/O Webhook Adapter', () => {
 
       expect(response.statusCode).toBe(413);
       expect(response.json?.code).toBe('PAYLOAD_TOO_LARGE');
-      expect(req.destroyed).toBe(true);
+      expect(req.paused).toBe(true);
     });
 
     it('accepts body within 256 KB limit', async () => {
@@ -644,6 +649,328 @@ describe('Zoho Catalyst Advanced I/O Webhook Adapter', () => {
       expect(postResponse.statusCode).toBe(200);
       expect(postResponse.json?.status).toBe('ok');
       expect(postResponse.json?.messagesProcessed).toBe(1);
+    });
+  });
+
+  describe('9. Real HTTP Server & Client Overflow Tests (Ephemeral Port 127.0.0.1)', () => {
+    let server: http.Server;
+    let port: number;
+
+    beforeEach(async () => {
+      const packagedModulePath = path.resolve(
+        __dirname,
+        '../../functions/whatsapp_webhook/index.js'
+      );
+      delete require.cache[packagedModulePath];
+      const packagedModule = require(packagedModulePath);
+      const handler =
+        typeof packagedModule === 'function'
+          ? packagedModule
+          : packagedModule.catalystWebhookHandler;
+
+      server = http.createServer((req, res) => {
+        handler(req, res);
+      });
+
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', () => {
+          port = (server.address() as any).port;
+          resolve();
+        });
+      });
+    });
+
+    afterEach(async () => {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    });
+
+    it('client observes HTTP 413 when Content-Length exceeds 256 KB', async () => {
+      const response = await new Promise<{ statusCode: number; json?: any; error?: string }>((resolve) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/',
+            headers: {
+              'content-length': (MAX_RAW_BODY_SIZE + 100).toString(),
+              'x-hub-signature-256': 'sha256=abcdef',
+            },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => {
+              try {
+                resolve({ statusCode: res.statusCode || 0, json: JSON.parse(data) });
+              } catch {
+                resolve({ statusCode: res.statusCode || 0 });
+              }
+            });
+          }
+        );
+        req.on('error', (err) => resolve({ statusCode: 0, error: err.message }));
+        req.write(Buffer.alloc(100, 'x'));
+        req.end();
+      });
+
+      expect(response.statusCode).toBe(413);
+      expect(response.json?.code).toBe('PAYLOAD_TOO_LARGE');
+      expect(response.json?.message).toBe('Request payload exceeds maximum allowed size.');
+    });
+
+    it('client observes HTTP 413 when chunked body crosses 256 KB without premature ECONNRESET', async () => {
+      const response = await new Promise<{ statusCode: number; json?: any; error?: string }>((resolve) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/',
+            headers: {
+              'transfer-encoding': 'chunked',
+              'x-hub-signature-256': 'sha256=abcdef',
+            },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => {
+              try {
+                resolve({ statusCode: res.statusCode || 0, json: JSON.parse(data) });
+              } catch {
+                resolve({ statusCode: res.statusCode || 0 });
+              }
+            });
+          }
+        );
+        req.on('error', (err) => resolve({ statusCode: 0, error: err.message }));
+
+        // Send two chunks: total 300 KB > 256 KB
+        req.write(Buffer.alloc(150 * 1024, 'a'));
+        setTimeout(() => {
+          req.write(Buffer.alloc(150 * 1024, 'b'));
+          req.end();
+        }, 10);
+      });
+
+      expect(response.statusCode).toBe(413);
+      expect(response.json?.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('accepts exactly-at-limit (262,144 bytes) payload and returns 200 with valid signature', async () => {
+      const rawJson = JSON.stringify(SYNTHETIC_MESSAGE_PAYLOAD);
+      const exactBuf = Buffer.alloc(MAX_RAW_BODY_SIZE);
+      const rawBytes = Buffer.from(rawJson, 'utf-8');
+      rawBytes.copy(exactBuf, 0);
+      exactBuf.fill(0x20, rawBytes.length); // valid JSON trailing whitespace
+
+      const sig = computeSignature(exactBuf, TEST_APP_SECRET);
+
+      const response = await new Promise<{ statusCode: number; json?: any; error?: string }>((resolve) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/',
+            headers: {
+              'content-length': exactBuf.length.toString(),
+              'x-hub-signature-256': sig,
+            },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => {
+              try {
+                resolve({ statusCode: res.statusCode || 0, json: JSON.parse(data) });
+              } catch {
+                resolve({ statusCode: res.statusCode || 0 });
+              }
+            });
+          }
+        );
+        req.on('error', (err) => resolve({ statusCode: 0, error: err.message }));
+        req.end(exactBuf);
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json?.status).toBe('ok');
+    });
+
+    it('rejects just-over-limit (262,145 bytes) payload with HTTP 413', async () => {
+      const overLimitBuf = Buffer.alloc(MAX_RAW_BODY_SIZE + 1, 'a');
+      const sig = computeSignature(overLimitBuf, TEST_APP_SECRET);
+
+      const response = await new Promise<{ statusCode: number; json?: any; error?: string }>((resolve) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/',
+            headers: {
+              'content-length': overLimitBuf.length.toString(),
+              'x-hub-signature-256': sig,
+            },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => {
+              try {
+                resolve({ statusCode: res.statusCode || 0, json: JSON.parse(data) });
+              } catch {
+                resolve({ statusCode: res.statusCode || 0 });
+              }
+            });
+          }
+        );
+        req.on('error', (err) => resolve({ statusCode: 0, error: err.message }));
+        req.end(overLimitBuf);
+      });
+
+      expect(response.statusCode).toBe(413);
+      expect(response.json?.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('handles client abort during upload gracefully without crashing server', async () => {
+      const abortPromise = new Promise<{ aborted: boolean }>((resolve) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/',
+            headers: {
+              'transfer-encoding': 'chunked',
+            },
+          },
+          () => {}
+        );
+        req.on('error', () => {
+          resolve({ aborted: true });
+        });
+        req.write(Buffer.alloc(1024, 'a'));
+        setTimeout(() => {
+          req.destroy();
+        }, 10);
+      });
+
+      const abortResult = await abortPromise;
+      expect(abortResult.aborted).toBe(true);
+
+      // Verify server remains healthy and usable for subsequent requests
+      const followUpResponse = await new Promise<{ statusCode: number; body: string }>((resolve) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'GET',
+            path: `/?hub.mode=subscribe&hub.verify_token=${TEST_VERIFY_TOKEN}&hub.challenge=server_healthy`,
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data }));
+          }
+        );
+        req.end();
+      });
+
+      expect(followUpResponse.statusCode).toBe(200);
+      expect(followUpResponse.body).toBe('server_healthy');
+    });
+  });
+
+  describe('10. Packaging Reproducibility, Deterministic Hashes & Isolated Execution', () => {
+    it('produces identical file lists and deterministic SHA256 hashes across consecutive packaging runs', () => {
+      const scriptPath = path.resolve(__dirname, '../../scripts/package-catalyst-adapter.mjs');
+      const functionDir = path.resolve(__dirname, '../../functions/whatsapp_webhook');
+
+      // First run
+      execSync(`node "${scriptPath}"`, { stdio: 'pipe' });
+      const files1 = fs.readdirSync(functionDir).sort();
+      const hashes1 = files1.map((f) => {
+        const content = fs.readFileSync(path.join(functionDir, f));
+        return { file: f, hash: crypto.createHash('sha256').update(content).digest('hex') };
+      });
+
+      // Second run
+      execSync(`node "${scriptPath}"`, { stdio: 'pipe' });
+      const files2 = fs.readdirSync(functionDir).sort();
+      const hashes2 = files2.map((f) => {
+        const content = fs.readFileSync(path.join(functionDir, f));
+        return { file: f, hash: crypto.createHash('sha256').update(content).digest('hex') };
+      });
+
+      expect(files1).toEqual(files2);
+      expect(hashes1).toEqual(hashes2);
+    });
+
+    it('loads and runs successfully from an isolated temporary directory without source-tree imports or symlinks', () => {
+      const functionDir = path.resolve(__dirname, '../../functions/whatsapp_webhook');
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catalyst-isolated-test-'));
+
+      try {
+        // Copy only the functions/whatsapp_webhook directory into temp
+        for (const file of fs.readdirSync(functionDir)) {
+          fs.copyFileSync(path.join(functionDir, file), path.join(tempDir, file));
+        }
+
+        // Verify that requiring index.js in isolated temp directory works completely standalone
+        const isolatedEntryPath = path.join(tempDir, 'index.js');
+        const isolatedModule = require(isolatedEntryPath);
+        const handler =
+          typeof isolatedModule === 'function'
+            ? isolatedModule
+            : isolatedModule.catalystWebhookHandler;
+
+        expect(typeof handler).toBe('function');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('preserves unrelated root catalyst.json configuration during packaging regeneration', () => {
+      const catalystJsonPath = path.resolve(__dirname, '../../catalyst.json');
+      const originalContent = JSON.parse(fs.readFileSync(catalystJsonPath, 'utf8'));
+
+      // Inject custom unrelated key into catalyst.json
+      const modifiedContent = {
+        ...originalContent,
+        customUnrelatedService: { enabled: true, endpoint: 'https://example.org' },
+        functions: {
+          ...originalContent.functions,
+          targets: [...(originalContent.functions?.targets || []), 'existing_unrelated_function'],
+        },
+      };
+      fs.writeFileSync(catalystJsonPath, JSON.stringify(modifiedContent, null, 2), 'utf8');
+
+      // Run packaging script
+      const scriptPath = path.resolve(__dirname, '../../scripts/package-catalyst-adapter.mjs');
+      execSync(`node "${scriptPath}"`, { stdio: 'pipe' });
+
+      // Verify that custom keys were preserved
+      const regeneratedContent = JSON.parse(fs.readFileSync(catalystJsonPath, 'utf8'));
+      expect(regeneratedContent.customUnrelatedService).toEqual({
+        enabled: true,
+        endpoint: 'https://example.org',
+      });
+      expect(regeneratedContent.functions.targets).toContain('existing_unrelated_function');
+      expect(regeneratedContent.functions.targets).toContain('whatsapp_webhook');
+
+      // Restore clean catalyst.json
+      delete regeneratedContent.customUnrelatedService;
+      regeneratedContent.functions.targets = ['whatsapp_webhook'];
+      fs.writeFileSync(
+        catalystJsonPath,
+        JSON.stringify(regeneratedContent, null, 2) + '\n',
+        'utf8'
+      );
     });
   });
 });
