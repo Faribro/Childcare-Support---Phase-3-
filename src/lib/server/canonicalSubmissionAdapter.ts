@@ -598,15 +598,12 @@ export function validateUpstreamEndpoint(
 
 class CanonicalSubmissionAdapterService {
   public getAppsScriptUrl(): string | undefined {
-    const isStaging = (process.env.APP_ENV === 'staging' || process.env.NEXT_PUBLIC_APP_ENV === 'staging');
     return (
       process.env.APPS_SCRIPT_URL ||
       process.env.APPS_SCRIPT_WEBAPP_URL ||
       process.env.APPS_SCRIPT_WEBHOOK_URL ||
       process.env.STAGING_APPS_SCRIPT_URL ||
-      (process.env.RENDER === 'true' && !isStaging
-        ? 'https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec'
-        : undefined)
+      undefined
     );
   }
 

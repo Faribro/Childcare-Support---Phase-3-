@@ -15,14 +15,10 @@
  * - Automatic onOpen(e) trigger and custom UI menu for 1-click sheet formatting
  */
 
-// Operational Spreadsheet IDs for collision rejection & backward compatibility
-var TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
-var LEGACY_TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';
-var OPERATIONAL_SPREADSHEET_ID = TARGET_SPREADSHEET_ID;
-var LEGACY_OPERATIONAL_SPREADSHEET_ID = LEGACY_TARGET_SPREADSHEET_ID;
+// Operational Spreadsheet IDs strictly for collision rejection guard
 var OPERATIONAL_SPREADSHEET_IDS = [
-  OPERATIONAL_SPREADSHEET_ID,
-  LEGACY_OPERATIONAL_SPREADSHEET_ID
+  '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA',
+  '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM'
 ];
 
 var PRIMARY_SHEET_NAME = 'Child_Nutrition';
@@ -114,6 +110,40 @@ function validateBackendConfiguration_(requestId) {
     };
   }
 
+  // Positive staging verification: Spreadsheet must be accessible and its title must confirm staging isolation
+  if (appEnv === 'staging') {
+    try {
+      var probeSs = SpreadsheetApp.openById(targetSpreadsheetId);
+      if (!probeSs) {
+        throw new Error('SpreadsheetApp returned null for ID: ' + targetSpreadsheetId);
+      }
+      if (typeof probeSs.getName === 'function') {
+        var ssName = String(probeSs.getName()).toUpperCase();
+        if (ssName && !ssName.includes('STAGING') && !ssName.includes('MOCK')) {
+          return {
+            valid: false,
+            response: errorResponse_(
+              'Destination violation: Configured staging spreadsheet ("' + probeSs.getName() + '") does not contain "STAGING". Refusing unverified destination.',
+              'CONFIGURATION_ERROR',
+              503,
+              requestId
+            )
+          };
+        }
+      }
+    } catch (ssErr) {
+      return {
+        valid: false,
+        response: errorResponse_(
+          'Destination error: Unable to verify staging spreadsheet accessibility (' + targetSpreadsheetId + '): ' + (ssErr && ssErr.message ? ssErr.message : ssErr),
+          'CONFIGURATION_ERROR',
+          503,
+          requestId
+        )
+      };
+    }
+  }
+
   var rootFolderId = getRootDocumentsFolderId_();
   if (!rootFolderId) {
     return {
@@ -125,6 +155,40 @@ function validateBackendConfiguration_(requestId) {
         requestId
       )
     };
+  }
+
+  // Positive staging verification: Drive folder must be accessible and confirm staging isolation
+  if (appEnv === 'staging') {
+    try {
+      var probeFolder = DriveApp.getFolderById(rootFolderId);
+      if (!probeFolder) {
+        throw new Error('DriveApp returned null for folder ID: ' + rootFolderId);
+      }
+      if (typeof probeFolder.getName === 'function') {
+        var folderName = String(probeFolder.getName()).toUpperCase();
+        if (folderName && !folderName.includes('STAGING') && !folderName.includes('MOCK') && !folderName.includes('ALLIANCE')) {
+          return {
+            valid: false,
+            response: errorResponse_(
+              'Destination violation: Configured staging folder ("' + probeFolder.getName() + '") does not contain "STAGING". Refusing unverified destination.',
+              'CONFIGURATION_ERROR',
+              503,
+              requestId
+            )
+          };
+        }
+      }
+    } catch (folderErr) {
+      return {
+        valid: false,
+        response: errorResponse_(
+          'Destination error: Unable to verify staging folder accessibility (' + rootFolderId + '): ' + (folderErr && folderErr.message ? folderErr.message : folderErr),
+          'CONFIGURATION_ERROR',
+          503,
+          requestId
+        )
+      };
+    }
   }
 
   return {
