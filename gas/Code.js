@@ -511,6 +511,20 @@ function doPost(e) {
       ).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // One-time initialization of WEBHOOK_SECRET (strictly allowed only when unconfigured)
+    if (action === 'bootstrapSecret') {
+      var currentSecret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
+      if (currentSecret) {
+        return errorResponse_('Secret already configured and locked.', 'UNAUTHORIZED', 401, requestId);
+      }
+      var newSecret = payload.secret;
+      if (!newSecret || typeof newSecret !== 'string' || newSecret.length < 32) {
+        return errorResponse_('Secret must be at least 32 characters.', 'VALIDATION_ERROR', 400, requestId);
+      }
+      PropertiesService.getScriptProperties().setProperty('WEBHOOK_SECRET', newSecret);
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'WEBHOOK_SECRET locked successfully.' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Enforce fail-closed webhook secret verification on all protected actions
     var auth = requireWebhookSecret_(payload, action, requestId);
     if (!auth.authorized) {
