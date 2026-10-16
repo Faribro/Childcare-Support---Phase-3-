@@ -414,7 +414,10 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await canonicalSubmissionAdapter.createSubmission({
-      payload: validation.data,
+      payload: {
+        ...validation.data,
+        approvedAllianceIndia: 'Pending',
+      },
       idempotencyKey,
       requestId,
     });
