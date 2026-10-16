@@ -1,9 +1,15 @@
 /**
  * Draft Repository for Offline Assessment Autosave & Lifecycle Management
+ *
+ * Implements:
+ * - Transparent dual-runtime routing:
+ *   - Native Android: SQLite via platformRegistry.getStorage()
+ *   - Web / Browser PWA: Dexie IndexedDB
  */
 
 import { db } from './dexieDb';
 import type { AssessmentRecord } from '@/types/domain';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
 
 function notifyDraftChanged(): void {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -20,6 +26,12 @@ export async function saveDraft(
     updatedAt?: string;
   }
 ): Promise<number> {
+  if (platformRegistry.getTarget() === 'android') {
+    const id = await platformRegistry.getStorage().saveDraft(draft as any);
+    notifyDraftChanged();
+    return id;
+  }
+
   const now = new Date().toISOString();
   const clientSubmissionId = draft.clientSubmissionId || draft.uuid;
   const version = draft.version || 1;
@@ -62,14 +74,32 @@ export async function saveDraft(
 }
 
 export async function getDraftById(id: number): Promise<AssessmentRecord | undefined> {
+  if (platformRegistry.getTarget() === 'android') {
+    const drafts = await platformRegistry.getStorage().getAllDrafts();
+    return drafts.find((d) => d.id === id);
+  }
   return db.drafts.get(id);
 }
 
 export async function getDraftByUuid(uuid: string): Promise<AssessmentRecord | undefined> {
+  if (platformRegistry.getTarget() === 'android') {
+    return platformRegistry.getStorage().getDraftByUuid(uuid);
+  }
   return db.drafts.where('uuid').equals(uuid).first();
 }
 
 export async function getDraftByAnyId(idOrUuid: string | number): Promise<AssessmentRecord | undefined> {
+  if (platformRegistry.getTarget() === 'android') {
+    const drafts = await platformRegistry.getStorage().getAllDrafts();
+    const str = String(idOrUuid);
+    return drafts.find(
+      (d) =>
+        d.id === Number(idOrUuid) ||
+        d.uuid === str ||
+        d.clientSubmissionId === str ||
+        d.remoteSubmissionId === str
+    );
+  }
   if (typeof idOrUuid === 'number' || /^\d+$/.test(String(idOrUuid))) {
     const byId = await db.drafts.get(Number(idOrUuid));
     if (byId) return byId;
@@ -85,6 +115,10 @@ export async function getDraftByAnyId(idOrUuid: string | number): Promise<Assess
 }
 
 export async function getLatestDraft(): Promise<AssessmentRecord | undefined> {
+  if (platformRegistry.getTarget() === 'android') {
+    const drafts = await platformRegistry.getStorage().getAllDrafts();
+    return drafts[0];
+  }
   return db.drafts
     .where('syncStatus')
     .equals('draft')
@@ -94,6 +128,10 @@ export async function getLatestDraft(): Promise<AssessmentRecord | undefined> {
 }
 
 export async function getDraftsCount(): Promise<number> {
+  if (platformRegistry.getTarget() === 'android') {
+    const drafts = await platformRegistry.getStorage().getAllDrafts();
+    return drafts.length;
+  }
   return db.drafts
     .where('syncStatus')
     .equals('draft')
@@ -101,6 +139,9 @@ export async function getDraftsCount(): Promise<number> {
 }
 
 export async function getAllDrafts(): Promise<AssessmentRecord[]> {
+  if (platformRegistry.getTarget() === 'android') {
+    return platformRegistry.getStorage().getAllDrafts();
+  }
   return db.drafts
     .where('syncStatus')
     .equals('draft')
@@ -109,7 +150,15 @@ export async function getAllDrafts(): Promise<AssessmentRecord[]> {
 }
 
 export async function deleteDraft(id: number): Promise<void> {
+  if (platformRegistry.getTarget() === 'android') {
+    const drafts = await platformRegistry.getStorage().getAllDrafts();
+    const draft = drafts.find((d) => d.id === id);
+    if (draft) {
+      await platformRegistry.getStorage().deleteDraft(draft.uuid);
+    }
+    notifyDraftChanged();
+    return;
+  }
   await db.drafts.delete(id);
   notifyDraftChanged();
 }
-

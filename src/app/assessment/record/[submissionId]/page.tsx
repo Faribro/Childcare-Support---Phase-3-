@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 
 import { db } from '@/lib/db/dexieDb';
+import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { getAllDrafts } from '@/lib/db/draftRepository';
 import { isValidUuidV4 } from '@/features/submission/submissionTypes';
 import { formatCurrentClassDisplay } from '@/lib/constants/educationClasses';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
@@ -79,7 +81,7 @@ export default function RecordDetailPage() {
         let confirmedRemoteId: string | undefined = undefined;
 
         try {
-          const queueItems = await db.syncQueue.toArray();
+          const queueItems = await getAllQueueItems();
           const localQueue = queueItems.find(
             (q) =>
               q.submissionUuid === submissionId ||
@@ -104,7 +106,7 @@ export default function RecordDetailPage() {
 
         if (!localRecord) {
           try {
-            const drafts = await db.drafts.toArray();
+            const drafts = await getAllDrafts();
             const localDraft = drafts.find(
               (d: any) =>
                 d.uuid === submissionId ||

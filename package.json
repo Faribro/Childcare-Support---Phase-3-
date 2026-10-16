@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:native-client": "vite build --config vite.native.config.ts",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -27,6 +28,13 @@
     "sheet:passwords:dry-run": "tsx scripts/admin/setup-passwords-sheet-tab.ts --dry-run"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "8.0.1",
+    "@capacitor-community/sqlite": "8.1.1",
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/network": "8.0.1",
     "@deck.gl/core": "^9.4.0",
     "@deck.gl/layers": "^9.4.0",
     "@deck.gl/react": "^9.4.0",
@@ -51,6 +59,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.3",
     "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^16.0.0",

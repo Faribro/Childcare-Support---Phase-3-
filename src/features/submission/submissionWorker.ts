@@ -93,7 +93,7 @@ export async function processQueue(trigger = 'manual'): Promise<void> {
     }
 
     for (const item of items) {
-      if (!item.id) continue;
+      if (item.id === undefined || item.id === null) continue;
       await processItem(item, trigger);
     }
   } catch (err) {

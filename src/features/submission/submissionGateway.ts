@@ -21,8 +21,50 @@ import {
   type RemoteSubmissionId,
 } from './submissionTypes';
 import { parseServerAcknowledgement } from './submissionMapper';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 const REQUEST_TIMEOUT_MS = 45_000;
+
+interface HttpResponseLike {
+  ok: boolean;
+  status: number;
+  json(): Promise<any>;
+}
+
+async function httpTransport(options: {
+  url: string;
+  method: 'GET' | 'POST' | 'PATCH';
+  headers: Record<string, string>;
+  body?: any;
+  signal?: AbortSignal;
+}): Promise<HttpResponseLike> {
+  if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+    const res = await CapacitorHttp.request({
+      url: options.url,
+      method: options.method,
+      headers: options.headers,
+      data: options.body,
+    });
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      json: async () => (typeof res.data === 'string' ? JSON.parse(res.data) : res.data),
+    };
+  }
+
+  const res = await fetch(options.url, {
+    method: options.method,
+    headers: options.headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
+  });
+  return {
+    ok: res.ok,
+    status: res.status,
+    json: () => res.json(),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // CREATE
@@ -103,17 +145,21 @@ export async function gatewayCreate(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Idempotency-Key': request.createIdempotencyKey,
+    ...platformRegistry.getBypassHeaders(),
   };
   if (request.correlationId) {
     headers['X-Correlation-Id'] = request.correlationId;
   }
 
-  let res: Response;
+  const url = platformRegistry.resolveUrl('/api/submissions');
+
+  let res: HttpResponseLike;
   try {
-    res = await fetch('/api/submissions', {
+    res = await httpTransport({
+      url,
       method: 'POST',
       headers,
-      body: JSON.stringify(request.payload),
+      body: request.payload,
       signal: controller.signal,
     });
   } catch (err: any) {
@@ -235,22 +281,24 @@ export async function gatewayUpdate(
     'Content-Type': 'application/json',
     'Idempotency-Key': `update-${request.remoteSubmissionId}-${request.expectedVersion}`,
     'If-Match': `"${request.expectedVersion}"`,
+    ...platformRegistry.getBypassHeaders(),
   };
   if (request.correlationId) {
     headers['X-Correlation-Id'] = request.correlationId;
   }
 
-  const url = `/api/submissions/${encodeURIComponent(request.remoteSubmissionId)}`;
+  const url = platformRegistry.resolveUrl(`/api/submissions/${encodeURIComponent(request.remoteSubmissionId)}`);
 
-  let res: Response;
+  let res: HttpResponseLike;
   try {
-    res = await fetch(url, {
+    res = await httpTransport({
+      url,
       method: 'PATCH',
       headers,
-      body: JSON.stringify({
+      body: {
         changes: request.changes,
         expectedVersion: request.expectedVersion,
-      }),
+      },
       signal: controller.signal,
     });
   } catch (err: any) {
@@ -336,12 +384,17 @@ export async function lookupByClientSubmissionId(
   const params = new URLSearchParams({ clientSubmissionId });
   if (correlationId) params.set('correlationId', correlationId);
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    ...platformRegistry.getBypassHeaders(),
+  };
   if (correlationId) headers['X-Correlation-Id'] = correlationId;
 
-  let res: Response;
+  const url = platformRegistry.resolveUrl(`/api/submissions?${params.toString()}`);
+
+  let res: HttpResponseLike;
   try {
-    res = await fetch(`/api/submissions?${params.toString()}`, {
+    res = await httpTransport({
+      url,
       method: 'GET',
       headers,
     });

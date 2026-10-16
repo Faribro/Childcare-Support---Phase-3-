@@ -25,13 +25,13 @@ import {
   getQueueStats,
   getQueueItem,
   resetToQueued,
+  convertItemToCreate,
 } from '@/lib/db/syncQueueRepository';
 import {
   buildCreateRequest,
   buildUpdateRequest,
   RequestBuilderError,
 } from '@/lib/sync/requestBuilders';
-import { db } from '@/lib/db/dexieDb';
 import type { SyncQueueItem } from '@/types/domain';
 
 export type SyncTrigger =
@@ -225,14 +225,7 @@ class SyncOrchestratorService {
                     nextRetryTimestamp: Date.now(),
                   };
 
-                  await db.syncQueue.update(item.id, {
-                    operationType: 'CREATE',
-                    submissionUuid: rawPayload.uuid || item.submissionUuid,
-                    payload: rawPayload,
-                    status: 'queued',
-                    nextRetryTimestamp: Date.now(),
-                    errorMessage: 'Record not found on central server; converting to initial creation.',
-                  });
+                  await convertItemToCreate(item.id, rawPayload, rawPayload.uuid || item.submissionUuid);
 
                   try {
                     const createReq = buildCreateRequest(convertedItem);
@@ -444,14 +437,7 @@ class SyncOrchestratorService {
                 nextRetryTimestamp: Date.now(),
               };
 
-              await db.syncQueue.update(item.id, {
-                operationType: 'CREATE',
-                submissionUuid: rawPayload.uuid || item.submissionUuid,
-                payload: rawPayload,
-                status: 'queued',
-                nextRetryTimestamp: Date.now(),
-                errorMessage: 'Record not found on central server; converting to initial creation.',
-              });
+              await convertItemToCreate(item.id, rawPayload, rawPayload.uuid || item.submissionUuid);
 
               try {
                 const createReq = buildCreateRequest(convertedItem);

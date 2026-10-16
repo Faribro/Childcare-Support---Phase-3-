@@ -47,3 +47,11 @@ Thumbs.db
 *.swo
 
 *.tsbuildinfo
+
+# Native Client build output & Android artifacts
+/dist-client/
+/release-artifacts/
+emulator_screen.png
+*.keystore
+*.jks
+

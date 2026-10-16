@@ -6,6 +6,7 @@
 import { db } from './dexieDb';
 import type { AssessmentRecord, SyncQueueItem, OutboxOperationType } from '@/types/domain';
 import { flattenPatchBody, allowlistedPatchChangesSchema } from '@/lib/validations/submissionSchema';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
 
 // Client-side mutex lock to prevent overlapping sync executions
 let isSyncInProgress = false;
@@ -41,6 +42,22 @@ export async function enqueueSubmission(
     (typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `${record.uuid}-${Date.now()}`);
+
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (record.id) {
+      await storage.saveDraft({
+        ...record,
+        syncStatus: 'queued',
+        updatedAt: now,
+      });
+    }
+    return await storage.enqueueSubmission(record, {
+      operationType,
+      idempotencyKey,
+      expectedVersion: options.expectedVersion ?? record.version ?? 1,
+    });
+  }
 
   // Ensure record in drafts table reflects status
   if (record.id) {
@@ -199,6 +216,10 @@ export async function migrateLegacyQueueItems(): Promise<{ migratedCount: number
 }
 
 export async function getPendingQueue(forceAllPending: boolean = false): Promise<SyncQueueItem[]> {
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().getPendingQueue(undefined, forceAllPending);
+  }
+
   const now = Date.now();
   return db.syncQueue
     .filter((item) => {
@@ -249,10 +270,16 @@ export async function getPendingQueue(forceAllPending: boolean = false): Promise
 }
 
 export async function getQueueItemByUuid(uuid: string): Promise<SyncQueueItem | undefined> {
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().getQueueItemByUuid(uuid);
+  }
   return db.syncQueue.where('submissionUuid').equals(uuid).first();
 }
 
 export async function markSyncing(queueId: number): Promise<void> {
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().markSyncing(queueId);
+  }
   await db.syncQueue.update(queueId, {
     status: 'syncing',
     lastAttempt: new Date().toISOString(),
@@ -267,6 +294,17 @@ export async function markSynced(
   updatedAt?: string,
   requestId?: string
 ): Promise<void> {
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().markSynced(
+      queueId,
+      uuid,
+      remoteSubmissionId,
+      version,
+      updatedAt,
+      requestId
+    );
+  }
+
   const now = updatedAt || new Date().toISOString();
 
   await db.syncQueue.update(queueId, {
@@ -292,6 +330,10 @@ export async function markConflict(
   queueId: number,
   conflictMetadata: SyncQueueItem['conflictMetadata']
 ): Promise<void> {
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().markConflict(queueId, conflictMetadata);
+  }
+
   const item = await db.syncQueue.get(queueId);
   if (!item) return;
 
@@ -317,11 +359,20 @@ export async function markFailedFinal(
   statusCode?: number | string,
   validationIssues?: string[]
 ): Promise<void> {
+  const numCode = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode), 10);
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().markFailedFinal(
+      queueId,
+      `Terminal Failure (${numCode || 'Error'}): ${errorMessage}`,
+      numCode,
+      validationIssues
+    );
+  }
+
   const item = await db.syncQueue.get(queueId);
   if (!item) return;
 
   const newRetryCount = (item.retryCount || 0) + 1;
-  const numCode = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode), 10);
 
   await db.syncQueue.update(queueId, {
     status: 'failed',
@@ -346,6 +397,15 @@ export async function markFailedRetryable(
   errorMessage: string,
   statusCode?: number | string
 ): Promise<void> {
+  const numCode = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode), 10);
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().markFailedRetryable(
+      queueId,
+      errorMessage,
+      numCode
+    );
+  }
+
   const item = await db.syncQueue.get(queueId);
   if (!item) return;
 
@@ -389,10 +449,19 @@ export async function markFailed(
 }
 
 export async function getAllQueueItems(): Promise<SyncQueueItem[]> {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (typeof (storage as any).getAllQueueItems === 'function') {
+      return await (storage as any).getAllQueueItems();
+    }
+  }
   return db.syncQueue.reverse().sortBy('id');
 }
 
 export async function getQueueItem(queueId: number): Promise<SyncQueueItem | undefined> {
+  if (platformRegistry.getTarget() === 'android') {
+    return await platformRegistry.getStorage().getQueueItemById(queueId);
+  }
   return db.syncQueue.get(queueId);
 }
 
@@ -401,6 +470,12 @@ export async function getQueueItem(queueId: number): Promise<SyncQueueItem | und
  * MUST only be called for items that are NOT terminal (failed_final / conflict / needs_review).
  */
 export async function resetToQueued(queueId: number): Promise<void> {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (typeof (storage as any).resetToQueued === 'function') {
+      return await (storage as any).resetToQueued(queueId);
+    }
+  }
   await db.syncQueue.update(queueId, {
     status: 'queued',
     nextRetryTimestamp: Date.now(),
@@ -409,6 +484,12 @@ export async function resetToQueued(queueId: number): Promise<void> {
 }
 
 export async function getQueueStats() {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (typeof (storage as any).getQueueStats === 'function') {
+      return await (storage as any).getQueueStats();
+    }
+  }
   const all = await db.syncQueue.toArray();
   return {
     total: all.length,
@@ -430,6 +511,12 @@ export async function getQueueStats() {
  * Executes directly against IndexedDB without deserializing payload records.
  */
 export async function getWaitingQueueCount(): Promise<number> {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (typeof (storage as any).getWaitingQueueCount === 'function') {
+      return await (storage as any).getWaitingQueueCount();
+    }
+  }
   return db.syncQueue
     .filter((q) => {
       const s = q.status;
@@ -450,8 +537,64 @@ export async function getWaitingQueueCount(): Promise<number> {
  * Direct count query for locally synced queue items.
  */
 export async function getLocalSyncedCount(): Promise<number> {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (typeof (storage as any).getLocalSyncedCount === 'function') {
+      return await (storage as any).getLocalSyncedCount();
+    }
+  }
   return db.syncQueue
     .filter((q) => q.status === 'synced' || (q.status as string) === 'SYNCED')
     .count();
+}
+
+/**
+ * Converts an existing queue item to initial creation upon 404 remote reconciliation.
+ */
+export async function convertItemToCreate(
+  queueId: number,
+  convertedPayload: any,
+  submissionUuid: string
+): Promise<void> {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    const existing = await storage.getQueueItemById(queueId);
+    if (existing) {
+      existing.operationType = 'CREATE';
+      existing.submissionUuid = submissionUuid;
+      existing.payload = convertedPayload;
+      existing.status = 'queued';
+      existing.nextRetryTimestamp = Date.now();
+      existing.errorMessage = 'Record not found on central server; converting to initial creation.';
+      if ((storage as any).isNativeActive && (storage as any).isNativeActive() && (storage as any).dbConnection) {
+        await (storage as any).dbConnection.run(
+          'UPDATE sync_queue SET operation_type = "CREATE", submission_uuid = ?, status = "queued", data = ?, next_retry = ? WHERE id = ?',
+          [submissionUuid, JSON.stringify(existing), Date.now(), queueId]
+        );
+      } else {
+        const row = (storage as any).syncQueueTable?.get(queueId);
+        if (row) {
+          (storage as any).syncQueueTable.set(queueId, {
+            ...row,
+            operation_type: 'CREATE',
+            submission_uuid: submissionUuid,
+            status: 'queued',
+            data: JSON.stringify(existing),
+            next_retry: Date.now(),
+          });
+        }
+      }
+    }
+    return;
+  }
+
+  await db.syncQueue.update(queueId, {
+    operationType: 'CREATE',
+    submissionUuid,
+    payload: convertedPayload,
+    status: 'queued',
+    nextRetryTimestamp: Date.now(),
+    errorMessage: 'Record not found on central server; converting to initial creation.',
+  });
 }
 

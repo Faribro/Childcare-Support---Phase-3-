@@ -15,6 +15,7 @@
 import { db } from '@/lib/db/dexieDb';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
 import {
   assertValidRemoteSubmissionId,
   EmptyUpdateChangesError,
@@ -81,6 +82,25 @@ export async function enqueueCreate(options: EnqueueCreateOptions): Promise<numb
         signatureTimestamp: normalizedConsent.consentCapturedAt,
       };
     }
+  }
+
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    await storage.saveDraft({
+      ...snapshot,
+      clientSubmissionId: validUuid,
+      uuid: validUuid,
+      syncStatus: 'queued',
+      updatedAt: now,
+    });
+    return await storage.enqueueSubmission(
+      { ...snapshot, clientSubmissionId: validUuid, uuid: validUuid },
+      {
+        operationType: 'CREATE',
+        idempotencyKey: stableIdempotencyKey,
+        expectedVersion: 1,
+      }
+    );
   }
 
   return await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
@@ -174,6 +194,31 @@ export async function enqueueUpdate(options: EnqueueUpdateOptions): Promise<numb
   const now = new Date().toISOString();
   const idempotencyKey = `update-${remoteSubmissionId}-v${expectedVersion}-${Date.now()}`;
 
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    await storage.saveDraft({
+      ...snapshot,
+      remoteSubmissionId,
+      version: expectedVersion,
+      syncStatus: 'queued',
+      updatedAt: now,
+    });
+    return await storage.enqueueSubmission(
+      {
+        ...snapshot,
+        clientSubmissionId,
+        remoteSubmissionId,
+        version: expectedVersion,
+        changes: changes || {},
+      } as any,
+      {
+        operationType: 'UPDATE',
+        idempotencyKey,
+        expectedVersion,
+      }
+    );
+  }
+
   return await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
     if (snapshot.id) {
       await db.drafts.update(snapshot.id, {
@@ -227,6 +272,19 @@ export async function markSubmitted(
 ): Promise<void> {
   const now = ack.updatedAt || ack.submittedAt || ack.acceptedAt || new Date().toISOString();
 
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    await storage.markSynced(
+      queueId,
+      submissionUuid,
+      ack.remoteSubmissionId,
+      ack.version,
+      now,
+      ack.requestId
+    );
+    return;
+  }
+
   await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
     await db.syncQueue.update(queueId, {
       status: 'synced',
@@ -262,6 +320,17 @@ export async function markActionRequired(
   validationIssueCodes?: string[]
 ): Promise<void> {
   const now = new Date().toISOString();
+
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    await storage.markFailedFinal(
+      queueId,
+      errorMessage,
+      statusCode,
+      validationIssuePaths
+    );
+    return;
+  }
 
   await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
     const updateObj: Partial<SyncQueueItem> = {
@@ -329,6 +398,26 @@ export async function markRetryable(
   errorCategory?: SubmissionErrorCategory
 ): Promise<{ willRetry: boolean; nextRetryMs: number }> {
   const now = new Date().toISOString();
+
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    if (errorCategory === 'unauthorized' || statusCode === 401 || statusCode === 403) {
+      const unauthMessage = errorMessage || 'Your session expired. Please sign in again. Your saved assessment remains safe on this device.';
+      await storage.markFailedRetryable(queueId, unauthMessage, statusCode ?? 401, Date.now() + 300000);
+      return { willRetry: false, nextRetryMs: 0 };
+    }
+    if (errorCategory && NON_RETRYABLE_CATEGORIES.includes(errorCategory)) {
+      await markActionRequired(queueId, submissionUuid, errorMessage, statusCode, errorCategory);
+      return { willRetry: false, nextRetryMs: 0 };
+    }
+    const item = await storage.getQueueItemById(queueId);
+    const newRetryCount = (item?.retryCount ?? 0) + 1;
+    const exponential = Math.min(BASE_BACKOFF_MS * Math.pow(2, Math.min(newRetryCount - 1, 10)), MAX_BACKOFF_MS);
+    const jitter = Math.random() * exponential;
+    const nextRetryMs = Math.max(1000, Math.round(jitter));
+    await storage.markFailedRetryable(queueId, errorMessage, statusCode, Date.now() + nextRetryMs);
+    return { willRetry: true, nextRetryMs };
+  }
 
   // If unauthorized: preserve locally in failed_retryable without looping
   if (errorCategory === 'unauthorized' || statusCode === 401 || statusCode === 403) {
@@ -401,6 +490,33 @@ export async function repairRemoteIdentity(
 ): Promise<void> {
   const now = new Date().toISOString();
 
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    const existing = await storage.getQueueItemById(queueId);
+    if (existing) {
+      const updatedPayload: any = { ...(existing.payload as any) };
+      updatedPayload.remoteSubmissionId = remoteSubmissionId;
+      updatedPayload.version = version;
+      existing.payload = updatedPayload;
+      existing.status = 'queued';
+      existing.operationType = 'UPDATE';
+      existing.expectedVersion = version;
+      existing.nextRetryTimestamp = Date.now();
+      existing.errorMessage = null;
+      if ((storage as any).isNativeActive && (storage as any).isNativeActive() && (storage as any).dbConnection) {
+        await (storage as any).dbConnection.run(
+          'UPDATE sync_queue SET operation_type = "UPDATE", status = "queued", data = ?, next_retry = ? WHERE id = ?',
+          [JSON.stringify(existing), Date.now(), queueId]
+        );
+      }
+      const draft = await storage.getDraftByUuid(submissionUuid);
+      if (draft) {
+        await storage.saveDraft({ ...draft, remoteSubmissionId, version, updatedAt: now });
+      }
+    }
+    return;
+  }
+
   await db.transaction('rw', [db.drafts, db.syncQueue], async () => {
     // Update the queue item's payload to include the repaired remote identity
     const item = await db.syncQueue.get(queueId);
@@ -435,6 +551,11 @@ export async function repairRemoteIdentity(
 // ---------------------------------------------------------------------------
 
 export async function getDispatchQueue(): Promise<SyncQueueItem[]> {
+  if (platformRegistry.getTarget() === 'android') {
+    const storage = platformRegistry.getStorage();
+    return await storage.getPendingQueue();
+  }
+
   const now = Date.now();
   return db.syncQueue
     .filter((item) => {
@@ -494,6 +615,10 @@ export async function getDispatchQueue(): Promise<SyncQueueItem[]> {
  * Safe to call multiple times — idempotent.
  */
 export async function migrateLegacyItems(): Promise<number> {
+  if (platformRegistry.getTarget() === 'android') {
+    return 0;
+  }
+
   const allItems = await db.syncQueue.toArray();
 
   let migrated = 0;
