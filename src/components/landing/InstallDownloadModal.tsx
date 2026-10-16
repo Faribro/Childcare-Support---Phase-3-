@@ -56,6 +56,28 @@ export function InstallDownloadModal({
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+
+  // Focus restoration & body scroll lock lifecycle
+  useEffect(() => {
+    if (isOpen) {
+      previouslyFocusedElementRef.current = (document.activeElement as HTMLElement) || null;
+      document.body.style.overflow = 'hidden';
+      closeButtonRef.current?.focus();
+    } else {
+      document.body.style.overflow = '';
+      if (previouslyFocusedElementRef.current && typeof previouslyFocusedElementRef.current.focus === 'function') {
+        previouslyFocusedElementRef.current.focus();
+      }
+    }
+
+    return () => {
+      document.body.style.overflow = '';
+      if (previouslyFocusedElementRef.current && typeof previouslyFocusedElementRef.current.focus === 'function') {
+        previouslyFocusedElementRef.current.focus();
+      }
+    };
+  }, [isOpen]);
 
   // Detect platform once on mount
   useEffect(() => {
@@ -81,7 +103,6 @@ export function InstallDownloadModal({
     if (detected === 'ios') {
       setActiveTab('ios');
     }
-    // For android and desktop/unknown, keep the initialised 'android' tab active.
   }, []);
 
   // Handle focus trapping and Escape key
@@ -119,27 +140,61 @@ export function InstallDownloadModal({
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    // Focus close button on open
-    setTimeout(() => {
-      closeButtonRef.current?.focus();
-    }, 50);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose]);
 
+  // Arrow key navigation between platform tabs (WAI-ARIA Tablist Pattern)
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const tabs: ModalPlatformTab[] = ['android', 'ios', 'desktop'];
+    const currentIndex = tabs.indexOf(activeTab);
+    let nextIndex = currentIndex;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = tabs.length - 1;
+    }
+
+    if (nextIndex !== currentIndex) {
+      setActiveTab(tabs[nextIndex]);
+      const nextTabEl = document.getElementById(`tab-${tabs[nextIndex]}`);
+      nextTabEl?.focus();
+    }
+  };
+
   if (!isOpen) return null;
 
-  // Artifact filters
-  const androidArtifacts = safeManifest.nativeArtifacts.filter((a) => a.platform === 'android');
-  const androidStoreLinks = safeManifest.storeLinks.filter((s) => s.platform === 'android');
+  // Artifact filters: Strictly enforce that only production-channel, available, direct-installable artifacts are exposed publicly.
+  const isPublicArtifact = (art: any) =>
+    (art.channel === 'production' || art.channel === 'stable') &&
+    art.status === 'available' &&
+    art.directInstallable === true;
 
-  const iosArtifacts = safeManifest.nativeArtifacts.filter((a) => a.platform === 'ios');
-  const iosStoreLinks = safeManifest.storeLinks.filter((s) => s.platform === 'ios');
+  const androidArtifacts = (safeManifest.nativeArtifacts || []).filter(
+    (a) => a.platform === 'android' && isPublicArtifact(a)
+  );
+  const androidStoreLinks = (safeManifest.storeLinks || []).filter((s) => s.platform === 'android');
 
-  const desktopArtifacts = safeManifest.nativeArtifacts.filter((a) =>
-    ['windows', 'macos', 'linux'].includes(a.platform)
+  const iosArtifacts = (safeManifest.nativeArtifacts || []).filter(
+    (a) => a.platform === 'ios' && isPublicArtifact(a)
+  );
+  const iosStoreLinks = (safeManifest.storeLinks || []).filter((s) => s.platform === 'ios');
+
+  const desktopArtifacts = (safeManifest.nativeArtifacts || []).filter(
+    (a) =>
+      ['windows', 'macos', 'linux', 'desktop_windows', 'desktop_macos', 'desktop_linux'].includes(a.platform) &&
+      isPublicArtifact(a)
   );
 
   const handlePwaInstall = async () => {
@@ -232,6 +287,7 @@ export function InstallDownloadModal({
               aria-controls="panel-android"
               tabIndex={activeTab === 'android' ? 0 : -1}
               onClick={() => setActiveTab('android')}
+              onKeyDown={handleTabKeyDown}
               className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-700 ${
                 activeTab === 'android'
                   ? 'bg-white text-emerald-900 shadow-xs border border-[#C5B396]'
@@ -250,6 +306,7 @@ export function InstallDownloadModal({
               aria-controls="panel-ios"
               tabIndex={activeTab === 'ios' ? 0 : -1}
               onClick={() => setActiveTab('ios')}
+              onKeyDown={handleTabKeyDown}
               className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-700 ${
                 activeTab === 'ios'
                   ? 'bg-white text-emerald-900 shadow-xs border border-[#C5B396]'
@@ -268,6 +325,7 @@ export function InstallDownloadModal({
               aria-controls="panel-desktop"
               tabIndex={activeTab === 'desktop' ? 0 : -1}
               onClick={() => setActiveTab('desktop')}
+              onKeyDown={handleTabKeyDown}
               className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-700 ${
                 activeTab === 'desktop'
                   ? 'bg-white text-emerald-900 shadow-xs border border-[#C5B396]'
@@ -343,7 +401,7 @@ export function InstallDownloadModal({
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
                       DIRECT APK DOWNLOAD
                     </span>
-                    {androidArtifacts[0].channel === 'internal' && (
+                    {(androidArtifacts[0].channel === 'internal' || androidArtifacts[0].channel === 'internal_test') && (
                       <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-300">
                         INTERNAL BUILD
                       </span>
@@ -356,7 +414,7 @@ export function InstallDownloadModal({
 
                 <div className="text-xs text-slate-600 space-y-1">
                   <p>
-                    <strong>Version:</strong> {androidArtifacts[0].version} •{' '}
+                    <strong>Version:</strong> {androidArtifacts[0].version?.startsWith('v') ? androidArtifacts[0].version : `v${androidArtifacts[0].version}`} •{' '}
                     <strong>Min OS:</strong> {androidArtifacts[0].minOsVersion}
                   </p>
                   {androidArtifacts[0].releaseNotes && (

@@ -109,7 +109,7 @@ export function LivingRiver({ className = '' }: LivingRiverProps) {
       // Dual harmonic superposition for organic water deformation
       const wave1 = Math.sin(nx * Math.PI * 2 * freq + ambientTime + phaseOffset);
       const wave2 = Math.cos(nx * Math.PI * 4 * freq + ambientTime * 0.7 - phaseOffset) * 0.35;
-      
+
       // Velocity shear: causes asymmetric wave crest tilting during rapid scroll
       const shear = velocity * Math.sin(nx * Math.PI * 3) * 6;
 

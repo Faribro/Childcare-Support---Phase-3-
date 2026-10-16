@@ -6,6 +6,8 @@ import {
   ReleaseManifest,
   validateReleaseManifest,
   formatFileSizeBytes,
+  configureApprovedOrigins,
+  resetApprovedOrigins,
 } from '@/lib/release/releaseManifestContract';
 import { DEFAULT_RELEASE_MANIFEST } from '@/lib/release/defaultReleaseManifest';
 
@@ -27,7 +29,7 @@ describe('Release Manifest Contract & Safety Validation', () => {
   });
 
   it('rejects manifest entries using insecure http:// links', () => {
-    const insecureManifest: ReleaseManifest = {
+    const insecureManifest: any = {
       ...DEFAULT_RELEASE_MANIFEST,
       nativeArtifacts: [
         {
@@ -48,7 +50,7 @@ describe('Release Manifest Contract & Safety Validation', () => {
   });
 
   it('rejects manifest entries with unapproved host origins', () => {
-    const unapprovedOriginManifest: ReleaseManifest = {
+    const unapprovedOriginManifest: any = {
       ...DEFAULT_RELEASE_MANIFEST,
       nativeArtifacts: [
         {
@@ -69,7 +71,7 @@ describe('Release Manifest Contract & Safety Validation', () => {
   });
 
   it('rejects URLs containing signed query tokens or credentials', () => {
-    const signedUrlManifest: ReleaseManifest = {
+    const signedUrlManifest: any = {
       ...DEFAULT_RELEASE_MANIFEST,
       nativeArtifacts: [
         {
@@ -110,6 +112,7 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetApprovedOrigins();
   });
 
   it('does not render when isOpen is false', () => {
@@ -128,7 +131,7 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
 
   it('allows manual tab switching between Android, iPhone / iPad, and Desktop', () => {
     render(<InstallDownloadModal {...defaultProps} />);
-    
+
     const androidTab = screen.getByRole('tab', { name: /android/i });
     const iosTab = screen.getByRole('tab', { name: /iphone \/ ipad/i });
     const desktopTab = screen.getByRole('tab', { name: /desktop/i });
@@ -180,20 +183,85 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
     expect(screen.getByText(/in chrome or edge/i)).toBeDefined();
   });
 
-  it('displays approved native APK release artifact with exact version, size and safety metadata', () => {
+  it('default manifest renders zero direct native APK downloads and displays pilot restriction notice', () => {
     render(<InstallDownloadModal {...defaultProps} />);
-    
+
     // Android tab active by default
+    expect(screen.queryByRole('link', { name: /download apk/i })).toBeNull();
+    expect(
+      screen.getByText(/native google play and apk packages are currently restricted to authorized internal pilots/i)
+    ).toBeDefined();
+    expect(screen.getByText(/use the pwa above for full casework features/i)).toBeDefined();
+  });
+
+  it('displays approved native APK release artifact with exact version, size and safety metadata when supplied in fixture', () => {
+    configureApprovedOrigins(['https://github.com']);
+    const illustrativeNativeManifest: ReleaseManifest = {
+      ...DEFAULT_RELEASE_MANIFEST,
+      nativeArtifacts: [
+        {
+          id: 'android-pilot-apk',
+          platform: 'android',
+          platformLabel: 'Android Client (Field APK)',
+          artifactFormat: 'apk_universal',
+          directInstallable: true,
+          pwaInstallable: false,
+          verifiedOfflineSupport: false,
+          version: '3.0.0-rc1',
+          versionCode: 300,
+          minimumOS: 'Android 8.0+',
+          minOsVersion: 'Android 8.0+',
+          fileSizeBytes: 29884416,
+          downloadUrl: 'https://github.com/Faribro/Childcare-Support---Phase-3-/releases/download/v3.0.0-internal/app-arm64-release.apk',
+          channel: 'production',
+          signingStatus: 'release_signed',
+          status: 'available',
+          sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          releaseNotes: 'Offline casework engine with peer-to-peer sync',
+          publishedAt: '2026-10-15T00:00:00Z',
+        },
+      ],
+    };
+
+    render(<InstallDownloadModal {...defaultProps} manifest={illustrativeNativeManifest} />);
+
     expect(screen.getByText(/direct apk download/i)).toBeDefined();
     expect(screen.getByText(/v3\.0\.0-rc1/i)).toBeDefined();
     expect(screen.getByText(/android 8\.0\+/i)).toBeDefined();
     expect(screen.getByText(/28\.5 mb/i)).toBeDefined();
-    expect(screen.getByText(/internal/i)).toBeDefined();
+    expect(screen.getByText(/offline casework engine with peer-to-peer sync/i)).toBeDefined();
   });
 
   it('provides honest download feedback on APK click without claiming installed', async () => {
-    render(<InstallDownloadModal {...defaultProps} />);
-    
+    configureApprovedOrigins(['https://github.com']);
+    const illustrativeNativeManifest: ReleaseManifest = {
+      ...DEFAULT_RELEASE_MANIFEST,
+      nativeArtifacts: [
+        {
+          id: 'android-pilot-apk',
+          platform: 'android',
+          platformLabel: 'Android Client (Field APK)',
+          artifactFormat: 'apk_universal',
+          directInstallable: true,
+          pwaInstallable: false,
+          verifiedOfflineSupport: false,
+          version: '3.0.0-rc1',
+          versionCode: 300,
+          minimumOS: 'Android 8.0+',
+          minOsVersion: 'Android 8.0+',
+          fileSizeBytes: 29884416,
+          downloadUrl: 'https://github.com/Faribro/Childcare-Support---Phase-3-/releases/download/v3.0.0-internal/app-arm64-release.apk',
+          channel: 'production',
+          signingStatus: 'release_signed',
+          status: 'available',
+          sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          publishedAt: '2026-10-15T00:00:00Z',
+        },
+      ],
+    };
+
+    render(<InstallDownloadModal {...defaultProps} manifest={illustrativeNativeManifest} />);
+
     const downloadApkLink = screen.getByRole('link', { name: /download apk \(28\.5 mb\)/i });
     expect(downloadApkLink.getAttribute('href')).toBe(
       'https://github.com/Faribro/Childcare-Support---Phase-3-/releases/download/v3.0.0-internal/app-arm64-release.apk'
@@ -211,7 +279,7 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
 
   it('displays accurate Safari Add-to-Home-Screen steps for iPhone / iPad', () => {
     render(<InstallDownloadModal {...defaultProps} />);
-    
+
     const iosTab = screen.getByRole('tab', { name: /iphone \/ ipad/i });
     fireEvent.click(iosTab);
 
@@ -222,7 +290,7 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
 
   it('always provides persistent "Continue in browser" linking to /app', () => {
     render(<InstallDownloadModal {...defaultProps} />);
-    
+
     const continueLinks = screen.getAllByRole('link', { name: /continue in browser/i });
     expect(continueLinks.length).toBeGreaterThanOrEqual(1);
     continueLinks.forEach((link) => {
@@ -245,5 +313,88 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
     const closeBtn = screen.getByRole('button', { name: /close installation dialog/i });
     fireEvent.click(closeBtn);
     expect(onCloseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores focus to previous active element upon close', () => {
+    const triggerBtn = document.createElement('button');
+    triggerBtn.textContent = 'Open Dialog';
+    document.body.appendChild(triggerBtn);
+    triggerBtn.focus();
+    expect(document.activeElement).toBe(triggerBtn);
+
+    const { rerender } = render(<InstallDownloadModal {...defaultProps} isOpen={true} />);
+    const closeBtn = screen.getByRole('button', { name: /close installation dialog/i });
+    expect(document.activeElement).toBe(closeBtn);
+
+    rerender(<InstallDownloadModal {...defaultProps} isOpen={false} />);
+    expect(document.activeElement).toBe(triggerBtn);
+    document.body.removeChild(triggerBtn);
+  });
+
+  it('supports WAI-ARIA arrow key navigation across tabs', () => {
+    render(<InstallDownloadModal {...defaultProps} />);
+
+    const androidTab = screen.getByRole('tab', { name: /android/i });
+    const iosTab = screen.getByRole('tab', { name: /iphone \/ ipad/i });
+    const desktopTab = screen.getByRole('tab', { name: /desktop/i });
+
+    androidTab.focus();
+    expect(document.activeElement).toBe(androidTab);
+
+    // ArrowRight moves from Android to iOS
+    fireEvent.keyDown(androidTab, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(iosTab);
+    expect(iosTab.getAttribute('aria-selected')).toBe('true');
+
+    // ArrowRight moves from iOS to Desktop
+    fireEvent.keyDown(iosTab, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(desktopTab);
+    expect(desktopTab.getAttribute('aria-selected')).toBe('true');
+
+    // ArrowRight wraps around from Desktop back to Android
+    fireEvent.keyDown(desktopTab, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(androidTab);
+    expect(androidTab.getAttribute('aria-selected')).toBe('true');
+
+    // ArrowLeft moves from Android to Desktop
+    fireEvent.keyDown(androidTab, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(desktopTab);
+    expect(desktopTab.getAttribute('aria-selected')).toBe('true');
+
+    // Home moves to first tab (Android)
+    fireEvent.keyDown(desktopTab, { key: 'Home' });
+    expect(document.activeElement).toBe(androidTab);
+
+    // End moves to last tab (Desktop)
+    fireEvent.keyDown(androidTab, { key: 'End' });
+    expect(document.activeElement).toBe(desktopTab);
+  });
+
+  it('locks body scroll when modal is open and restores it when closed', () => {
+    const { rerender } = render(<InstallDownloadModal {...defaultProps} isOpen={true} />);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    rerender(<InstallDownloadModal {...defaultProps} isOpen={false} />);
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('traps focus inside the modal dialog on Tab and Shift+Tab', () => {
+    render(<InstallDownloadModal {...defaultProps} />);
+    const closeBtn = screen.getByRole('button', { name: /close installation dialog/i });
+    const dialog = screen.getByRole('dialog');
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const lastElement = focusable[focusable.length - 1];
+
+    // Tabbing from last element loops to closeBtn
+    lastElement.focus();
+    fireEvent.keyDown(lastElement, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeBtn);
+
+    // Shift+Tabbing from closeBtn loops to lastElement
+    closeBtn.focus();
+    fireEvent.keyDown(closeBtn, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(lastElement);
   });
 });

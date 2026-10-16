@@ -27,7 +27,7 @@ describe('Signature Motion & Narrative Components', () => {
       const { container } = render(<LivingRiver />);
       const svg = container.querySelector('svg');
       expect(svg).toBeDefined();
-      
+
       const paths = container.querySelectorAll('path');
       // Should have at least 3 fill layers + 1 stroke crest path
       expect(paths.length).toBeGreaterThanOrEqual(4);
