@@ -110,11 +110,20 @@ export function resetApprovedOrigins(): void {
 
 export interface ValidationOptions {
   readonly approvedOrigins?: readonly string[];
+  readonly isBrowserNavigation?: boolean;
+  readonly isProduction?: boolean;
+  readonly allowLocalDev?: boolean;
 }
 
 /**
  * Validates a single release URL against origin and signature safety rules.
  * Does not rely on mutable state if explicit options.approvedOrigins is provided.
+ *
+ * Invariants:
+ * 1. Protocol-relative URLs (//host/path) are treated as external and prohibited.
+ * 2. Browser navigation routes (e.g. /app) are distinct from native artifact download URLs.
+ * 3. Relative download paths cannot bypass an empty allowlist for production releases.
+ * 4. Localhost downloads are strictly prohibited in production and require explicit allowLocalDev in dev.
  */
 export function validateReleaseUrl(
   urlStr: string,
@@ -124,9 +133,54 @@ export function validateReleaseUrl(
     return { valid: false, error: 'URL must be a non-empty string.' };
   }
 
-  // Relative URLs (e.g. /app) are always valid same-origin routes
+  // Treat //host/path as an external protocol-relative URL, not a safe relative path
+  if (urlStr.startsWith('//')) {
+    return {
+      valid: false,
+      error: `Protocol-relative URL "${urlStr}" is treated as an external URL and is prohibited. Download URLs must explicitly declare https: protocol.`,
+    };
+  }
+
+  // Browser navigation routes (e.g. /app or PWA startUrl)
+  if (options?.isBrowserNavigation) {
+    if (urlStr.startsWith('/')) {
+      return { valid: true };
+    }
+  }
+
+  // Relative path handling for native artifact downloads
   if (urlStr.startsWith('/')) {
-    return { valid: true };
+    if (options?.isProduction) {
+      return {
+        valid: false,
+        error: `Public production release artifacts cannot use relative download URLs ("${urlStr}"). They must originate from an approved HTTPS origin.`,
+      };
+    }
+
+    const effectiveOrigins = options?.approvedOrigins ?? getConfiguredApprovedOrigins();
+    if (effectiveOrigins.length > 0) {
+      const isApprovedOrigin = effectiveOrigins.some(
+        (origin) => urlStr === origin || urlStr.startsWith(origin)
+      );
+      if (!isApprovedOrigin) {
+        return {
+          valid: false,
+          error: `Download URL must originate from an approved HTTPS origin supplied by Release & Integration (not in the approved origin allowlist). Relative path "${urlStr}" is not approved.`,
+        };
+      }
+      return { valid: true };
+    }
+
+    // When allowlist is empty, native downloads cannot bypass it with arbitrary relative URLs.
+    // Only the quarantined internal test sandbox (/releases/internal/) for non-production builds is allowed.
+    if (urlStr.startsWith('/releases/internal/')) {
+      return { valid: true };
+    }
+
+    return {
+      valid: false,
+      error: `Download URL "${urlStr}" cannot bypass an empty approved origin allowlist using an arbitrary relative path.`,
+    };
   }
 
   let parsed: URL;
@@ -136,9 +190,21 @@ export function validateReleaseUrl(
     return { valid: false, error: `Malformed URL: "${urlStr}".` };
   }
 
-  // Local development bypass (only for localhost / 127.0.0.1)
+  // Local development check (strictly unavailable in public production-release validation)
   const isLocalDev = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
   if (isLocalDev) {
+    if (options?.isProduction) {
+      return {
+        valid: false,
+        error: `Localhost download URL "${urlStr}" is unavailable in public production-release validation.`,
+      };
+    }
+    if (!options?.allowLocalDev) {
+      return {
+        valid: false,
+        error: `Local development URL "${urlStr}" requires an explicit allowLocalDev exception and cannot automatically bypass origin validation.`,
+      };
+    }
     return { valid: true };
   }
 
@@ -175,11 +241,52 @@ export function validateReleaseUrl(
   if (!isApprovedOrigin) {
     return {
       valid: false,
-      error: `Download URL must originate from an approved HTTPS origin supplied by Release & Integration (not in the approved origin allowlist), or a relative path. Origin "${parsed.origin}" is not approved.`,
+      error: `Download URL must originate from an approved HTTPS origin supplied by Release & Integration (not in the approved origin allowlist). Origin "${parsed.origin}" is not approved.`,
     };
   }
 
   return { valid: true };
+}
+
+/**
+ * Calculates SHA-256 hex checksum from a binary payload (Uint8Array, Buffer, or ArrayBuffer).
+ * Used during actual release verification to calculate the checksum directly from the binary.
+ */
+export async function calculateSha256(data: ArrayBuffer | Uint8Array): Promise<string> {
+  const uint8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', uint8 as unknown as BufferSource);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Node.js fallback
+  const { createHash } = await import('crypto');
+  return createHash('sha256').update(uint8).digest('hex');
+}
+
+/**
+ * Verifies that an actual binary artifact matches the declared manifest checksum.
+ * Proves real release integrity by computing the digest from the binary bytes.
+ */
+export async function verifyArtifactChecksum(
+  binaryData: ArrayBuffer | Uint8Array,
+  declaredChecksum: string
+): Promise<{ valid: boolean; computed: string; error?: string }> {
+  if (!declaredChecksum || !/^[a-fA-F0-9]{64}$/.test(declaredChecksum)) {
+    return {
+      valid: false,
+      computed: '',
+      error: 'Declared checksum is missing or not a valid 64-character SHA-256 hex string.',
+    };
+  }
+
+  const computed = await calculateSha256(binaryData);
+  const valid = computed.toLowerCase() === declaredChecksum.toLowerCase();
+  return {
+    valid,
+    computed,
+    error: valid ? undefined : `Binary checksum mismatch: computed ${computed} does not match declared ${declaredChecksum}.`,
+  };
 }
 
 /**
@@ -276,7 +383,17 @@ export function createReleaseItemSchema(options?: ValidationOptions) {
       }
 
       // Invariant 4: URL Origin & Signature Security
-      const urlValidation = validateReleaseUrl(data.downloadUrl, options);
+      const isBrowserNav = data.platform === 'web_pwa' || data.artifactFormat === 'pwa_web';
+      const isProd =
+        data.channel === 'production' ||
+        data.channel === 'stable' ||
+        data.status === 'available' ||
+        data.directInstallable;
+      const urlValidation = validateReleaseUrl(data.downloadUrl, {
+        ...options,
+        isBrowserNavigation: isBrowserNav,
+        isProduction: isProd,
+      });
       if (!urlValidation.valid) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -384,7 +501,7 @@ export function validateReleaseManifest(
     }
   }
 
-  const itemSchema = options?.approvedOrigins ? createReleaseItemSchema(options) : releaseItemSchema;
+  const itemSchema = createReleaseItemSchema(options);
   const validatedReleases: ReleaseItem[] = [];
   for (let i = 0; i < releasesToValidate.length; i++) {
     const item = releasesToValidate[i];
@@ -406,7 +523,11 @@ export function validateReleaseManifest(
   if (Array.isArray(raw.storeLinks)) {
     for (let i = 0; i < raw.storeLinks.length; i++) {
       const sl = raw.storeLinks[i];
-      const urlCheck = validateReleaseUrl(sl?.url, options);
+      const urlCheck = validateReleaseUrl(sl?.url, {
+        ...options,
+        isBrowserNavigation: false,
+        isProduction: true,
+      });
       if (!urlCheck.valid) {
         errors.push(`storeLinks[${i}]: ${urlCheck.error}`);
       } else {
@@ -421,15 +542,23 @@ export function validateReleaseManifest(
     }
   }
 
-  if (errors.length > 0) {
-    return { valid: false, errors };
-  }
-
   const pwaConfig: PwaReleaseConfig = {
     enabled: raw.pwa?.enabled !== false,
     startUrl: raw.pwa?.startUrl || '/app',
     scope: raw.pwa?.scope || '/',
   };
+
+  const pwaUrlCheck = validateReleaseUrl(pwaConfig.startUrl, {
+    ...options,
+    isBrowserNavigation: true,
+  });
+  if (!pwaUrlCheck.valid) {
+    errors.push(`pwa.startUrl: ${pwaUrlCheck.error}`);
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
 
   const nativeArtifacts = validatedReleases.filter(
     (r) => r.platform !== 'web_pwa'

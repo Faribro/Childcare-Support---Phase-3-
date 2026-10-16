@@ -2,11 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   CANONICAL_RELEASE_MANIFEST,
   validateReleaseManifest,
+  validateReleaseUrl,
   getPublicDisplayReleases,
   getInternalTestReleases,
   releaseItemSchema,
   configureApprovedOrigins,
   resetApprovedOrigins,
+  calculateSha256,
+  verifyArtifactChecksum,
 } from '@/lib/release/releaseManifest';
 
 describe('Release Manifest Contract & Landing Page Distribution Invariants', () => {
@@ -170,5 +173,93 @@ describe('Release Manifest Contract & Landing Page Distribution Invariants', () 
 
     const nativePublic = publicReleases.filter((r) => r.platform === 'android');
     expect(nativePublic.length).toBe(0); // Zero native downloads available by default
+  });
+
+  it('7. Rejects protocol-relative URLs (//host/path) as external prohibited URLs', () => {
+    const protocolRelativeCheck = validateReleaseUrl('//malicious-domain.org/app.apk');
+    expect(protocolRelativeCheck.valid).toBe(false);
+    expect(protocolRelativeCheck.error).toContain('Protocol-relative URL');
+  });
+
+  it('8. Rejects public production release artifacts with relative URLs (cannot bypass empty allowlist)', () => {
+    const relativeNativeOnProd = {
+      id: 'relative-prod-native',
+      platform: 'android' as const,
+      platformLabel: 'Android Client APK',
+      artifactFormat: 'apk_universal' as const,
+      directInstallable: true,
+      version: '3.0.0',
+      versionCode: 1,
+      minimumOS: 'Android 7.0 (API Level 24)',
+      downloadUrl: '/downloads/arbitrary.apk',
+      sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      fileSizeBytes: 15000000,
+      channel: 'production' as const,
+      signingStatus: 'release_signed' as const,
+      status: 'available' as const,
+      releaseNotes: 'Testing relative on prod',
+      publishedAt: new Date().toISOString(),
+    };
+
+    expect(() => releaseItemSchema.parse(relativeNativeOnProd)).toThrow(
+      /Public production release artifacts cannot use relative download URLs/
+    );
+  });
+
+  it('9. Rejects localhost native downloads in production and requires explicit allowLocalDev in dev', () => {
+    const localhostProd = {
+      id: 'localhost-prod',
+      platform: 'android' as const,
+      platformLabel: 'Android Client APK',
+      artifactFormat: 'apk_universal' as const,
+      directInstallable: true,
+      version: '3.0.0',
+      versionCode: 1,
+      minimumOS: 'Android 7.0 (API Level 24)',
+      downloadUrl: 'http://localhost:3000/app.apk',
+      sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      fileSizeBytes: 15000000,
+      channel: 'production' as const,
+      signingStatus: 'release_signed' as const,
+      status: 'available' as const,
+      releaseNotes: 'Testing localhost on prod',
+      publishedAt: new Date().toISOString(),
+    };
+
+    expect(() => releaseItemSchema.parse(localhostProd)).toThrow(
+      /Localhost download URL .* is unavailable in public production-release validation/
+    );
+
+    // Non-production localhost without explicit allowLocalDev must fail
+    const nonProdLocalhostCheck = validateReleaseUrl('http://localhost:3000/app.apk', {
+      isProduction: false,
+      allowLocalDev: false,
+    });
+    expect(nonProdLocalhostCheck.valid).toBe(false);
+    expect(nonProdLocalhostCheck.error).toContain('explicit allowLocalDev exception');
+
+    // Non-production localhost WITH explicit allowLocalDev succeeds
+    const nonProdAllowed = validateReleaseUrl('http://localhost:3000/app.apk', {
+      isProduction: false,
+      allowLocalDev: true,
+    });
+    expect(nonProdAllowed.valid).toBe(true);
+  });
+
+  it('10. Calculates SHA-256 directly from binary payload and verifies against manifest', async () => {
+    const samplePayload = new TextEncoder().encode('Alliance Childcare Support Test Binary Payload');
+    const computedHash = await calculateSha256(samplePayload);
+    expect(computedHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const verificationSuccess = await verifyArtifactChecksum(samplePayload, computedHash);
+    expect(verificationSuccess.valid).toBe(true);
+    expect(verificationSuccess.computed).toBe(computedHash);
+
+    const verificationFailure = await verifyArtifactChecksum(
+      samplePayload,
+      '0000000000000000000000000000000000000000000000000000000000000000'
+    );
+    expect(verificationFailure.valid).toBe(false);
+    expect(verificationFailure.error).toContain('Binary checksum mismatch');
   });
 });

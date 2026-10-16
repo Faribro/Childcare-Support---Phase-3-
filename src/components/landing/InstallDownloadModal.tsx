@@ -57,22 +57,24 @@ export function InstallDownloadModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const originalOverflowRef = useRef<string>('');
 
   // Focus restoration & body scroll lock lifecycle
   useEffect(() => {
     if (isOpen) {
       previouslyFocusedElementRef.current = (document.activeElement as HTMLElement) || null;
+      originalOverflowRef.current = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       closeButtonRef.current?.focus();
     } else {
-      document.body.style.overflow = '';
+      document.body.style.overflow = originalOverflowRef.current;
       if (previouslyFocusedElementRef.current && typeof previouslyFocusedElementRef.current.focus === 'function') {
         previouslyFocusedElementRef.current.focus();
       }
     }
 
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = originalOverflowRef.current;
       if (previouslyFocusedElementRef.current && typeof previouslyFocusedElementRef.current.focus === 'function') {
         previouslyFocusedElementRef.current.focus();
       }

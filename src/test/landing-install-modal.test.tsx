@@ -370,12 +370,22 @@ describe('InstallDownloadModal Component (src/components/landing/InstallDownload
     expect(document.activeElement).toBe(desktopTab);
   });
 
-  it('locks body scroll when modal is open and restores it when closed', () => {
-    const { rerender } = render(<InstallDownloadModal {...defaultProps} isOpen={true} />);
+  it('locks body scroll when modal is open and restores pre-existing overflow value when closed or unmounted', () => {
+    document.body.style.overflow = 'scroll';
+    const { rerender, unmount } = render(<InstallDownloadModal {...defaultProps} isOpen={true} />);
     expect(document.body.style.overflow).toBe('hidden');
 
     rerender(<InstallDownloadModal {...defaultProps} isOpen={false} />);
-    expect(document.body.style.overflow).toBe('');
+    expect(document.body.style.overflow).toBe('scroll');
+
+    // Test unmount restoration as well
+    rerender(<InstallDownloadModal {...defaultProps} isOpen={true} />);
+    expect(document.body.style.overflow).toBe('hidden');
+    unmount();
+    expect(document.body.style.overflow).toBe('scroll');
+
+    // Cleanup
+    document.body.style.overflow = '';
   });
 
   it('traps focus inside the modal dialog on Tab and Shift+Tab', () => {
