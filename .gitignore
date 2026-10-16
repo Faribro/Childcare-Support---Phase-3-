@@ -19,6 +19,7 @@
 .env*.local
 
 # Vitest & Testing
+/.cache/
 /coverage
 /test-results/
 /playwright-report/

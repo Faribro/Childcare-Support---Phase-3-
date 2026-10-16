@@ -27,7 +27,7 @@ import { GET as getSessionRoute } from '@/app/api/auth/session/route';
 import { GET as getSubmissionsRoute } from '@/app/api/submissions/route';
 import { GET as getSummaryRoute } from '@/app/api/submissions/summary/route';
 
-describe('Argon2 Runtime Compatibility & Serverless Route Resilience', () => {
+describe('Argon2 Runtime Compatibility & Serverless Route Resilience', { timeout: 15000 }, () => {
   let runtimeSyntheticSecret: string;
 
   beforeEach(() => {

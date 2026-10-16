@@ -91,13 +91,25 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
         };
         mockProtections.push(protection);
         return protection;
-      }
+      },
+      setVerticalAlignment: () => {},
+      setFontSize: () => {},
+      setBackground: () => {},
+      setBorder: () => {},
+      setWrap: () => {},
+      setHorizontalAlignment: () => {},
+      setNumberFormat: () => {},
+      setFontWeight: () => {},
+      setFontColor: () => {},
     };
   }
 
   beforeEach(() => {
     scriptProperties = {
       WEBHOOK_SECRET: 'TEST_SECRET_KEY_888999',
+      APP_ENV: 'production',
+      TARGET_SPREADSHEET_ID: 'mock-sheet-id-production',
+      ROOT_DOCUMENTS_FOLDER_ID: 'root-folder-id',
     };
 
     mockSheetData = [
@@ -245,6 +257,7 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
       },
       SpreadsheetApp: {
         ProtectionType: { RANGE: 'RANGE', SHEET: 'SHEET' },
+        BorderStyle: { SOLID: 'SOLID' },
         getActiveSpreadsheet: () => sandbox.SpreadsheetApp.openById('MOCK_SS_ID'),
         openById: (id: string) => ({
           getSheetByName: (name: string) => {
@@ -258,7 +271,11 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
                 insertColumnsAfter: () => {},
                 insertRowsAfter: () => {},
                 getRange: (r: number, c: number, numR: number, numC: number) => createMockRange('_Asset_Containers', r, c, numR, numC),
-                appendRow: (row: any[]) => mockRegistryData.push(row)
+                appendRow: (row: any[]) => mockRegistryData.push(row),
+                setRowHeight: () => {},
+                setColumnWidth: () => {},
+                setFrozenRows: () => {},
+                setFrozenColumns: () => {}
               };
             }
             return {
@@ -276,7 +293,11 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
               setName: (n: string) => {},
               clear: () => { mockSheetData = []; mockSheetFormulas = []; },
               deleteRows: (r: number, cnt: number) => { mockSheetData.splice(r - 1, cnt); },
-              appendRow: (row: any[]) => mockSheetData.push(row)
+              appendRow: (row: any[]) => mockSheetData.push(row),
+              setRowHeight: () => {},
+              setColumnWidth: () => {},
+              setFrozenRows: () => {},
+              setFrozenColumns: () => {}
             };
           },
           getSheets: () => [sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Child_Nutrition_Phase3_Linelist')],
@@ -320,6 +341,7 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
           };
         },
         getFolderById: (id: string) => {
+          if (mockDriveFolders[id]) return mockDriveFolders[id];
           return createFolderObject('ast-folder', id);
         }
       },
@@ -741,5 +763,167 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     const dataValid = JSON.parse(resValid.getContent());
     expect(dataValid.status).toBe('success');
     expect(dataValid.stagingRunId).toBe('staging-e2e-run-99887766');
+  });
+
+  // ==========================================================================
+  // SCENARIO 15: Missing explicit destination configuration fails closed with 503
+  // ==========================================================================
+  it('Scenario 15: Missing APP_ENV, TARGET_SPREADSHEET_ID, or ROOT_DOCUMENTS_FOLDER_ID fails closed with 503 and performs zero writes', () => {
+    const requiredKeys = ['APP_ENV', 'TARGET_SPREADSHEET_ID', 'ROOT_DOCUMENTS_FOLDER_ID'];
+    const initialRowsCount = mockSheetData.length;
+
+    for (const key of requiredKeys) {
+      const saved = scriptProperties[key];
+      delete scriptProperties[key];
+
+      const postPayload = {
+        postData: {
+          contents: JSON.stringify({
+            action: 'create',
+            secret: 'TEST_SECRET_KEY_888999',
+            uniqueId: 'BEN-TEST-MUTATION-BLOCKED',
+            demographics: { childName: 'Blocked Child' }
+          })
+        }
+      };
+
+      const res = sandbox.doPost(postPayload);
+      const data = JSON.parse(res.getContent());
+
+      expect(data.status).toBe('error');
+      expect(data.code).toBe('CONFIGURATION_ERROR');
+      expect(data.statusCode).toBe(503);
+      // Zero writes performed
+      expect(mockSheetData.length).toBe(initialRowsCount);
+
+      // Restore for next iteration
+      scriptProperties[key] = saved;
+    }
+  });
+
+  // ==========================================================================
+  // SCENARIO 16: Invalid APP_ENV fails closed with 503 CONFIGURATION_ERROR
+  // ==========================================================================
+  it('Scenario 16: Invalid APP_ENV (not staging or production) fails closed with 503', () => {
+    const invalidEnvs = ['dev', 'test', 'qa', 'sandbox', 'local', ''];
+    for (const badEnv of invalidEnvs) {
+      scriptProperties.APP_ENV = badEnv;
+      const res = sandbox.doPost({
+        postData: {
+          contents: JSON.stringify({
+            action: 'create',
+            secret: 'TEST_SECRET_KEY_888999',
+            uniqueId: 'BEN-TEST-INVALID-ENV'
+          })
+        }
+      });
+      const data = JSON.parse(res.getContent());
+      expect(data.status).toBe('error');
+      expect(data.code).toBe('CONFIGURATION_ERROR');
+      expect(data.statusCode).toBe(503);
+    }
+  });
+
+  // ==========================================================================
+  // SCENARIO 17: Staging environment targeting operational spreadsheet ID is rejected before writes
+  // ==========================================================================
+  it('Scenario 17: Staging environment targeting operational spreadsheet ID is rejected with 503 before any write or read', () => {
+    scriptProperties.APP_ENV = 'staging';
+    const initialRowsCount = mockSheetData.length;
+
+    const operationalIds = [
+      '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA',
+      '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM'
+    ];
+
+    for (const opId of operationalIds) {
+      scriptProperties.TARGET_SPREADSHEET_ID = opId;
+
+      const res = sandbox.doPost({
+        postData: {
+          contents: JSON.stringify({
+            action: 'create',
+            secret: 'TEST_SECRET_KEY_888999',
+            uniqueId: 'BEN-STAGING-INTRUSION-ATTEMPT',
+            demographics: { childName: 'Should Not Write' }
+          })
+        }
+      });
+
+      const data = JSON.parse(res.getContent());
+      expect(data.status).toBe('error');
+      expect(data.code).toBe('CONFIGURATION_ERROR');
+      expect(data.statusCode).toBe(503);
+      expect(data.message).toContain('Staging environment rejected targeting operational spreadsheet ID');
+      // Zero writes performed
+      expect(mockSheetData.length).toBe(initialRowsCount);
+    }
+  });
+
+  // ==========================================================================
+  // SCENARIO 18: Staging environment targeting valid isolated non-operational spreadsheet succeeds
+  // ==========================================================================
+  it('Scenario 18: Staging environment targeting valid isolated non-operational spreadsheet succeeds', () => {
+    scriptProperties.APP_ENV = 'staging';
+    scriptProperties.TARGET_SPREADSHEET_ID = 'isolated-staging-sheet-id-4455';
+    scriptProperties.ROOT_DOCUMENTS_FOLDER_ID = 'root-folder-id';
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'create',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-STAGING-ISOLATED-001',
+          childName: 'Isolated Child',
+          submittedBy: 'Staging Worker'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.uniqueId).toBe('BEN-STAGING-ISOLATED-001');
+  });
+
+  // ==========================================================================
+  // SCENARIO 19: Production environment targeting operational spreadsheet ID is permitted
+  // ==========================================================================
+  it('Scenario 19: Production environment targeting operational spreadsheet ID is not rejected by destination guard', () => {
+    scriptProperties.APP_ENV = 'production';
+    scriptProperties.TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
+    scriptProperties.ROOT_DOCUMENTS_FOLDER_ID = 'root-folder-id';
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'create',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-PROD-OPERATIONAL-001',
+          childName: 'Production Child',
+          submittedBy: 'Prod Worker'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.uniqueId).toBe('BEN-PROD-OPERATIONAL-001');
+  });
+
+  // ==========================================================================
+  // SCENARIO 20: No spreadsheet or folder-discovery fallback occurs when explicit properties are unset
+  // ==========================================================================
+  it('Scenario 20: Resolver functions throw immediately without fallback when properties are unset', () => {
+    delete scriptProperties.TARGET_SPREADSHEET_ID;
+    delete scriptProperties.ROOT_DOCUMENTS_FOLDER_ID;
+
+    // Direct getTargetSpreadsheet_ must throw immediately without falling back to getActiveSpreadsheet
+    expect(() => {
+      sandbox.getTargetSpreadsheet_();
+    }).toThrow(/TARGET_SPREADSHEET_ID must be configured in Script Properties/);
+
+    // Direct getOrCreateRootDocumentsFolder_ returns null without candidate folder scanning
+    const folder = sandbox.getOrCreateRootDocumentsFolder_();
+    expect(folder).toBeNull();
   });
 });

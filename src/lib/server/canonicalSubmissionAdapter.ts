@@ -488,6 +488,114 @@ export function extractUpstreamStatusCode(res: Response, gasData: any): number {
   return 502;
 }
 
+export const OPERATIONAL_APPS_SCRIPT_DEPLOYMENT_IDS = [
+  'AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL',
+] as const;
+
+export interface UpstreamEndpointValidation {
+  valid: boolean;
+  code?: string;
+  error?: string;
+  parsedUrl?: URL;
+  deploymentId?: string;
+}
+
+/**
+ * Validates upstream Apps Script Web App endpoints strictly:
+ * - URL must parse via new URL()
+ * - Protocol must be HTTPS
+ * - Host must be script.google.com
+ * - Path must match /macros/s/{deploymentId}/exec
+ * - Prohibits secret/key/token/auth in URL query parameters (enforces JSON-body credentials)
+ * - In staging (APP_ENV === 'staging' or NEXT_PUBLIC_APP_ENV === 'staging'), rejects operational deployment IDs
+ * - In production, allows operational deployment IDs
+ */
+export function validateUpstreamEndpoint(
+  urlStr?: string,
+  environment?: string
+): UpstreamEndpointValidation {
+  if (!urlStr || typeof urlStr !== 'string' || !urlStr.trim()) {
+    return {
+      valid: false,
+      code: 'MISSING_ENDPOINT',
+      error: 'Upstream Apps Script URL is missing or empty.',
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr.trim());
+  } catch {
+    return {
+      valid: false,
+      code: 'INVALID_URL',
+      error: 'Upstream Apps Script URL is malformed.',
+    };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      code: 'INSECURE_PROTOCOL',
+      error: `Upstream Apps Script endpoint must use HTTPS protocol, received: ${parsed.protocol}`,
+    };
+  }
+
+  if (parsed.hostname !== 'script.google.com') {
+    return {
+      valid: false,
+      code: 'INVALID_HOST',
+      error: `Upstream Apps Script endpoint must be on script.google.com, received: ${parsed.hostname}`,
+    };
+  }
+
+  const pathRegex = /^\/macros\/s\/([a-zA-Z0-9_-]+)\/exec$/;
+  const match = parsed.pathname.match(pathRegex);
+  if (!match) {
+    return {
+      valid: false,
+      code: 'INVALID_PATH',
+      error: `Upstream Apps Script URL path must follow /macros/s/{deploymentId}/exec format, received: ${parsed.pathname}`,
+    };
+  }
+
+  const deploymentId = match[1];
+
+  // Strictly prohibit secrets in query parameters (Authentication must remain JSON-body payload.secret)
+  if (
+    parsed.searchParams.has('secret') ||
+    parsed.searchParams.has('key') ||
+    parsed.searchParams.has('token') ||
+    parsed.searchParams.has('auth') ||
+    parsed.searchParams.has('webhookSecret')
+  ) {
+    return {
+      valid: false,
+      code: 'QUERY_SECRET_PROHIBITED',
+      error: 'Passing secrets or credentials in URL query parameters is prohibited. Use HTTPS JSON-body payload.secret.',
+    };
+  }
+
+  const env = (environment || process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || '').toLowerCase().trim();
+
+  // Destination Isolation: Staging environment MUST NOT target operational deployment ID
+  if (env === 'staging') {
+    if ((OPERATIONAL_APPS_SCRIPT_DEPLOYMENT_IDS as readonly string[]).includes(deploymentId)) {
+      return {
+        valid: false,
+        code: 'OPERATIONAL_DESTINATION_REJECTED',
+        error: `Staging environment rejected targeting operational Apps Script deployment ID (${deploymentId}).`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    parsedUrl: parsed,
+    deploymentId,
+  };
+}
+
 class CanonicalSubmissionAdapterService {
   public getAppsScriptUrl(): string | undefined {
     return (
@@ -495,9 +603,7 @@ class CanonicalSubmissionAdapterService {
       process.env.APPS_SCRIPT_WEBAPP_URL ||
       process.env.APPS_SCRIPT_WEBHOOK_URL ||
       process.env.STAGING_APPS_SCRIPT_URL ||
-      (process.env.RENDER === 'true'
-        ? 'https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec'
-        : undefined)
+      undefined
     );
   }
 
@@ -523,7 +629,9 @@ class CanonicalSubmissionAdapterService {
       return false;
     }
     const url = this.getAppsScriptUrl();
-    return !!(url && url.startsWith('https://script.google.com'));
+    const env = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV;
+    const validation = validateUpstreamEndpoint(url, env);
+    return validation.valid;
   }
 
   public isProductionOrStaging(): boolean {
@@ -534,23 +642,65 @@ class CanonicalSubmissionAdapterService {
     ) {
       return false;
     }
-    return process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+    return (
+      process.env.NODE_ENV === 'production' ||
+      process.env.RENDER === 'true' ||
+      process.env.APP_ENV === 'staging' ||
+      process.env.APP_ENV === 'production' ||
+      process.env.NEXT_PUBLIC_APP_ENV === 'staging' ||
+      process.env.NEXT_PUBLIC_APP_ENV === 'production'
+    );
   }
 
   public checkConfiguration(operationType: 'read' | 'write' = 'write'): { valid: boolean; errorResponse?: CanonicalSubmissionResult } {
-    const hasValidUrl = this.isConfigured();
+    const url = this.getAppsScriptUrl();
+    const env = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV;
+    const endpointValidation = validateUpstreamEndpoint(url, env);
     const hasSecret = Boolean(this.getWebhookSecret());
 
-    // In production or staging, fail-closed immediately if unconfigured
+    // In production or staging, fail-closed immediately if unconfigured or destination invalid
     if (this.isProductionOrStaging()) {
-      if (!hasValidUrl || !hasSecret) {
+      if (!endpointValidation.valid || !hasSecret) {
+        let errorCode = 'CONFIGURATION_ERROR';
+        if (endpointValidation.code === 'OPERATIONAL_DESTINATION_REJECTED') {
+          errorCode = 'OPERATIONAL_DESTINATION_REJECTED';
+        } else if (endpointValidation.code === 'QUERY_SECRET_PROHIBITED') {
+          errorCode = 'QUERY_SECRET_PROHIBITED';
+        }
+
+        const errorMessage = !endpointValidation.valid
+          ? `Central Google Sheets bridge destination error: ${endpointValidation.error}`
+          : 'Central Google Sheets bridge (WEBHOOK_SECRET) is not configured. Requests fail-closed for data safety.';
+
         return {
           valid: false,
           errorResponse: {
             status: 'error',
             statusCode: 503,
-            code: 'CONFIGURATION_ERROR',
-            message: `Central Google Sheets bridge (${!hasValidUrl ? 'APPS_SCRIPT_URL' : 'WEBHOOK_SECRET'}) is not configured. Requests fail-closed for data safety.`,
+            code: errorCode,
+            message: errorMessage,
+          },
+        };
+      }
+    }
+
+    // In test or local environments, if outbound staging is active, still enforce destination safety
+    if (process.env.E2E_STAGING_ENABLED === 'true') {
+      if (!endpointValidation.valid || !hasSecret) {
+        let errorCode = 'CONFIGURATION_ERROR';
+        if (endpointValidation.code === 'OPERATIONAL_DESTINATION_REJECTED') {
+          errorCode = 'OPERATIONAL_DESTINATION_REJECTED';
+        } else if (endpointValidation.code === 'QUERY_SECRET_PROHIBITED') {
+          errorCode = 'QUERY_SECRET_PROHIBITED';
+        }
+
+        return {
+          valid: false,
+          errorResponse: {
+            status: 'error',
+            statusCode: 503,
+            code: errorCode,
+            message: endpointValidation.error || 'Outbound staging configuration is invalid.',
           },
         };
       }

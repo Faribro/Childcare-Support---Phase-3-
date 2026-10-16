@@ -302,7 +302,7 @@ describe('Blocker & Critical Remediation Integration Test Suite', () => {
       expect(adapterContent).not.toContain('&secret=');
     });
 
-    it('resolves canonical Google Apps Script bridge on Render deployment', () => {
+    it('refuses unconfigured operational fallback on Render and fails closed', () => {
       const origRender = process.env.RENDER;
       const origUrl = process.env.APPS_SCRIPT_URL;
       const origSecret = process.env.WEBHOOK_SECRET;
@@ -312,10 +312,8 @@ describe('Blocker & Critical Remediation Integration Test Suite', () => {
         delete process.env.APPS_SCRIPT_URL;
         delete process.env.WEBHOOK_SECRET;
 
-        expect(canonicalSubmissionAdapter.getAppsScriptUrl()).toBe(
-          'https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec'
-        );
-        // Fail-closed invariant: Never fallback to hardcoded secrets, even on Render
+        // Fail-closed invariant: Never fallback to hardcoded operational endpoints without explicit configuration
+        expect(canonicalSubmissionAdapter.getAppsScriptUrl()).toBeUndefined();
         expect(canonicalSubmissionAdapter.getWebhookSecret()).toBeUndefined();
       } finally {
         if (origRender !== undefined) process.env.RENDER = origRender;

@@ -4,15 +4,18 @@
 
 The architecture operates strictly within Google Workspace and standard free-tier infrastructure, avoiding paid GCP billing commitments. Engineers and administrators must operate within these platform limits:
 
-| Resource / API | Standard Free Tier Quota | Impact on Platform |
-| :--- | :--- | :--- |
-| **Google Sheets API v4 (Read)** | 300 requests / min / project | High-volume polling can exhaust quota if uncached. |
-| **Google Sheets API v4 (Write)** | 300 requests / min / project | Batch sync queues must debounce row writes. |
-| **Google Drive API v3** | 20,000 queries / 100 sec / project | Asset inspection during full audits must pace requests. |
-| **Apps Script Execution Timeout** | 6 minutes / single execution | Batch migrations or mass audits must use pagination. |
-| **Apps Script ScriptLock Timeout** | 30 seconds max acquisition wait | Mutations must release locks promptly in `finally` blocks. |
-| **PropertiesService Storage** | 9 KB per property, 500 KB total | Used only for authentication secrets and environment tokens. |
-| **CacheService Storage** | 100 KB max value size, 6 hours TTL | Used for short-term schema and metadata caching. |
+| Resource / API | Standard Consumer Quota | Google Workspace Quota | Impact & Architectural Context |
+| :--- | :--- | :--- | :--- |
+| **URL Fetch (Outbound `UrlFetchApp`)** | 20,000 calls / day | 100,000 calls / day | Governs outbound HTTP calls made *from* Apps Script. Inbound Web App calls do not count against this limit. |
+| **Google Sheets API v4 (Read)** | 300 requests / min / project | 300 requests / min / project | High-volume polling can exhaust quota if uncached. |
+| **Google Sheets API v4 (Write)** | 300 requests / min / project | 300 requests / min / project | Batch sync queues must debounce row writes. |
+| **Google Drive API v3** | 20,000 queries / 100 sec / project | 20,000 queries / 100 sec / project | Asset inspection during full audits must pace requests. |
+| **Web App Execution Timeout** | 6 minutes / single execution | 6 minutes / single execution | Batch migrations or mass audits must use pagination. |
+| **Trigger Runtime Quota** | 90 minutes / day | 6 hours / day | Applies strictly to background/time-driven triggers, NOT general inbound Web App (`doPost`) execution runtime allowances. |
+| **Web App Concurrency** | 30 simultaneous executions | 30 simultaneous executions | Inbound requests exceeding concurrency return HTTP 503 / upstream unavailable. |
+| **Apps Script ScriptLock Timeout** | 30 seconds max acquisition wait | 30 seconds max acquisition wait | Mutations must release locks promptly in `finally` blocks. |
+| **PropertiesService Storage** | 9 KB per property, 500 KB total | 9 KB per property, 500 KB total | Used only for authentication secrets and environment tokens (`APP_ENV`, `TARGET_SPREADSHEET_ID`, `ROOT_DOCUMENTS_FOLDER_ID`). |
+| **CacheService Storage** | 100 KB max value size, 6 hours TTL | 100 KB max value size, 6 hours TTL | Used for short-term schema and metadata caching. |
 
 ---
 
