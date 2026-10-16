@@ -333,17 +333,50 @@ var PLACEHOLDER_DOCS = {
 // ============================================================================
 
 /**
+ * Minimal staging-only authorization probe and environment validator.
+ * - Touches ONLY the explicitly configured staging spreadsheet and staging documents folder.
+ * - Zero access to operational resources, operational folder names, or root Drive mutations.
+ * - Exercises both SpreadsheetApp and DriveApp to trigger Google OAuth consent for both scopes simultaneously.
+ * - Sets/verifies Script Properties for APP_ENV, TARGET_SPREADSHEET_ID, and ROOT_DOCUMENTS_FOLDER_ID.
+ */
+function probeStagingAuthorization() {
+  var stagingSpreadsheetId = '1HFgh-CMgvRCjvn7MsxF94Jqpuf10GxiwHasIbzE9WPI';
+  var stagingFolderId = '12PNqK_J_YZXQGy4sDGq0XNuBGJMuGZCh';
+
+  // 1. Probe & initialize Staging Spreadsheet (Zero operational access)
+  var ss = SpreadsheetApp.openById(stagingSpreadsheetId);
+  var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
+  sheet.setName(PRIMARY_SHEET_NAME);
+  ensureHeaders_(sheet);
+
+  // 2. Probe Staging Drive Folder (Zero operational access)
+  var folder = DriveApp.getFolderById(stagingFolderId);
+  var folderName = folder.getName();
+
+  // 3. Ensure Staging Destination Properties are recorded in Script Properties
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('APP_ENV', 'staging');
+  props.setProperty('TARGET_SPREADSHEET_ID', stagingSpreadsheetId);
+  props.setProperty('ROOT_DOCUMENTS_FOLDER_ID', stagingFolderId);
+
+  Logger.log('Staging destination probed successfully: Sheet=' + ss.getName() + ' (' + ss.getId() + '), Folder=' + folderName + ' (' + folder.getId() + ')');
+  return {
+    status: 'ok',
+    appEnv: props.getProperty('APP_ENV'),
+    spreadsheetId: ss.getId(),
+    spreadsheetName: ss.getName(),
+    folderId: folder.getId(),
+    folderName: folderName,
+    webhookSecretConfigured: Boolean(props.getProperty('WEBHOOK_SECRET'))
+  };
+}
+
+/**
  * Public authorization trigger for Google Drive OAuth scope.
  * Run this function directly from the Apps Script editor function dropdown to trigger Google OAuth consent.
  */
 function authorizeDrivePermissions() {
-  var root = DriveApp.getRootFolder();
-  var testFolder = root.createFolder('_auth_probe_temp_');
-  var testFile = testFolder.createFile('_auth_probe_.txt', 'Drive write permission confirmed');
-  testFile.setTrashed(true);
-  testFolder.setTrashed(true);
-  Logger.log('Drive full read/write permissions authorized successfully.');
-  return 'Drive full read/write permissions successfully authorized.';
+  return probeStagingAuthorization();
 }
 
 function onOpen(e) {
