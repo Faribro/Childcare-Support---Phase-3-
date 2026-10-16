@@ -502,9 +502,11 @@ describe('PR 2: Drive Asset & Sheet Reconciliation Integration Suite', () => {
       expect(gasCode).toContain("return '[Document Pending Drive Upload]'");
     });
 
-    it('verifies target spreadsheet ID is updated to production sheet', () => {
-      expect(gasCode).toContain("var TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';");
-      expect(gasCode).toContain("var LEGACY_TARGET_SPREADSHEET_ID = '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM';");
+    it('verifies operational spreadsheet IDs are maintained in fail-closed rejection list', () => {
+      expect(gasCode).toContain("'1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA'");
+      expect(gasCode).toContain("'1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM'");
+      expect(gasCode).toContain('OPERATIONAL_SPREADSHEET_IDS');
+      expect(gasCode).toContain('function getTargetSpreadsheetId_()');
     });
 
     it('verifies updateAsset action is routed in doPost', () => {
