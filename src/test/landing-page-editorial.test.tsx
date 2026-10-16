@@ -165,7 +165,7 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(downloadButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('opens iOS modal when download is clicked on iOS devices', async () => {
+    it('opens installation modal when download is clicked on iOS devices', async () => {
       mockUsePwaInstall.mockReturnValue({
         canInstall: true,
         isStandalone: false,
@@ -178,11 +178,12 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       fireEvent.click(downloadButtons[0]);
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /install on iphone \/ ipad/i })).toBeDefined();
+        expect(screen.getByRole('dialog')).toBeDefined();
+        expect(screen.getByRole('heading', { name: /install & download childcare support/i })).toBeDefined();
       });
 
       // Close modal
-      const closeButton = screen.getByRole('button', { name: /got it, close guide/i });
+      const closeButton = screen.getByRole('button', { name: /close installation dialog/i });
       fireEvent.click(closeButton);
 
       await waitFor(() => {

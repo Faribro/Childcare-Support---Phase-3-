@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -16,7 +16,11 @@ import {
   User,
   Calendar,
   Activity,
+  Home,
+  BookOpen,
+  HeartPulse,
 } from 'lucide-react';
+import { useScrollPhysics } from './motion/useScrollPhysics';
 import motionStyles from './landing-motion.module.css';
 
 interface NotebookHeroProps {
@@ -26,8 +30,30 @@ interface NotebookHeroProps {
 }
 
 export function NotebookHero({ canInstall, onInstallClick, isStandalone = false }: NotebookHeroProps) {
+  const physics = useScrollPhysics();
+  const heroRef = useRef<HTMLElement>(null);
+
+  // Compute local scroll progression for the Hero (0 at top of hero, 1 after scrolling 350px)
+  const heroProgress = physics.isReducedMotion
+    ? 1
+    : Math.min(1, Math.max(0, physics.scrollY / 360));
+
+  // Depth transforms
+  const paperSheetTransform = physics.isReducedMotion
+    ? 'none'
+    : `translate3d(0, ${heroProgress * -12}px, 0)`;
+
+  const devicePerspectiveTransform = physics.isReducedMotion
+    ? 'none'
+    : `perspective(1000px) rotateY(${(1 - heroProgress) * -5}deg) rotateX(${(1 - heroProgress) * 3}deg) translate3d(0, ${heroProgress * -18}px, 0)`;
+
+  // Scroll-linked pathway dashoffset (total length ~420)
+  const pathTotalLength = 420;
+  const pathOffset = physics.isReducedMotion ? 0 : Math.max(0, pathTotalLength * (1 - heroProgress * 1.5));
+
   return (
     <section
+      ref={heroRef}
       aria-labelledby="hero-heading"
       className="relative pt-4 pb-12 md:pt-6 md:pb-20 overflow-hidden"
     >
@@ -84,8 +110,11 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
             <div className="notebook-punch-hole" aria-hidden="true" />
           </div>
 
-          {/* ── THE INNER COTTON JOURNAL SHEET (Layer 2) ── */}
-          <div className="notebook-paper-sheet rounded-2xl p-4 sm:p-7 lg:p-10 lg:ml-7 relative overflow-hidden">
+          {/* ── THE INNER COTTON JOURNAL SHEET (Layer 2 with scroll depth) ── */}
+          <div
+            className="notebook-paper-sheet rounded-2xl p-4 sm:p-7 lg:p-10 lg:ml-7 relative overflow-hidden transition-transform duration-150 ease-out"
+            style={{ transform: paperSheetTransform }}
+          >
 
             {/* Red Margin Line on the left */}
             <div className="hidden sm:block absolute left-12 top-0 bottom-0 w-px bg-red-200/60 pointer-events-none" />
@@ -143,37 +172,24 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
 
                 {/* Primary & Secondary Action Button Bar */}
                 <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
-                  {isStandalone ? (
-                    <Link
-                      href="/app"
-                      className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
-                      aria-label="Open in App"
-                    >
-                      <span>Open in App</span>
-                      <ArrowRight className="w-4 h-4 text-emerald-200" />
-                    </Link>
-                  ) : (
-                    <>
-                      <Link
-                        href="/app"
-                        className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
-                        aria-label="Open Field Workspace"
-                      >
-                        <span>Open Field Workspace</span>
-                        <ArrowRight className="w-4 h-4 text-emerald-200" />
-                      </Link>
+                  <Link
+                    href="/app"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
+                    aria-label="Open in App"
+                  >
+                    <span>Open in App</span>
+                    <ArrowRight className="w-4 h-4 text-emerald-200" />
+                  </Link>
 
-                      <button
-                        type="button"
-                        onClick={onInstallClick}
-                        className="inline-flex items-center justify-center gap-2 px-5 py-4 rounded-xl text-sm sm:text-base font-semibold text-slate-800 bg-[#EFE6D8] hover:bg-[#E5DACB] active:bg-[#DBCFB8] border border-[#D5C4AA] transition-all focus:outline-none focus:ring-4 focus:ring-slate-400/40 min-h-[48px] cursor-pointer"
-                        aria-label="Download the App"
-                      >
-                        <Download className="w-4 h-4 text-emerald-800" />
-                        <span>Download the App</span>
-                      </button>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    onClick={onInstallClick}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-4 rounded-xl text-sm sm:text-base font-semibold text-slate-800 bg-[#EFE6D8] hover:bg-[#E5DACB] active:bg-[#DBCFB8] border border-[#D5C4AA] transition-all focus:outline-none focus:ring-4 focus:ring-slate-400/40 min-h-[48px] cursor-pointer"
+                    aria-label="Install or Download the App"
+                  >
+                    <Download className="w-4 h-4 text-emerald-800" />
+                    <span>Install / Download</span>
+                  </button>
 
                   <a
                     href="#whole-child"
@@ -201,11 +217,60 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
                     <span>Local draft storage</span>
                   </div>
                 </div>
+
+                {/* MOMENT A: Hand-drawn care pathway with waypoint glyphs */}
+                <div className="hidden md:flex items-center gap-3 pt-3 text-xs text-slate-500 font-mono" aria-hidden="true">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Care Pathway:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px]">
+                      <HeartPulse className="w-3 h-3 text-emerald-600" />
+                      <span>Nutrition</span>
+                    </span>
+                    <span className="text-slate-300">→</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px]">
+                      <BookOpen className="w-3 h-3 text-amber-600" />
+                      <span>Schooling</span>
+                    </span>
+                    <span className="text-slate-300">→</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px]">
+                      <Home className="w-3 h-3 text-blue-600" />
+                      <span>Home Support</span>
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Right Column: Synthetic Intake Device Mockup */}
-              <div className={`lg:col-span-5 ${motionStyles.heroDevice}`}>
-                <SyntheticIntakeMockup />
+              {/* Right Column: Synthetic Intake Device Mockup with Scroll-Linked Perspective */}
+              <div
+                className={`lg:col-span-5 ${motionStyles.heroDevice} transition-transform duration-200 ease-out`}
+                style={{ transform: devicePerspectiveTransform }}
+              >
+                {/* Scroll-Linked Pathway Thread connecting headline space to case card */}
+                <div className="relative">
+                  <svg
+                    className="hidden lg:block absolute -left-12 top-10 w-20 h-48 pointer-events-none z-30"
+                    viewBox="0 0 80 192"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M 0 10 C 40 10, 20 80, 50 120 C 65 140, 75 160, 80 180"
+                      stroke="#0F5132"
+                      strokeWidth="2.5"
+                      strokeDasharray={pathTotalLength}
+                      strokeDashoffset={pathOffset}
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx="0"
+                      cy="10"
+                      r="3.5"
+                      fill="#0F5132"
+                      className="opacity-75"
+                    />
+                  </svg>
+                  <SyntheticIntakeMockup />
+                </div>
               </div>
             </div>
 
