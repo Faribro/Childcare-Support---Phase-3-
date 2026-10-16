@@ -351,8 +351,8 @@ export function normalizeSubmissionData(raw: any, submissionId: string, fallback
     remote_submission_id: id,
     uniqueId: id,
     art_number: raw['1\nUnique ID'] || raw['42\nART ID Number'] || raw.artNumber || raw.art_number || id,
-    child_name: raw['9\nChild Name'] || raw.child_name || raw.childName || '',
-    childName: raw['9\nChild Name'] || raw.childName || raw.child_name || '',
+    child_name: raw['9\nChild Name'] || raw.child_name || raw.childName || raw.demographics?.childName || '',
+    childName: raw['9\nChild Name'] || raw.childName || raw.child_name || raw.demographics?.childName || '',
     dob: raw['10\nDate of Birth'] || raw.dob || '',
     calculated_age: Number(raw['11\nAge'] || raw.calculated_age || raw.calculatedAgeYears || 0),
     gender: raw['12\nGender'] || raw.gender || '',
@@ -597,6 +597,27 @@ export function validateUpstreamEndpoint(
 }
 
 class CanonicalSubmissionAdapterService {
+  private supabaseAdapterInstance: any = null;
+
+  public getStorageEngine(): 'sheets' | 'supabase' {
+    if (process.env.STORAGE_ENGINE === 'supabase') {
+      return 'supabase';
+    }
+    return 'sheets';
+  }
+
+  public setSupabaseAdapter(adapter: any): void {
+    this.supabaseAdapterInstance = adapter;
+  }
+
+  private async getSupabaseAdapter(): Promise<any> {
+    if (!this.supabaseAdapterInstance) {
+      const { SupabaseSubmissionAdapter } = await import('./supabaseSubmissionAdapter');
+      this.supabaseAdapterInstance = new SupabaseSubmissionAdapter();
+    }
+    return this.supabaseAdapterInstance;
+  }
+
   public getAppsScriptUrl(): string | undefined {
     return (
       process.env.APPS_SCRIPT_URL ||
@@ -714,6 +735,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL CREATE
    */
   async createSubmission(input: CanonicalCreateInput): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.createSubmission(input);
+    }
+
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -805,6 +831,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL UPDATE (OCC)
    */
   async updateSubmission(input: CanonicalUpdateInput): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.updateSubmission(input);
+    }
+
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -930,6 +961,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL GET (READ)
    */
   async getSubmission(submissionId: string, role: UserRole = 'caseworker'): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.getSubmission(submissionId, role);
+    }
+
     const configCheck = this.checkConfiguration('read');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -1015,6 +1051,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL LIST
    */
   async listSubmissions(params: CanonicalListParams): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.listSubmissions(params);
+    }
+
     const configCheck = this.checkConfiguration('read');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;

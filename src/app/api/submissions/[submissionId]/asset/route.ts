@@ -435,10 +435,11 @@ export async function GET(
     targetRef.startsWith('s3://') ||
     targetRef.startsWith('urn:asset:')
   ) {
+    const bucket = process.env.S3_BUCKET_NAME || process.env.TIGRIS_BUCKET;
     const hasS3Config = Boolean(
       process.env.AWS_ACCESS_KEY_ID &&
       process.env.AWS_SECRET_ACCESS_KEY &&
-      process.env.S3_BUCKET_NAME
+      bucket
     );
 
     if (!hasS3Config) {
@@ -446,18 +447,15 @@ export async function GET(
         {
           status: 'error',
           code: 'STORAGE_UNCONFIGURED',
-          message: 'Document preview unavailable: Private Tigris/S3 object storage is not configured (missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, or S3_BUCKET_NAME).',
-          prerequisite: 'Configure Tigris/S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET_NAME) in server environment.',
+          message: 'Document preview unavailable: Private Tigris/S3 object storage is not configured (missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, or S3_BUCKET_NAME/TIGRIS_BUCKET).',
+          prerequisite: 'Configure Tigris/S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET_NAME or TIGRIS_BUCKET) in server environment.',
         },
         { status: 503, headers: ASSET_NO_STORE_HEADERS }
       );
     }
 
     try {
-      // Dynamic import to prevent tsc from failing in environments where @aws-sdk/client-s3 is not in package.json
-      const dynamicImport = new Function('specifier', 'return import(specifier)');
-      const s3Pkg = await dynamicImport('@aws-sdk/client-s3');
-      const { S3Client, GetObjectCommand } = s3Pkg;
+      const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
       const s3 = new S3Client({
         region: process.env.AWS_REGION || 'auto',
         endpoint: process.env.AWS_ENDPOINT_URL_S3,
@@ -467,10 +465,12 @@ export async function GET(
         },
       });
 
-      const key = targetRef.replace(/^(asset|storage|s3|urn:asset):\/\/?/, '');
-      const bucket = process.env.S3_BUCKET_NAME!;
+      let key = targetRef.replace(/^(asset|storage|s3|urn:asset):\/\/?/, '');
+      if (bucket && key.startsWith(`${bucket}/`)) {
+        key = key.substring(bucket.length + 1);
+      }
 
-      const s3Res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      const s3Res = await s3.send(new GetObjectCommand({ Bucket: bucket!, Key: key }));
       if (!s3Res.Body) {
         return NextResponse.json(
           {
