@@ -3,13 +3,12 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Smartphone,
-  X,
   Check
 } from 'lucide-react';
 import { usePwaInstall } from '@/lib/pwa/usePwaInstall';
 import { NotebookHero } from '@/components/landing/NotebookHero';
 import { WholeChildSnapshot } from '@/components/landing/WholeChildSnapshot';
+import { ConnectedCareStory } from '@/components/landing/ConnectedCareStory';
 import { FieldRhythm } from '@/components/landing/FieldRhythm';
 import { FieldReadiness } from '@/components/landing/FieldReadiness';
 import { DesignPrinciples } from '@/components/landing/DesignPrinciples';
@@ -18,32 +17,29 @@ import { FieldFaq } from '@/components/landing/FieldFaq';
 import { FinalCta } from '@/components/landing/FinalCta';
 import { NotebookFooter } from '@/components/landing/NotebookFooter';
 import { Reveal } from '@/components/landing/Reveal';
+import { InstallDownloadModal } from '@/components/landing/InstallDownloadModal';
 import motionStyles from '@/components/landing/landing-motion.module.css';
 
 export default function LandingPage() {
   const router = useRouter();
-  const { canInstall, isStandalone, isIos, promptInstall } = usePwaInstall();
-  const [showIosModal, setShowIosModal] = useState(false);
+  const { canInstall, hasPrompt, isStandalone, promptInstall } = usePwaInstall();
+  const [showInstallModal, setShowInstallModal] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
 
-  const handleInstallClick = async () => {
-    if (isIos && !isStandalone) {
-      setShowIosModal(true);
-      return;
-    }
+  const handleInstallClick = () => {
+    setShowInstallModal(true);
+  };
 
+  const handlePromptInstall = async () => {
     const result = await promptInstall();
     if (result === 'accepted') {
       setInstallSuccess(true);
+      setShowInstallModal(false);
       setTimeout(() => {
         router.push('/app');
       }, 1500);
-    } else if (result === 'manual-ios') {
-      setShowIosModal(true);
-    } else if (result === 'unsupported') {
-      // Direct navigation if browser already installed or unsupported
-      router.push('/app');
     }
+    return result;
   };
 
   return (
@@ -72,7 +68,10 @@ export default function LandingPage() {
           <WholeChildSnapshot />
         </Reveal>
 
-        {/* Section 3: How it works — staggered fade (text rhythm section) */}
+        {/* Section 3: MOMENT C — The Connection Returns (illustrative 7-step offline sync story) */}
+        <ConnectedCareStory />
+
+        {/* Section 4: How it works — staggered fade (text rhythm section) */}
         <Reveal className={motionStyles.revealFade}>
           <FieldRhythm />
         </Reveal>
@@ -110,69 +109,15 @@ export default function LandingPage() {
       {/* Section 9: Institutional Footer */}
       <NotebookFooter />
 
-      {/* ── iOS Add to Home Screen Instructions Modal ── */}
-      {showIosModal && (
-        <div
-          role="dialog"
-          aria-labelledby="ios-modal-title"
-          aria-modal="true"
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
-        >
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-emerald-700" />
-                <h3 id="ios-modal-title" className="font-bold text-sm text-slate-900">
-                  Install on iPhone / iPad
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowIosModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                aria-label="Close guide"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed font-normal">
-              Apple iOS requires adding PWAs to your Home Screen from the Safari browser:
-            </p>
-
-            <ol className="space-y-3 text-xs text-slate-700">
-              <li className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                <span className="font-bold font-mono text-emerald-700">1.</span>
-                <span>
-                  Tap the <strong className="text-slate-900">Share button</strong> (square icon with upward arrow) at the bottom of Safari.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                <span className="font-bold font-mono text-emerald-700">2.</span>
-                <span>
-                  Scroll down and tap <strong className="text-slate-900">&ldquo;Add to Home Screen&rdquo;</strong>.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                <span className="font-bold font-mono text-emerald-700">3.</span>
-                <span>
-                  Tap <strong className="text-slate-900">Add</strong> in the top right. The app icon will appear on your home screen!
-                </span>
-              </li>
-            </ol>
-
-            <div className="pt-2 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowIosModal(false)}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-800 hover:bg-emerald-900 transition-colors cursor-pointer"
-              >
-                Got It, Close Guide
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Accessible Install / Download Modal ── */}
+      <InstallDownloadModal
+        isOpen={showInstallModal}
+        onClose={() => setShowInstallModal(false)}
+        canInstallPwa={canInstall}
+        hasPrompt={hasPrompt}
+        isStandalone={isStandalone}
+        onPromptInstall={handlePromptInstall}
+      />
 
       {/* ── Success Toast when PWA installed ── */}
       {installSuccess && (

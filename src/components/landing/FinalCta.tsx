@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, Download, ShieldCheck, WifiOff, Smartphone } from 'lucide-react';
+import { LivingRiver } from './LivingRiver';
 
 interface FinalCtaProps {
   canInstall: boolean;
@@ -13,18 +14,8 @@ interface FinalCtaProps {
 export function FinalCta({ canInstall, onInstallClick, isStandalone = false }: FinalCtaProps) {
   return (
     <section aria-labelledby="cta-heading" className="bg-[#0F261B] text-white relative overflow-hidden">
-      {/* Torn paper edge transition from light notebook paper into dark leather dossier back cover */}
-      <div className="w-full overflow-hidden leading-none z-10 relative">
-        <svg
-          className="relative block w-full h-8 sm:h-12 text-[#F7F3E9]"
-          viewBox="0 0 1200 40"
-          preserveAspectRatio="none"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M0,0 L0,22 Q30,35 60,20 T120,24 T180,18 T240,28 T300,20 T360,26 T420,18 T480,26 T540,22 T600,28 T660,19 T720,27 T780,21 T840,29 T900,18 T960,26 T1020,20 T1080,28 T1140,22 T1200,25 L1200,0 Z" />
-        </svg>
-      </div>
+      {/* MOMENT B — THE LIVING RIVER: signature scroll-responsive liquid transition */}
+      <LivingRiver className="z-10 relative -mt-1" />
 
       {/* Decorative background grid and ambient glow */}
       <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#80E5A3_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
@@ -51,37 +42,24 @@ export function FinalCta({ canInstall, onInstallClick, isStandalone = false }: F
 
         {/* Primary CTA Buttons */}
         <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-          {isStandalone ? (
-            <Link
-              href="/app"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl text-sm font-bold text-slate-900 bg-white hover:bg-emerald-50 transition-all cursor-pointer shadow-lg hover:shadow-xl transform active:scale-[0.98] min-h-[48px]"
-              aria-label="Open in App"
-            >
-              <span>Open in App</span>
-              <ArrowRight className="w-4 h-4 text-emerald-800" />
-            </Link>
-          ) : (
-            <>
-              <Link
-                href="/app"
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl text-sm font-bold text-slate-900 bg-white hover:bg-emerald-50 transition-all cursor-pointer shadow-lg hover:shadow-xl transform active:scale-[0.98] min-h-[48px]"
-                aria-label="Open Field Workspace"
-              >
-                <span>Open Field Workspace</span>
-                <ArrowRight className="w-4 h-4 text-emerald-800" />
-              </Link>
+          <Link
+            href="/app"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl text-sm font-bold text-slate-900 bg-white hover:bg-emerald-50 transition-all cursor-pointer shadow-lg hover:shadow-xl transform active:scale-[0.98] min-h-[48px]"
+            aria-label="Open in App"
+          >
+            <span>Open in App</span>
+            <ArrowRight className="w-4 h-4 text-emerald-800" />
+          </Link>
 
-              <button
-                type="button"
-                onClick={onInstallClick}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-sm font-bold text-white bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 transition-colors cursor-pointer min-h-[48px]"
-                aria-label="Download the App"
-              >
-                <Download className="w-4 h-4 text-emerald-300" />
-                <span>Download the App</span>
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={onInstallClick}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-sm font-bold text-white bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 transition-colors cursor-pointer min-h-[48px]"
+            aria-label="Install or Download the App"
+          >
+            <Download className="w-4 h-4 text-emerald-300" />
+            <span>Install / Download</span>
+          </button>
         </div>
 
         {/* Trust Badges */}
