@@ -72,7 +72,7 @@ export function generateDeviceBindingSecret(): string {
 
 export type RequestCodeResult =
   | { success: true; statusCode: 200 }
-  | { success: false; error: string; statusCode: number };
+  | { success: false; error: string; statusCode: number; retryAfterSeconds?: number };
 
 /**
  * Initiates an authentication challenge and dispatches a single-use code to the leader's email.
@@ -130,13 +130,23 @@ export async function requestLeadershipAuthCode({
     const emailRateKey = `rate:email:${targetEmail}`;
     const emailLimit = await store.checkAndRecordRateLimit(emailRateKey, now);
     if (!emailLimit.allowed) {
-      return { success: false, error: emailLimit.reason || 'Too many requests.', statusCode: 429 };
+      return {
+        success: false,
+        error: emailLimit.reason || 'Too many requests.',
+        statusCode: 429,
+        retryAfterSeconds: emailLimit.retryAfterSeconds,
+      };
     }
 
     const ipRateKey = `rate:ip:${clientIp}`;
     const ipLimit = await store.checkAndRecordRateLimit(ipRateKey, now);
     if (!ipLimit.allowed) {
-      return { success: false, error: ipLimit.reason || 'Too many requests.', statusCode: 429 };
+      return {
+        success: false,
+        error: ipLimit.reason || 'Too many requests.',
+        statusCode: 429,
+        retryAfterSeconds: ipLimit.retryAfterSeconds,
+      };
     }
   } catch (err: any) {
     console.error('[LEADER_AUTH:RATE_LIMIT_ERROR] Fail-closed on rate limit store failure:', err?.message);

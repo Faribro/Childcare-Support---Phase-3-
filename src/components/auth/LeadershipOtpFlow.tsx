@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Check,
   UserCheck,
+  Clock,
 } from 'lucide-react';
 import { setEvaluationUnlocked, EvaluationUser, useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
@@ -33,27 +34,61 @@ export interface CandidateAuthUser {
   role?: string;
 }
 
+export interface ApprovedLeaderProfile {
+  id: string;
+  name: string;
+  title: string;
+  isSynthetic?: boolean;
+  email?: string;
+}
+
+export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] = [
+  {
+    id: 'lead-ananya-roy',
+    name: 'Dr. Ananya Roy',
+    title: 'National Programme Director',
+  },
+  {
+    id: 'lead-rajiv-menon',
+    name: 'Rajiv Menon',
+    title: 'Senior Technical Lead',
+  },
+  {
+    id: 'lead-priya-sharma',
+    name: 'Priya Sharma',
+    title: 'Regional Operations Head',
+  },
+  {
+    id: 'lead-samuel-k',
+    name: 'Samuel K',
+    title: 'Governance & Compliance Officer',
+  },
+];
+
 // Synthetic fixtures for local development & testing ONLY.
 // Gate: rendered ONLY when process.env.NODE_ENV !== 'production' AND NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true'.
 // Using clearly fictional profiles and RFC 2606 reserved example domains.
-const DEV_SYNTHETIC_FIXTURES = [
+const DEV_SYNTHETIC_FIXTURES: ApprovedLeaderProfile[] = [
   {
     id: 'fictional-alex-rivera',
     name: 'Alex Rivera (Fictional Demo)',
     title: 'Surveillance Lead (Synthetic)',
     email: 'alex.rivera@example.com',
+    isSynthetic: true,
   },
   {
     id: 'fictional-sam-chen',
     name: 'Sam Chen (Fictional Demo)',
     title: 'Monitoring Coordinator (Synthetic)',
     email: 'sam.chen@example.org',
+    isSynthetic: true,
   },
   {
     id: 'fictional-jordan-taylor',
     name: 'Jordan Taylor (Fictional Demo)',
     title: 'Programme Director (Synthetic)',
     email: 'jordan.taylor@example.net',
+    isSynthetic: true,
   },
 ];
 
@@ -73,6 +108,13 @@ export function LeadershipOtpFlow({
   const [authMode, setAuthMode] = useState<string>('hybrid');
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
+
+  // Session reuse state: Check if caller already has a server-verified session
+  const [existingSession, setExistingSession] = useState<EvaluationUser | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  // Synchronous submission lock to prevent double-clicks
+  const isSubmittingRef = useRef(false);
 
   // Stepper state: 'input' -> 'verify'
   const [step, setStep] = useState<'input' | 'verify'>('input');
@@ -96,9 +138,15 @@ export function LeadershipOtpFlow({
   const hasFixtureFlag = process.env.NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true';
   const showSyntheticFixtures = isDevOrTest && hasFixtureFlag;
 
+  // Available profiles: Approved real directory profiles (always present) + gated dev synthetic fixtures
+  const availableProfiles: ApprovedLeaderProfile[] = showSyntheticFixtures
+    ? [...APPROVED_LEADERSHIP_PROFILES, ...DEV_SYNTHETIC_FIXTURES]
+    : APPROVED_LEADERSHIP_PROFILES;
+
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
-  const [highlightedFixtureIndex, setHighlightedFixtureIndex] = useState(0);
-  const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [selectedLeaderId, setSelectedLeaderId] = useState<string | null>(null);
+  const selectedLeader = availableProfiles.find((p) => p.id === selectedLeaderId) || null;
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +211,47 @@ export function LeadershipOtpFlow({
     checkStatus();
   }, [checkStatus]);
 
+  // Check for existing server-verified session to reuse without asking for an OTP
+  const checkExistingSession = useCallback(async () => {
+    if (process.env.NODE_ENV === 'test' && !(globalThis as any).__TEST_ENABLE_SESSION_FETCH__) {
+      setIsCheckingSession(false);
+      return;
+    }
+    setIsCheckingSession(true);
+    try {
+      const res = await fetch('/api/auth/session', {
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => null);
+        if (json?.status === 'success' && json?.data?.isVerified === true) {
+          const role = json.data.role;
+          const validRoles = ['LEADERSHIP', 'supervisor', 'ADMIN'];
+          if (validRoles.includes(role)) {
+            const user: EvaluationUser = {
+              userId: json.data.userId,
+              name: json.data.name || 'Leadership Member',
+              role,
+              allowedStates: json.data.allowedStates || ['*'],
+              allowedDistricts: json.data.allowedDistricts || ['*'],
+              isVerified: true,
+            };
+            setExistingSession(user);
+            setEvaluationUnlocked(true, user);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal, proceed with login form
+    } finally {
+      setIsCheckingSession(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkExistingSession();
+  }, [checkExistingSession]);
+
   // 2. Focus management on step change
   useEffect(() => {
     if (statusLoading || statusError) return;
@@ -212,19 +301,19 @@ export function LeadershipOtpFlow({
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedFixtureIndex((prev) =>
-        prev < DEV_SYNTHETIC_FIXTURES.length - 1 ? prev + 1 : 0
+      setHighlightedIndex((prev) =>
+        prev < availableProfiles.length - 1 ? prev + 1 : 0
       );
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setHighlightedFixtureIndex((prev) =>
-        prev > 0 ? prev - 1 : DEV_SYNTHETIC_FIXTURES.length - 1
+      setHighlightedIndex((prev) =>
+        prev > 0 ? prev - 1 : availableProfiles.length - 1
       );
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      const fixture = DEV_SYNTHETIC_FIXTURES[highlightedFixtureIndex];
-      if (fixture) {
-        selectFixture(fixture);
+      const profile = availableProfiles[highlightedIndex];
+      if (profile) {
+        selectProfile(profile);
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
@@ -233,9 +322,11 @@ export function LeadershipOtpFlow({
     }
   };
 
-  const selectFixture = (fixture: typeof DEV_SYNTHETIC_FIXTURES[0]) => {
-    setEmail(fixture.email);
-    setSelectedFixtureId(fixture.id);
+  const selectProfile = (profile: ApprovedLeaderProfile) => {
+    setSelectedLeaderId(profile.id);
+    if (profile.email) {
+      setEmail(profile.email);
+    }
     setIsComboboxOpen(false);
     setErrorMessage(null);
     emailInputRef.current?.focus();
@@ -245,15 +336,27 @@ export function LeadershipOtpFlow({
   const handleRequestCode = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
+    if (isSubmittingRef.current) return;
+
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    const hasEmail = Boolean(cleanEmail && cleanEmail.includes('@'));
+    const hasLeader = Boolean(selectedLeader);
+
+    if (!hasEmail && !hasLeader) {
+      setErrorMessage('Please select a leadership profile or enter a valid work email address.');
+      emailInputRef.current?.focus();
+      return;
+    }
+
+    if (cleanEmail && !cleanEmail.includes('@')) {
       setErrorMessage('Please enter a valid work email address.');
       emailInputRef.current?.focus();
       return;
     }
 
-    // Set active request email to guard against stale responses
-    activeRequestEmailRef.current = cleanEmail;
+    isSubmittingRef.current = true;
+    const trackingIdentifier = cleanEmail || selectedLeader?.id || '';
+    activeRequestEmailRef.current = trackingIdentifier;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -261,9 +364,12 @@ export function LeadershipOtpFlow({
     setSuccessMessage(null);
 
     // Synthetic Fixture Isolation: Synthetic accounts never reach live OTP endpoints
-    if (showSyntheticFixtures && selectedFixtureId) {
+    if (selectedLeader?.isSynthetic) {
       setTimeout(() => {
-        if (activeRequestEmailRef.current !== cleanEmail) return; // Stale check
+        if (activeRequestEmailRef.current !== trackingIdentifier) {
+          isSubmittingRef.current = false;
+          return;
+        }
         setInfoMessage(
           'Synthetic fixture mode: Demonstration code dispatched to mock memory store. Live evaluation surveillance endpoints remain locked.'
         );
@@ -272,28 +378,37 @@ export function LeadershipOtpFlow({
         setCode(MOCK_SYNTHETIC_CODE); // Pre-fill mock code for local demonstration
         setSyncFailedCandidate(null);
         setIsLoading(false);
+        isSubmittingRef.current = false;
       }, 300);
       return;
     }
 
     try {
+      const payload: { email?: string; leaderId?: string } = {};
+      if (hasEmail) payload.email = cleanEmail;
+      if (hasLeader) payload.leaderId = selectedLeader?.id;
+
       const res = await fetch('/api/auth/leader/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
 
       // Guard against stale response if user switched accounts while request was in-flight
-      if (activeRequestEmailRef.current !== cleanEmail) {
+      if (activeRequestEmailRef.current !== trackingIdentifier) {
         return;
       }
 
       if (!res.ok) {
         // Authoritative server rate-limit handling (HTTP 429)
-        if (res.status === 429 && typeof data?.retryAfterSeconds === 'number') {
-          setCooldownSeconds(data.retryAfterSeconds);
+        if (res.status === 429) {
+          const retrySec =
+            typeof data?.retryAfterSeconds === 'number'
+              ? data.retryAfterSeconds
+              : parseInt(res.headers.get('Retry-After') || '60', 10);
+          setCooldownSeconds(retrySec);
         }
         setErrorMessage(data?.message || 'Failed to dispatch verification code. Please try again.');
         setIsLoading(false);
@@ -309,13 +424,14 @@ export function LeadershipOtpFlow({
       setCode('');
       setSyncFailedCandidate(null);
     } catch {
-      if (activeRequestEmailRef.current === cleanEmail) {
+      if (activeRequestEmailRef.current === trackingIdentifier) {
         setErrorMessage('Network error while requesting verification code. Please check your connection.');
       }
     } finally {
-      if (activeRequestEmailRef.current === cleanEmail) {
+      if (activeRequestEmailRef.current === trackingIdentifier) {
         setIsLoading(false);
       }
+      isSubmittingRef.current = false;
     }
   };
 
@@ -434,31 +550,36 @@ export function LeadershipOtpFlow({
       return;
     }
 
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
     const currentVerifyEmail = email.trim().toLowerCase();
-    activeRequestEmailRef.current = currentVerifyEmail;
+    const trackingIdentifier = currentVerifyEmail || selectedLeader?.id || '';
+    activeRequestEmailRef.current = trackingIdentifier;
 
     setIsLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     // Synthetic Fixture Isolation: Synthetic accounts never reach live verify endpoint
-    if (showSyntheticFixtures && selectedFixtureId) {
+    if (selectedLeader?.isSynthetic) {
       setTimeout(async () => {
-        if (activeRequestEmailRef.current !== currentVerifyEmail) return;
+        if (activeRequestEmailRef.current !== trackingIdentifier) {
+          isSubmittingRef.current = false;
+          return;
+        }
         if (cleanCode !== MOCK_SYNTHETIC_CODE) {
           setErrorMessage('Invalid mock verification code.');
           setIsLoading(false);
+          isSubmittingRef.current = false;
           return;
         }
 
-        const fixture = DEV_SYNTHETIC_FIXTURES.find((f) => f.id === selectedFixtureId);
-
-        // Security boundary: Synthetic success must NEVER unlock live data requests
-        // or mutate live read-model session stores.
         setSuccessMessage(
-          `Synthetic demonstration verified for ${fixture?.name || 'Synthetic Demo User'}. Live evaluation surveillance endpoints remain locked.`
+          `Synthetic demonstration verified for ${selectedLeader.name}. Live evaluation surveillance endpoints remain locked.`
         );
         setIsLoading(false);
+        isSubmittingRef.current = false;
         setTimeout(() => {
           onSuccess?.();
         }, 600);
@@ -467,19 +588,26 @@ export function LeadershipOtpFlow({
     }
 
     try {
+      const verifyPayload: { code: string; email?: string; leaderId?: string } = {
+        code: cleanCode,
+      };
+      if (currentVerifyEmail) {
+        verifyPayload.email = currentVerifyEmail;
+      }
+      if (selectedLeader?.id) {
+        verifyPayload.leaderId = selectedLeader.id;
+      }
+
       // Phase 1: verify-code mutation
       const res = await fetch('/api/auth/leader/verify-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: currentVerifyEmail,
-          code: cleanCode,
-        }),
+        body: JSON.stringify(verifyPayload),
       });
 
       const body = await res.json().catch(() => ({}));
 
-      if (activeRequestEmailRef.current !== currentVerifyEmail) {
+      if (activeRequestEmailRef.current !== trackingIdentifier) {
         return;
       }
 
@@ -501,20 +629,21 @@ export function LeadershipOtpFlow({
       const candidate: CandidateAuthUser = {
         userId: returnedUser.id || returnedUser.userId,
         email: returnedUser.email || currentVerifyEmail,
-        name: returnedUser.name,
+        name: returnedUser.name || selectedLeader?.name,
         role: returnedUser.role,
       };
 
       // Phase 2: Synchronize and confirm session via /api/auth/session
       await synchronizeSession(candidate);
     } catch {
-      if (activeRequestEmailRef.current === currentVerifyEmail) {
+      if (activeRequestEmailRef.current === trackingIdentifier) {
         setErrorMessage('Network error while verifying code. Please check your connection.');
       }
     } finally {
-      if (activeRequestEmailRef.current === currentVerifyEmail) {
+      if (activeRequestEmailRef.current === trackingIdentifier) {
         setIsLoading(false);
       }
+      isSubmittingRef.current = false;
     }
   };
 
@@ -563,6 +692,7 @@ export function LeadershipOtpFlow({
     setErrorMessage(null);
     setInfoMessage(null);
     setSyncFailedCandidate(null);
+    setCooldownSeconds(0);
   };
 
   // Loading skeleton while checking status
@@ -687,6 +817,56 @@ export function LeadershipOtpFlow({
     );
   }
 
+  // Active Server-Verified Session: Reuse existing valid session without requesting an OTP
+  if (existingSession) {
+    return (
+      <div className="p-5 bg-teal-50/80 border border-teal-200 rounded-2xl space-y-4 animate-in fade-in motion-reduce:animate-none">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-teal-100 rounded-xl text-teal-800 shrink-0">
+            <CheckCircle className="w-5 h-5 text-teal-700" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-teal-950">Active Session Verified</h3>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono font-bold">
+                Server Reused
+              </span>
+            </div>
+            <p className="text-xs text-teal-900">
+              Welcome back, <span className="font-semibold">{existingSession.name}</span>. Your leadership session is currently active and verified.
+            </p>
+            <p className="text-[11px] text-teal-700 font-mono">
+              Role: {existingSession.role} • Scope: {existingSession.allowedStates.includes('*') ? 'National (All States)' : existingSession.allowedStates.join(', ')}
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-2 space-y-2">
+          <button
+            type="button"
+            onClick={() => onSuccess?.()}
+            className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+          >
+            <span>Continue to Surveillance Dashboard</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+              setExistingSession(null);
+              setEvaluationUnlocked(false, null);
+              supervisorReadModel.purgeSession();
+            }}
+            className="w-full py-2 px-3 text-xs text-slate-600 hover:text-slate-900 font-medium transition-colors cursor-pointer text-center"
+          >
+            Sign out or use a different account
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Active Flow: Email OTP with 2 Steps
   return (
     <div className="space-y-4">
@@ -798,83 +978,90 @@ export function LeadershipOtpFlow({
       {/* STEP 1: Enter Email / Select Account */}
       {step === 'input' && (
         <form onSubmit={handleRequestCode} className="space-y-4">
-          {/* Synthetic Dropdown Combobox (DEV/TEST GATED ONLY with Fictional Profiles) */}
-          {showSyntheticFixtures && (
-            <div className="relative" ref={comboboxRef}>
-              <div className="flex items-center justify-between mb-1">
-                <label
-                  id="combobox-label"
-                  className="block text-xs font-semibold text-teal-900"
-                >
-                  Quick Test Account (Dev / Test)
-                </label>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 font-mono font-medium">
-                  Fixture Mode
+          {/* Real Leadership Account Combobox (Always Available) */}
+          <div className="relative" ref={comboboxRef}>
+            <div className="flex items-center justify-between mb-1">
+              <label
+                id="leadership-combobox-label"
+                className="block text-xs font-semibold text-teal-900"
+              >
+                Leadership Account Directory
+              </label>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 font-mono font-medium">
+                Verified Directory
+              </span>
+            </div>
+
+            <button
+              type="button"
+              role="combobox"
+              aria-haspopup="listbox"
+              aria-expanded={isComboboxOpen}
+              aria-controls="leadership-combobox-listbox"
+              aria-labelledby="leadership-combobox-label"
+              onClick={() => setIsComboboxOpen((prev) => !prev)}
+              onKeyDown={handleComboboxKeyDown}
+              className="w-full px-3 py-2 text-left text-xs bg-teal-50/60 border border-teal-200 rounded-xl hover:bg-teal-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 transition-colors cursor-pointer flex items-center justify-between text-teal-950 font-medium"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <UserCheck className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                <span className="truncate">
+                  {selectedLeader
+                    ? `${selectedLeader.name} — ${selectedLeader.title}`
+                    : 'Select approved leadership account…'}
                 </span>
               </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-teal-700 transition-transform ${
+                  isComboboxOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
 
-              <button
-                type="button"
-                role="combobox"
-                aria-haspopup="listbox"
-                aria-expanded={isComboboxOpen}
-                aria-labelledby="combobox-label"
-                onClick={() => setIsComboboxOpen((prev) => !prev)}
-                onKeyDown={handleComboboxKeyDown}
-                className="w-full px-3 py-2 text-left text-xs bg-teal-50/60 border border-teal-200 rounded-xl hover:bg-teal-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 transition-colors cursor-pointer flex items-center justify-between text-teal-950 font-medium"
+            {isComboboxOpen && (
+              <ul
+                id="leadership-combobox-listbox"
+                role="listbox"
+                aria-labelledby="leadership-combobox-label"
+                className="absolute z-20 w-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100 motion-reduce:animate-none"
               >
-                <div className="flex items-center gap-2 truncate">
-                  <UserCheck className="w-3.5 h-3.5 text-teal-700 shrink-0" />
-                  <span className="truncate">
-                    {selectedFixtureId
-                      ? DEV_SYNTHETIC_FIXTURES.find((f) => f.id === selectedFixtureId)?.name +
-                        ' — ' +
-                        DEV_SYNTHETIC_FIXTURES.find((f) => f.id === selectedFixtureId)?.title
-                      : 'Select a fictional test profile…'}
-                  </span>
-                </div>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 text-teal-700 transition-transform ${
-                    isComboboxOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-
-              {isComboboxOpen && (
-                <ul
-                  role="listbox"
-                  aria-labelledby="combobox-label"
-                  className="absolute z-20 w-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto py-1 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100 motion-reduce:animate-none"
-                >
-                  {DEV_SYNTHETIC_FIXTURES.map((fixture, idx) => {
-                    const isSelected = selectedFixtureId === fixture.id;
-                    const isHighlighted = highlightedFixtureIndex === idx;
-                    return (
-                      <li
-                        key={fixture.id}
-                        role="option"
-                        aria-selected={isSelected}
-                        onClick={() => selectFixture(fixture)}
-                        onMouseEnter={() => setHighlightedFixtureIndex(idx)}
-                        className={`px-3 py-2.5 cursor-pointer flex items-center justify-between transition-colors ${
-                          isHighlighted
-                            ? 'bg-teal-50 text-teal-950'
-                            : 'text-slate-700 hover:bg-slate-50'
-                        } ${isSelected ? 'font-semibold text-teal-900 bg-teal-50/70' : ''}`}
-                      >
-                        <div className="truncate pr-2">
-                          <p className="font-medium text-slate-900">{fixture.name}</p>
-                          <p className="text-[11px] text-teal-700">{fixture.title}</p>
-                          <p className="text-[10px] text-slate-400 font-mono truncate">{fixture.email}</p>
+                {availableProfiles.map((profile, idx) => {
+                  const isSelected = selectedLeader?.id === profile.id;
+                  const isHighlighted = highlightedIndex === idx;
+                  return (
+                    <li
+                      key={profile.id}
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => selectProfile(profile)}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      className={`px-3 py-2.5 cursor-pointer flex items-center justify-between transition-colors ${
+                        isHighlighted
+                          ? 'bg-teal-50 text-teal-950'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      } ${isSelected ? 'font-semibold text-teal-900 bg-teal-50/70' : ''}`}
+                    >
+                      <div className="truncate pr-2">
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-slate-900">{profile.name}</p>
+                          {profile.isSynthetic && (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-mono">
+                              Demo
+                            </span>
+                          )}
                         </div>
-                        {isSelected && <Check className="w-4 h-4 text-teal-700 shrink-0" />}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          )}
+                        <p className="text-[11px] text-teal-700">{profile.title}</p>
+                        {profile.email && (
+                          <p className="text-[10px] text-slate-400 font-mono truncate">{profile.email}</p>
+                        )}
+                      </div>
+                      {isSelected && <Check className="w-4 h-4 text-teal-700 shrink-0" />}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
 
           {/* Privacy-Preserving Work Email Input */}
           <div>
@@ -893,31 +1080,40 @@ export function LeadershipOtpFlow({
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
-                  setSelectedFixtureId(null);
                   if (errorMessage) setErrorMessage(null);
                 }}
-                placeholder="name@allianceindia.org"
+                placeholder={
+                  selectedLeader && !selectedLeader.isSynthetic
+                    ? `Registered email for ${selectedLeader.name}`
+                    : 'name@allianceindia.org'
+                }
                 maxLength={128}
                 disabled={isLoading}
                 className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent transition-all font-medium text-slate-800 disabled:opacity-50"
-                required
               />
               <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             </div>
             <p className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
-              Sign-in is restricted strictly to allowlisted Technical Leads, Managers, and Directors.
+              {selectedLeader && !selectedLeader.isSynthetic
+                ? `Verification code will be dispatched to ${selectedLeader.name}'s allowlisted email address.`
+                : 'Select your leadership account above, or enter your registered work email.'}
             </p>
           </div>
 
           <button
             type="submit"
-            disabled={isLoading || !email.trim()}
+            disabled={isLoading || cooldownSeconds > 0 || (!email.trim() && !selectedLeader)}
             className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <span className="inline-flex items-center gap-2 text-xs">
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                 Sending verification code…
+              </span>
+            ) : cooldownSeconds > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                <Clock className="w-4 h-4" />
+                Resend available in {cooldownSeconds}s
               </span>
             ) : (
               <>
@@ -937,7 +1133,7 @@ export function LeadershipOtpFlow({
             <div className="truncate pr-2">
               <span className="text-[11px] text-slate-500 block">Sent code to:</span>
               <span className="font-semibold text-slate-900 truncate block font-mono text-xs">
-                {email}
+                {email || (selectedLeader ? `registered email for ${selectedLeader.name}` : 'registered work email')}
               </span>
             </div>
             <button

@@ -175,8 +175,8 @@ CREATE OR REPLACE FUNCTION public.check_and_record_leader_rate_limit(
     p_key TEXT,
     p_short_limit INT,
     p_short_window_seconds INT,
-    p_long_limit INT,
-    p_long_window_seconds INT
+    p_long_limit INT DEFAULT NULL,
+    p_long_window_seconds INT DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -186,20 +186,17 @@ AS $$
 DECLARE
     v_now TIMESTAMPTZ := clock_timestamp();
     v_short_cutoff TIMESTAMPTZ := v_now - (p_short_window_seconds || ' seconds')::INTERVAL;
-    v_long_cutoff TIMESTAMPTZ := v_now - (p_long_window_seconds || ' seconds')::INTERVAL;
     v_short_count INT;
-    v_long_count INT;
     v_oldest_short TIMESTAMPTZ;
-    v_oldest_long TIMESTAMPTZ;
     v_retry_after INT;
 BEGIN
     -- Advisory transaction lock per rate limit key to serialize concurrent requests
     PERFORM pg_advisory_xact_lock(hashtext('rate_limit_' || p_key));
 
-    -- Bounded cleanup of expired events older than the longest window
+    -- Bounded cleanup of expired events older than the short window (or max 1 hour)
     DELETE FROM public.leader_rate_limit_events
     WHERE rate_key = p_key
-      AND created_at < v_long_cutoff;
+      AND created_at < LEAST(v_short_cutoff, v_now - INTERVAL '1 hour');
 
     -- Count events in short window
     SELECT COUNT(*), MIN(created_at)
@@ -213,22 +210,6 @@ BEGIN
         RETURN jsonb_build_object(
             'allowed', false,
             'reason', 'Too many verification code requests in a short time. Please wait before requesting a new code.',
-            'retryAfterSeconds', v_retry_after
-        );
-    END IF;
-
-    -- Count events in long window
-    SELECT COUNT(*), MIN(created_at)
-    INTO v_long_count, v_oldest_long
-    FROM public.leader_rate_limit_events
-    WHERE rate_key = p_key
-      AND created_at >= v_long_cutoff;
-
-    IF v_long_count >= p_long_limit THEN
-        v_retry_after := GREATEST(1, CEIL(EXTRACT(EPOCH FROM (v_oldest_long + (p_long_window_seconds || ' seconds')::INTERVAL - v_now)))::INT);
-        RETURN jsonb_build_object(
-            'allowed', false,
-            'reason', 'Maximum daily verification code requests reached for this account. Please retry tomorrow or contact central administration.',
             'retryAfterSeconds', v_retry_after
         );
     END IF;

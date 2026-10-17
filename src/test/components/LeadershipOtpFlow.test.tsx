@@ -83,7 +83,7 @@ describe('LeadershipOtpFlow Component', () => {
     expect(screen.getByRole('button', { name: /Send Verification Code/i })).toBeDefined();
   });
 
-  it('2. hides synthetic fixtures when NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES is not true', async () => {
+  it('2. renders real approved leadership profiles and excludes synthetic fixtures when flag is disabled', async () => {
     delete process.env.NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
@@ -105,8 +105,14 @@ describe('LeadershipOtpFlow Component', () => {
       expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
     });
 
-    expect(screen.queryByRole('combobox')).toBeNull();
-    expect(screen.queryByText(/Quick Test Account/i)).toBeNull();
+    // Real combobox is present with approved profiles
+    expect(screen.getByRole('combobox')).toBeDefined();
+    fireEvent.click(screen.getByRole('combobox'));
+    expect(screen.getByText('Dr. Ananya Roy')).toBeDefined();
+    expect(screen.getByText('Rajiv Menon')).toBeDefined();
+    // Synthetic demo accounts are strictly excluded
+    expect(screen.queryByText(/Alex Rivera/i)).toBeNull();
+    expect(screen.queryByText(/Synthetic Demo/i)).toBeNull();
   });
 
   it('3. renders and navigates fictional synthetic fixture combobox when gated flag is active in dev/test', async () => {
@@ -141,11 +147,11 @@ describe('LeadershipOtpFlow Component', () => {
     // Listbox should be visible with options
     const listbox = screen.getByRole('listbox');
     expect(listbox).toBeDefined();
-    const options = screen.getAllByRole('option');
-    expect(options.length).toBeGreaterThan(0);
 
-    // Select the first fictional option
-    fireEvent.click(options[0]);
+    // Select the fictional synthetic option
+    const syntheticOption = screen.getByText(/Alex Rivera/i).closest('li');
+    expect(syntheticOption).toBeDefined();
+    fireEvent.click(syntheticOption!);
 
     // Combobox closes and email input is populated with reserved example domain
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -500,8 +506,9 @@ describe('LeadershipOtpFlow Component', () => {
 
     // Select synthetic fixture
     fireEvent.click(screen.getByRole('combobox'));
-    const options = screen.getAllByRole('option');
-    fireEvent.click(options[0]);
+    const syntheticOption = screen.getByText(/Alex Rivera/i).closest('li');
+    expect(syntheticOption).toBeDefined();
+    fireEvent.click(syntheticOption!);
 
     // Click send code
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
@@ -996,4 +1003,152 @@ describe('LeadershipOtpFlow Component', () => {
       expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
     });
   });
+
+  it('20. session reuse: checks active server session on mount and renders active session card without requesting OTP', async () => {
+    (globalThis as any).__TEST_ENABLE_SESSION_FETCH__ = true;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: { emailAuthEnabled: true, authMode: 'hybrid' },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/session')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: {
+              isVerified: true,
+              userId: 'lead-ananya-roy',
+              name: 'Dr. Ananya Roy',
+              role: 'LEADERSHIP',
+              allowedStates: ['*'],
+              allowedDistricts: ['*'],
+            },
+          }),
+        } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    const onSuccess = vi.fn();
+    render(<LeadershipOtpFlow isModal={true} onSuccess={onSuccess} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Active Session Verified/i)).toBeDefined();
+    });
+
+    expect(screen.getByText(/Dr\. Ananya Roy/i)).toBeDefined();
+    expect(screen.getByText(/Role: LEADERSHIP/i)).toBeDefined();
+
+    // Reusing session directly bypasses OTP request
+    const continueBtn = screen.getByRole('button', { name: /Continue to Surveillance Dashboard/i });
+    fireEvent.click(continueBtn);
+    expect(onSuccess).toHaveBeenCalled();
+
+    delete (globalThis as any).__TEST_ENABLE_SESSION_FETCH__;
+  });
+
+  it('21. real profile selection: dispatches leaderId to request-code endpoint without exposing plain emails in bundle', async () => {
+    let capturedBody: any = null;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+      if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: { emailAuthEnabled: true, authMode: 'hybrid' },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/leader/request-code')) {
+        capturedBody = JSON.parse(init?.body || '{}');
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            message: 'Code dispatched.',
+          }),
+        } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    render(<LeadershipOtpFlow isModal={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toBeDefined();
+    });
+
+    // Open combobox and select Dr. Ananya Roy
+    fireEvent.click(screen.getByRole('combobox'));
+    const leaderOption = screen.getByText('Dr. Ananya Roy').closest('li');
+    expect(leaderOption).toBeDefined();
+    fireEvent.click(leaderOption!);
+
+    // Submit code request
+    const submitBtn = screen.getByRole('button', { name: /Send Verification Code/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(capturedBody).not.toBeNull();
+    });
+
+    // Verifies that leaderId was passed for server-side resolution
+    expect(capturedBody.leaderId).toBe('lead-ananya-roy');
+  });
+
+  it('22. temporary burst throttling: sets accurate countdown from retryAfterSeconds on 429 response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: { emailAuthEnabled: true, authMode: 'hybrid' },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/leader/request-code')) {
+        return {
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'Retry-After': '420' }),
+          json: async () => ({
+            status: 'error',
+            code: 'RATE_LIMITED',
+            message: 'Too many verification requests. Please wait 7 minutes before requesting another code.',
+            retryAfterSeconds: 420,
+          }),
+        } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    render(<LeadershipOtpFlow isModal={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+    });
+
+    const emailInput = screen.getByLabelText(/Authorized Work Email Address/i);
+    fireEvent.change(emailInput, { target: { value: 'rajiv.menon@example.org' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Send Verification Code/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Too many verification requests/i)).toBeDefined();
+    });
+
+    // Verifies countdown button reflects accurate retry duration (e.g. 420s / 7m)
+    expect(screen.getByText(/Resend available in 420s/i)).toBeDefined();
+  });
 });
+

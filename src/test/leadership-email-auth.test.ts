@@ -431,7 +431,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         expect(res.status).toBe(200);
       }
 
-      // 4th request within 15 minutes must be rate-limited
+      // 4th request within 15 minutes must be rate-limited with Retry-After header and retryAfterSeconds
       const req4 = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -439,9 +439,42 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       });
       const res4 = await requestCodeRoute(req4);
       expect(res4.status).toBe(429);
+      expect(res4.headers.get('Retry-After')).toBeDefined();
       const body4 = await res4.json();
       expect(body4.code).toBe('RATE_LIMITED');
       expect(body4.message).toContain('15 minutes');
+      expect(body4.retryAfterSeconds).toBeGreaterThan(0);
+      expect(body4.retryAfterSeconds).toBeLessThanOrEqual(900);
+      expect(Number(res4.headers.get('Retry-After'))).toBe(body4.retryAfterSeconds);
+    });
+
+    it('removes fixed 24h daily block: permits ongoing access across sliding windows beyond legacy 10/day ceiling', async () => {
+      vi.useFakeTimers();
+      const email = 'rajiv.menon@example.org';
+
+      // Simulate a user requesting codes across multiple sessions/windows throughout the day
+      // (Total requests: 12, well above legacy MAX_REQUESTS_24H = 10)
+      for (let windowIdx = 0; windowIdx < 4; windowIdx++) {
+        // In each 15-minute window, make 3 requests (3 * 4 = 12 total requests)
+        for (let r = 0; r < 3; r++) {
+          const req = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+          const res = await requestCodeRoute(req);
+          expect(res.status).toBe(200);
+        }
+
+        // Advance past the 15-minute burst window (advance 16 minutes)
+        vi.advanceTimersByTime(16 * 60 * 1000);
+      }
+
+      // Proves: 12 requests dispatched successfully across the day without hitting any fixed daily ceiling
+      const sentEmails = MockEmailStore.getAll().filter(m => m.to.toLowerCase() === email.toLowerCase());
+      expect(sentEmails.length).toBe(12);
+
+      vi.useRealTimers();
     });
 
     it('supersedes previous challenge when a new code is requested', async () => {

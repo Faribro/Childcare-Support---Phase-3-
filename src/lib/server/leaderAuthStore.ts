@@ -209,7 +209,6 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
 
   async checkAndRecordRateLimit(key: string, now: number): Promise<RateLimitCheckResult> {
     const fifteenMinAgo = now - 15 * 60 * 1000;
-    const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
 
     let tracker = this.rateLimits.get(key);
     if (!tracker) {
@@ -218,8 +217,8 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
     }
 
     tracker.short = tracker.short.filter((t) => t > fifteenMinAgo);
-    tracker.long = tracker.long.filter((t) => t > twentyFourHoursAgo);
 
+    // Burst throttle: 3 requests per 15 minutes (with accurate retryAfterSeconds)
     if (tracker.short.length >= MAX_REQUESTS_15M) {
       const oldestInWindow = tracker.short[0];
       const retryAfterSeconds = Math.max(1, Math.ceil((oldestInWindow + 15 * 60 * 1000 - now) / 1000));
@@ -230,18 +229,7 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
       };
     }
 
-    if (tracker.long.length >= MAX_REQUESTS_24H) {
-      const oldestInWindow = tracker.long[0];
-      const retryAfterSeconds = Math.max(1, Math.ceil((oldestInWindow + 24 * 60 * 60 * 1000 - now) / 1000));
-      return {
-        allowed: false,
-        reason: 'Maximum daily verification code requests reached for this account. Please retry tomorrow or contact central administration.',
-        retryAfterSeconds,
-      };
-    }
-
     tracker.short.push(now);
-    tracker.long.push(now);
     return { allowed: true };
   }
 
@@ -514,8 +502,8 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
         p_key: key,
         p_short_limit: MAX_REQUESTS_15M,
         p_short_window_seconds: 15 * 60,
-        p_long_limit: MAX_REQUESTS_24H,
-        p_long_window_seconds: 24 * 60 * 60,
+        p_long_limit: 999999, // Safely bypasses any legacy 24h ceiling on remote database
+        p_long_window_seconds: 0,
       }),
     });
 

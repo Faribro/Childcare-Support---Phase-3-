@@ -113,9 +113,21 @@ export async function POST(req: NextRequest) {
           ? 'SERVICE_UNAVAILABLE'
           : 'REQUEST_FAILED';
 
+    const headers: Record<string, string> = { ...NO_STORE_HEADERS };
+    if (result.statusCode === 429 && typeof result.retryAfterSeconds === 'number') {
+      headers['Retry-After'] = String(result.retryAfterSeconds);
+    }
+
     return NextResponse.json(
-      { status: 'error', code: errorCode, message: result.error },
-      { status: result.statusCode, headers: NO_STORE_HEADERS }
+      {
+        status: 'error',
+        code: errorCode,
+        message: result.error,
+        ...(typeof result.retryAfterSeconds === 'number'
+          ? { retryAfterSeconds: result.retryAfterSeconds }
+          : {}),
+      },
+      { status: result.statusCode, headers }
     );
   }
 

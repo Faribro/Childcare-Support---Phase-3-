@@ -655,8 +655,8 @@ describe('2. Production Database Adapter (SupabaseLeaderAuthStore) Contract Test
         p_key: 'rate:test:key',
         p_short_limit: 3,
         p_short_window_seconds: 900,
-        p_long_limit: 10,
-        p_long_window_seconds: 86400,
+        p_long_limit: 999999,
+        p_long_window_seconds: 0,
       });
     } finally {
       globalThis.fetch = prevFetch;
