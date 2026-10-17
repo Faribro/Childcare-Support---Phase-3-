@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
   reserveEvaluationSession,
@@ -24,6 +24,11 @@ import {
   DELETE as tokenDeleteHandler,
 } from '@/app/api/staff/voice/token/route';
 import { createSessionToken } from '@/lib/server/sessionService';
+import {
+  isOfflineWorkerModeEnabled,
+  checkWorkerCredentials,
+  runOfflineWorkerJobSimulation,
+} from '@/features/voice-agent/worker/livekit-agent-worker';
 
 describe('Worker Lifecycle & Teardown Acknowledgment Safeguards', () => {
   const originalEnv = { ...process.env };
@@ -317,4 +322,144 @@ describe('Worker Lifecycle & Teardown Acknowledgment Safeguards', () => {
     expect(hasUncertainBlockedSessions()).toBe(false);
     expect(isSessionSlotAvailable()).toBe(true);
   });
+
+  // 10. Offline Worker Simulation: Credential Gating in Development
+  it('10. offline worker mode in development passes credentials check without provider keys', () => {
+    delete process.env.LIVEKIT_URL;
+    delete process.env.LIVEKIT_API_KEY;
+    delete process.env.LIVEKIT_API_SECRET;
+    delete process.env.SARVAM_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+
+    // Without offline mode flag -> should report missing variables
+    process.env.VOICE_WORKER_OFFLINE_MODE = 'false';
+    const missingCheck = checkWorkerCredentials();
+    expect(missingCheck.isConfigured).toBe(false);
+    expect(missingCheck.missingVariables).toEqual([
+      'LIVEKIT_URL',
+      'LIVEKIT_API_KEY',
+      'LIVEKIT_API_SECRET',
+      'SARVAM_API_KEY',
+      'OPENAI_API_KEY',
+    ]);
+
+    // With offline mode enabled in development
+    process.env.VOICE_WORKER_OFFLINE_MODE = 'true';
+    expect(isOfflineWorkerModeEnabled()).toBe(true);
+    const offlineCheck = checkWorkerCredentials();
+    expect(offlineCheck.isConfigured).toBe(true);
+    expect(offlineCheck.isOfflineSimulation).toBe(true);
+    expect(offlineCheck.missingVariables).toHaveLength(0);
+  });
+
+  // 11. Offline Worker Simulation: Fails Closed in Production
+  it('11. offline worker mode is strictly ignored in production (fails closed)', () => {
+    (process.env as any).NODE_ENV = 'production';
+    process.env.VOICE_WORKER_OFFLINE_MODE = 'true';
+
+    // Must be disabled in production
+    expect(isOfflineWorkerModeEnabled()).toBe(false);
+
+    // Stripped credentials in production must fail closed
+    delete process.env.LIVEKIT_URL;
+    delete process.env.LIVEKIT_API_KEY;
+    delete process.env.LIVEKIT_API_SECRET;
+    delete process.env.SARVAM_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+
+    const check = checkWorkerCredentials();
+    expect(check.isConfigured).toBe(false);
+    expect(check.isOfflineSimulation).toBe(false);
+    expect(check.missingVariables.length).toBeGreaterThan(0);
+  });
+
+  // 12. Offline Simulation Runner Fails Closed in Production
+  it('12. runOfflineWorkerJobSimulation throws immediately in production', async () => {
+    (process.env as any).NODE_ENV = 'production';
+    process.env.VOICE_WORKER_OFFLINE_MODE = 'true';
+
+    await expect(
+      runOfflineWorkerJobSimulation({
+        roomName: 'prod-attempt-room',
+        workerSessionId: 'prod-worker-1',
+        reservationSecret: 'prod-secret',
+      })
+    ).rejects.toThrow('Offline worker simulation is strictly prohibited in production environment.');
+  });
+
+  // 13. Offline Simulation Runner Executes Lifecycle and Releases Capacity
+  it('13. runOfflineWorkerJobSimulation runs dialog turns and releases capacity via acknowledgment', async () => {
+    process.env.VOICE_WORKER_OFFLINE_MODE = 'true';
+    const room = 'synth-eval-offline-clean';
+    const reservation = reserveEvaluationSession(room, 'staff-user-01', 180);
+    expect(reservation.success).toBe(true);
+    expect(isSessionSlotAvailable()).toBe(false);
+
+    // Wire fetch to internal ackPostHandler
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const req = new NextRequest(input as string, {
+        method: init?.method || 'POST',
+        headers: init?.headers as any,
+        body: init?.body as any,
+      });
+      return ackPostHandler(req);
+    });
+
+    try {
+      const result = await runOfflineWorkerJobSimulation({
+        roomName: room,
+        workerSessionId: reservation.workerSessionId,
+        reservationSecret: reservation.reservationSecret,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('COMPLETED');
+      expect(result.turnsSimulated).toBe(3);
+      expect(result.acknowledged).toBe(true);
+
+      // Verify that CLEANUP_COMPLETED freed the capacity
+      expect(isSessionSlotAvailable()).toBe(true);
+      expect(getActiveSession(room)).toBeUndefined();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  // 14. Offline Simulation Runner with Simulated Failure Blocks Capacity
+  it('14. runOfflineWorkerJobSimulation with simulateFailure blocks capacity fail-closed', async () => {
+    process.env.VOICE_WORKER_OFFLINE_MODE = 'true';
+    const room = 'synth-eval-offline-fail';
+    const reservation = reserveEvaluationSession(room, 'staff-user-01', 180);
+    expect(reservation.success).toBe(true);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const req = new NextRequest(input as string, {
+        method: init?.method || 'POST',
+        headers: init?.headers as any,
+        body: init?.body as any,
+      });
+      return ackPostHandler(req);
+    });
+
+    try {
+      const result = await runOfflineWorkerJobSimulation({
+        roomName: room,
+        workerSessionId: reservation.workerSessionId,
+        reservationSecret: reservation.reservationSecret,
+        simulateFailure: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.status).toBe('FAILED');
+      expect(result.acknowledged).toBe(true);
+
+      // Verify fail-closed state
+      expect(isSessionSlotAvailable()).toBe(false);
+      expect(hasUncertainBlockedSessions()).toBe(true);
+      expect(getActiveSession(room)?.lifecycleState).toBe('BLOCKED_UNCERTAIN_TEARDOWN');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
+
