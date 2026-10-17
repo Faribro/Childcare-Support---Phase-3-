@@ -125,7 +125,7 @@ describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolat
         },
       });
 
-      const scope = resolveUserAccessScope(req);
+      const scope = await resolveUserAccessScope(req);
       expect(scope.isVerified).toBe(false);
       expect(scope.allowedStates).toEqual([]);
 

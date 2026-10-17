@@ -209,7 +209,7 @@ describe('Argon2 Runtime Compatibility & Serverless Route Resilience', () => {
   });
 
   describe('4. Production Security & Test Header Isolation', () => {
-    it('strictly prevents x-test-* headers from bypassing authentication in production mode', () => {
+    it('strictly prevents x-test-* headers from bypassing authentication in production mode', async () => {
       const originalEnv = process.env.NODE_ENV;
       try {
         (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
@@ -220,7 +220,7 @@ describe('Argon2 Runtime Compatibility & Serverless Route Resilience', () => {
             'x-test-scope-state': 'Maharashtra',
           },
         });
-        const scope = resolveUserAccessScope(req);
+        const scope = await resolveUserAccessScope(req);
         // In production, x-test headers MUST be completely ignored
         expect(scope.isVerified).toBe(false);
         expect(scope.userId).toBe('anonymous-field');
