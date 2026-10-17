@@ -51,6 +51,7 @@ import { MockSheetStore } from '@/lib/server/mockSheetStore';
 import { POST as requestCodeRoute } from '@/app/api/auth/leader/request-code/route';
 import { POST as verifyCodeRoute } from '@/app/api/auth/leader/verify-code/route';
 import { GET as sessionRoute } from '@/app/api/auth/leader/session/route';
+import { GET as statusRoute } from '@/app/api/auth/leader/status/route';
 import { POST as logoutRoute } from '@/app/api/auth/leader/logout/route';
 import { GET as directoryRoute } from '@/app/api/auth/leader/directory/route';
 import { POST as loginRoute } from '@/app/api/auth/login/route';
@@ -130,6 +131,148 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.code).toBe('FEATURE_DISABLED');
+    });
+  });
+
+  describe('1b. Authentication Policy Consistency & Mode Enforcement', () => {
+    it('password_only mode: rejects email code request and verify with 403 AUTH_METHOD_DISABLED before challenge or email dispatch', async () => {
+      process.env.LEADERSHIP_EMAIL_AUTH_MODE = 'password_only';
+      process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'true'; // Contradictory flag: policy takes precedence!
+
+      // 1. request-code rejected before challenge issuance or email dispatch
+      const reqRequest = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+      const resRequest = await requestCodeRoute(reqRequest);
+      expect(resRequest.status).toBe(403);
+      const bodyRequest = await resRequest.json();
+      expect(bodyRequest.code).toBe('AUTH_METHOD_DISABLED');
+      expect(MockEmailStore.getAll()).toHaveLength(0); // Proves zero email dispatch
+
+      // 2. verify-code rejected before verification or session creation
+      const reqVerify = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({
+          email: 'ananya.roy@example.org',
+          code: 'a'.repeat(32),
+        }),
+      });
+      const resVerify = await verifyCodeRoute(reqVerify);
+      expect(resVerify.status).toBe(403);
+      const bodyVerify = await resVerify.json();
+      expect(bodyVerify.code).toBe('AUTH_METHOD_DISABLED');
+
+      // 3. status endpoint agrees: reports emailAuthEnabled = false under password_only
+      const resStatus = await statusRoute();
+      expect(resStatus.status).toBe(200);
+      const bodyStatus = await resStatus.json();
+      expect(bodyStatus.status).toBe('success');
+      expect(bodyStatus.data.emailAuthEnabled).toBe(false);
+      expect(bodyStatus.data.authMode).toBe('password_only');
+
+      // 4. login endpoint permits shared password authentication under password_only
+      const reqLogin = new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({
+          identifier: 'LEADERSHIP',
+          password: 'test-shared-password',
+        }),
+      });
+      const resLogin = await loginRoute(reqLogin);
+      const bodyLogin = await resLogin.json();
+      // Not rejected by cutover policy (AUTH_METHOD_DISABLED)
+      expect(bodyLogin.code).not.toBe('AUTH_METHOD_DISABLED');
+    });
+
+    it('email_only mode with flag disabled: rejects email with FEATURE_DISABLED and rejects shared password with AUTH_METHOD_DISABLED', async () => {
+      process.env.LEADERSHIP_EMAIL_AUTH_MODE = 'email_only';
+      process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'false';
+
+      // 1. request-code rejected with FEATURE_DISABLED
+      const reqRequest = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+      const resRequest = await requestCodeRoute(reqRequest);
+      expect(resRequest.status).toBe(403);
+      const bodyRequest = await resRequest.json();
+      expect(bodyRequest.code).toBe('FEATURE_DISABLED');
+
+      // 2. login rejected with AUTH_METHOD_DISABLED for Leadership
+      const reqLogin = new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({
+          identifier: 'LEADERSHIP',
+          password: 'any-password',
+        }),
+      });
+      const resLogin = await loginRoute(reqLogin);
+      expect(resLogin.status).toBe(403);
+      const bodyLogin = await resLogin.json();
+      expect(bodyLogin.code).toBe('AUTH_METHOD_DISABLED');
+
+      // 3. status endpoint agrees: reports emailAuthEnabled = false and authMode = email_only
+      const resStatus = await statusRoute();
+      expect(resStatus.status).toBe(200);
+      const bodyStatus = await resStatus.json();
+      expect(bodyStatus.data.emailAuthEnabled).toBe(false);
+      expect(bodyStatus.data.authMode).toBe('email_only');
+    });
+
+    it('hybrid mode with flag enabled: permits email code dispatch and shared password login', async () => {
+      process.env.LEADERSHIP_EMAIL_AUTH_MODE = 'hybrid';
+      process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'true';
+
+      // 1. request-code succeeds
+      const reqRequest = new NextRequest('http://localhost:3000/api/auth/leader/request-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({ email: 'ananya.roy@example.org' }),
+      });
+      const resRequest = await requestCodeRoute(reqRequest);
+      expect(resRequest.status).toBe(200);
+      expect(MockEmailStore.getAll()).toHaveLength(1);
+
+      // 2. status agrees
+      const resStatus = await statusRoute();
+      const bodyStatus = await resStatus.json();
+      expect(bodyStatus.data.emailAuthEnabled).toBe(true);
+      expect(bodyStatus.data.authMode).toBe('hybrid');
+    });
+
+    it('missing or invalid mode: defaults to hybrid without error', async () => {
+      delete process.env.LEADERSHIP_EMAIL_AUTH_MODE;
+      process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'true';
+
+      const resStatus = await statusRoute();
+      expect(resStatus.status).toBe(200);
+      const bodyStatus = await resStatus.json();
+      expect(bodyStatus.data.authMode).toBe('hybrid');
+      expect(bodyStatus.data.emailAuthEnabled).toBe(true);
     });
   });
 

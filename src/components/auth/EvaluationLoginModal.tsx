@@ -1,8 +1,19 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Shield, Lock, AlertTriangle, CheckCircle, X, LogOut, Info, MapPin, Building2, Users, Mail, Key } from 'lucide-react';
+import {
+  Shield,
+  Lock,
+  AlertTriangle,
+  CheckCircle,
+  X,
+  LogOut,
+  Info,
+  MapPin,
+  Building2,
+} from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import { LeadershipOtpFlow } from './LeadershipOtpFlow';
 
 interface EvaluationLoginModalProps {
   isOpen: boolean;
@@ -38,14 +49,16 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
       setErrorMessage(null);
       setSuccessMessage(null);
       setPassword('');
-      setTimeout(() => passwordInputRef.current?.focus(), 50);
+      if (activeTab === 'state') {
+        setTimeout(() => passwordInputRef.current?.focus(), 50);
+      }
     }
   }, [isOpen, activeTab]);
 
-  // Keyboard navigation: Escape key closes modal
+  // Keyboard navigation: Escape key closes modal (if not handled by child combobox)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !e.defaultPrevented) {
         onClose();
       }
     };
@@ -55,19 +68,14 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleStateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password) {
       setErrorMessage('Please enter the password.');
       return;
     }
 
-    let identifier = '';
-    if (activeTab === 'state') {
-      identifier = customAccessId.trim() || selectedState;
-    } else {
-      identifier = 'LEADERSHIP-ALL';
-    }
+    const identifier = customAccessId.trim() || selectedState;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -76,7 +84,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
     try {
       const result = await login(identifier, password);
       if (result.success) {
-        setSuccessMessage('Authentication successful! Evaluation portal unlocked.');
+        setSuccessMessage('Authentication successful! State evaluation portal unlocked.');
         setTimeout(() => {
           onSuccess?.();
           onClose();
@@ -104,14 +112,14 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
       role="dialog"
       aria-modal="true"
       aria-labelledby="eval-login-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 motion-reduce:animate-none"
     >
       <div
-        className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150"
+        className="w-full max-w-md max-h-[92vh] flex flex-col bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-teal-800 to-teal-900 px-6 py-5 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-teal-800 to-teal-900 px-6 py-5 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-teal-700/60 rounded-xl border border-teal-500/30">
               <Shield className="w-5 h-5 text-teal-200" />
@@ -135,7 +143,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
         </div>
 
         {/* Notice for Field Users: Password Not Required */}
-        <div className="px-6 pt-4 pb-1">
+        <div className="px-6 pt-4 pb-1 shrink-0">
           <div className="p-3 rounded-xl bg-teal-50/70 border border-teal-200/70 flex items-start gap-2.5 text-xs text-teal-900">
             <Info className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
@@ -144,8 +152,8 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
           </div>
         </div>
 
-        {/* Body */}
-        <div className="p-6 pt-3 space-y-5">
+        {/* Body (Scrollable container to accommodate combobox options on small screens) */}
+        <div className="p-6 pt-3 space-y-5 overflow-y-auto flex-1">
           {/* Active Session Card if already logged in */}
           {isUnlocked && user ? (
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-3">
@@ -155,12 +163,19 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
               </div>
               <div className="text-xs text-emerald-700 space-y-1 pl-6">
                 <p>Role: <span className="font-semibold">{user.role}</span></p>
-                <p>Permitted Scope: <span className="font-semibold">{user.allowedStates.includes('*') ? 'All States (National)' : user.allowedStates.join(', ')}</span></p>
+                <p>
+                  Permitted Scope:{' '}
+                  <span className="font-semibold">
+                    {user.allowedStates.includes('*')
+                      ? 'All States (National)'
+                      : user.allowedStates.join(', ')}
+                  </span>
+                </p>
               </div>
               <button
                 onClick={handleLogout}
                 disabled={isLoading}
-                className="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
+                className="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-50"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 Sign Out / Lock Session
@@ -168,13 +183,20 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
             </div>
           ) : (
             <>
-              {/* Tab Selector: State Evaluation vs Managers/Directors */}
-              <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl gap-1" role="tablist" aria-label="Evaluation login type">
+              {/* Tab Selector: State Evaluation vs Leadership */}
+              <div
+                className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl gap-1"
+                role="tablist"
+                aria-label="Evaluation login type"
+              >
                 <button
                   type="button"
                   role="tab"
                   aria-selected={activeTab === 'state'}
-                  onClick={() => { setActiveTab('state'); setErrorMessage(null); }}
+                  onClick={() => {
+                    setActiveTab('state');
+                    setErrorMessage(null);
+                  }}
                   className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     activeTab === 'state'
                       ? 'bg-white text-teal-900 shadow-xs'
@@ -188,7 +210,10 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   type="button"
                   role="tab"
                   aria-selected={activeTab === 'leadership'}
-                  onClick={() => { setActiveTab('leadership'); setErrorMessage(null); }}
+                  onClick={() => {
+                    setActiveTab('leadership');
+                    setErrorMessage(null);
+                  }}
                   className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     activeTab === 'leadership'
                       ? 'bg-white text-teal-900 shadow-xs'
@@ -200,29 +225,30 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                 </button>
               </div>
 
-              {errorMessage && (
-                <div
-                  role="alert"
-                  className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2.5 animate-in fade-in"
-                >
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div className="flex-1 leading-relaxed">{errorMessage}</div>
-                </div>
-              )}
+              {/* Tab 1: State Evaluation */}
+              {activeTab === 'state' && (
+                <>
+                  {errorMessage && (
+                    <div
+                      role="alert"
+                      className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2.5 animate-in fade-in motion-reduce:animate-none"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-relaxed">{errorMessage}</div>
+                    </div>
+                  )}
 
-              {successMessage && (
-                <div
-                  role="status"
-                  className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2.5 animate-in fade-in"
-                >
-                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <div className="flex-1 font-medium">{successMessage}</div>
-                </div>
-              )}
+                  {successMessage && (
+                    <div
+                      role="status"
+                      className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2.5 animate-in fade-in motion-reduce:animate-none"
+                    >
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div className="flex-1 font-medium">{successMessage}</div>
+                    </div>
+                  )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {activeTab === 'state' ? (
-                  <>
+                  <form onSubmit={handleStateSubmit} className="space-y-4">
                     <div>
                       <label
                         htmlFor="eval-state-select"
@@ -233,7 +259,10 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                       <select
                         id="eval-state-select"
                         value={selectedState}
-                        onChange={(e) => { setSelectedState(e.target.value); setCustomAccessId(''); }}
+                        onChange={(e) => {
+                          setSelectedState(e.target.value);
+                          setCustomAccessId('');
+                        }}
                         className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-slate-800 cursor-pointer"
                       >
                         {EVALUATION_STATES.map((st) => (
@@ -267,80 +296,39 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                         required
                       />
                     </div>
-                  </>
-                ) : (
-                  <>
-                    {process.env.NEXT_PUBLIC_LEADERSHIP_EMAIL_AUTH_ENABLED === 'true' && (
-                      <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-bold text-teal-900">
-                          <Mail className="w-4 h-4 text-teal-700" />
-                          <span>Individual Leadership Account (Allowlisted Email)</span>
-                        </div>
-                        <p className="text-[11px] text-teal-800 leading-relaxed">
-                          Directors and Technical Leads can sign in using individual allowlisted email and single-use 128-bit verification codes.
-                        </p>
-                        <a
-                          href="/leadership/login"
-                          onClick={() => onClose()}
-                          className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 text-xs font-semibold text-teal-900 bg-teal-100 hover:bg-teal-200 border border-teal-300 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Key className="w-3.5 h-3.5" />
-                          Go to Individual Email Sign-In →
-                        </a>
-                      </div>
-                    )}
 
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                        <Users className="w-4 h-4 text-teal-700" />
-                        <span>Managers &amp; Directors (Shared Credential)</span>
-                      </div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Authorized shared leadership credential for national surveillance and programme review. Grants cross-state access with edit and approval permissions (deletion and asset replacement restricted to Admin).
-                      </p>
-                    </div>
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <span className="inline-flex items-center gap-2 text-xs">
+                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                          Authenticating…
+                        </span>
+                      ) : (
+                        <>
+                          <Lock className="w-4 h-4" />
+                          Sign In &amp; Unlock Evaluation
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </>
+              )}
 
-                    <div>
-                      <label
-                        htmlFor="eval-leadership-password"
-                        className="block text-xs font-semibold text-slate-700 mb-1.5"
-                      >
-                        Leadership Shared Password
-                      </label>
-                      <input
-                        ref={passwordInputRef}
-                        id="eval-leadership-password"
-                        type="password"
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Enter leadership evaluation password"
-                        maxLength={128}
-                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                        required
-                      />
-                    </div>
-                  </>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {isLoading ? (
-                    <span className="inline-flex items-center gap-2 text-xs">
-                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      Authenticating…
-                    </span>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      Sign In &amp; Unlock Evaluation
-                    </>
-                  )}
-                </button>
-              </form>
+              {/* Tab 2: Leadership Flow (Integrated In-Place) */}
+              {activeTab === 'leadership' && (
+                <LeadershipOtpFlow
+                  isModal={true}
+                  onSuccess={() => {
+                    onSuccess?.();
+                    onClose();
+                  }}
+                  onCancel={onClose}
+                />
+              )}
             </>
           )}
         </div>

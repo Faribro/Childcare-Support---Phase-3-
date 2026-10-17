@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  isLeadershipEmailAuthEnabled,
   requestLeadershipAuthCode,
   generateDeviceBindingSecret,
 } from '@/lib/server/leaderAuthChallenge';
+import {
+  getLeadershipAuthMode,
+  isLeadershipEmailAuthFlagEnabled,
+} from '@/lib/server/leadershipAuthPolicy';
 import {
   extractDeviceBindingSecret,
   attachDeviceBindingCookie,
@@ -18,7 +21,19 @@ const NO_STORE_HEADERS = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!isLeadershipEmailAuthEnabled()) {
+  const authMode = getLeadershipAuthMode();
+  if (authMode === 'password_only') {
+    return NextResponse.json(
+      {
+        status: 'error',
+        code: 'AUTH_METHOD_DISABLED',
+        message: 'Individual Leadership email authentication is disabled under password_only authentication policy.',
+      },
+      { status: 403, headers: NO_STORE_HEADERS }
+    );
+  }
+
+  if (!isLeadershipEmailAuthFlagEnabled()) {
     return NextResponse.json(
       {
         status: 'error',

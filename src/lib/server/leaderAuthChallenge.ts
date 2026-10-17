@@ -37,13 +37,15 @@ export {
   LEADER_ABSOLUTE_LIFETIME_MS,
 };
 
+import { isLeadershipEmailAuthPermitted } from './leadershipAuthPolicy';
+
 /**
- * Checks whether Leadership email authentication is enabled.
- * Enforced strictly via server-side environment variable.
+ * Checks whether Leadership email authentication is enabled and permitted by policy.
+ * Enforced strictly via server-side policy and environment variables.
  * Must never be enabled based solely on a NEXT_PUBLIC flag.
  */
 export function isLeadershipEmailAuthEnabled(): boolean {
-  return process.env.LEADERSHIP_EMAIL_AUTH_ENABLED === 'true';
+  return isLeadershipEmailAuthPermitted();
 }
 
 /**

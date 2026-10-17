@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { UserRole } from './canonicalSubmissionAdapter';
 import { extractSessionToken, verifySessionToken } from './sessionService';
 import { extractLeaderSessionId, validateLeaderSession } from './leaderSessionStore';
+import { isLeadershipSharedPasswordPermitted } from './leadershipAuthPolicy';
 
 export interface VerifiedRoleResult {
   role: UserRole;
@@ -138,7 +139,7 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
     const verifiedSession = verifySessionToken(sessionCookie);
     if (verifiedSession) {
       // In email_only cutover mode, legacy shared Leadership sessions are rejected
-      if (verifiedSession.role === 'LEADERSHIP' && process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only') {
+      if (verifiedSession.role === 'LEADERSHIP' && !isLeadershipSharedPasswordPermitted()) {
         logSecurityEvent({
           actor: verifiedSession.userId || 'shared-leadership',
           actorRole: 'LEADERSHIP',
@@ -267,7 +268,7 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
     const session = verifySessionToken(token);
     if (session) {
       // In email_only cutover mode, legacy shared Leadership sessions are rejected
-      if (session.role === 'LEADERSHIP' && process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only') {
+      if (session.role === 'LEADERSHIP' && !isLeadershipSharedPasswordPermitted()) {
         logSecurityEvent({
           actor: session.userId || 'shared-leadership',
           actorRole: 'LEADERSHIP',

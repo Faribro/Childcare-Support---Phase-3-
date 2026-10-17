@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateUser, setSessionCookie } from '@/lib/server/sessionService';
 import { logSecurityEvent, validateCsrfOrigin } from '@/lib/server/authorisation';
+import { isLeadershipSharedPasswordPermitted } from '@/lib/server/leadershipAuthPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const identifier = body.accessIdentifier || body.state || body.username;
+    const identifier = body.accessIdentifier || body.state || body.username || body.identifier;
     const { password } = body;
 
     if (!identifier || !password || typeof identifier !== 'string' || typeof password !== 'string') {
@@ -36,9 +37,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cutover enforcement: When LEADERSHIP_EMAIL_AUTH_MODE is 'email_only',
+    // Cutover enforcement: When policy disallows shared password (email_only),
     // shared password login for Leadership is strictly blocked.
-    if (process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only') {
+    if (!isLeadershipSharedPasswordPermitted()) {
       const upper = identifier.toUpperCase();
       if (
         upper === 'LEADERSHIP' ||
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Post-authentication cutover check for role
-    if (process.env.LEADERSHIP_EMAIL_AUTH_MODE === 'email_only' && authResult.user.role === 'LEADERSHIP') {
+    if (!isLeadershipSharedPasswordPermitted() && authResult.user.role === 'LEADERSHIP') {
       logSecurityEvent({
         actor: authResult.user.username,
         actorRole: 'LEADERSHIP',
