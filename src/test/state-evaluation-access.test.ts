@@ -630,7 +630,7 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         }),
       });
 
-      const scope = resolveUserAccessScope(req);
+      const scope = await resolveUserAccessScope(req);
       expect(scope.isVerified).toBe(true);
       expect(scope.role).toBe('ADMIN');
     });

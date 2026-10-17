@@ -263,20 +263,20 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
   // 8. SERVER-VERIFIED ROLE ENFORCEMENT & NAMESPACED PROTECTIONS
   // ==========================================================================
   describe('8. Server-Verified Role Enforcement & Range Namespacing', () => {
-    it('strictly falls back to least-privilege supervisor when browser client claims caseworker without session', () => {
+    it('strictly falls back to least-privilege supervisor when browser client claims caseworker without session', async () => {
       const untrustedReq = new NextRequest('http://localhost:3000/api/submissions/BEN-SYN-001', {
         headers: {
           'x-user-role': 'caseworker',
         },
       });
 
-      const res = resolveServerVerifiedRole(untrustedReq);
+      const res = await resolveServerVerifiedRole(untrustedReq);
       expect(res.isVerified).toBe(false);
       expect(res.role).toBe('supervisor'); // Never trust unauthenticated browser claim
       expect(res.reason).toBe('untrusted_fallback');
     });
 
-    it('honors role for trusted server-to-server actor with matching secret', () => {
+    it('honors role for trusted server-to-server actor with matching secret', async () => {
       process.env.WEBHOOK_SECRET = 'TEST_SERVER_SECRET_123';
       const trustedReq = new NextRequest('http://localhost:3000/api/submissions/BEN-SYN-001', {
         headers: {
@@ -285,7 +285,7 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
         },
       });
 
-      const res = resolveServerVerifiedRole(trustedReq);
+      const res = await resolveServerVerifiedRole(trustedReq);
       expect(res.isVerified).toBe(true);
       expect(res.role).toBe('caseworker');
       expect(res.reason).toBe('trusted_bearer');

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateUser, setSessionCookie } from '@/lib/server/sessionService';
 import { logSecurityEvent, validateCsrfOrigin } from '@/lib/server/authorisation';
+import { isLeadershipSharedPasswordPermitted } from '@/lib/server/leadershipAuthPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const identifier = body.accessIdentifier || body.state || body.username;
+    const identifier = body.accessIdentifier || body.state || body.username || body.identifier;
     const { password } = body;
 
     if (!identifier || !password || typeof identifier !== 'string' || typeof password !== 'string') {
@@ -34,6 +35,35 @@ export async function POST(req: NextRequest) {
         { status: 'error', code: 'INVALID_CREDENTIALS', message: 'Access identifier and password are required.' },
         { status: 400 }
       );
+    }
+
+    // Cutover enforcement: When policy disallows shared password (email_only),
+    // shared password login for Leadership is strictly blocked.
+    if (!isLeadershipSharedPasswordPermitted()) {
+      const upper = identifier.toUpperCase();
+      if (
+        upper === 'LEADERSHIP' ||
+        upper === 'LEADERSHIP-ALL' ||
+        upper === 'LEADERSHIP_INDIA' ||
+        upper.includes('LEADERSHIP')
+      ) {
+        logSecurityEvent({
+          actor: identifier,
+          actorRole: 'LEADERSHIP',
+          eventType: 'AUTH_FAILURE',
+          outcome: 'DENY',
+          ip: clientIp,
+          details: 'Shared password login for Leadership is disabled under email_only cutover mode.',
+        });
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'AUTH_METHOD_DISABLED',
+            message: 'Shared password login for Leadership is disabled. Please use individual allowlisted email sign-in.',
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const authResult = await authenticateUser(identifier, password, clientIp);
@@ -51,6 +81,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { status: 'error', code: 'AUTH_FAILED', message: authResult.error },
         { status: authResult.statusCode }
+      );
+    }
+
+    // Post-authentication cutover check for role
+    if (!isLeadershipSharedPasswordPermitted() && authResult.user.role === 'LEADERSHIP') {
+      logSecurityEvent({
+        actor: authResult.user.username,
+        actorRole: 'LEADERSHIP',
+        eventType: 'AUTH_FAILURE',
+        outcome: 'DENY',
+        ip: clientIp,
+        details: 'Shared password login for Leadership role is disabled under email_only cutover mode.',
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'AUTH_METHOD_DISABLED',
+          message: 'Shared password login for Leadership is disabled. Please use individual allowlisted email sign-in.',
+        },
+        { status: 403 }
       );
     }
 

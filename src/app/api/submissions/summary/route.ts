@@ -22,7 +22,7 @@ const AUTH_SCOPED_NO_STORE_HEADERS = {
 
 export async function GET(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || `req-sum-${Date.now().toString(36)}`;
-  const scope = resolveUserAccessScope(req);
+  const scope = await resolveUserAccessScope(req);
   const syntheticDemoAllowed = !scope.isVerified && isSyntheticDemoModeAllowed(req);
 
   if (!scope.isVerified && !syntheticDemoAllowed) {
