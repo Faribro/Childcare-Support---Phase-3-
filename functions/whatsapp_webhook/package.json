@@ -1,0 +1,14 @@
+{
+  "name": "whatsapp_webhook",
+  "version": "1.0.0",
+  "description": "Zoho Catalyst Advanced I/O adapter for Meta WhatsApp receive-only webhook",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "test": "node -e \"const h = require('./index.js'); console.log('Loaded handler successfully');\""
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
