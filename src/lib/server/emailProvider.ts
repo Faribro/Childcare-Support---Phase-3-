@@ -17,13 +17,14 @@ export interface SendEmailParams {
   subject: string;
   html: string;
   text: string;
+  otp?: string;
 }
 
 export interface SendEmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
-  provider: 'smtp' | 'resend' | 'mock_logger';
+  provider: 'smtp' | 'resend' | 'mock_logger' | 'apps_script';
 }
 
 export interface DispatchedEmailRecord extends SendEmailParams {
@@ -217,6 +218,109 @@ export class ResendEmailProvider implements EmailProvider {
 }
 
 /**
+ * Google Apps Script Transactional Email Gateway Provider
+ * 
+ * Used for isolated, high-deliverability transactional OTP dispatch via deployed Google Apps Script.
+ * Security & Reliability Guarantees:
+ * - Server-side only: Reads APPS_SCRIPT_WEBAPP_URL and APPS_SCRIPT_DISPATCH_SECRET
+ * - POSTs JSON with action 'send_leadership_otp', secret, recipient, and otp
+ * - Zero logging of dispatch secret, OTP code, or recipient address
+ * - Sanitized non-secret error return values
+ * - Fails closed if configuration is missing or invalid
+ */
+export class AppsScriptEmailProvider implements EmailProvider {
+  private webappUrl: string;
+  private dispatchSecret: string;
+
+  constructor(webappUrl?: string, dispatchSecret?: string) {
+    this.webappUrl = (webappUrl || process.env.APPS_SCRIPT_WEBAPP_URL || '').trim();
+    this.dispatchSecret = (dispatchSecret || process.env.APPS_SCRIPT_DISPATCH_SECRET || '').trim();
+  }
+
+  async sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
+    if (!this.webappUrl) {
+      const err = 'Apps Script web app URL is not configured.';
+      console.error('[EMAIL_DISPATCH:APPS_SCRIPT_CONFIG_ERROR] Missing APPS_SCRIPT_WEBAPP_URL');
+      return {
+        success: false,
+        error: err,
+        provider: 'apps_script',
+      };
+    }
+
+    if (!this.dispatchSecret) {
+      const err = 'Apps Script dispatch secret is not configured.';
+      console.error('[EMAIL_DISPATCH:APPS_SCRIPT_CONFIG_ERROR] Missing APPS_SCRIPT_DISPATCH_SECRET');
+      return {
+        success: false,
+        error: err,
+        provider: 'apps_script',
+      };
+    }
+
+    const otp = (params.otp || params.text.match(/[0-9a-f]{32}/i)?.[0] || '').trim();
+    if (!otp) {
+      const err = 'OTP verification code is missing from dispatch payload.';
+      console.error('[EMAIL_DISPATCH:APPS_SCRIPT_VALIDATION_ERROR] Missing OTP');
+      return {
+        success: false,
+        error: err,
+        provider: 'apps_script',
+      };
+    }
+
+    try {
+      const res = await fetch(this.webappUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'send_leadership_otp',
+          secret: this.dispatchSecret,
+          recipient: params.to.trim().toLowerCase(),
+          otp,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error('[EMAIL_DISPATCH:APPS_SCRIPT_HTTP_ERROR]', `HTTP status ${res.status}`);
+        return {
+          success: false,
+          error: `Apps Script gateway HTTP error ${res.status}`,
+          provider: 'apps_script',
+        };
+      }
+
+      const data = await res.json().catch(() => null);
+      if (!data || data.success !== true) {
+        const errorReason = data?.error ? String(data.error) : 'Gateway rejected dispatch request';
+        console.error('[EMAIL_DISPATCH:APPS_SCRIPT_GATEWAY_ERROR]', errorReason);
+        return {
+          success: false,
+          error: errorReason,
+          provider: 'apps_script',
+        };
+      }
+
+      return {
+        success: true,
+        messageId: `gas-otp-${Date.now()}`,
+        provider: 'apps_script',
+      };
+    } catch (err: any) {
+      const sanitized = sanitizeEmailProviderError(err);
+      console.error('[EMAIL_DISPATCH:APPS_SCRIPT_NETWORK_ERROR]', sanitized);
+      return {
+        success: false,
+        error: sanitized,
+        provider: 'apps_script',
+      };
+    }
+  }
+}
+
+/**
  * Resolves active email provider.
  * Enforces production security:
  * - Reject FORCE_MOCK_EMAIL in production
@@ -227,6 +331,19 @@ export function getEmailProvider(): EmailProvider {
     process.env.NODE_ENV === 'production' ||
     process.env.VERCEL_ENV === 'production' ||
     process.env.APP_ENV === 'production';
+
+  const providerType = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+
+  // Explicit Apps Script Gateway selection (supported across production, staging/preview, and local/test)
+  if (providerType === 'apps_script') {
+    const webappUrl = process.env.APPS_SCRIPT_WEBAPP_URL?.trim();
+    const dispatchSecret = process.env.APPS_SCRIPT_DISPATCH_SECRET?.trim();
+
+    if (!webappUrl || !dispatchSecret) {
+      return new FailingEmailProvider('Apps Script email gateway is not fully configured (missing URL or dispatch secret).');
+    }
+    return new AppsScriptEmailProvider(webappUrl, dispatchSecret);
+  }
 
   if (isProduction) {
     if (process.env.FORCE_MOCK_EMAIL === 'true') {
@@ -321,5 +438,7 @@ This code expires in ${expiryMinutes} minutes. Do not share it.
     subject,
     html,
     text,
+    otp: code,
   });
 }
+

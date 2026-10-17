@@ -15,6 +15,7 @@ import {
   MockEmailStore,
   getEmailProvider,
   FailingEmailProvider,
+  AppsScriptEmailProvider,
 } from '@/lib/server/emailProvider';
 import {
   requestLeadershipAuthCode,
@@ -704,6 +705,114 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         expect(provider instanceof FailingEmailProvider).toBe(true);
       } finally {
         (process.env as any).NODE_ENV = prevNodeEnv;
+      }
+    });
+
+    it('selects AppsScriptEmailProvider when EMAIL_PROVIDER is apps_script and env vars are configured', () => {
+      const prevProvider = process.env.EMAIL_PROVIDER;
+      const prevUrl = process.env.APPS_SCRIPT_WEBAPP_URL;
+      const prevSecret = process.env.APPS_SCRIPT_DISPATCH_SECRET;
+      try {
+        process.env.EMAIL_PROVIDER = 'apps_script';
+        process.env.APPS_SCRIPT_WEBAPP_URL = 'https://script.google.com/macros/s/test-deploy/exec';
+        process.env.APPS_SCRIPT_DISPATCH_SECRET = 'a'.repeat(64);
+
+        const provider = getEmailProvider();
+        expect(provider instanceof AppsScriptEmailProvider).toBe(true);
+      } finally {
+        if (prevProvider) process.env.EMAIL_PROVIDER = prevProvider;
+        else delete process.env.EMAIL_PROVIDER;
+        if (prevUrl) process.env.APPS_SCRIPT_WEBAPP_URL = prevUrl;
+        else delete process.env.APPS_SCRIPT_WEBAPP_URL;
+        if (prevSecret) process.env.APPS_SCRIPT_DISPATCH_SECRET = prevSecret;
+        else delete process.env.APPS_SCRIPT_DISPATCH_SECRET;
+      }
+    });
+
+    it('fails closed when EMAIL_PROVIDER is apps_script but URL or dispatch secret is missing', () => {
+      const prevProvider = process.env.EMAIL_PROVIDER;
+      const prevUrl = process.env.APPS_SCRIPT_WEBAPP_URL;
+      const prevSecret = process.env.APPS_SCRIPT_DISPATCH_SECRET;
+      try {
+        process.env.EMAIL_PROVIDER = 'apps_script';
+        delete process.env.APPS_SCRIPT_WEBAPP_URL;
+        delete process.env.APPS_SCRIPT_DISPATCH_SECRET;
+
+        const provider = getEmailProvider();
+        expect(provider instanceof FailingEmailProvider).toBe(true);
+      } finally {
+        if (prevProvider) process.env.EMAIL_PROVIDER = prevProvider;
+        else delete process.env.EMAIL_PROVIDER;
+        if (prevUrl) process.env.APPS_SCRIPT_WEBAPP_URL = prevUrl;
+        else delete process.env.APPS_SCRIPT_WEBAPP_URL;
+        if (prevSecret) process.env.APPS_SCRIPT_DISPATCH_SECRET = prevSecret;
+        else delete process.env.APPS_SCRIPT_DISPATCH_SECRET;
+      }
+    });
+
+    it('AppsScriptEmailProvider dispatches valid POST payload to Apps Script endpoint and handles response', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        expect(String(url)).toBe('https://script.google.com/macros/s/test-deploy/exec');
+        const body = JSON.parse(init?.body as string);
+        expect(body.action).toBe('send_leadership_otp');
+        expect(body.secret).toBe('b'.repeat(64));
+        expect(body.recipient).toBe('leader@example.org');
+        expect(body.otp).toBe('0123456789abcdef0123456789abcdef');
+
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      });
+
+      try {
+        const provider = new AppsScriptEmailProvider(
+          'https://script.google.com/macros/s/test-deploy/exec',
+          'b'.repeat(64)
+        );
+
+        const result = await provider.sendEmail({
+          to: 'leader@example.org',
+          subject: 'Sign-in code',
+          html: '<p>Code: 0123456789abcdef0123456789abcdef</p>',
+          text: 'Your code is: 0123456789abcdef0123456789abcdef',
+          otp: '0123456789abcdef0123456789abcdef',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.provider).toBe('apps_script');
+        expect(result.messageId).toContain('gas-otp');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('AppsScriptEmailProvider fails closed and sanitizes errors when gateway rejects request', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return new Response(JSON.stringify({ success: false, error: 'AUTH_RECIPIENT_REJECTED' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      });
+
+      try {
+        const provider = new AppsScriptEmailProvider(
+          'https://script.google.com/macros/s/test-deploy/exec',
+          'b'.repeat(64)
+        );
+
+        const result = await provider.sendEmail({
+          to: 'unauthorized@example.org',
+          subject: 'Sign-in code',
+          html: '<p>Code: 0123456789abcdef0123456789abcdef</p>',
+          text: 'Your code is: 0123456789abcdef0123456789abcdef',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('AUTH_RECIPIENT_REJECTED');
+        expect(result.provider).toBe('apps_script');
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
 

@@ -292,6 +292,11 @@ function doPost(e) {
       ).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Dedicated Leadership OTP dispatch gateway (authenticated by DISPATCH_SECRET)
+    if (action === 'send_leadership_otp') {
+      return handleSendLeadershipOtp_(payload);
+    }
+
     // Enforce fail-closed webhook secret verification on all protected actions
     var auth = requireWebhookSecret_(payload, action, requestId);
     if (!auth.authorized) {
@@ -3253,3 +3258,126 @@ function errorResponse_(message, code, statusCode, requestId) {
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }
+
+// ============================================================================
+// LEADERSHIP OTP EMAIL GATEWAY
+// ============================================================================
+
+/**
+ * Dedicated Leadership OTP Email Dispatch Gateway Handler
+ * Implements:
+ * - Operational kill-switch (EMAIL_DISPATCH_ENABLED === 'true')
+ * - High-entropy DISPATCH_SECRET authentication
+ * - Strict allowlist verification (ALLOWED_EMAILS)
+ * - MailApp quota circuit-breaker (getRemainingDailyQuota() >= 5)
+ * - Branded HTML + plaintext OTP delivery
+ * - Zero logging of secrets, OTPs, or recipients
+ * - Standardized, stable error codes
+ */
+function handleSendLeadershipOtp_(payload) {
+  try {
+    var scriptProps = PropertiesService.getScriptProperties();
+    var isEnabled = scriptProps.getProperty('EMAIL_DISPATCH_ENABLED');
+    var expectedSecret = scriptProps.getProperty('DISPATCH_SECRET');
+
+    // 1. Operational kill-switch check
+    if (isEnabled !== 'true') {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'GATEWAY_DISABLED'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. High-entropy secret verification
+    var callerSecret = (payload && payload.secret) ? String(payload.secret) : '';
+    if (!expectedSecret || !callerSecret || callerSecret !== String(expectedSecret)) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_INVALID_SECRET'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. Action parameter check
+    if (payload.action !== 'send_leadership_otp') {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_INVALID_ACTION'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 4. Strict allowlist verification
+    var rawAllowed = scriptProps.getProperty('ALLOWED_EMAILS') || '';
+    var allowedList = rawAllowed.split(',').map(function(item) {
+      return item.trim().toLowerCase();
+    }).filter(function(item) {
+      return item.length > 0;
+    });
+
+    var recipient = (payload.recipient) ? String(payload.recipient).trim().toLowerCase() : '';
+    if (!recipient || allowedList.indexOf(recipient) === -1) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_RECIPIENT_REJECTED'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 5. Daily quota circuit breaker (Workspace: 1500/day, Consumer: 100/day)
+    var remainingQuota = MailApp.getRemainingDailyQuota();
+    if (remainingQuota < 5) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_QUOTA_DEPLETED'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 6. Validate OTP payload exists
+    var otp = (payload.otp) ? String(payload.otp).trim() : '';
+    if (!otp) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_INVALID_PAYLOAD'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 7. Render professional templates & dispatch email
+    var subject = 'Alliance Childcare Support Portal - Verification Code';
+    var textBody = 'Your verification code is: ' + otp + '\n\n' +
+      'This code will expire in 10 minutes.\n' +
+      'If you did not request this code, please disregard this email.';
+
+    var htmlBody = '<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; padding: 28px; background-color: #f8fafc; color: #1e293b;">' +
+      '<div style="max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">' +
+      '<div style="border-bottom: 2px solid #0284c7; padding-bottom: 16px; margin-bottom: 24px;">' +
+      '<h2 style="margin: 0; color: #0f172a; font-size: 20px; font-weight: 600;">India HIV/AIDS Alliance</h2>' +
+      '<p style="margin: 4px 0 0 0; color: #64748b; font-size: 14px;">Childcare Support Portal — Leadership Authentication</p>' +
+      '</div>' +
+      '<p style="font-size: 15px; line-height: 1.5; color: #334155;">Hello,</p>' +
+      '<p style="font-size: 15px; line-height: 1.5; color: #334155;">Use the one-time verification code below to complete your login to the Leadership Surveillance Portal:</p>' +
+      '<div style="background: #f1f5f9; border-radius: 8px; padding: 18px; margin: 24px 0; text-align: center; border: 1px dashed #cbd5e1;">' +
+      '<span style="font-family: Consolas, Monaco, monospace; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #0f172a;">' + otp + '</span>' +
+      '</div>' +
+      '<p style="font-size: 14px; line-height: 1.5; color: #64748b;">This code is valid for <strong>10 minutes</strong>. For your security, do not forward or share this code with anyone.</p>' +
+      '<p style="font-size: 13px; line-height: 1.5; color: #94a3b8; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">If you did not request access to the portal, no action is required.</p>' +
+      '</div>' +
+      '</div>';
+
+    MailApp.sendEmail({
+      to: recipient,
+      subject: subject,
+      body: textBody,
+      htmlBody: htmlBody,
+      name: 'Alliance Childcare Support'
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: 'AUTH_DISPATCH_FAILED'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
