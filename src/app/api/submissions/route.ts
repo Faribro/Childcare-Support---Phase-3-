@@ -6,6 +6,7 @@ import {
   isSyntheticDemoModeAllowed,
   isStateAuthorized,
   isDistrictAuthorized,
+  isProgrammeAuthorized,
   filterRecordsByScope,
   logSecurityEvent,
   UserAccessScope,
@@ -207,9 +208,37 @@ export async function GET(req: NextRequest) {
         }
       );
     }
-
     const rawLimit = searchParams.get('limit');
     let limit = 50;
+
+    const programmeParam = searchParams.get('programme') || undefined;
+
+    // Validate programme authorization
+    if (programmeParam && !isProgrammeAuthorized(effectiveScope, programmeParam)) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'SCOPE_VIOLATION',
+        outcome: 'DENY',
+        scope: `programme=${programmeParam}`,
+        details: `Access to programme '${programmeParam}' forbidden for scope [${(effectiveScope.allowedProgrammes || []).join(',')}]`,
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN_SCOPE',
+          message: `Access denied to records for programme "${programmeParam}".`,
+          requestId,
+        },
+        {
+          status: 403,
+          headers: {
+            ...AUTH_SCOPED_NO_STORE_HEADERS,
+            'X-Request-Id': requestId,
+          },
+        }
+      );
+    }
 
     if (rawLimit !== null) {
       const trimmed = rawLimit.trim();
@@ -294,6 +323,11 @@ export async function GET(req: NextRequest) {
     if (districtParam && districtParam.toUpperCase() !== 'ALL') {
       records = records.filter(
         (r: any) => (r.district || r['19\nDistrict'] || '').toLowerCase() === districtParam.toLowerCase()
+      );
+    }
+    if (programmeParam) {
+      records = records.filter(
+        (r: any) => ((r.programme_id || r.programmeId || 'alliance-childcare-phase3').toLowerCase() === programmeParam.toLowerCase())
       );
     }
 
@@ -414,7 +448,10 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await canonicalSubmissionAdapter.createSubmission({
-      payload: validation.data,
+      payload: {
+        ...validation.data,
+        approvedAllianceIndia: 'Pending',
+      },
       idempotencyKey,
       requestId,
     });

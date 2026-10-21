@@ -1,0 +1,251 @@
+# Reporting Data & Email Integration Handoff Contract
+
+**Thread**: Backend Hardening / Apps Script Data & Email (`Childcare-Support-Phase-3(1)`)
+**Target Peer Thread**: Leadership Reporting Assistant (`Childcare-Leadership-Assistant`)
+**Date**: 2026-10-15 (Cycle 2)
+**Status**: Implemented, Verified (90 Tests Passing), Awaiting Staging Deploy Approval
+
+---
+
+## 1. Contract Specification & Interfaces
+
+The Apps Script / data / email integration adapter formalizes the interface consumed by the WhatsApp Leadership Reporting Assistant.
+
+### A. Authorized Query & Provenance Contract
+Matches `AuthorizedReportingDataAdapter` and `CohortFilterQuery`:
+
+```typescript
+export interface ReportingQueryRequest {
+  readonly securityContext: CallerSecurityContext; // role, permittedStates
+  readonly filters: ReportingQueryFilters; // state, dateBasis, orphanStatus, schoolType
+  readonly limit?: number; // max 1000
+  readonly liveOnly?: boolean; // fail-closed if live upstream unreachable
+}
+
+export interface SourceFreshness {
+  readonly lastSyncedAt: string; // ISO 8601 UTC
+  readonly sourceVersion: string; // "apps-script-linelist-v3.0.0" or "synthetic-bridge-v1.3.0"
+  readonly recordCount: number;
+  readonly isSynthetic: boolean;
+  readonly upstreamOrigin: 'GOOGLE_SHEETS_APPS_SCRIPT' | 'LOCAL_SYNTHETIC_FIXTURES';
+}
+
+export interface ReportingQueryResult {
+  readonly status: 'success' | 'error';
+  readonly records: readonly SanitizedReportRecord[]; // Masked Aadhaar, Bank, Phone
+  readonly totalMatchingCount: number;
+  readonly freshness: SourceFreshness;
+  readonly executionTimeMs: number;
+}
+```
+
+### B. Report Artifact Handoff Contract
+Matches `ExportContractService` and `ExportDeliveryJob`:
+
+```typescript
+export interface ReportArtifactHandoff {
+  readonly artifactId: string;
+  readonly title: string;
+  readonly reportType: ReportType;
+  readonly filename: string; // safe regex: /^[a-zA-Z0-9_\-\. ()]+\.(csv|pdf)$/
+  readonly mimeType: 'text/csv' | 'application/pdf';
+  readonly byteSize: number; // strictly <= 10MB
+  readonly sha256: string;
+  readonly contentBase64: string;
+  readonly contentPreviewText: string;
+  readonly sourceFreshness: SourceFreshness;
+  readonly completeness: ReportArtifactCompleteness;
+  readonly generatedAt: string;
+}
+```
+
+### C. Email Delivery & Honest Status Contract
+Matches `deliverReportingEmail`:
+
+```typescript
+export interface ReportingEmailDeliveryRequest {
+  readonly idempotencyKey: string; // Unique deduplication key (24h TTL)
+  readonly senderSecurityContext: CallerSecurityContext;
+  readonly recipientEmail: string; // Enforces registered @allianceindia.org directory
+  readonly recipientName: string;
+  readonly reportType: ReportType;
+  readonly subject: string;
+  readonly summaryHtml: string;
+  readonly summaryText: string;
+  readonly attachment?: ReportAttachment;
+  readonly dryRun?: boolean; // Defaults to true
+}
+
+export interface ReportingEmailDeliveryResult {
+  readonly status:
+    | 'ACCEPTED_FOR_DELIVERY' // Live upstream transport accepted message
+    | 'DRY_RUN_ACCEPTED' // Dry-run simulated acceptance
+    | 'DUPLICATE_SUPPRESSED' // Idempotency key already processed
+    | 'REJECTED_UNAUTHORIZED_RECIPIENT' // Domain not on registered directory
+    | 'REJECTED_INVALID_ATTACHMENT' // File >10MB, bad MIME, path traversal
+    | 'QUOTA_EXCEEDED' // Daily MailApp quota exhausted
+    | 'FAILED';
+  readonly messageId?: string;
+  readonly recipientMasked: string; // e.g. "r***d@allianceindia.org"
+  readonly idempotencyKey: string;
+  readonly isDuplicate: boolean;
+  readonly remainingDailyQuota: number | null;
+  readonly acceptedAt: string; // Upstream acceptance timestamp
+  readonly dryRun: boolean;
+}
+```
+
+---
+
+## 2. Invariants & Honesty Rules
+
+1. **Honest Source Provenance**:
+   - A failed live query will **never** be replaced with synthetic results while claiming it is live. If live data retrieval fails, return `DATA_RETRIEVAL_FAILED` with error diagnostics.
+   - When running on synthetic evaluation fixtures, `freshness.isSynthetic` is explicitly `true` and `upstreamOrigin` is `'LOCAL_SYNTHETIC_FIXTURES'`.
+2. **Honest Delivery Status**:
+   - The status returned to WhatsApp leadership is `ACCEPTED_FOR_DELIVERY` or `DRY_RUN_ACCEPTED`.
+   - We **never** claim `DELIVERED_TO_INBOX` because Google Apps Script `MailApp` and standard SMTP only report upstream transmission acceptance, not mailbox receipt.
+3. **Strict Recipient Allowlist**:
+   - Fail-closed checking against `REGISTERED_ORGANIZATIONAL_DIRECTORY` (`@allianceindia.org`).
+   - Consumer domains (`@gmail.com`, `@yahoo.com`, etc.) are unconditionally rejected.
+4. **Duplicate-Send Suppression**:
+   - Idempotency key cached in memory and Apps Script `CacheService` for 24 hours (86,400 seconds). Retries return `DUPLICATE_SUPPRESSED` with the original `messageId` and `acceptedAt`.
+
+---
+
+## 3. Reviewable Dry-Run Payload
+
+Below is an actual dry-run execution payload generated by the pipeline for the **June 2026 Single-Orphan in Government School Cohort**:
+
+```json
+{
+  "pipeline": "Authorized Data Retrieval -> Artifact Handoff -> Recipient Preparation -> Dry-Run Delivery",
+  "request": {
+    "callerSecurityContext": {
+      "userId": "usr_lead_national_01",
+      "role": "LEADERSHIP",
+      "permittedStates": ["*"]
+    },
+    "filters": {
+      "year": 2026,
+      "month": "June",
+      "dateBasis": "VISIT_DATE",
+      "orphanStatus": "SINGLE_ORPHAN",
+      "schoolType": "GOVERNMENT_SCHOOL",
+      "startDate": "2026-06-01",
+      "endDate": "2026-06-30"
+    },
+    "recipientEmail": "reporting-lead@allianceindia.org",
+    "recipientName": "Programme Director",
+    "reportType": "JUNE_ORPHAN_GOV_SCHOOL_SURVEILLANCE",
+    "idempotencyKey": "idemp_exp_june2026_singleorphan_govschool_national",
+    "dryRun": true
+  },
+  "dataRetrieval": {
+    "status": "success",
+    "totalMatchingCount": 2,
+    "sourceFreshness": {
+      "lastSyncedAt": "2026-10-15T18:00:00.000Z",
+      "sourceVersion": "synthetic-bridge-v1.3.0",
+      "recordCount": 2,
+      "isSynthetic": true,
+      "upstreamOrigin": "LOCAL_SYNTHETIC_FIXTURES"
+    },
+    "recordsSample": [
+      {
+        "uniqueId": "CH-MH-01",
+        "state": "Maharashtra",
+        "district": "Pune",
+        "visitDate": "2026-06-12",
+        "submissionDate": "2026-06-12",
+        "age": 8,
+        "gender": "M",
+        "orphanStatus": "SINGLE_ORPHAN",
+        "schoolType": "GOVERNMENT_SCHOOL",
+        "verificationStatus": "APPROVED",
+        "maskedAadhaar": "XXXX-XXXX-9012",
+        "maskedBankAccount": "XXXX-XXXX-1098",
+        "maskedCaregiverPhone": "******3210",
+        "isSynthetic": true
+      },
+      {
+        "uniqueId": "CH-MP-02",
+        "state": "Madhya Pradesh",
+        "district": "Indore",
+        "visitDate": "2026-06-15",
+        "submissionDate": "2026-06-15",
+        "age": 10,
+        "gender": "F",
+        "orphanStatus": "SINGLE_ORPHAN",
+        "schoolType": "GOVERNMENT_SCHOOL",
+        "verificationStatus": "APPROVED",
+        "maskedAadhaar": "XXXX-XXXX-7777",
+        "maskedBankAccount": "XXXX-XXXX-3333",
+        "maskedCaregiverPhone": "******6780",
+        "isSynthetic": true
+      }
+    ]
+  },
+  "artifactHandoff": {
+    "artifactId": "art-mf9a82-38f2",
+    "title": "June 2026 Single-Orphan Govt School Cohort",
+    "reportType": "COHORT_SUMMARY",
+    "filename": "June_2026_Single-Orphan_Govt_School_Cohort.csv",
+    "mimeType": "text/csv",
+    "byteSize": 1428,
+    "sha256": "4a7f01de981a8c082725e2d6345600ff51c142c16c0245a557bfa379a05ec3e9",
+    "completeness": {
+      "totalMatched": 2,
+      "totalExported": 2,
+      "recordsExcludedMissingOrphanStatus": 0,
+      "recordsExcludedMissingSchool": 0,
+      "isComplete": true
+    },
+    "contentPreview": "# INDIA HIV/AIDS ALLIANCE â€” PAEDIATRIC SURVEILLANCE & REPORTING\n# Report Title: June 2026 Single-Orphan Govt School Cohort\n# Evaluation Mode: SYNTHETIC_DATASET\n# Total Beneficiaries: 2\nUnique ID,State,District,Visit Date,Submission Date,Age,Gender,Orphan Status,School Type,Approval Status,Aadhaar (Masked),Bank Account (Masked),Caregiver Contact (Masked)\n\"CH-MH-01\",\"Maharashtra\",\"Pune\",\"2026-06-12\",\"2026-06-12\",8,\"M\",\"SINGLE_ORPHAN\",\"GOVERNMENT_SCHOOL\",\"APPROVED\",\"XXXX-XXXX-9012\",\"XXXX-XXXX-1098\",\"******3210\"\n\"CH-MP-02\",\"Madhya Pradesh\",\"Indore\",\"2026-06-15\",\"2026-06-15\",10,\"F\",\"SINGLE_ORPHAN\",\"GOVERNMENT_SCHOOL\",\"APPROVED\",\"XXXX-XXXX-7777\",\"XXXX-XXXX-3333\",\"******6780\""
+  },
+  "deliveryResult": {
+    "status": "DRY_RUN_ACCEPTED",
+    "messageId": "dryrun-msg-1729011120000-84f9b2",
+    "recipientMasked": "r***d@allianceindia.org",
+    "idempotencyKey": "idemp_exp_june2026_singleorphan_govschool_national",
+    "isDuplicate": false,
+    "remainingDailyQuota": 100,
+    "acceptedAt": "2026-10-15T21:49:00.000Z",
+    "dryRun": true
+  }
+}
+```
+
+---
+
+## 4. Current Exact Blockers & Approval Gates
+
+| Gate ID | Description | Blocking Item | Required Action |
+| :--- | :--- | :--- | :--- |
+| **Gate 1** | Contract Adoption | WhatsApp Thread Interface Sync | WhatsApp Assistant thread confirms usage of `reportingEmailContract.ts` and `ReportArtifactHandoff`. |
+| **Gate 3** | Staging Script Deployment | Isolated Staging Manifest Update | Requires explicit approval to add `https://www.googleapis.com/auth/script.send_mail` to the *staging* `appsscript.json` only. |
+| **Gate 4** | Staging Test Delivery | Live Test Recipient Confirmation | Requires explicit approval to send a staging test email to an authorized `@allianceindia.org` test mailbox. |
+| **Gate 5** | Operational Script Release | Production Protection Invariant | **STRICT HOLD**: No operational deployment, no operational sheet mutation, no production email dispatch without formal signoff. |
+
+---
+
+## 5. Exact Progress & Resume Instructions
+
+### What Has Been Completed:
+1. Created [`src/lib/server/reportingEmailContract.ts`](file:///d:/OneDrive%20-%20INDIA%20HIV%20AIDS%20ALLIANCE/Desktop/Software%20Development/Childcare-Support-Phase-3(1)/src/lib/server/reportingEmailContract.ts):
+   - Defined shared contracts for query, result, artifact handoff, and honest delivery status.
+2. Created [`src/lib/server/reportingEmailDelivery.ts`](file:///d:/OneDrive%20-%20INDIA%20HIV%20AIDS%20ALLIANCE/Desktop/Software%20Development/Childcare-Support-Phase-3(1)/src/lib/server/reportingEmailDelivery.ts):
+   - Implemented recipient allowlist validation, attachment safety checks (10MB, CSV/PDF), artifact generation with provenance headers, duplicate-send suppression via idempotency tracking, and honest dry-run delivery.
+3. Created [`gas/ReportingEmailService.js`](file:///d:/OneDrive%20-%20INDIA%20HIV%20AIDS%20ALLIANCE/Desktop/Software%20Development/Childcare-Support-Phase-3(1)/gas/ReportingEmailService.js):
+   - Implemented Apps Script V8 services for `handleReportingQuery_` and `handleReportEmailDelivery_` with CacheService deduplication and honest MailApp quota tracking.
+4. Created [`src/test/reporting-email-integration.test.ts`](file:///d:/OneDrive%20-%20INDIA%20HIV%20AIDS%20ALLIANCE/Desktop/Software%20Development/Childcare-Support-Phase-3(1)/src/test/reporting-email-integration.test.ts):
+   - 26 tests verifying all invariants. Total 90 passing tests across all Apps Script suites.
+5. Preserved `gas/Code.js` in an unmodified, uncompromised state.
+
+### How to Resume:
+1. Run test verification:
+   `npx vitest run src/test/reporting-email-integration.test.ts`
+2. When Gate 1 is approved by the WhatsApp thread:
+   Import `deliverReportingEmail` and `generateReportArtifact` in the WhatsApp export dispatch handler.
+3. When Gate 3 is approved:
+   Deploy `gas/ReportingEmailService.js` to the isolated staging Apps Script project and verify with dryRun: false against a staging inbox.

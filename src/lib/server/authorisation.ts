@@ -23,6 +23,7 @@ export interface UserAccessScope {
   role: AuthPolicyRole;
   allowedStates: string[];
   allowedDistricts: string[];
+  allowedProgrammes?: string[];
   isVerified: boolean;
   reason: string;
 }
@@ -283,6 +284,7 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
           role: session.role,
           allowedStates: session.allowedStates,
           allowedDistricts: session.allowedDistricts,
+          allowedProgrammes: session.allowedProgrammes || ['alliance-childcare-phase3'],
           isVerified: true,
           reason: 'verified_session_token',
         };
@@ -303,6 +305,7 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
       role,
       allowedStates: ['*'],
       allowedDistricts: ['*'],
+      allowedProgrammes: ['*'],
       isVerified: true,
       reason: verifiedLegacy.reason,
     };
@@ -318,6 +321,7 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
       role: 'ADMIN',
       allowedStates: requestedState ? [requestedState] : ['*'],
       allowedDistricts: requestedDistrict ? [requestedDistrict] : ['*'],
+      allowedProgrammes: ['*'],
       isVerified: true,
       reason: 'test_environment',
     };
@@ -331,6 +335,7 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
     role: 'FIELD_USER',
     allowedStates: [],
     allowedDistricts: [],
+    allowedProgrammes: [],
     isVerified: false,
     reason: 'untrusted_fallback',
   };
@@ -383,9 +388,22 @@ export function isDistrictAuthorized(
 }
 
 /**
- * Filters a linelist record collection strictly to authorized geographic bounds.
+ * Checks if a requested programme is within caller's authorized scope.
  */
-export function filterRecordsByScope<T extends { state?: string; district?: string }>(
+export function isProgrammeAuthorized(
+  scope: UserAccessScope,
+  programme?: string | null
+): boolean {
+  if (!scope.isVerified) return false;
+  if (!programme || programme.trim() === '' || programme === '*') return true;
+  if (!scope.allowedProgrammes || scope.allowedProgrammes.includes('*')) return true;
+  return scope.allowedProgrammes.some((p) => p.toLowerCase() === programme.trim().toLowerCase());
+}
+
+/**
+ * Filters a linelist record collection strictly to authorized geographic and programme bounds.
+ */
+export function filterRecordsByScope<T extends { state?: string; district?: string; programme_id?: string; programmeId?: string }>(
   scope: UserAccessScope,
   records: T[]
 ): T[] {
@@ -394,6 +412,11 @@ export function filterRecordsByScope<T extends { state?: string; district?: stri
   }
 
   return records.filter((r: any) => {
+    if (scope.allowedProgrammes && !scope.allowedProgrammes.includes('*')) {
+      const rProg = (r.programme_id || r.programmeId || 'alliance-childcare-phase3').toString().trim().toLowerCase();
+      if (!scope.allowedProgrammes.some((p) => p.toLowerCase() === rProg)) return false;
+    }
+
     const rState = (r.state || r['18\nState'] || r.demographics?.state || 'Maharashtra').toString().trim().toLowerCase();
     const stateMatch =
       scope.allowedStates.includes('*') ||
