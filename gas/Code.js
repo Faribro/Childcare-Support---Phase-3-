@@ -529,7 +529,6 @@ function doPost(e) {
       PropertiesService.getScriptProperties().setProperty('WEBHOOK_SECRET', newSecret);
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'WEBHOOK_SECRET locked successfully.' })).setMimeType(ContentService.MimeType.JSON);
     }
-    }
 
     // Enforce fail-closed webhook secret verification on all protected actions
     var auth = requireWebhookSecret_(payload, action, requestId);
