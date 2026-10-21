@@ -5,6 +5,7 @@ import {
   ExportPreviewContract,
 } from './types';
 import { computeImmutableExportHash } from './export-contract-service';
+import { getAppEnvConfig } from '@/lib/server/envConfig';
 
 export type TokenConsumptionStatus =
   | 'CONSUMED'
@@ -38,6 +39,13 @@ export interface IExportConfirmationStore {
     status: ExportDeliveryJob['status'],
     errorReason?: string
   ): Promise<void>;
+  claimDeliveryJob?(
+    workerId: string,
+    leaseTimeoutMs?: number
+  ): Promise<ExportDeliveryJob | null>;
+  recoverStaleDeliveryJobs?(
+    leaseTimeoutMs?: number
+  ): Promise<ExportDeliveryJob[]>;
 }
 
 /**
@@ -105,7 +113,16 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         };
       }
 
-      // 3. Execution-time geographic scope check
+      // 3. Execution-time identity active check
+      if (caller.isActive === false) {
+        return {
+          success: false,
+          status: 'AUTH_DENIED',
+          errorReason: `ACCOUNT_DEACTIVATED: Caller '${caller.userId}' has been deactivated. Export execution blocked fail-closed.`,
+        };
+      }
+
+      // 4. Execution-time geographic scope check
       if (preview.stateFilter && !caller.permittedStates.includes('*')) {
         const permittedLower = caller.permittedStates.map((s) => s.toLowerCase());
         if (!permittedLower.includes(preview.stateFilter.toLowerCase())) {
@@ -117,7 +134,23 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         }
       }
 
-      // 4. Expiry check (5-minute TTL)
+      // 5. Execution-time district scope check
+      if (
+        preview.districtFilter &&
+        caller.permittedDistricts &&
+        !caller.permittedDistricts.includes('*')
+      ) {
+        const permittedDistLower = caller.permittedDistricts.map((d) => d.toLowerCase());
+        if (!permittedDistLower.includes(preview.districtFilter.toLowerCase())) {
+          return {
+            success: false,
+            status: 'AUTH_DENIED',
+            errorReason: `EXECUTION_AUTH_DENIED: Caller '${caller.userId}' (${caller.role}) is unauthorized for district '${preview.districtFilter}' at execution time.`,
+          };
+        }
+      }
+
+      // 6. Expiry check (5-minute TTL)
       if (new Date().toISOString() > preview.expiresAt) {
         return {
           success: false,
@@ -127,7 +160,7 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         };
       }
 
-      // 5. Parameters integrity check
+      // 7. Parameters integrity check
       const currentHash = computeImmutableExportHash({
         exportId: preview.exportId,
         recipientUserId: preview.recipientUserId,
@@ -147,7 +180,7 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         };
       }
 
-      // 6. Confirmation code check
+      // 8. Confirmation code check
       const normalizedCode = userConfirmationText.trim().toUpperCase();
       if (
         normalizedCode !== 'CONFIRM EXPORT' &&
@@ -161,12 +194,12 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         };
       }
 
-      // 7. Atomic consumption
+      // 9. Atomic consumption
       preview.isConsumed = true;
       preview.consumedAt = new Date().toISOString();
       this.consumedTokens.add(exportId);
 
-      // 8. Create queued delivery job
+      // 10. Create queued delivery job
       const job: ExportDeliveryJob = {
         jobId: `job_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
         exportId: preview.exportId,
@@ -176,6 +209,8 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         recipientEmailExact: preview.recipientEmailExact,
         immutableParametersHash: preview.immutableParametersHash,
         status: 'QUEUED',
+        attempts: 0,
+        maxAttempts: 3,
         queuedAt: new Date().toISOString(),
         deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER',
       };
@@ -209,8 +244,57 @@ export class InMemoryExportConfirmationStore implements IExportConfirmationStore
         ...j,
         status,
         errorReason,
+        dispatchedAt: status === 'SENT' ? new Date().toISOString() : j.dispatchedAt,
       });
     }
+  }
+
+  public async claimDeliveryJob(
+    workerId: string,
+    leaseTimeoutMs: number = 300000
+  ): Promise<ExportDeliveryJob | null> {
+    const now = Date.now();
+    for (const [jobId, job] of this.jobs.entries()) {
+      const isExpired = job.leaseExpiresAt
+        ? new Date(job.leaseExpiresAt).getTime() < now
+        : false;
+      const canClaim =
+        job.status === 'QUEUED' || (job.status === 'PROCESSING' && isExpired);
+
+      if (canClaim && (job.attempts || 0) < (job.maxAttempts || 3)) {
+        const updated: ExportDeliveryJob = {
+          ...job,
+          status: 'PROCESSING',
+          leaseWorkerId: workerId,
+          leaseExpiresAt: new Date(now + leaseTimeoutMs).toISOString(),
+          attempts: (job.attempts || 0) + 1,
+        };
+        this.jobs.set(jobId, updated);
+        return updated;
+      }
+    }
+    return null;
+  }
+
+  public async recoverStaleDeliveryJobs(
+    leaseTimeoutMs: number = 300000
+  ): Promise<ExportDeliveryJob[]> {
+    const now = Date.now();
+    const recovered: ExportDeliveryJob[] = [];
+    for (const [jobId, job] of this.jobs.entries()) {
+      if (job.status === 'PROCESSING' && job.leaseExpiresAt) {
+        if (new Date(job.leaseExpiresAt).getTime() < now) {
+          const updated: ExportDeliveryJob = {
+            ...job,
+            status: 'UNCERTAIN',
+            errorReason: 'Worker lease expired before completion confirmation',
+          };
+          this.jobs.set(jobId, updated);
+          recovered.push(updated);
+        }
+      }
+    }
+    return recovered;
   }
 
   public clear(): void {
@@ -231,13 +315,21 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
   private readonly fallbackMemory: InMemoryExportConfirmationStore;
 
   constructor(supabaseUrl?: string, serviceRoleKey?: string) {
-    this.baseUrl = (supabaseUrl || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-    this.apiKey = serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const env = getAppEnvConfig();
+    this.baseUrl = (supabaseUrl || env.supabaseUrl || '').replace(/\/+$/, '');
+    this.apiKey = serviceRoleKey || env.supabaseServiceRoleKey || '';
     this.fallbackMemory = new InMemoryExportConfirmationStore();
   }
 
   private get isConfigured(): boolean {
     return Boolean(this.baseUrl && this.apiKey);
+  }
+
+  private get isProduction(): boolean {
+    return (
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production'
+    );
   }
 
   private get headers(): Record<string, string> {
@@ -251,14 +343,20 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
   }
 
   public async registerPreviewContract(contract: ExportPreviewContract): Promise<void> {
-    // Keep fallback in sync
     await this.fallbackMemory.registerPreviewContract(contract);
 
-    if (!this.isConfigured) return;
+    if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Export store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+        );
+      }
+      return;
+    }
 
     try {
       const url = `${this.baseUrl}/rest/v1/export_confirmation_tokens`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({
@@ -270,8 +368,12 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
           expires_at: contract.expiresAt,
         }),
       });
-    } catch {
-      // Ignored: fallbackMemory has it
+
+      if (!res.ok && this.isProduction) {
+        throw new Error(`DURABLE_STORAGE_ERROR: Failed to register export token: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      if (this.isProduction) throw err;
     }
   }
 
@@ -283,12 +385,17 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
     caller: CallerSecurityContext;
   }): Promise<TokenConsumptionResult> {
     if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Export store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
       return this.fallbackMemory.consumeConfirmationTokenAtomic(params);
     }
 
     const { exportId, parametersHash, userId, userConfirmationText, caller } = params;
 
-    // First validate code client-side
+    // Validate confirmation code client-side
     const normalizedCode = userConfirmationText.trim().toUpperCase();
     if (
       normalizedCode !== 'CONFIRM EXPORT' &&
@@ -299,6 +406,15 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
         success: false,
         status: 'INVALID_CODE',
         errorReason: "Invalid confirmation. Please reply with 'CONFIRM EXPORT' or 'CANCEL'.",
+      };
+    }
+
+    // Revalidate active identity
+    if (caller.isActive === false) {
+      return {
+        success: false,
+        status: 'AUTH_DENIED',
+        errorReason: `ACCOUNT_DEACTIVATED: Caller '${caller.userId}' has been deactivated. Export execution blocked fail-closed.`,
       };
     }
 
@@ -318,6 +434,9 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
       });
 
       if (!res.ok) {
+        if (this.isProduction) {
+          throw new Error(`ATOMIC_CONSUMPTION_FAILED: Supabase RPC returned HTTP ${res.status}: ${res.statusText}`);
+        }
         return this.fallbackMemory.consumeConfirmationTokenAtomic(params);
       }
 
@@ -330,7 +449,6 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
         };
       }
 
-      // Also mark in fallback memory
       await this.fallbackMemory.consumeConfirmationTokenAtomic(params);
 
       const job: ExportDeliveryJob = {
@@ -342,6 +460,8 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
         recipientEmailExact: '',
         immutableParametersHash: parametersHash,
         status: 'QUEUED',
+        attempts: 0,
+        maxAttempts: 3,
         queuedAt: new Date().toISOString(),
         deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER',
       };
@@ -351,22 +471,32 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
         status: 'CONSUMED',
         job,
       };
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return this.fallbackMemory.consumeConfirmationTokenAtomic(params);
     }
   }
 
   public async getJob(jobId: string): Promise<ExportDeliveryJob | null> {
     if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error('DURABLE_STORAGE_UNAVAILABLE: Supabase not configured in production.');
+      }
       return this.fallbackMemory.getJob(jobId);
     }
 
     try {
       const url = `${this.baseUrl}/rest/v1/export_delivery_jobs?job_id=eq.${encodeURIComponent(jobId)}&limit=1`;
       const res = await fetch(url, { method: 'GET', headers: this.headers });
-      if (!res.ok) return this.fallbackMemory.getJob(jobId);
+
+      if (!res.ok) {
+        if (this.isProduction) throw new Error(`DURABLE_STORAGE_ERROR: Failed to get job: HTTP ${res.status}`);
+        return this.fallbackMemory.getJob(jobId);
+      }
+
       const rows = (await res.json()) as any[];
       if (!Array.isArray(rows) || rows.length === 0) return null;
+
       const r = rows[0];
       return {
         jobId: r.job_id,
@@ -377,12 +507,17 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
         recipientEmailExact: r.recipient_email_exact,
         immutableParametersHash: r.parameters_hash,
         status: r.status,
-        deliveryTarget: r.delivery_target,
+        deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER',
+        leaseWorkerId: r.lease_worker_id,
+        leaseExpiresAt: r.lease_expires_at,
+        attempts: r.attempts,
+        maxAttempts: r.max_attempts,
+        errorReason: r.error_reason,
         queuedAt: r.queued_at,
         dispatchedAt: r.dispatched_at,
-        errorReason: r.error_reason,
       };
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return this.fallbackMemory.getJob(jobId);
     }
   }
@@ -393,11 +528,15 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
     errorReason?: string
   ): Promise<void> {
     await this.fallbackMemory.updateJobStatus(jobId, status, errorReason);
-    if (!this.isConfigured) return;
+
+    if (!this.isConfigured) {
+      if (this.isProduction) throw new Error('DURABLE_STORAGE_UNAVAILABLE: Supabase not configured in production.');
+      return;
+    }
 
     try {
       const url = `${this.baseUrl}/rest/v1/export_delivery_jobs?job_id=eq.${encodeURIComponent(jobId)}`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'PATCH',
         headers: this.headers,
         body: JSON.stringify({
@@ -407,8 +546,102 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
           updated_at: new Date().toISOString(),
         }),
       });
-    } catch {
-      // Ignored
+
+      if (!res.ok && this.isProduction) {
+        throw new Error(`DURABLE_STORAGE_ERROR: Failed to update job status: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      if (this.isProduction) throw err;
+    }
+  }
+
+  public async claimDeliveryJob(
+    workerId: string,
+    leaseTimeoutMs: number = 300000
+  ): Promise<ExportDeliveryJob | null> {
+    if (!this.isConfigured) {
+      if (this.isProduction) throw new Error('DURABLE_STORAGE_UNAVAILABLE: Supabase not configured in production.');
+      return this.fallbackMemory.claimDeliveryJob(workerId, leaseTimeoutMs);
+    }
+
+    try {
+      const rpcUrl = `${this.baseUrl}/rest/v1/rpc/claim_export_delivery_job_atomic`;
+      const res = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          p_worker_id: workerId,
+          p_lease_duration_seconds: Math.floor(leaseTimeoutMs / 1000),
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        if (data?.success && data.status === 'CLAIMED') {
+          return this.getJob(data.jobId);
+        }
+        return null;
+      }
+
+      if (this.isProduction) throw new Error(`DURABLE_STORAGE_ERROR: Failed to claim delivery job: HTTP ${res.status}`);
+      return this.fallbackMemory.claimDeliveryJob(workerId, leaseTimeoutMs);
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.claimDeliveryJob(workerId, leaseTimeoutMs);
+    }
+  }
+
+  public async recoverStaleDeliveryJobs(
+    leaseTimeoutMs: number = 300000
+  ): Promise<ExportDeliveryJob[]> {
+    if (!this.isConfigured) {
+      if (this.isProduction) throw new Error('DURABLE_STORAGE_UNAVAILABLE: Supabase not configured in production.');
+      return this.fallbackMemory.recoverStaleDeliveryJobs(leaseTimeoutMs);
+    }
+
+    try {
+      // Query jobs in PROCESSING status where lease has expired
+      const nowIso = new Date().toISOString();
+      const url = `${this.baseUrl}/rest/v1/export_delivery_jobs?status=eq.PROCESSING&lease_expires_at=lt.${encodeURIComponent(nowIso)}`;
+      const res = await fetch(url, { method: 'GET', headers: this.headers });
+
+      if (!res.ok) {
+        if (this.isProduction) throw new Error(`DURABLE_STORAGE_ERROR: Failed to query stale jobs: HTTP ${res.status}`);
+        return this.fallbackMemory.recoverStaleDeliveryJobs(leaseTimeoutMs);
+      }
+
+      const rows = (await res.json()) as any[];
+      const recovered: ExportDeliveryJob[] = [];
+
+      for (const row of rows) {
+        const patchUrl = `${this.baseUrl}/rest/v1/export_delivery_jobs?job_id=eq.${encodeURIComponent(row.job_id)}`;
+        await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: this.headers,
+          body: JSON.stringify({
+            status: 'UNCERTAIN',
+            error_reason: 'Worker lease expired before completion confirmation',
+            updated_at: new Date().toISOString(),
+          }),
+        });
+
+        recovered.push({
+          jobId: row.job_id,
+          exportId: row.export_id,
+          reportType: row.report_type,
+          recipientUserId: row.recipient_user_id,
+          recipientEmailMasked: row.recipient_email_masked,
+          status: 'UNCERTAIN',
+          deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER',
+          queuedAt: row.queued_at,
+          errorReason: 'Worker lease expired before completion confirmation',
+        });
+      }
+
+      return recovered;
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.recoverStaleDeliveryJobs(leaseTimeoutMs);
     }
   }
 }

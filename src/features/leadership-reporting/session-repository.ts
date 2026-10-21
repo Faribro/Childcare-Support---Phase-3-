@@ -1,4 +1,5 @@
 import { ReportingSession } from './types';
+import { getAppEnvConfig } from '@/lib/server/envConfig';
 
 /**
  * Interface defining durable persistence for conversational reporting sessions.
@@ -44,13 +45,21 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
   private readonly fallbackMemory: InMemoryReportingSessionRepository;
 
   constructor(supabaseUrl?: string, serviceRoleKey?: string) {
-    this.baseUrl = (supabaseUrl || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-    this.apiKey = serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const env = getAppEnvConfig();
+    this.baseUrl = (supabaseUrl || env.supabaseUrl || '').replace(/\/+$/, '');
+    this.apiKey = serviceRoleKey || env.supabaseServiceRoleKey || '';
     this.fallbackMemory = new InMemoryReportingSessionRepository();
   }
 
   private get isConfigured(): boolean {
     return Boolean(this.baseUrl && this.apiKey);
+  }
+
+  private get isProduction(): boolean {
+    return (
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production'
+    );
   }
 
   private get headers(): Record<string, string> {
@@ -65,6 +74,11 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
 
   public async getSession(userId: string): Promise<ReportingSession | null> {
     if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Reporting session persistence requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+        );
+      }
       return this.fallbackMemory.getSession(userId);
     }
 
@@ -73,6 +87,9 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
       const res = await fetch(url, { method: 'GET', headers: this.headers });
 
       if (!res.ok) {
+        if (this.isProduction) {
+          throw new Error(`DURABLE_STORAGE_ERROR: Failed to query reporting session: HTTP ${res.status}`);
+        }
         return this.fallbackMemory.getSession(userId);
       }
 
@@ -91,6 +108,9 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
           userId: row.owner_user_id,
           role: row.caller_role,
           permittedStates: row.permitted_states || ['*'],
+          permittedDistricts: stateObj.permittedDistricts || ['*'],
+          permittedProgrammes: stateObj.permittedProgrammes || ['*'],
+          isActive: stateObj.isActive !== false,
         },
         activeStateFilter: row.active_state_filter,
         activeDateBasis: stateObj.activeDateBasis || 'VISIT_DATE',
@@ -108,13 +128,19 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
       };
 
       return session;
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return this.fallbackMemory.getSession(userId);
     }
   }
 
   public async saveSession(userId: string, session: ReportingSession): Promise<void> {
     if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Reporting session persistence requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+        );
+      }
       await this.fallbackMemory.saveSession(userId, session);
       return;
     }
@@ -139,12 +165,14 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
           pendingClarification: session.pendingClarification,
           pendingExport: session.pendingExport,
           lastCohortResult: session.lastCohortResult,
+          permittedDistricts: session.callerScope.permittedDistricts || ['*'],
+          permittedProgrammes: session.callerScope.permittedProgrammes || ['*'],
+          isActive: session.callerScope.isActive !== false,
           messages: session.messages,
         },
         updated_at: new Date().toISOString(),
       };
 
-      // Upsert using PostgREST on_conflict
       const url = `${this.baseUrl}/rest/v1/reporting_sessions?on_conflict=session_id`;
       const res = await fetch(url, {
         method: 'POST',
@@ -156,24 +184,36 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
       });
 
       if (!res.ok) {
-        // Fall back to memory on upstream network error
+        if (this.isProduction) {
+          throw new Error(`DURABLE_STORAGE_ERROR: Failed to save reporting session in Supabase: HTTP ${res.status}`);
+        }
         await this.fallbackMemory.saveSession(userId, session);
       }
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       await this.fallbackMemory.saveSession(userId, session);
     }
   }
 
   public async deleteSession(userId: string): Promise<void> {
     if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Reporting session persistence requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
       await this.fallbackMemory.deleteSession(userId);
       return;
     }
 
     try {
       const url = `${this.baseUrl}/rest/v1/reporting_sessions?owner_user_id=eq.${encodeURIComponent(userId)}`;
-      await fetch(url, { method: 'DELETE', headers: this.headers });
-    } catch {
+      const res = await fetch(url, { method: 'DELETE', headers: this.headers });
+      if (!res.ok && this.isProduction) {
+        throw new Error(`DURABLE_STORAGE_ERROR: Failed to delete session: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      if (this.isProduction) throw err;
       await this.fallbackMemory.deleteSession(userId);
     }
   }

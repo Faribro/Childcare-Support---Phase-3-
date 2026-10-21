@@ -12,7 +12,10 @@ export interface AuthorizedStaffEntry {
   readonly name: string;
   readonly role: 'LEADERSHIP' | 'STATE_LEAD' | 'SUPERVISOR';
   readonly permittedStates: readonly string[];
+  readonly permittedDistricts?: readonly string[];
+  readonly permittedProgrammes?: readonly string[];
   readonly email: string;
+  readonly isActive?: boolean;
 }
 
 /**
@@ -26,7 +29,10 @@ export const DEFAULT_AUTHORIZED_STAFF_DIRECTORY: readonly AuthorizedStaffEntry[]
     name: 'National Programme Director',
     role: 'LEADERSHIP',
     permittedStates: ['*'],
+    permittedDistricts: ['*'],
+    permittedProgrammes: ['*'],
     email: 'director@allianceindia.org',
+    isActive: true,
   },
   {
     phoneNumber: '+919876543211',
@@ -34,7 +40,10 @@ export const DEFAULT_AUTHORIZED_STAFF_DIRECTORY: readonly AuthorizedStaffEntry[]
     name: 'Maharashtra State Surveillance Lead',
     role: 'STATE_LEAD',
     permittedStates: ['Maharashtra'],
+    permittedDistricts: ['*'],
+    permittedProgrammes: ['*'],
     email: 'lead.mh@allianceindia.org',
+    isActive: true,
   },
   {
     phoneNumber: '+919876543212',
@@ -42,7 +51,10 @@ export const DEFAULT_AUTHORIZED_STAFF_DIRECTORY: readonly AuthorizedStaffEntry[]
     name: 'Karnataka State Surveillance Lead',
     role: 'STATE_LEAD',
     permittedStates: ['Karnataka'],
+    permittedDistricts: ['*'],
+    permittedProgrammes: ['*'],
     email: 'lead.ka@allianceindia.org',
+    isActive: true,
   },
   {
     phoneNumber: '+919876543213',
@@ -50,7 +62,10 @@ export const DEFAULT_AUTHORIZED_STAFF_DIRECTORY: readonly AuthorizedStaffEntry[]
     name: 'Pune District Supervisor',
     role: 'SUPERVISOR',
     permittedStates: ['Maharashtra'],
+    permittedDistricts: ['Pune'],
+    permittedProgrammes: ['alliance-childcare-phase3'],
     email: 'sup.pune@allianceindia.org',
+    isActive: true,
   },
 ];
 
@@ -146,6 +161,16 @@ export class SenderIdentityResolver {
       };
     }
 
+    if (match.isActive === false) {
+      return {
+        authorized: false,
+        senderPhoneMasked: masked,
+        rawSenderPhoneHash: hash,
+        denialReason:
+          'ACCOUNT_REVOKED: This leadership account has been deactivated. Access denied fail-closed.',
+      };
+    }
+
     // Security Guardrail: If sender typed an email in message text, it MUST match the pre-registered binding
     if (senderSuppliedEmailInText && senderSuppliedEmailInText.trim().length > 0) {
       const claimed = senderSuppliedEmailInText.trim().toLowerCase();
@@ -164,6 +189,9 @@ export class SenderIdentityResolver {
       userId: match.userId,
       role: match.role,
       permittedStates: match.permittedStates,
+      permittedDistricts: match.permittedDistricts || ['*'],
+      permittedProgrammes: match.permittedProgrammes || ['*'],
+      isActive: Boolean(match.isActive ?? true),
     };
 
     return {

@@ -19,6 +19,7 @@ import {
   SupabaseInboundPersistence,
   MemoryInboundPersistence,
 } from '@/features/whatsapp-document-loop/persistence';
+import { getAppEnvConfig } from '@/lib/server/envConfig';
 
 let sharedInboundPersistence: IInboundPersistence | null = null;
 let sharedSessionRepository: IReportingSessionRepository | null = null;
@@ -27,8 +28,13 @@ let sharedPipeline: WhatsAppReportingPipeline | null = null;
 
 export function getInboundPersistence(): IInboundPersistence {
   if (!sharedInboundPersistence) {
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      sharedInboundPersistence = new SupabaseInboundPersistence();
+    const env = getAppEnvConfig();
+    if (env.supabaseUrl && env.supabaseServiceRoleKey) {
+      sharedInboundPersistence = new SupabaseInboundPersistence(env.supabaseUrl, env.supabaseServiceRoleKey);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Inbound persistence requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+      );
     } else {
       sharedInboundPersistence = new MemoryInboundPersistence();
     }
@@ -38,8 +44,13 @@ export function getInboundPersistence(): IInboundPersistence {
 
 export function getSessionRepository(): IReportingSessionRepository {
   if (!sharedSessionRepository) {
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      sharedSessionRepository = new SupabaseReportingSessionRepository();
+    const env = getAppEnvConfig();
+    if (env.supabaseUrl && env.supabaseServiceRoleKey) {
+      sharedSessionRepository = new SupabaseReportingSessionRepository(env.supabaseUrl, env.supabaseServiceRoleKey);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Reporting session persistence requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+      );
     } else {
       sharedSessionRepository = new InMemoryReportingSessionRepository();
     }
@@ -49,8 +60,13 @@ export function getSessionRepository(): IReportingSessionRepository {
 
 export function getExportConfirmationStore(): IExportConfirmationStore {
   if (!sharedConfirmationStore) {
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      sharedConfirmationStore = new SupabaseExportConfirmationStore();
+    const env = getAppEnvConfig();
+    if (env.supabaseUrl && env.supabaseServiceRoleKey) {
+      sharedConfirmationStore = new SupabaseExportConfirmationStore(env.supabaseUrl, env.supabaseServiceRoleKey);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Export confirmation store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+      );
     } else {
       sharedConfirmationStore = new InMemoryExportConfirmationStore();
     }
@@ -60,14 +76,21 @@ export function getExportConfirmationStore(): IExportConfirmationStore {
 
 export function getWhatsAppReportingPipeline(): WhatsAppReportingPipeline {
   if (!sharedPipeline) {
-    const isLiveEmail = process.env.ALLOW_LIVE_EMAIL_DISPATCH === 'true';
-    const emailDispatcher = isLiveEmail
-      ? new AppsScriptReportingEmailDispatcher()
+    const env = getAppEnvConfig();
+    const emailDispatcher = env.allowLiveEmailDispatch
+      ? new AppsScriptReportingEmailDispatcher(env.appsScriptUrl, env.appsScriptSecret)
       : new MockReportingEmailDispatcher();
 
-    const dataAdapter = process.env.APPS_SCRIPT_URL
-      ? new AppsScriptAuthorizedDataAdapter()
-      : new SyntheticAuthorizedDataAdapter();
+    let dataAdapter: any;
+    if (env.appsScriptUrl) {
+      dataAdapter = new AppsScriptAuthorizedDataAdapter(env.appsScriptUrl, env.appsScriptSecret);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Live reporting requires APPS_SCRIPT_URL in production. Synthetic fallback is strictly forbidden.'
+      );
+    } else {
+      dataAdapter = new SyntheticAuthorizedDataAdapter();
+    }
 
     const confirmationStore = getExportConfirmationStore();
     const sessionRepo = getSessionRepository();

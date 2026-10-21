@@ -9,6 +9,8 @@ export interface LeadershipWhatsAppBinding {
   readonly fullName: string;
   readonly role: 'LEADERSHIP' | 'STATE_LEAD' | 'SUPERVISOR';
   readonly permittedStates: readonly string[]; // ['*'] for national, or ['Maharashtra']
+  readonly permittedDistricts?: readonly string[]; // ['*'] for all districts, or ['Pune']
+  readonly permittedProgrammes?: readonly string[]; // ['*'] or specific programme IDs
   readonly isVerified: boolean;
   readonly isActive: boolean; // Administrative active status (for instant revocation)
   readonly boundAt: string;
@@ -37,6 +39,8 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     fullName: 'National Programme Director',
     role: 'LEADERSHIP',
     permittedStates: ['*'],
+    permittedDistricts: ['*'],
+    permittedProgrammes: ['*'],
     isVerified: true,
     isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
@@ -50,6 +54,8 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     fullName: 'Maharashtra State Surveillance Lead',
     role: 'STATE_LEAD',
     permittedStates: ['Maharashtra'],
+    permittedDistricts: ['*'],
+    permittedProgrammes: ['*'],
     isVerified: true,
     isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
@@ -63,6 +69,8 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     fullName: 'Karnataka State Surveillance Lead',
     role: 'STATE_LEAD',
     permittedStates: ['Karnataka'],
+    permittedDistricts: ['*'],
+    permittedProgrammes: ['*'],
     isVerified: true,
     isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
@@ -76,6 +84,8 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     fullName: 'Pune District Supervisor',
     role: 'SUPERVISOR',
     permittedStates: ['Maharashtra'],
+    permittedDistricts: ['Pune'],
+    permittedProgrammes: ['alliance-childcare-phase3'],
     isVerified: true,
     isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
@@ -115,6 +125,8 @@ export function loadProductionBindingsFromEnv(): readonly LeadershipWhatsAppBind
       fullName: String(item.fullName || ''),
       role: item.role === 'STATE_LEAD' ? 'STATE_LEAD' : item.role === 'SUPERVISOR' ? 'SUPERVISOR' : 'LEADERSHIP',
       permittedStates: Array.isArray(item.permittedStates) ? item.permittedStates : ['*'],
+      permittedDistricts: Array.isArray(item.permittedDistricts) ? item.permittedDistricts : ['*'],
+      permittedProgrammes: Array.isArray(item.permittedProgrammes) ? item.permittedProgrammes : ['*'],
       isVerified: Boolean(item.isVerified),
       isActive: Boolean(item.isActive !== false),
       boundAt: String(item.boundAt || new Date().toISOString()),
@@ -176,15 +188,18 @@ export class InMemoryLeadershipBindingRepository implements ILeadershipBindingRe
 }
 
 /**
- * Validates and binds a sender identity to a leadership context.
- * Strict Rule: Never trust a sender purely because they claim an email address in the chat.
+ * Verifies a WhatsApp sender against the administrative leadership binding registry.
+ * Guarantees:
+ * 1. Sender phone must match a pre-registered verified binding.
+ * 2. Revoked or unverified accounts are denied fail-closed.
+ * 3. Text-based email claims cannot escalate privileges (strictly rejected if mismatched).
+ * 4. Zero PII emitted in denial diagnostics.
  */
 export function verifyLeadershipSender(
   rawPhone: string,
-  repository: ILeadershipBindingRepository = new InMemoryLeadershipBindingRepository(),
+  repository: ILeadershipBindingRepository,
   senderSuppliedEmailInText?: string
 ): SenderIdentity {
-  // 1. Normalize phone to E.164
   const normalizedPhone = normalizeToE164(rawPhone);
   const maskedPhone = maskPhoneNumber(normalizedPhone);
   const phoneHash = crypto.createHash('sha256').update(normalizedPhone).digest('hex');
@@ -240,6 +255,9 @@ export function verifyLeadershipSender(
     userId: binding.bindingId,
     role: binding.role,
     permittedStates: binding.permittedStates,
+    permittedDistricts: binding.permittedDistricts || ['*'],
+    permittedProgrammes: binding.permittedProgrammes || ['*'],
+    isActive: binding.isActive,
   };
 
   return {
@@ -265,12 +283,12 @@ export function normalizeToE164(rawPhone: string): string {
   return `+${cleaned}`;
 }
 
-export function maskPhoneNumber(normalizedPhone: string): string {
-  if (normalizedPhone.length < 7) {
+export function maskPhoneNumber(e164Phone: string): string {
+  if (e164Phone.length < 7) {
     return '******';
   }
-  const prefix = normalizedPhone.slice(0, 3);
-  const suffix = normalizedPhone.slice(-4);
+  const prefix = e164Phone.slice(0, 3);
+  const suffix = e164Phone.slice(-4);
   return `${prefix} ******${suffix}`;
 }
 
