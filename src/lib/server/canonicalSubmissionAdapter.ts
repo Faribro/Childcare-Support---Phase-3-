@@ -1403,7 +1403,7 @@ class CanonicalSubmissionAdapterService {
 
     if (this.isConfigured() && appsScriptUrl) {
       try {
-        await fetch(appsScriptUrl, {
+        const res = await fetch(appsScriptUrl, {
           method: 'POST',
           cache: 'no-store',
           headers: {
@@ -1417,11 +1417,24 @@ class CanonicalSubmissionAdapterService {
             secret: webhookSecret,
           }),
         });
-      } catch (err) {
-        console.warn('Apps Script delete notice:', err);
+
+        const gasData = await res.json().catch(() => ({}));
+        if (!res.ok || gasData.status === 'error') {
+          return {
+            success: false,
+            message: gasData.message || ('Upstream bridge failed to delete record ' + submissionId),
+            statusCode: res.status || (gasData.code === 'NOT_FOUND' ? 404 : 502),
+          };
+        }
+      } catch (err: any) {
+        console.error('Apps Script delete exception:', err);
+        return {
+          success: false,
+          message: err?.message || ('Failed to communicate with bridge for deletion of ' + submissionId),
+          statusCode: 504,
+        };
       }
     }
-
     MockSheetStore.deleteRecord(submissionId);
     return { success: true, message: `Record ${submissionId} deleted`, statusCode: 200 };
   }

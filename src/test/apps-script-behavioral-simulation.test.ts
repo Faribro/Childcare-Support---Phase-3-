@@ -194,7 +194,8 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
           const idx = files.indexOf(f);
           if (idx !== -1) files.splice(idx, 1);
         },
-        setTrashed: (t: boolean) => {}
+        trashed: false,
+        setTrashed: function(t: boolean) { this.trashed = t; }
       };
       return folderObj;
     }
@@ -211,7 +212,8 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     mockDriveFolders = {
       'root-folder-id': rootFolder,
       '_e2e_staging_runs': stagingFolder,
-      'assessments': assessmentsFolder
+      'assessments': assessmentsFolder,
+      'folder-ast-e2e-001': sampleContainer
     };
 
     sandbox = {
@@ -272,6 +274,8 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
                 insertRowsAfter: () => {},
                 getRange: (r: number, c: number, numR: number, numC: number) => createMockRange('_Asset_Containers', r, c, numR, numC),
                 appendRow: (row: any[]) => mockRegistryData.push(row),
+                deleteRow: (r: number) => { mockRegistryData.splice(r - 1, 1); },
+                deleteRows: (r: number, cnt: number) => { mockRegistryData.splice(r - 1, cnt); },
                 setRowHeight: () => {},
                 setColumnWidth: () => {},
                 setFrozenRows: () => {},
@@ -292,6 +296,7 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
               getProtections: (type: any) => [...mockProtections],
               setName: (n: string) => {},
               clear: () => { mockSheetData = []; mockSheetFormulas = []; },
+              deleteRow: (r: number) => { mockSheetData.splice(r - 1, 1); },
               deleteRows: (r: number, cnt: number) => { mockSheetData.splice(r - 1, cnt); },
               appendRow: (row: any[]) => mockSheetData.push(row),
               setRowHeight: () => {},
@@ -925,5 +930,58 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     // Direct getOrCreateRootDocumentsFolder_ returns null without candidate folder scanning
     const folder = sandbox.getOrCreateRootDocumentsFolder_();
     expect(folder).toBeNull();
+  });
+
+  // ==========================================================================
+  // SCENARIO 21: Exact-ID cleanup removes row, metadata, and trashes Drive asset container
+  // ==========================================================================
+  it('Scenario 21: Exact-ID deletion removes linelist row, metadata registry row, and trashes Drive container', () => {
+    expect(mockSheetData.length).toBe(4);
+    expect(mockRegistryData.length).toBe(2);
+    expect((mockDriveFolders['folder-ast-e2e-001'] as any).trashed).toBe(false);
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'delete',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.acknowledged).toBe(true);
+    expect(data.deletedId).toBe('BEN-SYN-001');
+    expect(data.assetContainerId).toBe('ast-e2e-001');
+    expect(data.driveTrashed).toBe(true);
+
+    // Linelist row removed
+    expect(mockSheetData.length).toBe(3);
+    const remainingLinelistIds = mockSheetData.slice(3).map(r => r[0]);
+    expect(remainingLinelistIds).not.toContain('BEN-SYN-001');
+
+    // Registry row removed
+    expect(mockRegistryData.length).toBe(1);
+    const remainingRegIds = mockRegistryData.slice(1).map(r => r[0]);
+    expect(remainingRegIds).not.toContain('BEN-SYN-001');
+
+    // Drive container folder trashed
+    expect((mockDriveFolders['folder-ast-e2e-001'] as any).trashed).toBe(true);
+
+    // Subsequent delete for the same ID fails closed with 404
+    const resRepeat = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'delete',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001'
+        })
+      }
+    });
+    const repeatData = JSON.parse(resRepeat.getContent());
+    expect(repeatData.status).toBe('error');
+    expect(repeatData.statusCode).toBe(404);
   });
 });

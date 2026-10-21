@@ -3396,39 +3396,86 @@ function handleDelete_(payload) {
     return errorResponse_('Missing uniqueId or submissionId for deletion.', 400);
   }
 
+  var cleanTargetId = String(targetId).trim();
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
 
-  if (lastRow < 4) {
-    return errorResponse_('Record not found: Sheet has no data rows.', 404);
-  }
-
-  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
   var foundRow = -1;
-
-  for (var r = 0; r < ids.length; r++) {
-    var existingId = String(ids[r][0]).trim();
-    if (existingId === String(targetId).trim()) {
-      foundRow = 4 + r;
-      break;
+  if (lastRow >= 4) {
+    var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+    for (var r = 0; r < ids.length; r++) {
+      var existingId = String(ids[r][0]).trim();
+      if (existingId === cleanTargetId) {
+        foundRow = 4 + r;
+        break;
+      }
     }
   }
 
-  if (foundRow === -1) {
+  // 1. Exact-ID Google Drive Container & Metadata Registry Cleanup
+  var driveTrashed = false;
+  var assetContainerId = null;
+  var ss = null;
+  try {
+    ss = getTargetSpreadsheet_();
+  } catch (e) {}
+  var registrySheet = ss ? getOrCreateAssetRegistrySheet_(ss) : null;
+  if (registrySheet && registrySheet.getLastRow() >= 2) {
+    var regData = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 3).getValues();
+    for (var regIdx = 0; regIdx < regData.length; regIdx++) {
+      if (String(regData[regIdx][0]).trim() === cleanTargetId) {
+        assetContainerId = String(regData[regIdx][1]).trim();
+        var fid = String(regData[regIdx][2]).trim();
+        if (fid) {
+          try {
+            var targetFolder = DriveApp.getFolderById(fid);
+            if (targetFolder && typeof targetFolder.setTrashed === 'function') {
+              targetFolder.setTrashed(true);
+              driveTrashed = true;
+            }
+          } catch (fErr) {
+            Logger.log('Could not trash asset container folder ' + fid + ': ' + fErr);
+          }
+        }
+        try {
+          if (typeof registrySheet.deleteRow === 'function') {
+            registrySheet.deleteRow(2 + regIdx);
+          } else if (typeof registrySheet.deleteRows === 'function') {
+            registrySheet.deleteRows(2 + regIdx, 1);
+          }
+        } catch (rErr) {
+          Logger.log('Could not delete registry row: ' + rErr);
+        }
+        break;
+      }
+    }
+  }
+
+  // If neither linelist row nor asset container existed, return 404
+  if (foundRow === -1 && !assetContainerId) {
     return errorResponse_('Record not found with ID: ' + targetId, 404);
   }
 
-  sheet.deleteRow(foundRow);
+  // 2. Linelist Row Deletion
+  if (foundRow !== -1) {
+    if (typeof sheet.deleteRow === 'function') {
+      sheet.deleteRow(foundRow);
+    } else if (typeof sheet.deleteRows === 'function') {
+      sheet.deleteRows(foundRow, 1);
+    }
+  }
 
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
       acknowledged: true,
-      message: 'Record ' + targetId + ' deleted successfully from sheet.',
+      message: 'Record ' + targetId + ' deleted successfully (linelist row, registry metadata, and Drive asset container trashed).',
       deletedId: targetId,
       deletedRow: foundRow,
-      remainingRows: sheet.getLastRow() - 3,
+      assetContainerId: assetContainerId,
+      driveTrashed: driveTrashed,
+      remainingRows: sheet.getLastRow() >= 3 ? sheet.getLastRow() - 3 : 0,
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }
