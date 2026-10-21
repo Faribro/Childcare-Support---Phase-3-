@@ -32,7 +32,7 @@ describe('Next.js Request Boundary Authorization & Security Suite', () => {
     vi.restoreAllMocks();
     process.env = { ...originalEnv };
     process.env.SESSION_SECRET = TEST_SECRET;
-    process.env.NODE_ENV = 'test';
+    (process.env as any).NODE_ENV = 'test';
     process.env.E2E_ALLOW_LOCAL_MOCK = 'false';
     MockSheetStore.reset();
     MockSheetStore.seedDefaultRecords();
