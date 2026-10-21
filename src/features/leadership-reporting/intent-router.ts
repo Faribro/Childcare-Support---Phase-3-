@@ -193,7 +193,7 @@ export function classifyQueryIntent(
   // 9. Clarification Answers (e.g. "2026, visit date", "use defaults", "visit date", "2026")
   if (
     /^(use defaults?|defaults?|standard)$/i.test(lower) ||
-    /^(\d{4})[, ]+(visit[- ]date|submission[- ]date|visit|submission)(\s+basis)?$/i.test(lower) ||
+    /^(\d{4})[, ]+(by\s+|on\s+)?(visit[- ]date|submission[- ]date|visit|submission)(\s+basis)?$/i.test(lower) ||
     /^(visit[- ]date|submission[- ]date|visit basis|submission basis|visit|submission)$/i.test(lower) ||
     /^(\d{4})$/i.test(lower)
   ) {
