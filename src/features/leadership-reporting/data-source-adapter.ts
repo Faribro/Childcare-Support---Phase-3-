@@ -188,6 +188,9 @@ export class AppsScriptAuthorizedDataAdapter implements AuthorizedReportingDataA
 
   public getSourceFreshnessSync(): SourceFreshness {
     if (!this.upstreamUrl) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('UPSTREAM_DATA_SOURCE_UNAVAILABLE: Authorized reporting data source is not configured (APPS_SCRIPT_URL missing in production). Synthetic fallback rejected.');
+      }
       return this.fallbackAdapter.getSourceFreshnessSync();
     }
     return {
@@ -209,6 +212,9 @@ export class AppsScriptAuthorizedDataAdapter implements AuthorizedReportingDataA
     records: readonly SyntheticAssessmentRecord[];
     freshness: SourceFreshness;
   } {
+    if (!this.upstreamUrl && process.env.NODE_ENV === 'production') {
+      throw new Error('UPSTREAM_DATA_SOURCE_UNAVAILABLE: Authorized reporting data source is not configured (APPS_SCRIPT_URL missing in production). Synthetic fallback rejected.');
+    }
     return this.fallbackAdapter.fetchAssessmentRecordsSync(caller, filter);
   }
 
@@ -219,6 +225,9 @@ export class AppsScriptAuthorizedDataAdapter implements AuthorizedReportingDataA
     records: readonly SyntheticChildRecord[];
     freshness: SourceFreshness;
   } {
+    if (!this.upstreamUrl && process.env.NODE_ENV === 'production') {
+      throw new Error('UPSTREAM_DATA_SOURCE_UNAVAILABLE: Authorized nutrition data source is not configured (APPS_SCRIPT_URL missing in production). Synthetic fallback rejected.');
+    }
     return this.fallbackAdapter.fetchNutritionRecordsSync(caller, stateFilter);
   }
 
@@ -229,8 +238,11 @@ export class AppsScriptAuthorizedDataAdapter implements AuthorizedReportingDataA
     records: readonly SyntheticAssessmentRecord[];
     freshness: SourceFreshness;
   }> {
-    // If not configured with live external URL, fall back safely to synthetic fixtures
+    // If not configured with live external URL, fail closed in production, fall back safely in test/dev
     if (!this.upstreamUrl) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('UPSTREAM_DATA_SOURCE_UNAVAILABLE: Authorized reporting data source is not configured (APPS_SCRIPT_URL missing in production). Synthetic fallback rejected.');
+      }
       return this.fallbackAdapter.fetchAssessmentRecords(caller, filter);
     }
 
@@ -251,6 +263,9 @@ export class AppsScriptAuthorizedDataAdapter implements AuthorizedReportingDataA
     freshness: SourceFreshness;
   }> {
     if (!this.upstreamUrl) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('UPSTREAM_DATA_SOURCE_UNAVAILABLE: Authorized nutrition data source is not configured (APPS_SCRIPT_URL missing in production). Synthetic fallback rejected.');
+      }
       return this.fallbackAdapter.fetchNutritionRecords(caller, stateFilter);
     }
     const freshness = await this.getSourceFreshness();
