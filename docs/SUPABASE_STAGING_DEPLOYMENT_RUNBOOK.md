@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS public.submissions (
     submitted_by_user_id TEXT NOT NULL,
     submitted_by_email TEXT,
     assessment_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    consent_provided BOOLEAN NOT NULL DEFAULT true,
+    consent_provided BOOLEAN NOT NULL,
     caregiver_signature_ref TEXT NOT NULL DEFAULT 'Restricted Doc [caregiverSignature]',
     programme_id TEXT NOT NULL DEFAULT 'alliance-childcare-phase3',
     state TEXT NOT NULL,
@@ -325,16 +325,18 @@ GRANT ALL ON public.whatsapp_outbound_messages TO service_role;
 -- Authenticated Read Policies
 GRANT SELECT ON public.submissions TO authenticated;
 DROP POLICY IF EXISTS submissions_select_policy ON public.submissions;
+DROP POLICY IF EXISTS submissions_select_scoped ON public.submissions;
+DROP POLICY IF EXISTS submissions_select ON public.submissions;
 CREATE POLICY submissions_select_policy ON public.submissions
     FOR SELECT TO authenticated
     USING (
         public.jwt_is_verified()
+        AND public.jwt_has_programme(programme_id)
+        AND public.jwt_role() IN ('LEADERSHIP', 'ADMIN', 'STATE_REVIEWER', 'DISTRICT_REVIEWER', 'FIELD_USER')
+        AND public.jwt_has_state(state)
         AND (
-            public.jwt_role() IN ('LEADERSHIP', 'ADMIN')
-            OR (
-                public.jwt_has_state(state)
-                AND (public.jwt_role() = 'STATE_REVIEWER' OR public.jwt_has_district(district))
-            )
+            public.jwt_role() = 'STATE_REVIEWER'
+            OR public.jwt_has_district(district)
         )
     );
 

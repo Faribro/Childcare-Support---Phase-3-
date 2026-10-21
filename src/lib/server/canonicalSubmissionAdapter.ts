@@ -963,7 +963,14 @@ class CanonicalSubmissionAdapterService {
   async getSubmission(submissionId: string, role: UserRole = 'caseworker'): Promise<CanonicalSubmissionResult> {
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
-      return await adapter.getSubmission(submissionId, role);
+      const res = await adapter.getSubmission(submissionId, role);
+      if (res.status === 'success') {
+        return res;
+      }
+      // If record is not found in Supabase, fall back to Google Sheets for pre-migration compatibility
+      if (res.code !== 'NOT_FOUND') {
+        return res;
+      }
     }
 
     const configCheck = this.checkConfiguration('read');
@@ -1011,6 +1018,7 @@ class CanonicalSubmissionAdapterService {
           statusCode: 200,
           data: authorised,
           remoteSubmissionId: gasData.uniqueId || submissionId,
+          uniqueId: gasData.uniqueId || submissionId,
           version: gasData.revisionNumber || gasData.version || 1,
         };
       } catch (err: any) {

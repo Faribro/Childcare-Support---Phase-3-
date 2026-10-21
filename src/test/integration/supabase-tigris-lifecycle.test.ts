@@ -216,6 +216,7 @@ describe('Supabase / Tigris / Durable Outbox Lifecycle & Boundaries', () => {
           uniqueId: 'TN-CHE-0001',
           location: { state: 'Tamil Nadu', district: 'Chennai' },
           demographics: { childName: 'Chennai Child' },
+          caregiverConsent: { consentProvided: true },
         },
         idempotencyKey: 'idemp-lead-01',
         requestId: 'req-04',
@@ -278,6 +279,7 @@ describe('Supabase / Tigris / Durable Outbox Lifecycle & Boundaries', () => {
           bankingAndKyc: {
             passbookPhotoUrl: base64Data,
           },
+          caregiverConsent: { consentProvided: true },
         },
         idempotencyKey: 'idemp-oversize-01',
         requestId: 'req-11',

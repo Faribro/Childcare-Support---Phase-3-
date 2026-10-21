@@ -113,26 +113,36 @@ export class SupabaseSubmissionAdapter {
     targetDistrict: string,
     programmeId = 'alliance-childcare-phase3'
   ): boolean {
-    if (session.role === 'supervisor' || (session as any).role === 'LEADERSHIP' || (session as any).role === 'ADMIN') {
-      if (session.allowedStates.includes('*')) return true;
-      return session.allowedStates.map((s) => s.toLowerCase()).includes(targetState.toLowerCase());
+    const role = (session.role || '').toUpperCase();
+    const approvedRoles = ['ADMIN', 'LEADERSHIP', 'STATE_REVIEWER', 'SUPERVISOR', 'DISTRICT_REVIEWER', 'FIELD_USER', 'CASEWORKER'];
+    if (!approvedRoles.includes(role)) {
+      return false;
     }
 
-    // Field user: requires state AND district match
-    const stateMatch =
-      session.allowedStates.includes('*') ||
-      session.allowedStates.map((s) => s.toLowerCase()).includes(targetState.toLowerCase());
-
-    const districtMatch =
-      session.allowedDistricts.includes('*') ||
-      session.allowedDistricts.map((d) => d.toLowerCase()).includes(targetDistrict.toLowerCase());
-
+    // Programme check enforced across all roles
     const programmeMatch =
       !session.allowedProgrammes ||
       session.allowedProgrammes.includes('*') ||
       session.allowedProgrammes.includes(programmeId);
+    if (!programmeMatch) return false;
 
-    return stateMatch && districtMatch && programmeMatch;
+    // State check enforced across all roles (national wildcard requires explicit '*')
+    const stateMatch =
+      session.allowedStates.includes('*') ||
+      session.allowedStates.map((s) => s.toLowerCase()).includes(targetState.toLowerCase());
+    if (!stateMatch) return false;
+
+    // State-level reviewers have access across all districts within their authorized state
+    if (role === 'STATE_REVIEWER' || (role === 'SUPERVISOR' && (!session.allowedDistricts || session.allowedDistricts.includes('*')))) {
+      return true;
+    }
+
+    // District check for district-scoped leaders, district reviewers, and field users
+    const districtMatch =
+      session.allowedDistricts.includes('*') ||
+      session.allowedDistricts.map((d) => d.toLowerCase()).includes(targetDistrict.toLowerCase());
+
+    return districtMatch;
   }
 
   /**
@@ -161,6 +171,17 @@ export class SupabaseSubmissionAdapter {
         statusCode: 403,
         code: 'FORBIDDEN_SCOPE',
         message: `Session not authorized for state: '${state}', district: '${district}'.`,
+      };
+    }
+
+    // Mandatory Consent Validation (must be explicit true; no inference or defaulting)
+    const consentValue = p.caregiverConsent?.consentProvided ?? p.consent_provided ?? p.agreeToParticipate;
+    if (consentValue !== true && consentValue !== 'true') {
+      return {
+        status: 'error',
+        statusCode: 422,
+        code: 'CONSENT_REQUIRED',
+        message: 'Explicit caregiver consent is mandatory and must be recorded as true.',
       };
     }
 
@@ -255,7 +276,7 @@ export class SupabaseSubmissionAdapter {
       muac_cm: p.healthAndNutrition?.muacCm || p.muacCm || 0,
       bmi: p.healthAndNutrition?.bmi || p.bmi || 0,
       nutritional_status: p.healthAndNutrition?.nutritionStatus || p.nutritional_status || '',
-      consent_provided: Boolean(p.caregiverConsent?.consentProvided ?? p.consent_provided ?? true),
+      consent_provided: true,
       status: 'Submitted',
       sync_status: 'SYNCED',
       form_payload: p,
