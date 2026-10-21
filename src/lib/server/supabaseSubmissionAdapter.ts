@@ -27,7 +27,7 @@ import type {
 } from './canonicalSubmissionAdapter';
 import { filterAuthorisedRecord, normalizeSubmissionData } from './canonicalSubmissionAdapter';
 import { TigrisStorageService, UploadAttachmentResult } from './tigrisStorageService';
-import { SheetsMirrorRepository, InMemorySheetsMirrorRepository } from './sheetsMirrorWorker';
+import { SheetsMirrorRepository, InMemorySheetsMirrorRepository, SheetsMirrorWorker, GatewayClient, DrainSummary } from './sheetsMirrorWorker';
 
 export interface StoredSubmissionRecord {
   id: string;
@@ -481,6 +481,274 @@ export class SupabaseSubmissionAdapter {
         hasMore: false,
         totalCount: filtered.length,
       },
+    };
+  }
+  public getRecords(): Map<string, StoredSubmissionRecord> {
+    return this.records;
+  }
+
+  public getFiles(submissionId?: string): StoredFileRecord[] {
+    if (submissionId) {
+      return this.files.get(submissionId) || [];
+    }
+    const all: StoredFileRecord[] = [];
+    for (const arr of this.files.values()) {
+      all.push(...arr);
+    }
+    return all;
+  }
+
+  public getMirrorRepo(): SheetsMirrorRepository {
+    return this.mirrorRepo;
+  }
+
+  /**
+   * Drains pending outbox mirror jobs to Google Apps Script.
+   */
+  public async drainMirrorQueue(
+    gatewayClient: GatewayClient,
+    batchSize = 10,
+    workerId = 'mirror-worker'
+  ): Promise<DrainSummary> {
+    const worker = new SheetsMirrorWorker(this.mirrorRepo, gatewayClient, { workerId });
+    return await worker.drainQueue(batchSize);
+  }
+
+  /**
+   * UPDATE ASSET: Replaces or uploads an attachment with OCC checks, stores binary in Tigris,
+   * updates metadata in public.submission_files, increments record version, and propagates to Sheets/Drive.
+   */
+  public async updateAsset(
+    input: {
+      submissionId: string;
+      docType: string;
+      fileData: string;
+      documentOperationId?: string;
+      expectedVersion?: number;
+      expectedCurrentCellStateHash?: string;
+      requestId: string;
+    },
+    session?: SessionContext,
+    gatewayClient?: GatewayClient
+  ): Promise<CanonicalSubmissionResult> {
+    const existing = this.records.get(input.submissionId);
+    if (!existing) {
+      return {
+        status: 'error',
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        message: `Record not found with ID: ${input.submissionId}`,
+        requestId: input.requestId,
+      };
+    }
+
+    if (session && !this.isAuthorizedForScope(session, existing.state, existing.district, existing.programme_id)) {
+      return {
+        status: 'error',
+        statusCode: 403,
+        code: 'FORBIDDEN_SCOPE',
+        message: `Session not authorized for state: '${existing.state}'.`,
+        requestId: input.requestId,
+      };
+    }
+
+    // 1. OCC Version Verification
+    if (input.expectedVersion !== undefined && input.expectedVersion !== null && input.expectedVersion !== existing.version) {
+      return {
+        status: 'conflict',
+        statusCode: 409,
+        code: 'OCC_CONFLICT',
+        message: `Version mismatch: expected ${input.expectedVersion} but current version is ${existing.version}`,
+        currentVersion: existing.version,
+        expectedVersion: input.expectedVersion,
+        requestId: input.requestId,
+      };
+    }
+
+    // 2. OCC Cell State Hash Verification
+    const existingFiles = this.files.get(input.submissionId) || [];
+    const currentFile = existingFiles.find((f) => f.doc_type.toLowerCase() === input.docType.toLowerCase());
+
+    if (input.expectedCurrentCellStateHash && currentFile) {
+      if (currentFile.cell_state_hash.toLowerCase() !== input.expectedCurrentCellStateHash.toLowerCase()) {
+        return {
+          status: 'conflict',
+          statusCode: 409,
+          code: 'OCC_CONFLICT',
+          message: 'Optimistic concurrency failed: current cell state hash changed after dry-run.',
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // 3. Parse & Validate Base64 Payload
+    const rawVal = String(input.fileData).trim();
+    const match = rawVal.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      return {
+        status: 'error',
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid document payload: must be a base64 data URL',
+        requestId: input.requestId,
+      };
+    }
+
+    const mimeType = match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      return {
+        status: 'error',
+        statusCode: 413,
+        code: 'REJECTED_OVERSIZE',
+        message: 'Attachment exceeds maximum 10MB limit.',
+        requestId: input.requestId,
+      };
+    }
+
+    // 4. Upload to Tigris Object Storage
+    let storageKey = '';
+    let bucketName = 'childcare-assets';
+    let calculatedSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+    if (this.tigrisService.isConfigured()) {
+      const uploadRes = await this.tigrisService.uploadAttachment({
+        submissionId: input.submissionId,
+        docType: input.docType,
+        buffer,
+        contentType: mimeType,
+      });
+
+      if (uploadRes.status === 'STORED_PRIVATE') {
+        storageKey = uploadRes.storageKey;
+        bucketName = uploadRes.bucketName;
+        calculatedSha256 = uploadRes.calculatedSha256;
+      } else {
+        return {
+          status: 'error',
+          statusCode: 502,
+          code: 'STORAGE_FAILURE',
+          message: `Failed to upload replacement document to private object storage: ${uploadRes.error || uploadRes.status}`,
+          requestId: input.requestId,
+        };
+      }
+    } else {
+      storageKey = `assets/${input.submissionId}/${input.docType}-${calculatedSha256.slice(0, 8)}`;
+    }
+
+    const nextCellStateHash = crypto.createHash('sha256').update(calculatedSha256 + input.submissionId).digest('hex');
+
+    // 5. Update public.submission_files (Replace or Append)
+    const updatedFiles = existingFiles.filter((f) => f.doc_type.toLowerCase() !== input.docType.toLowerCase());
+    updatedFiles.push({
+      id: crypto.randomUUID(),
+      submission_id: input.submissionId,
+      doc_type: input.docType,
+      bucket_name: bucketName,
+      storage_key: storageKey,
+      mime_type: mimeType,
+      size_bytes: buffer.length,
+      sha256_checksum: calculatedSha256,
+      cell_state_hash: nextCellStateHash,
+      is_restricted_doc: true,
+      created_at: new Date().toISOString(),
+    });
+    this.files.set(input.submissionId, updatedFiles);
+
+    // 6. Increment OCC Version in public.submissions
+    const nextVersion = existing.version + 1;
+    const now = new Date().toISOString();
+    existing.version = nextVersion;
+    existing.updated_at = now;
+    this.records.set(input.submissionId, existing);
+
+    // 7. Propagate to Google Drive & Google Sheets
+    let cellFormula = `=HYPERLINK("https://drive.google.com/file/d/drive-${input.submissionId}-${input.docType}/view", "Restricted Doc [${input.docType}]")`;
+    let resolvedRow = 4;
+
+    if (gatewayClient) {
+      try {
+        const gwRes = await gatewayClient.callGateway({
+          action: 'updateAsset',
+          submissionId: input.submissionId,
+          uniqueId: existing.unique_id,
+          docType: input.docType,
+          fileData: input.fileData,
+          expectedVersion: input.expectedVersion,
+          expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+          requestId: input.requestId,
+        });
+
+        if (gwRes.status === 'conflict') {
+          return {
+            status: 'conflict',
+            statusCode: 409,
+            code: 'OCC_CONFLICT',
+            message: gwRes.message || 'Optimistic concurrency conflict on Google Sheets mirror.',
+            currentVersion: gwRes.currentVersion || existing.version,
+            requestId: input.requestId,
+          };
+        }
+
+        if (gwRes.status === 'success' && gwRes.resolvedRow) {
+          resolvedRow = gwRes.resolvedRow;
+        }
+      } catch (err: any) {
+        // Enqueue to mirror outbox for retry if gateway is unavailable
+        await this.mirrorRepo.enqueueJob({
+          job_type: 'UPSERT_ROW',
+          target_sheet_name: 'Child_Nutrition',
+          idempotency_key: input.documentOperationId || `asset-update-${input.submissionId}-${input.docType}-v${nextVersion}`,
+          payload_snapshot: {
+            action: 'updateAsset',
+            submissionId: input.submissionId,
+            uniqueId: existing.unique_id,
+            remoteSubmissionId: existing.id,
+            version: nextVersion,
+            expectedVersion: input.expectedVersion,
+            expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+            docType: input.docType,
+            fileData: input.fileData,
+          },
+          max_attempts: 5,
+        });
+      }
+    } else {
+      // Enqueue to mirror outbox
+      await this.mirrorRepo.enqueueJob({
+        job_type: 'UPSERT_ROW',
+        target_sheet_name: 'Child_Nutrition',
+        idempotency_key: input.documentOperationId || `asset-update-${input.submissionId}-${input.docType}-v${nextVersion}`,
+        payload_snapshot: {
+          action: 'updateAsset',
+          submissionId: input.submissionId,
+          uniqueId: existing.unique_id,
+          remoteSubmissionId: existing.id,
+          version: nextVersion,
+          expectedVersion: input.expectedVersion,
+          expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+          docType: input.docType,
+          fileData: input.fileData,
+        },
+        max_attempts: 5,
+      });
+    }
+
+    return {
+      status: 'success',
+      statusCode: 200,
+      acknowledged: true,
+      uniqueId: existing.unique_id,
+      remoteSubmissionId: existing.id,
+      docType: input.docType,
+      version: nextVersion,
+      revisionNumber: nextVersion,
+      cellFormula,
+      resolvedRow,
+      assetStatus: 'UPLOADED',
+      requestId: input.requestId,
+      updatedAt: now,
     };
   }
 }

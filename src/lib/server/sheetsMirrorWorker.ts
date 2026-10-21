@@ -223,7 +223,16 @@ export class SheetsMirrorWorker {
       const sanitizedPayload = sanitizeMirrorPayload(job.payload_snapshot);
 
       // 2. Format gateway request for Apps Script
-      const action = job.job_type === 'DELETE_ROW' ? 'delete' : (sanitizedPayload.expectedVersion ? 'update' : 'create');
+      let action: string;
+      if (job.job_type === 'DELETE_ROW') {
+        action = 'delete';
+      } else if (sanitizedPayload.action === 'updateAsset' || (sanitizedPayload.docType && sanitizedPayload.fileData)) {
+        action = 'updateAsset';
+      } else if (sanitizedPayload.expectedVersion || (sanitizedPayload.version && sanitizedPayload.version > 1)) {
+        action = 'update';
+      } else {
+        action = 'create';
+      }
 
       const gatewayReq = {
         action,
@@ -231,7 +240,11 @@ export class SheetsMirrorWorker {
         targetSheet: job.target_sheet_name,
         uniqueId: sanitizedPayload.uniqueId || sanitizedPayload['1\nUnique ID'],
         remoteSubmissionId: sanitizedPayload.remoteSubmissionId,
-        expectedVersion: sanitizedPayload.version || sanitizedPayload.expectedVersion,
+        submissionId: sanitizedPayload.submissionId || sanitizedPayload.remoteSubmissionId || sanitizedPayload.uniqueId,
+        docType: sanitizedPayload.docType,
+        fileData: sanitizedPayload.fileData,
+        expectedCurrentCellStateHash: sanitizedPayload.expectedCurrentCellStateHash,
+        expectedVersion: sanitizedPayload.expectedVersion ?? (sanitizedPayload.version > 1 ? sanitizedPayload.version - 1 : undefined),
         payload: sanitizedPayload,
         idempotencyKey: job.idempotency_key,
       };

@@ -610,7 +610,7 @@ class CanonicalSubmissionAdapterService {
     this.supabaseAdapterInstance = adapter;
   }
 
-  private async getSupabaseAdapter(): Promise<any> {
+  public async getSupabaseAdapter(): Promise<any> {
     if (!this.supabaseAdapterInstance) {
       const { SupabaseSubmissionAdapter } = await import('./supabaseSubmissionAdapter');
       this.supabaseAdapterInstance = new SupabaseSubmissionAdapter();
@@ -1195,6 +1195,38 @@ class CanonicalSubmissionAdapterService {
     expectedCurrentCellStateHash?: string;
     requestId: string;
   }): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      if (typeof adapter.updateAsset === 'function') {
+        const appsScriptUrl = this.getAppsScriptUrl();
+        const webhookSecret = this.getWebhookSecret();
+        let gatewayClient: any = undefined;
+        if (this.isConfigured() && appsScriptUrl) {
+          gatewayClient = {
+            callGateway: async (payload: Record<string, any>) => {
+              const res = await fetch(appsScriptUrl, {
+                method: 'POST',
+                cache: 'no-store',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+                },
+                body: JSON.stringify({ ...payload, secret: webhookSecret }),
+              });
+              const gasData = await res.json().catch(() => ({}));
+              return {
+                status: gasData.status || (res.ok ? 'success' : 'error'),
+                statusCode: res.status,
+                resolvedRow: gasData.resolvedRow || gasData.rowNumber,
+                currentVersion: gasData.currentVersion,
+                message: gasData.message,
+              };
+            },
+          };
+        }
+        return await adapter.updateAsset(input, undefined, gatewayClient);
+      }
+    }
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
