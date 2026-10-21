@@ -64,6 +64,9 @@ export const MultilingualIntentResultSchema = z.object({
     promisedDate: z.string().optional(),
   }).default({}),
   clarificationNeeded: z.boolean().default(false),
+  isProvisional: z.boolean().default(true), // All automated interpretations flagged as provisional
+  classificationSource: z.enum(['DETERMINISTIC_RULES', 'AI_PROVISIONAL', 'HUMAN_VERIFIED']).default('DETERMINISTIC_RULES'),
+  reviewEscalationPath: z.enum(['NONE', 'CSC_CASEWORKER_REVIEW', 'FIELD_SUPERVISOR_REVIEW']).default('NONE'),
 });
 
 export type MultilingualIntentResult = z.infer<typeof MultilingualIntentResultSchema>;
@@ -126,6 +129,9 @@ export const DocumentVisionQAResultSchema = z.object({
   specificGuidance: z.record(z.string(), z.string()), // Guidance keyed by language (en, hi, mr, etc.)
   modelRecommendation: z.enum(['ACCEPTABLE', 'NEEDS_REPLACEMENT', 'UNRECOGNIZED_DOCUMENT', 'NOT_ASSESSED']),
   assessmentStatus: z.enum(['EVALUATED', 'NOT_ASSESSED', 'PROVIDER_UNAVAILABLE']).default('EVALUATED'),
+  isProvisional: z.boolean().default(true), // All automated vision evaluations flagged as provisional
+  classificationSource: z.enum(['DETERMINISTIC_RULES', 'AI_PROVISIONAL', 'HUMAN_VERIFIED']).default('DETERMINISTIC_RULES'),
+  reviewEscalationPath: z.enum(['NONE', 'CSC_CASEWORKER_REVIEW', 'FIELD_SUPERVISOR_REVIEW']).default('CSC_CASEWORKER_REVIEW'),
 });
 
 export type DocumentVisionQAResult = z.infer<typeof DocumentVisionQAResultSchema>;

@@ -37,7 +37,7 @@ export class AIMultimodalGateway {
         process.env.NVIDIA_API_KEY ||
         ''
       ).trim() || undefined,
-      defaultProvider: overrides?.defaultProvider || 'OPENROUTER',
+      defaultProvider: overrides?.defaultProvider || 'DETERMINISTIC_FALLBACK',
       allowPaidFallback: overrides?.allowPaidFallback ?? false, // Strictly false by default
       maxRetries: overrides?.maxRetries ?? 2,
       timeoutMs: overrides?.timeoutMs ?? 10000,
@@ -64,8 +64,8 @@ export class AIMultimodalGateway {
   public async classifyIntent(input: MultilingualIntentInput): Promise<MultilingualIntentResult> {
     const sanitizedText = PrivacyFilter.scrubTextForInference(input.messageText);
 
-    // 1. If OpenRouter is available and configured, attempt actual provider inference
-    if (this.config.openRouterApiKey && (this.config.defaultProvider === 'OPENROUTER' || !this.config.nvidiaApiKey)) {
+    // 1. If OpenRouter is explicitly chosen and configured, attempt actual provider inference
+    if (this.config.openRouterApiKey && this.config.defaultProvider === 'OPENROUTER') {
       try {
         return await this.callOpenRouterIntent(sanitizedText, input.context);
       } catch (err) {
@@ -73,7 +73,7 @@ export class AIMultimodalGateway {
       }
     }
 
-    // 2. If NVIDIA NIM is available, attempt actual provider inference
+    // 2. If NVIDIA NIM is explicitly chosen and configured, attempt actual provider inference
     if (this.config.nvidiaApiKey && this.config.defaultProvider === 'NVIDIA') {
       try {
         return await this.callNvidiaIntent(sanitizedText, input.context);
@@ -82,7 +82,7 @@ export class AIMultimodalGateway {
       }
     }
 
-    // 3. Fallback: Deterministic In-Process Intent Classifier (regex & multilingual keywords)
+    // 3. Explicit Default: Deterministic In-Process Intent Classifier (regex & multilingual keywords)
     return this.deterministicIntentClassification(sanitizedText, input.context);
   }
 
@@ -115,7 +115,7 @@ export class AIMultimodalGateway {
       return this.syntheticVisionAssessment(input);
     }
 
-    // Honest Fallback: When no model is available or credentials absent, DO NOT infer semantic quality from dimensions or headers!
+    // Honest Fallback: When no cloud model is available or credentials absent, DO NOT infer semantic quality from dimensions or headers!
     return {
       detectedDocumentType: input.targetDocType,
       classificationConfidence: 0.0,
@@ -131,6 +131,9 @@ export class AIMultimodalGateway {
       legibility: 'NOT_ASSESSED',
       modelRecommendation: 'NOT_ASSESSED',
       assessmentStatus: 'NOT_ASSESSED',
+      isProvisional: true,
+      classificationSource: 'DETERMINISTIC_RULES',
+      reviewEscalationPath: 'CSC_CASEWORKER_REVIEW',
       specificGuidance: {
         en: 'Automated quality assessment is currently unavailable. The document will be reviewed manually by a caseworker.',
         hi: 'स्वचालित गुणवत्ता जांच वर्तमान में अनुपलब्ध है। कार्यकर्ता द्वारा दस्तावेज़ की मैन्युअल समीक्षा की जाएगी।',
@@ -505,6 +508,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         sentiment: 'NEUTRAL',
         extractedEntities: {},
         clarificationNeeded: false,
+        isProvisional: true,
+        classificationSource: 'DETERMINISTIC_RULES',
+        reviewEscalationPath: 'NONE',
       };
     }
 
@@ -528,6 +534,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         sentiment: 'DISTRESSED',
         extractedEntities: { delayReason: 'Requested human assistance' },
         clarificationNeeded: false,
+        isProvisional: true,
+        classificationSource: 'DETERMINISTIC_RULES',
+        reviewEscalationPath: 'CSC_CASEWORKER_REVIEW',
       };
     }
 
@@ -548,6 +557,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         sentiment: 'NEUTRAL',
         extractedEntities: { delayReason: text.slice(0, 80) },
         clarificationNeeded: false,
+        isProvisional: true,
+        classificationSource: 'DETERMINISTIC_RULES',
+        reviewEscalationPath: 'CSC_CASEWORKER_REVIEW',
       };
     }
 
@@ -567,6 +579,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         sentiment: 'POSITIVE',
         extractedEntities: {},
         clarificationNeeded: false,
+        isProvisional: true,
+        classificationSource: 'DETERMINISTIC_RULES',
+        reviewEscalationPath: 'NONE',
       };
     }
 
@@ -579,6 +594,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
       sentiment: 'NEUTRAL',
       extractedEntities: {},
       clarificationNeeded: false,
+      isProvisional: true,
+      classificationSource: 'DETERMINISTIC_RULES',
+      reviewEscalationPath: 'NONE',
     };
   }
 
@@ -613,6 +631,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         },
         modelRecommendation: 'UNRECOGNIZED_DOCUMENT',
         assessmentStatus: 'EVALUATED',
+        isProvisional: true,
+        classificationSource: 'DETERMINISTIC_RULES',
+        reviewEscalationPath: 'CSC_CASEWORKER_REVIEW',
       };
     }
 
@@ -646,6 +667,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         },
         modelRecommendation: 'NEEDS_REPLACEMENT',
         assessmentStatus: 'EVALUATED',
+        isProvisional: true,
+        classificationSource: 'DETERMINISTIC_RULES',
+        reviewEscalationPath: 'CSC_CASEWORKER_REVIEW',
       };
     }
 
@@ -676,6 +700,9 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
       },
       modelRecommendation: 'ACCEPTABLE',
       assessmentStatus: 'EVALUATED',
+      isProvisional: true,
+      classificationSource: 'DETERMINISTIC_RULES',
+      reviewEscalationPath: 'NONE',
     };
   }
 

@@ -34,11 +34,11 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
   });
 
   describe('1. Configuration & Secret Names Verification', () => {
-    it('confirms canonical secret names OPENROUTER_API_KEY and NVIDIA_API_KEY', () => {
+    it('confirms canonical secret names OPENROUTER_API_KEY and NVIDIA_API_KEY with deterministic default', () => {
       const summary = honestGateway.getConfigSummary();
       expect(summary.allowPaidFallback).toBe(false);
       expect(summary.dataCollectionOptOut).toBe(true);
-      expect(summary.defaultProvider).toBe('OPENROUTER');
+      expect(summary.defaultProvider).toBe('DETERMINISTIC_FALLBACK');
       expect(summary.syntheticTestMode).toBe(false);
     });
 
@@ -265,6 +265,34 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
       expect(PINNED_TEXT_MODEL).toBe('nvidia/nemotron-3.5-lightning:free');
       expect(PINNED_VISION_MODEL).toBe('google/gemma-4-31b-it:free');
       expect(MAX_INFERENCE_REQUESTS).toBe(3);
+    });
+
+    it('labels local deterministic intent classifications as provisional with appropriate review escalation path', async () => {
+      const intent = await honestGateway.classifyIntent({
+        messageText: 'को-ऑर्डिनेटर ला फोन करायला सांगा, अडचण आहे',
+        context: { currentLanguage: 'mr' },
+      });
+
+      expect(intent.primaryIntent).toBe('HUMAN_CSC_ESCALATION');
+      expect(intent.detectedLanguage).toBe('mr');
+      expect(intent.isProvisional).toBe(true);
+      expect(intent.classificationSource).toBe('DETERMINISTIC_RULES');
+      expect(intent.reviewEscalationPath).toBe('CSC_CASEWORKER_REVIEW');
+    });
+
+    it('labels local deterministic document assessment as provisional and routes to CSC caseworker review', async () => {
+      const assessment = await honestGateway.assessDocumentImage({
+        imageBuffer: Buffer.from('FAKE_IMAGE_DATA'),
+        mimeType: 'image/png',
+        targetDocType: 'passbookPhoto',
+        preferredLanguage: 'mr',
+      });
+
+      expect(assessment.assessmentStatus).toBe('NOT_ASSESSED');
+      expect(assessment.isProvisional).toBe(true);
+      expect(assessment.classificationSource).toBe('DETERMINISTIC_RULES');
+      expect(assessment.reviewEscalationPath).toBe('CSC_CASEWORKER_REVIEW');
+      expect(assessment.overallQualityScore).toBeNull();
     });
   });
 });
