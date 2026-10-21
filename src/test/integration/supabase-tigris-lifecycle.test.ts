@@ -117,6 +117,17 @@ describe('Supabase / Tigris / Durable Outbox Lifecycle & Boundaries', () => {
         else delete process.env.STORAGE_ENGINE;
       }
     });
+
+    it('rejects unsupported values like dual_write and safely falls back to sheets engine', () => {
+      const original = process.env.STORAGE_ENGINE;
+      process.env.STORAGE_ENGINE = 'dual_write';
+      try {
+        expect(canonicalSubmissionAdapter.getStorageEngine()).toBe('sheets');
+      } finally {
+        if (original) process.env.STORAGE_ENGINE = original;
+        else delete process.env.STORAGE_ENGINE;
+      }
+    });
   });
 
   // ---------------------------------------------------------------------------
