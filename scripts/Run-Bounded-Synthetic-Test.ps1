@@ -5,7 +5,7 @@
 .DESCRIPTION
   Prompts for the API key as a SecureString (masked input).
   Key is never displayed, never saved to disk, and never recorded in PowerShell history.
-  Memory is zeroed and cleared immediately upon test completion.
+  Process-scoped credentials are removed in a finally block upon completion.
 #>
 
 [CmdletBinding()]
@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "       SECURE LAUNCHER: PR #95 BOUNDED SYNTHETIC PROVIDER TEST" -ForegroundColor Cyan
 Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host "Input is masked. The key will NOT be printed or written to shell history." -ForegroundColor Yellow
+Write-Host "Input is masked. The key will NOT be printed or written to files/history." -ForegroundColor Yellow
 Write-Host ""
 
 $SecureKey = Read-Host -Prompt "Enter OpenRouter API Key" -AsSecureString
@@ -44,5 +44,5 @@ try {
     $PlainKey = $null
     $SecureKey = $null
     [System.GC]::Collect()
-    Write-Host "[SECURITY AUDIT] Process memory cleared. Shell session sanitized." -ForegroundColor Green
+    Write-Host "[SECURITY AUDIT] Process credentials removed in finally block. Shell environment sanitized." -ForegroundColor Green
 }

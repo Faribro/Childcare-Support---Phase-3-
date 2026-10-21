@@ -2,6 +2,12 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { AIMultimodalGateway } from '../gateway';
 import { PrivacyFilter } from '../privacy-filter';
 import { VERIFIED_MODEL_CATALOG } from '../model-catalog';
+import {
+  createSyntheticDocumentImage,
+  PINNED_TEXT_MODEL,
+  PINNED_VISION_MODEL,
+  MAX_INFERENCE_REQUESTS,
+} from '../../../../scripts/run-bounded-synthetic-test';
 
 describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
   let honestGateway: AIMultimodalGateway;
@@ -234,6 +240,31 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
       expect(assessment.isTargetMatch).toBe(true);
       expect(assessment.overallQualityScore).toBeGreaterThanOrEqual(70);
       expect(assessment.modelRecommendation).toBe('ACCEPTABLE');
+    });
+
+    it('generates genuine binary PNG bytes with valid magic header and PNG chunks for bounded test', () => {
+      const pngBuffer = createSyntheticDocumentImage();
+      expect(pngBuffer.length).toBeGreaterThan(1000);
+
+      // Verify standard 8-byte PNG signature: 0x89 'P' 'N' 'G' 0x0D 0x0A 0x1A 0x0A
+      const expectedMagic = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+      expect(pngBuffer.subarray(0, 8).equals(expectedMagic)).toBe(true);
+
+      // Verify IHDR chunk at offset 8
+      const ihdrLen = pngBuffer.readUInt32BE(8);
+      expect(ihdrLen).toBe(13);
+      expect(pngBuffer.subarray(12, 16).toString('ascii')).toBe('IHDR');
+
+      // Verify IDAT and IEND chunks exist
+      const str = pngBuffer.toString('latin1');
+      expect(str.includes('IDAT')).toBe(true);
+      expect(str.includes('IEND')).toBe(true);
+    });
+
+    it('pins exact models and enforces capped inference request limit in bounded test runner', () => {
+      expect(PINNED_TEXT_MODEL).toBe('nvidia/nemotron-3.5-lightning:free');
+      expect(PINNED_VISION_MODEL).toBe('google/gemma-4-31b-it:free');
+      expect(MAX_INFERENCE_REQUESTS).toBe(3);
     });
   });
 });
