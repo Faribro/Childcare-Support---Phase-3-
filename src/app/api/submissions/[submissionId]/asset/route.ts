@@ -321,7 +321,15 @@ export async function GET(
   }
 
   // Handle case where document is missing or placeholder
-  if (!docValue || docValue === 'Restricted Document' || docValue === '—' || docValue === '-') {
+  const trimmedDoc = typeof docValue === 'string' ? docValue.trim() : '';
+  if (
+    !docValue ||
+    docValue === 'Restricted Document' ||
+    docValue === '—' ||
+    docValue === '-' ||
+    trimmedDoc === 'DATA_URL_STORED_PENDING_AUTH' ||
+    trimmedDoc.toLowerCase() === 'data_url_stored_pending_auth'
+  ) {
     return NextResponse.json(
       {
         status: 'error',

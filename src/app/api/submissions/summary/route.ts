@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import { deriveSubmissionStages } from '@/lib/shared/submissionStages';
 import {
   resolveUserAccessScope,
   isSyntheticDemoModeAllowed,
@@ -194,12 +195,22 @@ export async function GET(req: NextRequest) {
         : scoped.length;
     const now = new Date().toISOString();
 
+    let intakeIncompleteCount = 0;
+    let bankPendingCount = 0;
+    for (const r of scoped) {
+      const stages = deriveSubmissionStages(r);
+      if (stages.intakeCompleteness === 'incomplete') intakeIncompleteCount++;
+      if (stages.bankWorkflow === 'pending') bankPendingCount++;
+    }
+
     return NextResponse.json(
       {
         status: 'success',
         data: {
           serverConfirmed: totalCount,
           total: totalCount,
+          intakeIncomplete: intakeIncompleteCount,
+          bankPending: bankPendingCount,
           source: 'server',
           generatedAt: now,
           scope: {
