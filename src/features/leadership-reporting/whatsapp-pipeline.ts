@@ -86,8 +86,12 @@ export class WhatsAppReportingPipeline {
     const correlationId = `corr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const timestamp = new Date().toISOString();
 
-    // 1. WhatsApp Event -> Sender Identity Resolver
-    const senderIdentity = this.senderResolver.resolveSender(message.from);
+    // Extract any email address in user text to detect and reject privilege escalation / spoofing
+    const emailMatch = message.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const claimedEmail = emailMatch ? emailMatch[0] : undefined;
+
+    // 1. WhatsApp Event -> Sender Identity Resolver (fails closed on unverified phone or email mismatch)
+    const senderIdentity = this.senderResolver.resolveSender(message.from, claimedEmail);
 
     if (!senderIdentity.authorized || !senderIdentity.callerScope) {
       const denialText =

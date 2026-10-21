@@ -342,6 +342,97 @@ export class LeadershipReportingAgent {
       return { updatedSession: updated, response };
     }
 
+    if (classification.intent === 'LINELIST_EXPORT_REQUEST') {
+      const parsedFilter = classification.parsedFilter;
+      const targetMonthRange = parsedFilter?.monthRange || parsedFilter?.month || 'April–June';
+      const queryYear = parsedFilter?.year;
+      const queryDateBasis = parsedFilter?.dateBasis;
+
+      const hasResolvedYear =
+        queryYear !== undefined || (session.isConfirmedPolicy && session.confirmedYear !== undefined);
+      const hasResolvedDateBasis =
+        queryDateBasis !== undefined || (session.isConfirmedPolicy && session.confirmedDateBasis !== undefined);
+
+      if (!hasResolvedYear || !hasResolvedDateBasis) {
+        const promptText =
+          `Before preparing the **${targetMonthRange}** childcare linelist export, please clarify:\n` +
+          `1. **Calendar Year**: Which year would you like to export (e.g., 2026 or 2025)?\n` +
+          `2. **Date Accounting Basis**: Should we filter records by **Visit Date** (field assessment date) or **Submission Date** (central sync date)?\n\n` +
+          `*(Alternatively, reply 'use defaults' to proceed with Calendar Year 2026 on Visit-Date basis)*.`;
+
+        const clarificationPrompt: ClarificationPrompt = {
+          queryType: 'COHORT_SURVEILLANCE',
+          missingYear: !hasResolvedYear,
+          missingDateBasis: !hasResolvedDateBasis,
+          promptText,
+          pendingFilter: {
+            ...parsedFilter,
+            month: targetMonthRange,
+            monthRange: targetMonthRange,
+            includeDriveLinks: true,
+          },
+        };
+
+        const response: AssistantMessage = {
+          id: `msg_asst_${Date.now()}`,
+          role: 'assistant',
+          content: `❓ **Linelist Export Clarification**\n\n${promptText}`,
+          timestamp: now,
+          intent: 'CLARIFICATION_ANSWER',
+          structuredData: { clarification: clarificationPrompt },
+          isSynthetic: true,
+        };
+
+        const updated: ReportingSession = {
+          ...this.appendMessages(session, userQuery, response, activeState, now),
+          pendingClarification: clarificationPrompt,
+        };
+        return { updatedSession: updated, response };
+      }
+
+      // Year and Date Basis are resolved!
+      const year = queryYear ?? session.confirmedYear ?? 2026;
+      const dateBasis = queryDateBasis ?? session.confirmedDateBasis ?? 'VISIT_DATE';
+
+      const preview = this.exportService.createLinelistExportPreview(
+        session,
+        effectiveCaller,
+        {
+          year,
+          monthOrRange: targetMonthRange,
+          dateBasis,
+          stateFilter: activeState,
+          uniqueBeneficiaries: 50,
+          totalAssessments: 50,
+          driveLinksCount: 50 * 4,
+          recipientEmailMasked: effectiveCaller.userId.includes('mh')
+            ? 'l****.mh@allianceindia.org'
+            : 'd****@allianceindia.org',
+        }
+      );
+
+      const formattedPreview = this.formatter.formatExportPreview(preview);
+      const response: AssistantMessage = {
+        id: `msg_asst_${Date.now()}`,
+        role: 'assistant',
+        content: formattedPreview,
+        timestamp: now,
+        intent: 'LINELIST_EXPORT_REQUEST',
+        structuredData: { exportPreview: preview },
+        isSynthetic: true,
+      };
+
+      const updated: ReportingSession = {
+        ...this.appendMessages(session, userQuery, response, activeState, now),
+        confirmedYear: year,
+        confirmedDateBasis: dateBasis,
+        isConfirmedPolicy: true,
+        pendingExport: preview,
+        pendingClarification: null,
+      };
+      return { updatedSession: updated, response };
+    }
+
     // 6. Clarification Flow: Responding to missing parameters
     if (session.pendingClarification && (classification.intent === 'CLARIFICATION_ANSWER' || classification.parsedFilter)) {
       let resolvedYear = session.confirmedYear;
@@ -361,8 +452,51 @@ export class LeadershipReportingAgent {
       }
 
       if (resolvedYear && resolvedDateBasis) {
-        // Both parameters now resolved! Clear clarification and execute the pending cohort query
         const pendingQuery = session.pendingClarification.pendingFilter;
+
+        // Check if this clarification was for a linelist export request
+        if (pendingQuery?.includeDriveLinks || pendingQuery?.monthRange) {
+          const targetMonthRange = pendingQuery?.monthRange || pendingQuery?.month || 'April–June';
+          const preview = this.exportService.createLinelistExportPreview(
+            session,
+            effectiveCaller,
+            {
+              year: resolvedYear,
+              monthOrRange: targetMonthRange,
+              dateBasis: resolvedDateBasis,
+              stateFilter: activeState,
+              uniqueBeneficiaries: 50,
+              totalAssessments: 50,
+              driveLinksCount: 50 * 4,
+              recipientEmailMasked: effectiveCaller.userId.includes('mh')
+                ? 'lead.mh@allianceindia.org'
+                : 'd****@allianceindia.org',
+            }
+          );
+
+          const formattedPreview = this.formatter.formatExportPreview(preview);
+          const response: AssistantMessage = {
+            id: `msg_asst_${Date.now()}`,
+            role: 'assistant',
+            content: formattedPreview,
+            timestamp: now,
+            intent: 'LINELIST_EXPORT_REQUEST',
+            structuredData: { exportPreview: preview },
+            isSynthetic: true,
+          };
+
+          const updated: ReportingSession = {
+            ...this.appendMessages(session, userQuery, response, activeState, now),
+            confirmedYear: resolvedYear,
+            confirmedDateBasis: resolvedDateBasis,
+            isConfirmedPolicy: true,
+            pendingClarification: null,
+            pendingExport: preview,
+          };
+          return { updatedSession: updated, response };
+        }
+
+        // Both parameters now resolved! Clear clarification and execute the pending cohort query
         const targetMonth = pendingQuery?.month ?? 'June';
         const targetOrphan = pendingQuery?.orphanCategory ?? 'SINGLE_ORPHAN';
         const targetSchool = pendingQuery?.schoolCategory ?? 'GOVERNMENT_SCHOOL';

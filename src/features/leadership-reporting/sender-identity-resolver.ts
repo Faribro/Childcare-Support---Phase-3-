@@ -111,8 +111,9 @@ export class SenderIdentityResolver {
   /**
    * Resolves incoming sender phone number to a trusted CallerSecurityContext.
    * Fails closed: unlisted numbers receive authorized: false.
+   * Rejects spoofing attempts where an unverified sender supplies an arbitrary leadership email.
    */
-  public resolveSender(rawPhone: string): SenderIdentity {
+  public resolveSender(rawPhone: string, senderSuppliedEmailInText?: string): SenderIdentity {
     const normalized = this.normalizePhoneNumber(rawPhone);
     const masked = this.maskPhoneNumber(normalized);
     const hash = this.hashPhoneNumber(normalized);
@@ -124,8 +125,22 @@ export class SenderIdentityResolver {
         senderPhoneMasked: masked,
         rawSenderPhoneHash: hash,
         denialReason:
-          'UNAUTHORIZED_SENDER: This phone number is not registered for Leadership Surveillance access. All reporting actions fail-closed.',
+          'UNAUTHORIZED_SENDER: This phone number is not registered for Leadership Surveillance access. Claims of leadership identity in message text are strictly untrusted.',
       };
+    }
+
+    // Security Guardrail: If sender typed an email in message text, it MUST match the pre-registered binding
+    if (senderSuppliedEmailInText && senderSuppliedEmailInText.trim().length > 0) {
+      const claimed = senderSuppliedEmailInText.trim().toLowerCase();
+      if (claimed !== match.email.toLowerCase()) {
+        return {
+          authorized: false,
+          senderPhoneMasked: masked,
+          rawSenderPhoneHash: hash,
+          denialReason:
+            'IDENTITY_MISMATCH: Sender provided an email that does not match the verified phone binding. Privilege escalation attempt rejected.',
+        };
+      }
     }
 
     const callerScope: CallerSecurityContext = {

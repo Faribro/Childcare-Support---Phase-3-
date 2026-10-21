@@ -95,12 +95,14 @@ export interface SourceFreshness {
 
 export interface CohortFilterQuery {
   readonly year?: number;
-  readonly month?: string; // e.g. "June", "All"
+  readonly month?: string; // e.g. "June", "All", "April-June"
+  readonly monthRange?: string; // e.g. "April-June", "Q1", "Q2"
   readonly dateBasis?: DateBasis;
   readonly orphanCategory?: OrphanCategory | 'ALL';
   readonly schoolCategory?: SchoolCategory | 'ALL';
   readonly stateFilter?: string | null;
   readonly districtFilter?: string | null;
+  readonly includeDriveLinks?: boolean;
 }
 
 export interface CohortSummaryResult {
@@ -174,11 +176,12 @@ export interface ClarificationPrompt {
 
 export interface ExportPreviewContract {
   readonly exportId: string;
-  readonly reportType: 'COHORT_SUMMARY' | 'STATE_SURVEILLANCE';
+  readonly reportType: 'COHORT_SUMMARY' | 'STATE_SURVEILLANCE' | 'LINELIST_EXPORT';
   readonly title: string;
   readonly stateFilter: string | null;
   readonly year: number;
   readonly month: string;
+  readonly monthRange?: string;
   readonly dateBasis: DateBasis;
   readonly uniqueBeneficiaries: number;
   readonly totalAssessments: number;
@@ -186,6 +189,8 @@ export interface ExportPreviewContract {
   readonly recipientEmailMasked: string;
   readonly confirmationCode: string;
   readonly expiresAt: string;
+  readonly format?: 'XLSX' | 'CSV' | 'PDF';
+  readonly driveLinksCount?: number;
 }
 
 export interface ExportDeliveryJob {
@@ -210,6 +215,7 @@ export type QueryIntent =
   | 'DISTRICT_BREAKDOWN'
   | 'RESET_FILTERS'
   | 'CLARIFICATION_ANSWER'
+  | 'LINELIST_EXPORT_REQUEST'
   | 'EXPORT_REQUEST'
   | 'EXPORT_CONFIRM'
   | 'EXPORT_CANCEL'

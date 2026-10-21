@@ -22,6 +22,18 @@ const STATE_MAPPINGS: Record<string, string> = {
   'uttar pradesh': 'Uttar Pradesh',
   mh: 'Maharashtra',
   maharashtra: 'Maharashtra',
+  ka: 'Karnataka',
+  karnataka: 'Karnataka',
+  dl: 'Delhi',
+  delhi: 'Delhi',
+  wb: 'West Bengal',
+  'west bengal': 'West Bengal',
+  rj: 'Rajasthan',
+  rajasthan: 'Rajasthan',
+  gj: 'Gujarat',
+  gujarat: 'Gujarat',
+  tn: 'Tamil Nadu',
+  'tamil nadu': 'Tamil Nadu',
 };
 
 const MUTATION_PATTERNS = [
@@ -152,7 +164,19 @@ export function classifyQueryIntent(
     };
   }
 
-  // 7. Export Requests
+  // 7. Linelist Export Requests (e.g. "Send the April–June childcare linelist with document links", "Email linelist", "Linelist for Maharashtra with Drive links")
+  if (/\b(linelist|line list)\b/i.test(lower)) {
+    const parsedFilter = extractCohortFilter(trimmed);
+    return {
+      intent: 'LINELIST_EXPORT_REQUEST',
+      stateFilter,
+      parsedFilter,
+      confidence: 0.98,
+      rawQuery: trimmed,
+    };
+  }
+
+  // 8. General Export Requests
   if (
     /\b(export report|export data|email me the report|email report|send export|download report|export)\b/i.test(
       lower
@@ -166,7 +190,7 @@ export function classifyQueryIntent(
     };
   }
 
-  // 8. Clarification Answers (e.g. "2026, visit date", "use defaults", "visit date", "2026")
+  // 9. Clarification Answers (e.g. "2026, visit date", "use defaults", "visit date", "2026")
   if (
     /^(use defaults?|defaults?|standard)$/i.test(lower) ||
     /^(\d{4})[, ]+(visit[- ]date|submission[- ]date|visit|submission)$/i.test(lower) ||
@@ -312,6 +336,24 @@ export function classifyQueryIntent(
   };
 }
 
+function normalizeMonthName(raw: string): string {
+  const map: Record<string, string> = {
+    jan: 'January', january: 'January',
+    feb: 'February', february: 'February',
+    mar: 'March', march: 'March',
+    apr: 'April', april: 'April',
+    may: 'May',
+    jun: 'June', june: 'June',
+    jul: 'July', july: 'July',
+    aug: 'August', august: 'August',
+    sep: 'September', september: 'September',
+    oct: 'October', october: 'October',
+    nov: 'November', november: 'November',
+    dec: 'December', december: 'December',
+  };
+  return map[raw.toLowerCase()] || raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 export function extractCohortFilter(query: string): import('./types').CohortFilterQuery {
   const lower = query.toLowerCase();
 
@@ -319,15 +361,41 @@ export function extractCohortFilter(query: string): import('./types').CohortFilt
   const yearMatch = lower.match(/\b(202[0-9])\b/);
   const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
 
-  // Month
+  // Month & Month Range
   let month: string | undefined = undefined;
-  const monthMatch = lower.match(
-    /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
+  let monthRange: string | undefined = undefined;
+
+  const rangeMatch = lower.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*(-|to|–|—)\s*(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i
   );
-  if (monthMatch) {
-    const raw = monthMatch[1].toLowerCase();
-    month = raw.charAt(0).toUpperCase() + raw.slice(1);
+  if (rangeMatch) {
+    const startM = normalizeMonthName(rangeMatch[1]);
+    const endM = normalizeMonthName(rangeMatch[3]);
+    monthRange = `${startM}–${endM}`;
+    month = monthRange;
+  } else if (/\bq1\b/i.test(lower)) {
+    monthRange = 'January–March';
+    month = 'January–March';
+  } else if (/\bq2\b/i.test(lower)) {
+    monthRange = 'April–June';
+    month = 'April–June';
+  } else if (/\bq3\b/i.test(lower)) {
+    monthRange = 'July–September';
+    month = 'July–September';
+  } else if (/\bq4\b/i.test(lower)) {
+    monthRange = 'October–December';
+    month = 'October–December';
+  } else {
+    const monthMatch = lower.match(
+      /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
+    );
+    if (monthMatch) {
+      month = normalizeMonthName(monthMatch[1]);
+    }
   }
+
+  // Drive Links requested
+  const includeDriveLinks = /\b(document links?|drive links?|with links?|with docs?|with documents?)\b/i.test(lower);
 
   // Date Basis
   let dateBasis: import('./types').DateBasis | undefined = undefined;
@@ -362,10 +430,12 @@ export function extractCohortFilter(query: string): import('./types').CohortFilt
   return {
     year,
     month,
+    monthRange,
     dateBasis,
     orphanCategory,
     schoolCategory,
     stateFilter,
+    includeDriveLinks,
   };
 }
 

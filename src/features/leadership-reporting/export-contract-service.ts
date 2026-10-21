@@ -42,6 +42,56 @@ export class ExportContractService {
   }
 
   /**
+   * Phase 1 (Linelist): Generates an Excel linelist export preview with Drive document links.
+   */
+  public createLinelistExportPreview(
+    session: ReportingSession,
+    caller: CallerSecurityContext,
+    options: {
+      year?: number;
+      monthOrRange?: string;
+      dateBasis?: import('./types').DateBasis;
+      stateFilter?: string | null;
+      uniqueBeneficiaries?: number;
+      totalAssessments?: number;
+      driveLinksCount?: number;
+      recipientEmailMasked?: string;
+    } = {}
+  ): ExportPreviewContract {
+    const exportId = `exp_line_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+    const year = options.year ?? session.confirmedYear ?? 2026;
+    const month = options.monthOrRange ?? 'April–June';
+    const stateScope =
+      options.stateFilter ??
+      session.activeStateFilter ??
+      (caller.permittedStates.includes('*') ? 'National' : caller.permittedStates.join(', '));
+    const dateBasis = options.dateBasis ?? session.activeDateBasis;
+    const uniqueBeneficiaries = options.uniqueBeneficiaries ?? (session.lastCohortResult?.uniqueBeneficiariesCount ?? 50);
+    const totalAssessments = options.totalAssessments ?? (session.lastCohortResult?.totalAssessmentsCount ?? 50);
+
+    return {
+      exportId,
+      reportType: 'LINELIST_EXPORT',
+      title: `${month} ${year} Childcare Linelist with Document Links (${stateScope})`,
+      stateFilter: options.stateFilter ?? session.activeStateFilter,
+      year,
+      month,
+      monthRange: month,
+      dateBasis,
+      uniqueBeneficiaries,
+      totalAssessments,
+      recipientUserId: caller.userId,
+      recipientEmailMasked: options.recipientEmailMasked ?? 'd****@allianceindia.org',
+      confirmationCode: 'CONFIRM EXPORT',
+      expiresAt,
+      format: 'XLSX',
+      driveLinksCount: options.driveLinksCount ?? uniqueBeneficiaries * 4,
+    };
+  }
+
+  /**
    * Phase 2: Validates the confirmation code and dispatches the delivery job.
    * Fails closed if expired or caller does not match.
    */

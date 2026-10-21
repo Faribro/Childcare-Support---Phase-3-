@@ -65,15 +65,22 @@ export class WhatsAppFormatter {
    * Formats a two-phase export preview into a concise WhatsApp confirmation prompt.
    */
   public formatExportPreview(preview: ExportPreviewContract): string {
+    const isLinelist = preview.reportType === 'LINELIST_EXPORT';
+    const formatLabel = isLinelist
+      ? 'Excel (.xlsx) with Google Drive Document Links'
+      : (preview.format || 'CSV / PDF Dossier');
+    const linksLine = preview.driveLinksCount ? `• *Document Links:* ~${preview.driveLinksCount} Drive hyperlinks\n` : '';
+
     return (
-      `📄 *SURVEILLANCE EXPORT PREVIEW*\n\n` +
+      `📄 *${isLinelist ? 'CHILDCARE LINELIST EXPORT PREVIEW' : 'SURVEILLANCE EXPORT PREVIEW'}*\n\n` +
       `• *Report:* ${preview.title}\n` +
-      `• *Unique Children:* ${preview.uniqueBeneficiaries}\n` +
-      `• *Total Assessments:* ${preview.totalAssessments}\n` +
+      `• *Beneficiaries:* ${preview.uniqueBeneficiaries} children\n` +
+      `• *Assessments:* ${preview.totalAssessments} records\n` +
+      linksLine +
       `• *Destination:* Registered Email (${preview.recipientEmailMasked})\n` +
-      `• *Format:* CSV / PDF Dossier\n\n` +
+      `• *Format:* ${formatLabel}\n\n` +
       `⚠️ *Confirmation Required:*\n` +
-      `To dispatch this report, reply:\n` +
+      `To dispatch this report to your registered leadership email, reply:\n` +
       `👉 *CONFIRM EXPORT*\n\n` +
       `_(Expires in 5 minutes. Reply *CANCEL* to discard)._`
     );
@@ -83,9 +90,16 @@ export class WhatsAppFormatter {
    * Formats export job dispatch notice.
    */
   public formatExportJobQueued(job: ExportDeliveryJob): string {
+    const isLinelist = job.reportType === 'LINELIST_EXPORT';
+    const reportDesc = isLinelist
+      ? 'Excel (.xlsx) Linelist with Drive Document Links'
+      : 'Surveillance Cohort Summary';
+
     return (
       `✅ *Export Job Queued*\n\n` +
       `• *Job ID:* \`${job.jobId}\`\n` +
+      `• *Export Ref:* \`${job.exportId}\`\n` +
+      `• *Artifact:* ${reportDesc}\n` +
       `• *Recipient:* ${job.recipientEmailMasked}\n` +
       `• *Target:* ${job.deliveryTarget}\n` +
       `• *Status:* Scheduled for background delivery via Central Bridge.\n\n` +
