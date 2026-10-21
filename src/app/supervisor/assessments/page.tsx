@@ -59,6 +59,7 @@ import {
   sanitizeCsvCell,
   normalizeFilterValue,
 } from '@/components/supervisor/linelistFilterUtils';
+import { deriveSubmissionStages } from '@/lib/shared/submissionStages';
 
 type BeneficiaryRow = SupervisorBeneficiaryRow;
 
@@ -499,13 +500,16 @@ export default function SupervisorAssessmentsPage() {
       'Grant Amount (INR)',
       'Documents Status',
       'Pending Documents',
+      'Intake Completeness',
       'Approval Status',
+      'Bank Workflow State',
     ];
 
     const csvRows = [
       headers.map(sanitizeCsvCell).join(','),
-      ...sortedData.map((r) =>
-        [
+      ...sortedData.map((r) => {
+        const stages = deriveSubmissionStages(r.rawRecord || r);
+        return [
           sanitizeCsvCell(r.artNumber),
           sanitizeCsvCell(r.childName),
           sanitizeCsvCell(r.age !== null ? r.age : ''),
@@ -523,9 +527,11 @@ export default function SupervisorAssessmentsPage() {
           sanitizeCsvCell(r.grantAmount),
           sanitizeCsvCell(r.documentStatus.isComplete ? 'Complete' : 'Pending'),
           sanitizeCsvCell(r.documentStatus.pendingDocs.join('; ') || 'None'),
+          sanitizeCsvCell(stages.intakeCompleteness),
           sanitizeCsvCell(r.isApproved ? 'Approved' : r.approvedStatus || 'Pending'),
-        ].join(',')
-      ),
+          sanitizeCsvCell(stages.bankWorkflow),
+        ].join(',');
+      }),
     ];
 
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -1355,8 +1361,10 @@ export default function SupervisorAssessmentsPage() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedRows.map((row) => (
-                    <tr
+                  paginatedRows.map((row) => {
+                    const stages = deriveSubmissionStages(row.rawRecord || row);
+                    return (
+                      <tr
                       key={row.id}
                       className={
                         row.isApproved
@@ -1432,36 +1440,50 @@ export default function SupervisorAssessmentsPage() {
                         ₹{row.grantAmount.toLocaleString('en-IN')}
                       </td>
 
-                      {/* 10. Documents */}
+                      {/* 10. Documents & Bank Stage */}
                       <td className="py-3.5 px-3 text-center">
-                        {row.documentStatus.isComplete ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                            <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
-                            Complete
-                          </span>
-                        ) : (
-                          <div className="inline-flex items-center justify-center gap-1.5">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
-                              Pending
+                        <div className="flex flex-col items-center gap-1">
+                          {row.documentStatus.isComplete ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                              <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                              Intake Complete
                             </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveDocModal({
-                                  id: row.id,
-                                  childName: row.childName,
-                                  artNumber: row.artNumber,
-                                  status: row.documentStatus,
-                                })
-                              }
-                              className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 hover:bg-sky-100 text-slate-500 hover:text-sky-700 transition-colors cursor-pointer border border-slate-200 hover:border-sky-300"
-                              title="View pending documents in cloud modal"
-                              aria-label="View pending documents"
+                          ) : (
+                            <div className="inline-flex items-center justify-center gap-1.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[11px] bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                                Intake Pending
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActiveDocModal({
+                                    id: row.id,
+                                    childName: row.childName,
+                                    artNumber: row.artNumber,
+                                    status: row.documentStatus,
+                                  })
+                                }
+                                className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 hover:bg-sky-100 text-slate-500 hover:text-sky-700 transition-colors cursor-pointer border border-slate-200 hover:border-sky-300"
+                                title="View pending documents in cloud modal"
+                                aria-label="View pending documents"
+                              >
+                                <Info className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )}
+
+                          {row.isApproved && (
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                stages.bankWorkflow === 'complete'
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : 'bg-amber-100 text-amber-900 border border-amber-300'
+                              }`}
                             >
-                              <Info className="h-3 w-3" />
-                            </button>
-                          </div>
-                        )}
+                              {stages.bankWorkflow === 'complete' ? 'Bank Details Complete' : 'Bank Details Pending'}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* 11. Approval Status: Admin / Leadership Actionable Control vs Evaluation Read-Only Badge */}
@@ -1535,8 +1557,9 @@ export default function SupervisorAssessmentsPage() {
                         />
                       </td>
                     </tr>
-                  ))
-                )}
+                  );
+                })
+              )}
               </tbody>
             </table>
           </div>

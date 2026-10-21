@@ -146,7 +146,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
   // ---------------------------------------------------------------------------
   describe('2. Server PATCH Authorization & Concurrency', () => {
     it('permits LEADERSHIP to mutate records within authorized scope', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -181,7 +181,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('rejects STATE_REVIEWER from mutating records with 403 Forbidden', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'rev-01',
         name: 'State Reviewer',
         role: 'STATE_REVIEWER',
@@ -207,7 +207,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('rejects unauthenticated requests with 401 Unauthorized', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'anon',
         name: 'Anonymous',
         role: 'FIELD_USER',
@@ -230,7 +230,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('enforces atomic OCC and returns 409 on version conflict', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -271,7 +271,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
   // ---------------------------------------------------------------------------
   describe('3. Document Asset Streaming & Preview Endpoint', () => {
     it('returns 401 Unauthorized when unauthenticated', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'anon',
         name: 'Anonymous',
         role: 'FIELD_USER',
@@ -287,7 +287,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('returns 403 Forbidden when record is outside caller geographic scope', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'rev-01',
         name: 'Maharashtra Reviewer',
         role: 'STATE_REVIEWER',
@@ -314,7 +314,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('streams SVG preview with nosniff and strict CSP for authorized Leadership', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -346,7 +346,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('retrieves original binary PNG bytes matching fixture buffer and SHA-256 hash', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -385,7 +385,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('retrieves original binary PDF bytes matching fixture buffer and SHA-256 hash', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'admin-01',
         name: 'Administrator',
         role: 'ADMIN',
@@ -427,7 +427,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('retrieves original JPEG bytes matching fixture buffer and SHA-256 hash', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'rev-01',
         name: 'Maharashtra Reviewer',
         role: 'STATE_REVIEWER',
@@ -464,7 +464,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('truthfully returns HTTP 503 STORAGE_UNCONFIGURED without synthetic SVG when Tigris/S3 credentials are not configured', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -498,7 +498,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('streams original bytes from trusted remote Google Drive URLs without synthetic SVG', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -547,7 +547,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('unwraps =HYPERLINK formulas from record and streams original document', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'admin-01',
         name: 'Administrator',
         role: 'ADMIN',
@@ -580,7 +580,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('rejects untrusted remote domains and SSRF attempts with HTTP 403', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -608,7 +608,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('truthfully reports HTTP 502 UPSTREAM_AUTH_REQUIRED when remote storage returns HTML login', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',
@@ -651,7 +651,7 @@ describe('Leadership Permissions, Document Previews & Linelist Layout', () => {
     });
 
     it('returns accurate HTTP 404 error when document reference is a pending placeholder or missing', async () => {
-      vi.mocked(authServer.resolveUserAccessScope).mockReturnValue({
+      vi.mocked(authServer.resolveUserAccessScope).mockResolvedValue({
         userId: 'lead-01',
         name: 'Leadership User',
         role: 'LEADERSHIP',

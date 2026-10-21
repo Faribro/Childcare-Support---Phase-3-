@@ -1,17 +1,27 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import Link from 'next/link';
-import { 
-  ArrowRight, 
-  ArrowDown, 
-  Download, 
-  ShieldCheck, 
-  Smartphone, 
-  Database, 
-  CheckCircle2, 
-  Sparkles 
+import {
+  ArrowRight,
+  ArrowDown,
+  Download,
+  ShieldCheck,
+  Smartphone,
+  Database,
+  CheckCircle2,
+  Sparkles,
+  Wifi,
+  WifiOff,
+  User,
+  Calendar,
+  Activity,
+  Home,
+  BookOpen,
+  HeartPulse,
 } from 'lucide-react';
+import { useScrollPhysics } from './motion/useScrollPhysics';
+import motionStyles from './landing-motion.module.css';
 
 interface NotebookHeroProps {
   canInstall: boolean;
@@ -20,48 +30,70 @@ interface NotebookHeroProps {
 }
 
 export function NotebookHero({ canInstall, onInstallClick, isStandalone = false }: NotebookHeroProps) {
+  const physics = useScrollPhysics();
+  const heroRef = useRef<HTMLElement>(null);
+
+  // Compute local scroll progression for the Hero (0 at top of hero, 1 after scrolling 350px)
+  const heroProgress = physics.isReducedMotion
+    ? 1
+    : Math.min(1, Math.max(0, physics.scrollY / 360));
+
+  // Depth transforms
+  const paperSheetTransform = physics.isReducedMotion
+    ? 'none'
+    : `translate3d(0, ${heroProgress * -12}px, 0)`;
+
+  const devicePerspectiveTransform = physics.isReducedMotion
+    ? 'none'
+    : `perspective(1000px) rotateY(${(1 - heroProgress) * -5}deg) rotateX(${(1 - heroProgress) * 3}deg) translate3d(0, ${heroProgress * -18}px, 0)`;
+
+  // Scroll-linked pathway dashoffset (total length ~420)
+  const pathTotalLength = 420;
+  const pathOffset = physics.isReducedMotion ? 0 : Math.max(0, pathTotalLength * (1 - heroProgress * 1.5));
+
   return (
     <section
+      ref={heroRef}
       aria-labelledby="hero-heading"
       className="relative pt-4 pb-12 md:pt-6 md:pb-20 overflow-hidden"
     >
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         {/* ── THE PHYSICAL MANILA CASE FOLDER SPREAD (Layer 1) ── */}
-        <div className="notebook-folder rounded-3xl p-3 sm:p-6 lg:p-8 relative">
-          
+        <div className="notebook-folder rounded-3xl p-3 sm:p-6 lg:p-8 relative animate-folder-unfold">
+
           {/* Die-Cut Folder Left Index Tabs (Desktop / Tablet) */}
-          <div 
+          <div
             className="hidden xl:flex flex-col absolute -left-9 top-12 space-y-2 z-20"
             aria-label="Notebook Chapter Index"
           >
             <span className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#0F5132] text-white shadow-sm border border-emerald-900 border-r-0 text-right">
               I. Note
             </span>
-            <a 
+            <a
               href="#whole-child"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               II. Scope
             </a>
-            <a 
+            <a
               href="#field-rhythm"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               III. Rhythm
             </a>
-            <a 
+            <a
               href="#field-readiness"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               IV. Reality
             </a>
-            <a 
+            <a
               href="#preview-heading"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
               V. Preview
             </a>
-            <a 
+            <a
               href="#faq-heading"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
@@ -78,9 +110,12 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
             <div className="notebook-punch-hole" aria-hidden="true" />
           </div>
 
-          {/* ── THE INNER COTTON JOURNAL SHEET (Layer 2) ── */}
-          <div className="notebook-paper-sheet rounded-2xl p-4 sm:p-7 lg:p-10 lg:ml-7 relative overflow-hidden">
-            
+          {/* ── THE INNER COTTON JOURNAL SHEET (Layer 2 with scroll depth) ── */}
+          <div
+            className="notebook-paper-sheet rounded-2xl p-4 sm:p-7 lg:p-10 lg:ml-7 relative overflow-hidden transition-transform duration-150 ease-out"
+            style={{ transform: paperSheetTransform }}
+          >
+
             {/* Red Margin Line on the left */}
             <div className="hidden sm:block absolute left-12 top-0 bottom-0 w-px bg-red-200/60 pointer-events-none" />
 
@@ -94,14 +129,14 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
               </div>
             </div>
 
-            {/* ── MAIN HERO GRID (Layer 3 Content + 2.5D Anchor) ── */}
+            {/* ── MAIN HERO GRID (Layer 3 Content + Synthetic Device Anchor) ── */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center relative z-10">
-              
+
               {/* Left Column: Mission Narrative & Immediate Actions */}
-              <div className="lg:col-span-7 space-y-6">
+              <div className={`lg:col-span-7 space-y-6 ${motionStyles.heroHeadline}`}>
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-mono font-bold tracking-wider uppercase bg-[#F2EAE0] text-[#5C4D3C] border border-[#DAC8B5]">
                   <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Frontline Casework Intake & Care</span>
+                  <span>Frontline Casework Intake &amp; Care</span>
                 </div>
 
                 <h1
@@ -130,52 +165,39 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
                 </h1>
 
                 <p className="text-base sm:text-lg text-slate-700 leading-relaxed max-w-2xl font-normal">
-                  A dignified, offline-first field notebook for frontline caseworkers. Record nutrition, 
-                  schooling, and household needs in remote homes—saving every detail safely on your device, 
+                  A dignified, offline-first field notebook for frontline caseworkers. Record nutrition,
+                  schooling, and household needs in remote homes—saving every detail safely on your device,
                   and syncing seamlessly when signal returns.
                 </p>
 
                 {/* Primary & Secondary Action Button Bar */}
                 <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
-                  {isStandalone ? (
-                    <Link
-                      href="/app"
-                      className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
-                      aria-label="Open in App"
-                    >
-                      <span>Open in App</span>
-                      <ArrowRight className="w-4 h-4 text-emerald-200" />
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={onInstallClick}
-                      className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
-                      aria-label="Download the App"
-                    >
-                      <Download className="w-5 h-5 text-emerald-200" />
-                      <span>Download the App</span>
-                    </button>
-                  )}
+                  <Link
+                    href="/app"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl text-base font-bold text-white bg-[#0F5132] hover:bg-[#0A3622] active:bg-[#072417] transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-emerald-500/40 min-h-[48px] cursor-pointer"
+                    aria-label="Open in App"
+                  >
+                    <span>Open in App</span>
+                    <ArrowRight className="w-4 h-4 text-emerald-200" />
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={onInstallClick}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-4 rounded-xl text-sm sm:text-base font-semibold text-slate-800 bg-[#EFE6D8] hover:bg-[#E5DACB] active:bg-[#DBCFB8] border border-[#D5C4AA] transition-all focus:outline-none focus:ring-4 focus:ring-slate-400/40 min-h-[48px] cursor-pointer"
+                    aria-label="Install or Download the App"
+                  >
+                    <Download className="w-4 h-4 text-emerald-800" />
+                    <span>Install / Download</span>
+                  </button>
 
                   <a
                     href="#whole-child"
-                    className="inline-flex items-center justify-center gap-2 px-5 py-4 rounded-xl text-sm sm:text-base font-semibold text-slate-800 bg-[#EFE6D8] hover:bg-[#E5DACB] active:bg-[#DBCFB8] border border-[#D5C4AA] transition-all focus:outline-none focus:ring-4 focus:ring-slate-400/40 min-h-[48px] cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-mono font-bold text-emerald-800 hover:text-emerald-950 underline underline-offset-4 transition-colors"
                   >
-                    <span>Explore the notebook</span>
-                    <ArrowDown className="w-4 h-4 text-slate-600" />
+                    <span>Explore case file</span>
+                    <ArrowDown className="w-3.5 h-3.5" />
                   </a>
-
-                  {!isStandalone && (
-                    <Link
-                      href="/app"
-                      className="inline-flex items-center justify-center gap-1 px-2 py-2 text-xs font-mono font-bold text-emerald-800 hover:text-emerald-950 underline underline-offset-4 transition-colors"
-                      aria-label="Launch directly in web browser"
-                    >
-                      <span>or launch in browser</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </Link>
-                  )}
                 </div>
 
                 {/* Reassurance Micro-Badges */}
@@ -192,118 +214,62 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
                   <span className="text-slate-300">•</span>
                   <div className="flex items-center gap-1.5">
                     <Database className="w-4 h-4 text-emerald-700" />
-                    <span>Protected local storage</span>
+                    <span>Local draft storage</span>
+                  </div>
+                </div>
+
+                {/* MOMENT A: Hand-drawn care pathway with waypoint glyphs */}
+                <div className="hidden md:flex items-center gap-3 pt-3 text-xs text-slate-500 font-mono" aria-hidden="true">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Care Pathway:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px]">
+                      <HeartPulse className="w-3 h-3 text-emerald-600" />
+                      <span>Nutrition</span>
+                    </span>
+                    <span className="text-slate-300">→</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px]">
+                      <BookOpen className="w-3 h-3 text-amber-600" />
+                      <span>Schooling</span>
+                    </span>
+                    <span className="text-slate-300">→</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px]">
+                      <Home className="w-3 h-3 text-blue-600" />
+                      <span>Home Support</span>
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Right Column: Original 2.5D Support Journey Spread (The Visual Anchor) */}
-              <div className="lg:col-span-5">
-                <div className="relative mx-auto max-w-md lg:max-w-none p-5 sm:p-6 rounded-2xl bg-[#F8F4EB] border border-[#DAC8B5] shadow-lg">
-                  
-                  {/* Decorative Archival Tape Strip at top */}
-                  <div className="notebook-tape absolute -top-3 left-1/2 -translate-x-1/2 w-28 h-6 rounded-xs transform -rotate-1 pointer-events-none" />
-
-                  {/* Top Bar of the Case Card */}
-                  <div className="flex items-center justify-between pb-3 mb-3 border-b border-[#E2D5C3]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                    </div>
-                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-600">
-                      Child Support Journey
-                    </span>
-                  </div>
-
-                  {/* ── Original SVG Illustrated Support Trail ── */}
-                  <div className="relative py-2">
-                    <svg
-                      className="w-full h-44 sm:h-52"
-                      viewBox="0 0 340 180"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      role="img"
-                      aria-label="Care journey connecting Nutrition, Schooling, and Offline Sync"
-                    >
-                      {/* Gentle Background Topographic Grid / Lines */}
-                      <path d="M10 40 Q 90 20, 180 50 T 330 30" stroke="#E2D7C5" strokeWidth="1" strokeDasharray="3 3" />
-                      <path d="M10 140 Q 90 120, 180 150 T 330 130" stroke="#E2D7C5" strokeWidth="1" strokeDasharray="3 3" />
-
-                      {/* Main Connecting Journey Path */}
-                      <path
-                        d="M 45 90 C 95 30, 125 30, 170 90 C 215 150, 245 150, 295 85"
-                        stroke="#0D9488"
-                        strokeWidth="3"
-                        strokeDasharray="6 6"
-                        strokeLinecap="round"
-                        className="support-path-draw"
-                      />
-
-                      {/* Station 1: Nutrition & Growth */}
-                      <g transform="translate(45, 90)">
-                        <circle r="26" fill="#FEF3C7" stroke="#D97706" strokeWidth="2.5" />
-                        {/* Apple / Nutrition Icon */}
-                        <path d="M-6 -6 C-10 -2 -10 6 -6 10 C-2 12 2 12 6 10 C10 6 10 -2 6 -6 C2 -8 -2 -8 -6 -6 Z" fill="#D97706" />
-                        <path d="M0 -6 Q 4 -12, 6 -10" stroke="#78350F" strokeWidth="1.5" strokeLinecap="round" />
-                        <text x="0" y="42" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#78350F" fontFamily="sans-serif">
-                          Nutrition
-                        </text>
-                      </g>
-
-                      {/* Station 2: Education Continuity */}
-                      <g transform="translate(170, 90)">
-                        <circle r="26" fill="#E0F2FE" stroke="#0284C7" strokeWidth="2.5" />
-                        {/* Book / Slate Icon */}
-                        <rect x="-8" y="-7" width="16" height="14" rx="2" fill="#0284C7" />
-                        <line x1="-5" y1="-2" x2="5" y2="-2" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
-                        <line x1="-5" y1="2" x2="3" y2="2" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
-                        <text x="0" y="42" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#0C4A6E" fontFamily="sans-serif">
-                          Education
-                        </text>
-                      </g>
-
-                      {/* Station 3: Family Support & Sync */}
-                      <g transform="translate(295, 85)">
-                        <circle r="26" fill="#DCFCE7" stroke="#16A34A" strokeWidth="2.5" />
-                        {/* House / Care Icon */}
-                        <path d="M-8 2 L0 -6 L8 2 L8 8 L-8 8 Z" fill="#16A34A" />
-                        <path d="M-2 8 L-2 4 L2 4 L2 8 Z" fill="#FFFFFF" />
-                        <text x="0" y="42" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#14532D" fontFamily="sans-serif">
-                          Care & Sync
-                        </text>
-                      </g>
-                    </svg>
-
-                    {/* ── Pinned Case Docket Card (Polaroid Style) ── */}
-                    <div className="mt-4 p-3.5 rounded-xl bg-[#FCFAF6] border border-[#DECDBB] shadow-xs relative">
-                      {/* Realistic Silver SVG Paperclip clipping docket to card */}
-                      <svg 
-                        className="absolute -top-3.5 right-4 w-5 h-8 text-slate-400 drop-shadow-xs pointer-events-none" 
-                        viewBox="0 0 20 36" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M6 10 V24 A4 4 0 0 0 14 24 V6 A6 6 0 0 0 2 6 V26 A8 8 0 0 0 18 26 V12" />
-                      </svg>
-
-                      <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pb-1 mb-1 border-b border-dashed border-[#E8DFD1]">
-                        <span className="font-bold text-emerald-900">SAMPLE FIELD RECORD #42</span>
-                        <span>STATUS: SAVED LOCALLY</span>
-                      </div>
-                      <p className="text-xs text-slate-700 leading-snug">
-                        «Child assessment recorded in remote village. Anthropometry, schooling grants, and family care details saved to IndexedDB.»
-                      </p>
-                      <div className="mt-2 flex items-center gap-2 text-[10px] font-mono font-semibold text-emerald-800">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Ready for auto-sync on return</span>
-                      </div>
-                    </div>
-                  </div>
+              {/* Right Column: Synthetic Intake Device Mockup with Scroll-Linked Perspective */}
+              <div
+                className={`lg:col-span-5 ${motionStyles.heroDevice} transition-transform duration-200 ease-out`}
+                style={{ transform: devicePerspectiveTransform }}
+              >
+                {/* Scroll-Linked Pathway Thread connecting headline space to case card */}
+                <div className="relative">
+                  <svg
+                    className="hidden lg:block absolute -left-12 top-10 w-20 h-48 pointer-events-none z-30"
+                    viewBox="0 0 80 192"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M 0 10 C 40 10, 20 80, 50 120 C 65 140, 75 160, 80 180"
+                      stroke="#0F5132"
+                      strokeWidth="2.5"
+                      strokeDasharray={pathTotalLength}
+                      strokeDashoffset={pathOffset}
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx="0"
+                      cy="10"
+                      r="3.5"
+                      fill="#0F5132"
+                      className="opacity-75"
+                    />
+                  </svg>
+                  <SyntheticIntakeMockup />
                 </div>
               </div>
             </div>
@@ -311,7 +277,7 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
             {/* Bottom Visual Scroll Cue */}
             <div className="mt-8 pt-4 border-t border-[#E8DFD1]/70 flex items-center justify-between text-xs text-slate-500 font-mono">
               <span className="hidden sm:inline">ALLIANCE INDIA • COMMUNITY CARE ARCHITECTURE</span>
-              <a 
+              <a
                 href="#whole-child"
                 className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-950 font-bold font-sans transition-colors cursor-pointer ml-auto"
               >
@@ -323,5 +289,182 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
         </div>
       </div>
     </section>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Synthetic Intake Device Mockup
+   Shows a realistic-looking but entirely synthetic phone/tablet UI
+   of the field intake form — no real beneficiary data.
+   ────────────────────────────────────────────────────────────────────────── */
+function SyntheticIntakeMockup() {
+  return (
+    <div className="relative mx-auto max-w-[340px] lg:max-w-none" aria-label="Sample field intake form preview">
+      {/* Archival tape strip pinning the device card */}
+      <div className="notebook-tape absolute -top-3 left-1/2 -translate-x-1/2 w-28 h-6 rounded-xs transform -rotate-1 pointer-events-none" aria-hidden="true" />
+
+      {/* Outer device shell — tablet/phone frame */}
+      <div className="relative rounded-2xl bg-[#1A211E] p-2 shadow-2xl border border-[#2D3A35]">
+
+        {/* Status bar */}
+        <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono text-slate-400">
+          <span>09:47</span>
+          <div className="flex items-center gap-1.5">
+            <WifiOff className="w-3 h-3 text-amber-400" aria-label="Offline mode active" />
+            <span className="text-amber-400 font-bold">OFFLINE</span>
+            <span className="w-4 h-2.5 rounded-sm border border-slate-500 inline-flex items-center px-0.5">
+              <span className="h-1.5 w-1.5 rounded-sm bg-emerald-400" />
+            </span>
+          </div>
+        </div>
+
+        {/* App content area */}
+        <div className="rounded-xl bg-[#F8F4EB] overflow-hidden">
+
+          {/* App nav header */}
+          <div className="bg-[#0F5132] px-3 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-sm bg-emerald-300/20 flex items-center justify-center">
+                <CheckCircle2 className="w-3 h-3 text-emerald-200" />
+              </div>
+              <span className="text-[10px] font-bold text-white font-mono tracking-wide">FIELD NOTEBOOK</span>
+            </div>
+            <div className="flex items-center gap-1 text-[9px] font-mono text-emerald-300">
+              <Wifi className="w-2.5 h-2.5" aria-hidden="true" />
+              <span>Sync pending</span>
+            </div>
+          </div>
+
+          {/* Form paper area */}
+          <div className="px-3 pt-3 pb-2 space-y-2.5">
+
+            {/* Record header */}
+            <div className="flex items-center justify-between pb-1.5 border-b border-[#E2D5C3]">
+              <span className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider">
+                Child Assessment Form
+              </span>
+              <span className="text-[9px] font-mono text-emerald-800 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                #REC-0042
+              </span>
+            </div>
+
+            {/* Synthetic field: Child name */}
+            <FormField
+              icon={<User className="w-2.5 h-2.5 text-slate-500" />}
+              label="Child Name"
+              value="Aanya K. (Synthetic)"
+              filled
+            />
+
+            {/* Synthetic field: Age */}
+            <FormField
+              icon={<Calendar className="w-2.5 h-2.5 text-slate-500" />}
+              label="Age"
+              value="7 yrs 4 mo"
+              filled
+            />
+
+            {/* Nutrition status indicator */}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-mono font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1">
+                  <Activity className="w-2.5 h-2.5" />
+                  Nutrition Status
+                </span>
+                <span className="text-[8px] font-bold font-mono text-amber-700 bg-amber-100 px-1 py-0.5 rounded border border-amber-300">
+                  MAM
+                </span>
+              </div>
+              {/* WHO z-score bar */}
+              <div className="relative h-2 rounded-full bg-slate-200 overflow-hidden">
+                <div
+                  className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500"
+                  style={{ width: '62%' }}
+                  aria-hidden="true"
+                />
+              </div>
+              <div className="flex justify-between text-[8px] font-mono text-slate-400">
+                <span>Severe</span>
+                <span>Normal</span>
+              </div>
+            </div>
+
+            {/* Schooling field */}
+            <FormField
+              icon={
+                <svg className="w-2.5 h-2.5 text-slate-500" fill="none" viewBox="0 0 12 12" aria-hidden="true">
+                  <rect x="1" y="2" width="10" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M3 5h6M3 7h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                </svg>
+              }
+              label="School Enrolment"
+              value="Class 2 — enrolled"
+              filled
+            />
+
+            {/* Sync / save status footer */}
+            <div className="flex items-center justify-between pt-1.5 border-t border-[#E2D5C3]">
+              <div className="flex items-center gap-1 text-[9px] font-mono text-emerald-800">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                <span className="font-bold">Saved locally</span>
+              </div>
+              <div className="text-[8px] font-mono text-slate-400">
+                Queued for sync
+              </div>
+            </div>
+          </div>
+
+          {/* Keyboard hint bar */}
+          <div className="bg-slate-100 border-t border-slate-200 px-3 py-1.5 flex items-center justify-between">
+            <span className="text-[9px] font-mono text-slate-500">Next field</span>
+            <div className="flex gap-1">
+              {['←', '→'].map((k) => (
+                <span
+                  key={k}
+                  className="px-1.5 py-0.5 text-[9px] font-mono bg-white border border-slate-300 rounded shadow-xs text-slate-600"
+                >
+                  {k}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Home indicator */}
+        <div className="mt-1.5 flex justify-center">
+          <div className="w-10 h-0.5 bg-slate-600 rounded-full" aria-hidden="true" />
+        </div>
+      </div>
+
+      {/* Explanatory footnote beneath device */}
+      <p className="mt-3 text-center text-[10px] font-mono text-slate-500 italic">
+        Sample record — no real beneficiary data
+      </p>
+    </div>
+  );
+}
+
+/* Small reusable form field row */
+function FormField({
+  icon,
+  label,
+  value,
+  filled,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  filled?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-[#DDD0BA] bg-white/70 px-2.5 py-1.5">
+      <div className="flex items-center gap-1 mb-0.5">
+        {icon}
+        <span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+      </div>
+      <div className={`text-[11px] font-medium ${filled ? 'text-slate-800' : 'text-slate-300'}`}>
+        {value}
+      </div>
+    </div>
   );
 }

@@ -34,7 +34,7 @@ export async function GET(
       );
     }
 
-    const scope = resolveUserAccessScope(req);
+    const scope = await resolveUserAccessScope(req);
     const syntheticDemoAllowed = !scope.isVerified && isSyntheticDemoModeAllowed(req);
 
     if (!scope.isVerified && !syntheticDemoAllowed) {
@@ -56,7 +56,7 @@ export async function GET(
       );
     }
 
-    const { role } = resolveServerVerifiedRole(req);
+    const { role } = await resolveServerVerifiedRole(req);
 
     const result = await canonicalSubmissionAdapter.getSubmission(submissionId, role);
 
@@ -135,7 +135,7 @@ export async function PATCH(
       );
     }
 
-    const scope = resolveUserAccessScope(req);
+    const scope = await resolveUserAccessScope(req);
     if (!scope.isVerified) {
       logSecurityEvent({
         actor: scope.userId,
@@ -412,7 +412,7 @@ export async function DELETE(
       );
     }
 
-    const scope = resolveUserAccessScope(req);
+    const scope = await resolveUserAccessScope(req);
 
     // Enforce role authorization: Hard deletion is strictly restricted to verified ADMIN
     if (!scope.isVerified || scope.role !== 'ADMIN') {

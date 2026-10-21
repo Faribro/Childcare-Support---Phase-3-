@@ -5,12 +5,16 @@ import Link from 'next/link';
 import { Plus, FileText, CheckCircle2, ChevronRight } from 'lucide-react';
 import type { AssessmentRecord } from '@/types/domain';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
+import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel';
 
 interface MobileKoboHomeScreenProps {
   drafts?: AssessmentRecord[];
   draftsCount?: number;
   waitingCount?: number;
   submittedCount: number | null;
+  submittedMissingDocsCount?: number;
+  approvedBankPendingCount?: number;
+  serverScopeLabel?: string;
   isLoading?: boolean;
   isDraftsLoading?: boolean;
   isWaitingLoading?: boolean;
@@ -24,9 +28,14 @@ interface MobileKoboHomeScreenProps {
 export function MobileKoboHomeScreen({
   drafts,
   draftsCount,
+  waitingCount,
   submittedCount,
+  submittedMissingDocsCount = 0,
+  approvedBankPendingCount = 0,
+  serverScopeLabel = 'Authorized scope',
   isLoading = false,
   isDraftsLoading,
+  isWaitingLoading,
   isSubmittedLoading,
   submittedStatus = 'success',
   onRetrySubmitted,
@@ -70,6 +79,16 @@ export function MobileKoboHomeScreen({
           <ChevronRight className="w-5 h-5 text-white/80 shrink-0" />
         </button>
       </Link>
+
+      {/* Needs Attention Panel */}
+      <NeedsAttentionPanel
+        localDraftsCount={count}
+        outboxAttentionCount={waitingCount ?? 0}
+        submittedMissingDocsCount={submittedMissingDocsCount}
+        approvedBankPendingCount={approvedBankPendingCount}
+        serverScopeLabel={serverScopeLabel}
+        isServerLoading={submittedLoading}
+      />
 
       {/* Navigation Action Cards (White, High-Contrast, >=48px touch targets) */}
       <div className="space-y-2.5">

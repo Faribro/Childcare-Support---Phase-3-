@@ -97,7 +97,16 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
   });
 
   describe('Primary Navigation & CTAs', () => {
-    it('renders "Download the App" action buttons for non-standalone visitors', () => {
+    it('renders "Open Field Workspace" as the primary action for non-standalone visitors', () => {
+      render(<LandingPage />);
+      const workspaceLinks = screen.getAllByRole('link', { name: /open field workspace/i });
+      expect(workspaceLinks.length).toBeGreaterThanOrEqual(1);
+      workspaceLinks.forEach((link) => {
+        expect(link.getAttribute('href')).toBe('/app');
+      });
+    });
+
+    it('renders "Download the App" secondary action buttons for non-standalone visitors', () => {
       render(<LandingPage />);
       const downloadButtons = screen.getAllByRole('button', { name: /download the app/i });
       expect(downloadButtons.length).toBeGreaterThanOrEqual(1);
@@ -156,7 +165,7 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(downloadButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('opens iOS modal when download is clicked on iOS devices', async () => {
+    it('opens installation modal when download is clicked on iOS devices', async () => {
       mockUsePwaInstall.mockReturnValue({
         canInstall: true,
         isStandalone: false,
@@ -169,11 +178,12 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       fireEvent.click(downloadButtons[0]);
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /install on iphone \/ ipad/i })).toBeDefined();
+        expect(screen.getByRole('dialog')).toBeDefined();
+        expect(screen.getByRole('heading', { name: /install & download childcare support/i })).toBeDefined();
       });
 
       // Close modal
-      const closeButton = screen.getByRole('button', { name: /got it, close guide/i });
+      const closeButton = screen.getByRole('button', { name: /close installation dialog/i });
       fireEvent.click(closeButton);
 
       await waitFor(() => {
@@ -202,21 +212,52 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
   });
 
   describe('Frontline FAQ Accordion', () => {
-    it('toggles FAQ item disclosure on button click with aria-expanded update', () => {
-      render(<LandingPage />);
-      const firstFaqButton = screen.getByRole('button', {
-        name: /can i use this app without internet connectivity or mobile cellular data\?/i,
+    it('renders FAQ questions as native details/summary disclosure elements', () => {
+      const { container } = render(<LandingPage />);
+      // Native <details> elements — no JS required, UA handles open/close
+      const detailsEls = container.querySelectorAll('details');
+      expect(detailsEls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('first FAQ item is open by default', () => {
+      const { container } = render(<LandingPage />);
+      const firstDetails = container.querySelector('details');
+      expect(firstDetails).toBeDefined();
+      expect(firstDetails!.hasAttribute('open')).toBe(true);
+    });
+
+    it('first FAQ summary contains the offline connectivity question', () => {
+      const { container } = render(<LandingPage />);
+      const firstSummary = container.querySelector('details summary');
+      expect(firstSummary).toBeDefined();
+      expect(firstSummary!.textContent).toMatch(/can i use this app without internet connectivity/i);
+    });
+
+    it('FAQ answer text is accessible when details is open', () => {
+      const { container } = render(<LandingPage />);
+      const firstDetails = container.querySelector('details[open]');
+      expect(firstDetails).toBeDefined();
+      // The answer text should be in the DOM (details is open)
+      expect(firstDetails!.textContent).toMatch(/offline-first/i);
+    });
+
+    it('FAQ summary elements have no nested interactive controls (no button-in-summary)', () => {
+      const { container } = render(<LandingPage />);
+      const summaries = container.querySelectorAll('details summary');
+      summaries.forEach((summary) => {
+        const nestedButtons = summary.querySelectorAll('button, a, input, select');
+        expect(nestedButtons.length).toBe(0);
       });
+    });
 
-      expect(firstFaqButton.getAttribute('aria-expanded')).toBe('true');
-
-      // Click to collapse
-      fireEvent.click(firstFaqButton);
-      expect(firstFaqButton.getAttribute('aria-expanded')).toBe('false');
-
-      // Click to expand again
-      fireEvent.click(firstFaqButton);
-      expect(firstFaqButton.getAttribute('aria-expanded')).toBe('true');
+    it('FAQ section is labelled by the h2 heading (aria-labelledby points to faq-heading-title)', () => {
+      const { container } = render(<LandingPage />);
+      const faqSection = container.querySelector('#faq-heading');
+      expect(faqSection).toBeDefined();
+      expect(faqSection!.getAttribute('aria-labelledby')).toBe('faq-heading-title');
+      const h2 = container.querySelector('#faq-heading-title');
+      expect(h2).toBeDefined();
+      expect(h2!.tagName).toBe('H2');
     });
   });
 
@@ -275,6 +316,62 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(pageText).not.toContain('< 2%');
       // Must not make absolute zero-loss guarantees
       expect(pageText).not.toContain('(Zero loss)');
+      // Must not imply IndexedDB is "protected" in a security sense
+      expect(pageText).not.toContain('Protected local storage');
+    });
+
+    it('does NOT claim IndexedDB retains data "securely" (unverified encryption)', () => {
+      const { container } = render(<LandingPage />);
+      const pageText = container.textContent || '';
+      // "securely" as applied to IndexedDB storage implies encryption, which is unverified
+      expect(pageText).not.toMatch(/retains.*securely/i);
+    });
+  });
+
+  describe('Fragment Anchor Destinations', () => {
+    it('renders section with id="whole-child" as the target for #whole-child links', () => {
+      const { container } = render(<LandingPage />);
+      const target = container.querySelector('#whole-child');
+      expect(target).toBeDefined();
+      expect(target!.tagName.toLowerCase()).toBe('section');
+    });
+
+    it('renders element with id="how-it-works" as the target for #how-it-works links', () => {
+      const { container } = render(<LandingPage />);
+      const target = container.querySelector('#how-it-works');
+      expect(target).toBeDefined();
+    });
+
+    it('renders section with id="faq-heading" as the target for #faq-heading links', () => {
+      const { container } = render(<LandingPage />);
+      const target = container.querySelector('#faq-heading');
+      expect(target).toBeDefined();
+    });
+
+    it('renders section with id="field-readiness" as target for #field-readiness links', () => {
+      const { container } = render(<LandingPage />);
+      const target = container.querySelector('#field-readiness');
+      expect(target).toBeDefined();
+    });
+
+    it('renders section or element with id="preview-heading" for #preview-heading links', () => {
+      const { container } = render(<LandingPage />);
+      const target = container.querySelector('#preview-heading');
+      expect(target).toBeDefined();
+    });
+  });
+
+  describe('No-JS Content Visibility (Reveal component)', () => {
+    it('renders landing sections with visible content — no opacity:0 gating on sections', () => {
+      const { container } = render(<LandingPage />);
+      // Reveal renders a plain div; without JS the armed/shown classes are never added.
+      // Sections must not be hidden via inline opacity or visibility styles.
+      const sections = container.querySelectorAll('section');
+      sections.forEach((section) => {
+        const style = section.getAttribute('style') || '';
+        expect(style).not.toMatch(/opacity:\s*0/);
+        expect(style).not.toMatch(/visibility:\s*hidden/);
+      });
     });
   });
 });

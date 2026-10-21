@@ -8,11 +8,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   quality-gate:
     name: Code Quality & Automated Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout Source Code
@@ -42,9 +47,49 @@ jobs:
           NEXT_PUBLIC_APP_ENV: production
           NODE_ENV: production
 
+  database-integration:
+    name: Isolated Database & Concurrency Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-integration-password
+          POSTGRES_DB: childcare_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Database Migration & Concurrency Test Suite
+        env:
+          TEST_DATABASE_URL: postgres://postgres:test-integration-password@localhost:5432/childcare_test
+          REQUIRE_DB: 'true'
+        run: npm run test:db:integration
+
   render-deploy:
     name: Trigger Render Deployment
-    needs: quality-gate
+    needs: [quality-gate, database-integration]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10

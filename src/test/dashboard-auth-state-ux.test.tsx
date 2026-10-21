@@ -79,6 +79,11 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
     });
 
     it('transitions to unauthorized status and halts polling on 401 response', async () => {
+      localStorage.setItem('child_nutrition_evaluation_unlocked', 'true');
+      localStorage.setItem(
+        'child_nutrition:user_session_v1',
+        JSON.stringify({ isVerified: true, role: 'SUPERVISOR' })
+      );
       let fetchCount = 0;
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url.includes('/api/submissions')) {
@@ -111,6 +116,11 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
     });
 
     it('transitions to forbidden status on 403 response without retrying', async () => {
+      localStorage.setItem('child_nutrition_evaluation_unlocked', 'true');
+      localStorage.setItem(
+        'child_nutrition:user_session_v1',
+        JSON.stringify({ isVerified: true, role: 'SUPERVISOR' })
+      );
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url.includes('/api/submissions')) {
           return {

@@ -127,7 +127,7 @@ describe('Mobile UX Refinement — KoboCollect-Style Mobile Experience', () => {
       const draftsLink = screen.getByText('Drafts').closest('a');
       expect(draftsLink).toBeDefined();
       expect(draftsLink?.getAttribute('href')).toBe('/assessment/drafts');
-      expect(screen.getByText('2')).toBeDefined(); // draft count badge
+      expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1); // draft count badge
     });
 
     it('renders Submitted surveys as a dedicated navigation link to /assessment/sync?tab=synced', () => {
