@@ -512,6 +512,10 @@ function doPost(e) {
     }
 
     // Dedicated Leadership OTP dispatch gateway (authenticated by DISPATCH_SECRET)
+    if (action === 'sendLinelistEmail') {
+      return handleSendLinelistEmail_(payload);
+    }
+
     if (action === 'send_leadership_otp') {
       return handleSendLeadershipOtp_(payload);
     }
@@ -3594,3 +3598,80 @@ function handleSendLeadershipOtp_(payload) {
   }
 }
 
+
+
+function handleSendLinelistEmail_(payload) {
+  try {
+    var scriptProps = PropertiesService.getScriptProperties();
+    var isEnabled = scriptProps.getProperty('EMAIL_DISPATCH_ENABLED');
+    var expectedSecret = scriptProps.getProperty('DISPATCH_SECRET');
+
+    // 1. Operational kill-switch check
+    if (isEnabled !== 'true') {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'GATEWAY_DISABLED'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. Secret / API key verification
+    var callerSecret = (payload && (payload.secret || payload.apiKey)) ? String(payload.secret || payload.apiKey) : '';
+    if (expectedSecret && callerSecret !== String(expectedSecret)) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_INVALID_SECRET'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var recipient = (payload.recipientEmail || payload.recipient) ? String(payload.recipientEmail || payload.recipient).trim().toLowerCase() : '';
+    if (!recipient || recipient.indexOf('@') === -1) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'INVALID_RECIPIENT'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. Quota check
+    var remainingQuota = MailApp.getRemainingDailyQuota();
+    if (remainingQuota < 2) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'QUOTA_DEPLETED'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 4. Decode base64 attachment
+    var filename = payload.filename || 'childcare_linelist.xlsx';
+    var contentType = payload.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    var attachments = [];
+    if (payload.fileBase64) {
+      var bytes = Utilities.base64Decode(payload.fileBase64);
+      attachments.push(Utilities.newBlob(bytes, contentType, filename));
+    }
+
+    var subject = payload.subject || 'Childcare Linelist Report';
+    var body = payload.bodyText || 'Please find attached the requested childcare linelist report.';
+
+    MailApp.sendEmail({
+      to: recipient,
+      subject: subject,
+      body: body,
+      attachments: attachments,
+      name: 'Alliance Childcare Surveillance System'
+    });
+
+    var messageId = 'gas_msg_' + Date.now();
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'success',
+      success: true,
+      messageId: messageId
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      success: false,
+      error: err && err.message ? err.message : 'DISPATCH_FAILED'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}

@@ -7,6 +7,7 @@ import {
   ExportPreviewContract,
   ReportingSession,
 } from './types';
+import { IExportConfirmationStore } from './export-confirmation-store';
 
 export const CANONICAL_LINELIST_COLUMNS: readonly string[] = [
   'Child ID',
@@ -303,6 +304,45 @@ export class ExportContractService {
     return {
       success: true,
       job,
+    };
+  }
+
+  /**
+   * Phase 2 (Atomic): Validates confirmation and consumes the token atomically using an IExportConfirmationStore.
+   * Prevents race conditions across distributed serverless instances.
+   */
+  public async confirmExportDeliveryAtomic(
+    preview: ExportPreviewContract,
+    caller: CallerSecurityContext,
+    userConfirmationText: string,
+    store: IExportConfirmationStore
+  ): Promise<{
+    success: boolean;
+    job?: ExportDeliveryJob;
+    errorReason?: string;
+  }> {
+    const result = await store.consumeConfirmationTokenAtomic({
+      exportId: preview.exportId,
+      parametersHash: preview.immutableParametersHash,
+      userId: caller.userId,
+      userConfirmationText,
+      caller,
+    });
+
+    if (!result.success || !result.job) {
+      return {
+        success: false,
+        errorReason: result.errorReason || 'Export confirmation failed.',
+      };
+    }
+
+    // Update in-memory reference
+    preview.isConsumed = true;
+    preview.consumedAt = new Date().toISOString();
+
+    return {
+      success: true,
+      job: result.job,
     };
   }
 }

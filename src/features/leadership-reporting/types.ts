@@ -155,6 +155,9 @@ export interface CallerSecurityContext {
    * or explicit state list (e.g. ['Maharashtra'] for STATE_LEAD).
    */
   readonly permittedStates: readonly string[];
+  readonly permittedDistricts?: readonly string[];
+  readonly permittedProgrammes?: readonly string[];
+  readonly isActive?: boolean;
 }
 
 export interface SenderIdentity {
@@ -186,6 +189,7 @@ export interface ExportPreviewContract {
   readonly dateField: 'visit_date' | 'submission_date';
   readonly uniqueBeneficiaries: number;
   readonly totalAssessments: number;
+  readonly districtFilter?: string | null;
   readonly columns: readonly string[];
   readonly recipientUserId: string;
   readonly recipientEmailMasked: string;
@@ -207,10 +211,16 @@ export interface ExportDeliveryJob {
   readonly recipientEmailMasked: string;
   readonly recipientEmailExact?: string;
   readonly immutableParametersHash?: string;
-  readonly status: 'QUEUED' | 'SENT' | 'FAILED';
+  readonly status: 'QUEUED' | 'PROCESSING' | 'SENT' | 'FAILED' | 'UNCERTAIN';
+  readonly leaseWorkerId?: string;
+  readonly leaseExpiresAt?: string;
+  readonly attempts?: number;
+  readonly maxAttempts?: number;
   readonly queuedAt: string;
   readonly deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER';
   readonly artifact?: any;
+  readonly errorReason?: string;
+  readonly dispatchedAt?: string;
 }
 
 export type QueryIntent =

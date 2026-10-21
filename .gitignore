@@ -48,3 +48,12 @@ Thumbs.db
 *.swo
 
 *.tsbuildinfo
+
+# Backups, Database Dumps & Scratch Exports (Security Guardrail)
+*.dump
+*.sql.dump
+*.backup
+*backup*.json
+scratch/
+.staging*
+
