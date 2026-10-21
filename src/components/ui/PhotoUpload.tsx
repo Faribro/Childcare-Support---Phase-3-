@@ -4,6 +4,26 @@ import React, { useRef, useState } from 'react';
 import { Button } from './Button';
 import { Camera, Upload, X, CheckCircle2, FileText, AlertCircle } from 'lucide-react';
 
+export function isValidImageUrl(val: unknown): val is string {
+  if (typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  if (!trimmed) return false;
+  if (
+    trimmed === 'DATA_URL_STORED_PENDING_AUTH' ||
+    trimmed.startsWith('Not Submitted') ||
+    trimmed.startsWith('Restricted Doc')
+  ) {
+    return false;
+  }
+  return (
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('/')
+  );
+}
+
 interface PhotoUploadProps {
   id?: string;
   label: string;
@@ -56,6 +76,7 @@ export function PhotoUpload({
   };
 
   const errorId = `${inputId}-error`;
+  const hasValidImage = isValidImageUrl(value);
 
   return (
     <div id={id ? `dropzone-wrap-${id}` : undefined} className="space-y-2">
@@ -72,7 +93,7 @@ export function PhotoUpload({
         className="hidden"
       />
 
-      {value ? (
+      {hasValidImage ? (
         <div className={`relative border rounded-xl p-3 bg-slate-50 flex items-center justify-between gap-3 ${activeError ? 'border-rose-400 ring-2 ring-rose-200' : 'border-slate-200'}`}>
           <div className="flex items-center space-x-3 overflow-hidden min-w-0">
             <img

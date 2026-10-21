@@ -6,6 +6,13 @@ describe('Supervisor Shared Read Model Singleton Test Suite', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('child_nutrition_evaluation_unlocked', 'true');
+      localStorage.setItem(
+        'child_nutrition:user_session_v1',
+        JSON.stringify({ isVerified: true, role: 'SUPERVISOR' })
+      );
+    }
     supervisorReadModel.resetForTesting();
   });
 
@@ -131,5 +138,20 @@ describe('Supervisor Shared Read Model Singleton Test Suite', () => {
     expect(callCount).toBe(1);
 
     supervisorReadModel.stopPolling();
+  });
+
+  it('does not trigger fetch when evaluation session is locked or unverified', async () => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('child_nutrition_evaluation_unlocked');
+      localStorage.removeItem('child_nutrition:user_session_v1');
+    }
+    let fetchCount = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      return { ok: true, status: 200, json: async () => ({ records: [], total: 0 }) };
+    });
+
+    await supervisorReadModel.fetchSubmissions({ force: true });
+    expect(fetchCount).toBe(0);
   });
 });
