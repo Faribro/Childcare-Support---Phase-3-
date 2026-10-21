@@ -3,22 +3,21 @@
  *
  * Grounded in actual provider capabilities, endpoint reality, and language boundaries:
  *
- * 1. OpenRouter Free Endpoints:
- *    - `meta-llama/llama-3.3-70b-instruct:free` (Hosted Cloud API, Free Community tier)
- *    - `meta-llama/llama-3.2-11b-vision-instruct:free` (Hosted Cloud API, Free Community tier)
- *    - `google/gemini-2.0-flash-exp:free` (Hosted Cloud API, Free Community tier)
+ * 1. OpenRouter Currently Verified Free Endpoints (Live verified from https://openrouter.ai/api/v1/models):
+ *    - `nvidia/nemotron-3.5-lightning:free` (Hosted Cloud API, Free Community tier, Text)
+ *    - `google/gemma-4-31b-it:free` (Hosted Cloud API, Free Community tier, Multimodal Text + Vision)
+ *    - `nvidia/nemotron-3.5-super-vl:free` (Hosted Cloud API, Free Community tier, Multimodal Text + Vision)
+ *    - `openrouter/free` (Hosted Free Router, routes dynamically to currently available free models)
  *
- * 2. NVIDIA NIM Endpoints:
+ * 2. NVIDIA NIM Cloud Endpoints:
  *    - `meta/llama-3.1-70b-instruct` (Hosted Cloud API on integrate.api.nvidia.com, requires Developer Key / Credits)
  *    - `meta/llama-3.2-11b-vision-instruct` (Hosted Cloud API on integrate.api.nvidia.com, requires Developer Key / Credits)
- *    - `nvidia/parakeet-ctc-1.1b-asr` (HOSTED / DOWNLOAD CONTAINER: English ONLY. Does NOT support Indian languages).
- *    - `nvidia/canary-1b` (HOSTED / DOWNLOAD CONTAINER: English, Spanish, German, French ONLY. Does NOT support Indian languages).
- *    - `nvidia/fastpitch-hifigan` (HOSTED / DOWNLOAD CONTAINER: English text-to-speech).
  *
- * CRITICAL LANGUAGE BOUNDARY:
- * Indian languages (mr, hi, gu, bn) are NOT supported on Parakeet or original Canary-1B.
- * Speech transcription for Indian languages must be marked UNSUPPORTED_LANGUAGE until
- * dedicated multilingual ASR (e.g. Bhashini / IndicASR / Whisper multilingual) is provisioned.
+ * 3. Speech Reality & Boundary:
+ *    - NVIDIA Riva speech endpoints do not use standard OpenAI REST paths and require gRPC/Riva microservices.
+ *    - Parakeet is English-only. Canary-1B supports en, es, de, fr only.
+ *    - Indian languages (mr, hi, gu, bn) are completely unsupported on standard NVIDIA public speech models.
+ *    - All speech calls remain UNVERIFIED and must not be called during test execution.
  */
 
 export type ModelHostingType =
@@ -62,45 +61,58 @@ export const VERIFIED_MODEL_CATALOG: Record<string, ModelMetadata> = {
     realityNotes: 'Executes regex/keyword intent classification. Does NOT guess unassessed image/audio semantic quality.',
   },
 
-  // 2. OpenRouter Hosted Free Tier Models
-  'meta-llama/llama-3.3-70b-instruct:free': {
-    modelId: 'meta-llama/llama-3.3-70b-instruct:free',
+  // 2. OpenRouter Live Free Tier Models (Live confirmed via OpenRouter /api/v1/models)
+  'nvidia/nemotron-3.5-lightning:free': {
+    modelId: 'nvidia/nemotron-3.5-lightning:free',
     provider: 'OPENROUTER',
     hostingType: 'HOSTED_CLOUD_API',
     accountEntitlement: 'FREE_COMMUNITY',
     modality: ['TEXT'],
     supportedLanguages: ['en', 'hi', 'mr', 'gu', 'bn'],
-    contextWindowTokens: 131072,
+    contextWindowTokens: 1000000,
     supportsStructuredOutput: true,
     isFreeTier: true,
     privacyPolicyNotes: 'OpenRouter enforces provider.data_collection=deny in request body to prevent model training.',
-    realityNotes: 'Hosted cloud API at https://openrouter.ai/api/v1/chat/completions. Free tier subject to community rate limits.',
+    realityNotes: 'Hosted cloud API at https://openrouter.ai/api/v1/chat/completions. Verified active in free model list.',
   },
-  'meta-llama/llama-3.2-11b-vision-instruct:free': {
-    modelId: 'meta-llama/llama-3.2-11b-vision-instruct:free',
+  'google/gemma-4-31b-it:free': {
+    modelId: 'google/gemma-4-31b-it:free',
     provider: 'OPENROUTER',
     hostingType: 'HOSTED_CLOUD_API',
     accountEntitlement: 'FREE_COMMUNITY',
     modality: ['TEXT', 'VISION'],
     supportedLanguages: ['en', 'hi', 'mr', 'gu', 'bn'],
-    contextWindowTokens: 131072,
+    contextWindowTokens: 262144,
     supportsStructuredOutput: true,
     isFreeTier: true,
-    privacyPolicyNotes: 'OpenRouter enforces provider.data_collection=deny. Note: image pixels are transmitted to host endpoint.',
-    realityNotes: 'Hosted cloud multimodal API. Free tier subject to community rate limits.',
+    privacyPolicyNotes: 'OpenRouter enforces provider.data_collection=deny. Verified active in free model list.',
+    realityNotes: 'Multimodal vision and text model. Highly capable on Indic scripts.',
   },
-  'google/gemini-2.0-flash-exp:free': {
-    modelId: 'google/gemini-2.0-flash-exp:free',
+  'nvidia/nemotron-3.5-super-vl:free': {
+    modelId: 'nvidia/nemotron-3.5-super-vl:free',
     provider: 'OPENROUTER',
     hostingType: 'HOSTED_CLOUD_API',
     accountEntitlement: 'FREE_COMMUNITY',
     modality: ['TEXT', 'VISION'],
     supportedLanguages: ['en', 'hi', 'mr', 'gu', 'bn'],
-    contextWindowTokens: 1048576,
+    contextWindowTokens: 1000000,
     supportsStructuredOutput: true,
     isFreeTier: true,
-    privacyPolicyNotes: 'OpenRouter enforces provider.data_collection=deny. Google terms apply to transient processing.',
-    realityNotes: 'Experimental hosted endpoint; highly capable on Indic scripts.',
+    privacyPolicyNotes: 'OpenRouter enforces provider.data_collection=deny. Verified active in free model list.',
+    realityNotes: 'Multimodal vision and text model with 1M context length.',
+  },
+  'openrouter/free': {
+    modelId: 'openrouter/free',
+    provider: 'OPENROUTER',
+    hostingType: 'HOSTED_CLOUD_API',
+    accountEntitlement: 'FREE_COMMUNITY',
+    modality: ['TEXT', 'VISION'],
+    supportedLanguages: ['en', 'hi', 'mr', 'gu', 'bn'],
+    contextWindowTokens: 200000,
+    supportsStructuredOutput: true,
+    isFreeTier: true,
+    privacyPolicyNotes: 'OpenRouter enforces provider.data_collection=deny.',
+    realityNotes: 'Meta-router automatically resolving active free models on OpenRouter.',
   },
 
   // 3. NVIDIA NIM Cloud Endpoints (Requires NVIDIA_API_KEY)
@@ -131,11 +143,11 @@ export const VERIFIED_MODEL_CATALOG: Record<string, ModelMetadata> = {
     realityNotes: 'Hosted at https://integrate.api.nvidia.com/v1/chat/completions.',
   },
 
-  // 4. NVIDIA Speech Models (REALITY: English/European only; NO Indian languages)
+  // 4. NVIDIA Speech Models (UNVERIFIED PROTOCOL & ENGLISH/EUROPEAN ONLY)
   'nvidia/parakeet-ctc-1.1b-asr': {
     modelId: 'nvidia/parakeet-ctc-1.1b-asr',
     provider: 'NVIDIA',
-    hostingType: 'HOSTED_CLOUD_API',
+    hostingType: 'CONTAINER_DOWNLOAD_ONLY',
     accountEntitlement: 'DEVELOPER_CREDITS',
     modality: ['SPEECH_ASR'],
     supportedLanguages: ['en'], // STRICTLY ENGLISH ONLY
@@ -143,12 +155,12 @@ export const VERIFIED_MODEL_CATALOG: Record<string, ModelMetadata> = {
     supportsStructuredOutput: false,
     isFreeTier: false,
     privacyPolicyNotes: 'Audio processed for transcription without training retention.',
-    realityNotes: 'English ONLY. Indian languages (mr, hi, gu, bn) are completely unsupported and fail closed.',
+    realityNotes: 'English ONLY. Unverified cloud endpoint; requires Riva gRPC deployment. Indian languages unsupported.',
   },
   'nvidia/canary-1b': {
     modelId: 'nvidia/canary-1b',
     provider: 'NVIDIA',
-    hostingType: 'HOSTED_CLOUD_API',
+    hostingType: 'CONTAINER_DOWNLOAD_ONLY',
     accountEntitlement: 'DEVELOPER_CREDITS',
     modality: ['SPEECH_ASR'],
     supportedLanguages: ['en', 'es', 'de', 'fr'], // NO INDIAN LANGUAGES
@@ -156,19 +168,19 @@ export const VERIFIED_MODEL_CATALOG: Record<string, ModelMetadata> = {
     supportsStructuredOutput: false,
     isFreeTier: false,
     privacyPolicyNotes: 'Audio processed for transcription without training retention.',
-    realityNotes: 'English, Spanish, German, French ONLY. Does NOT support Indian languages. Must return UNSUPPORTED_LANGUAGE.',
+    realityNotes: 'European languages ONLY. Unverified cloud endpoint; Indian languages completely unsupported.',
   },
   'nvidia/fastpitch-hifigan': {
     modelId: 'nvidia/fastpitch-hifigan',
     provider: 'NVIDIA',
-    hostingType: 'HOSTED_CLOUD_API',
+    hostingType: 'CONTAINER_DOWNLOAD_ONLY',
     accountEntitlement: 'DEVELOPER_CREDITS',
     modality: ['SPEECH_TTS'],
-    supportedLanguages: ['en'], // Hosted NIM endpoint supports English TTS
+    supportedLanguages: ['en'], // English only
     contextWindowTokens: 0,
     supportsStructuredOutput: false,
     isFreeTier: false,
     privacyPolicyNotes: 'Text processed ephemerally to produce PCM audio.',
-    realityNotes: 'English Text-to-Speech (TTS). Indian language voice synthesis is unavailable without regional voice models.',
+    realityNotes: 'English only. Unverified cloud endpoint; requires Riva deployment. Indic TTS unavailable.',
   },
 };

@@ -118,7 +118,7 @@ export const DocumentVisionQAResultSchema = z.object({
   ]),
   classificationConfidence: z.number().min(0).max(1),
   isTargetMatch: z.boolean(),
-  overallQualityScore: z.number().min(0).max(100),
+  overallQualityScore: z.number().min(0).max(100).nullable(), // null when NOT_ASSESSED
   qualityFlags: QualityFlagSchema,
   legibility: DocumentLegibilityEnum,
   passbookFeatures: PassbookFeatureSchema.optional(),

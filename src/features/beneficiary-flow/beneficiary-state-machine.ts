@@ -391,6 +391,7 @@ export class BeneficiaryStateMachine {
       // Application Rule: Evaluate model classification against quality policy
       const isAcceptable =
         assessment.modelRecommendation === 'ACCEPTABLE' &&
+        assessment.overallQualityScore !== null &&
         assessment.overallQualityScore >= PROPOSED_POLICY_SPEC.qualityAcceptanceThreshold &&
         assessment.isTargetMatch;
 

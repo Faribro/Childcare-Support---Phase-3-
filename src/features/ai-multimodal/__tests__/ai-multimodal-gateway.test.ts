@@ -41,13 +41,13 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
       expect(catalogEntries.length).toBeGreaterThanOrEqual(6);
 
       // Verify OpenRouter text & vision models
-      const openRouterVision = VERIFIED_MODEL_CATALOG['meta-llama/llama-3.2-11b-vision-instruct:free'];
+      const openRouterVision = VERIFIED_MODEL_CATALOG['google/gemma-4-31b-it:free'] || VERIFIED_MODEL_CATALOG['nvidia/nemotron-3.5-super-vl:free'];
       expect(openRouterVision).toBeDefined();
       expect(openRouterVision.hostingType).toBe('HOSTED_CLOUD_API');
       expect(openRouterVision.accountEntitlement).toBe('FREE_COMMUNITY');
       expect(openRouterVision.modality).toContain('VISION');
 
-      const openRouterText = VERIFIED_MODEL_CATALOG['meta-llama/llama-3.3-70b-instruct:free'];
+      const openRouterText = VERIFIED_MODEL_CATALOG['nvidia/nemotron-3.5-lightning:free'];
       expect(openRouterText).toBeDefined();
       expect(openRouterText.hostingType).toBe('HOSTED_CLOUD_API');
       expect(openRouterText.accountEntitlement).toBe('FREE_COMMUNITY');
@@ -178,7 +178,7 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
       expect(assessment.modelRecommendation).toBe('NOT_ASSESSED');
       expect(assessment.assessmentStatus).toBe('NOT_ASSESSED');
       expect(assessment.legibility).toBe('NOT_ASSESSED');
-      expect(assessment.overallQualityScore).toBe(0);
+      expect(assessment.overallQualityScore).toBeNull();
       expect(assessment.specificGuidance.mr).toContain('स्वयंचलित गुणवत्ता तपासणी सध्या अनुपलब्ध आहे');
     });
 

@@ -120,7 +120,7 @@ export class AIMultimodalGateway {
       detectedDocumentType: input.targetDocType,
       classificationConfidence: 0.0,
       isTargetMatch: false,
-      overallQualityScore: 0,
+      overallQualityScore: null,
       qualityFlags: {
         isBlurry: false,
         hasGlare: false,
@@ -229,7 +229,7 @@ export class AIMultimodalGateway {
     scrubbedText: string,
     context: MultilingualIntentInput['context']
   ): Promise<MultilingualIntentResult> {
-    const model = VERIFIED_MODEL_CATALOG['meta-llama/llama-3.3-70b-instruct:free'].modelId;
+    const model = VERIFIED_MODEL_CATALOG['nvidia/nemotron-3.5-lightning:free'].modelId;
     const systemPrompt = `You are an automated childcare support triage assistant for an NGO in India.
 Classify the beneficiary message into JSON adhering strictly to this schema:
 {
@@ -253,6 +253,7 @@ Return ONLY valid JSON. No conversational preamble.`;
       ],
       response_format: { type: 'json_object' },
       temperature: 0.1,
+      max_tokens: 300,
     });
 
     const res = await this.executeFetchWithRetry(
@@ -317,7 +318,7 @@ Return ONLY valid JSON. No conversational preamble.`;
   }
 
   private async callOpenRouterVisionQA(input: DocumentVisionQAInput): Promise<DocumentVisionQAResult> {
-    const model = VERIFIED_MODEL_CATALOG['meta-llama/llama-3.2-11b-vision-instruct:free'].modelId;
+    const model = VERIFIED_MODEL_CATALOG['google/gemma-4-31b-it:free'].modelId;
     const base64Image = input.imageBuffer.toString('base64');
     const dataUri = `data:${input.mimeType};base64,${base64Image}`;
 
@@ -350,6 +351,7 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
       ],
       response_format: { type: 'json_object' },
       temperature: 0.1,
+      max_tokens: 300,
     });
 
     const res = await this.executeFetchWithRetry(
