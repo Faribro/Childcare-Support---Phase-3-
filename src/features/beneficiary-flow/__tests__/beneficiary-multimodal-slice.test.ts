@@ -15,7 +15,7 @@ describe('Beneficiary Multimodal End-to-End Slice Suite', () => {
   const TEST_CHILD_MASKED = 'CH-***-001';
 
   beforeEach(() => {
-    gateway = new AIMultimodalGateway();
+    gateway = new AIMultimodalGateway({ syntheticTestMode: true });
     stateMachine = new BeneficiaryStateMachine(gateway);
     sessionStore = new InMemoryBeneficiarySessionStore();
   });
@@ -353,6 +353,216 @@ describe('Beneficiary Multimodal End-to-End Slice Suite', () => {
       expect(res.updatedSession.receivedDocuments).toBeDefined();
       expect(res.updatedSession.receivedDocuments!['passbookPhoto']?.status).toBe('UPLOADED');
       expect(res.updatedSession.receivedDocuments!['passbookPhoto']?.fileUri).toContain('tigris://');
+    });
+
+    it('rejects negative and ambiguous responses in CONSENT_PENDING, including "I do not agree" and "not yes"', async () => {
+      const session = createInitialSession();
+      session.consentProvided = false;
+      session.state = 'CONSENT_PENDING';
+
+      // 1. "I do not agree"
+      const res1 = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_neg_01',
+        timestamp: '1729501300',
+        type: 'text',
+        textBody: 'I do not agree',
+      });
+      expect(res1.updatedSession.consentProvided).toBe(false);
+      expect(res1.updatedSession.state).toBe('CONSENT_PENDING');
+      expect(res1.response.nextExpectedAction).toBe('AWAIT_CONSENT');
+      expect(res1.response.textMessage).toMatch(/संमती नाकारली|declined consent/i);
+
+      // 2. "not yes"
+      const res2 = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_neg_02',
+        timestamp: '1729501350',
+        type: 'text',
+        textBody: 'not yes',
+      });
+      expect(res2.updatedSession.consentProvided).toBe(false);
+      expect(res2.updatedSession.state).toBe('CONSENT_PENDING');
+      expect(res2.response.nextExpectedAction).toBe('AWAIT_CONSENT');
+
+      // 3. Quoted text containing previous "YES" prompt, but user says "नाही" (no)
+      const res3 = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_neg_03',
+        timestamp: '1729501400',
+        type: 'text',
+        textBody: '> Alliance India requires your explicit consent. Reply YES or 1 to confirm.\nनाही, मला नको',
+      });
+      expect(res3.updatedSession.consentProvided).toBe(false);
+      expect(res3.updatedSession.state).toBe('CONSENT_PENDING');
+      expect(res3.response.nextExpectedAction).toBe('AWAIT_CONSENT');
+
+      // 4. Delayed reply / photo upload while consent is still pending
+      const dummyPhoto = Buffer.from('VALID_CLEAR_PASSBOOK_JPEG_HEADER_0xFF_0xD8_0xFF_CLEAN_TEXT');
+      const res4 = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_neg_04',
+        timestamp: '1729501450',
+        type: 'image',
+        mediaBuffer: dummyPhoto,
+        mimeType: 'image/jpeg',
+      });
+      expect(res4.updatedSession.consentProvided).toBe(false);
+      expect(res4.updatedSession.state).toBe('CONSENT_PENDING');
+      expect(res4.response.nextExpectedAction).toBe('AWAIT_CONSENT');
+      // Document must not be accepted or uploaded without consent
+      expect(res4.updatedSession.receivedDocuments).toBeUndefined();
+    });
+
+    it('ensures "1" used for language or child selection does not grant consent', async () => {
+      // 1. In LANGUAGE_SELECTION, sending "1" selects Marathi
+      const sessionLang = createInitialSession();
+      sessionLang.consentProvided = true; // Consent was already explicitly handled
+      sessionLang.state = 'LANGUAGE_SELECTION';
+
+      const resLang = await stateMachine.processInbound(sessionLang, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_lang_01',
+        timestamp: '1729501500',
+        type: 'text',
+        textBody: '1',
+      });
+      expect(resLang.updatedSession.preferredLanguage).toBe('mr');
+      expect(resLang.updatedSession.languageSelectionConfirmed).toBe(true);
+      expect(resLang.updatedSession.state).toBe('AWAITING_DOCUMENT');
+      expect(resLang.response.nextExpectedAction).toBe('AWAIT_PHOTO');
+
+      // 2. In SIBLING_SELECTION, sending "1" selects Child 1
+      const sessionSib = createInitialSession();
+      sessionSib.consentProvided = true;
+      (sessionSib as any).associatedChildIds = ['CH-***-001', 'CH-***-002'];
+      sessionSib.selectedChildId = undefined;
+      sessionSib.state = 'SIBLING_SELECTION';
+
+      const resSib = await stateMachine.processInbound(sessionSib, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_sib_sel_01',
+        timestamp: '1729501550',
+        type: 'text',
+        textBody: '1',
+      });
+      expect(resSib.updatedSession.selectedChildId).toBe('CH-***-001');
+      expect(resSib.updatedSession.state).toBe('AWAITING_DOCUMENT');
+      expect(resSib.response.nextExpectedAction).toBe('AWAIT_PHOTO');
+    });
+
+    it('enforces STOP and wrong-number handling with precedence across all states', async () => {
+      // 1. Wrong number during CONSENT_PENDING
+      const session1 = createInitialSession();
+      session1.consentProvided = false;
+      session1.state = 'CONSENT_PENDING';
+
+      const res1 = await stateMachine.processInbound(session1, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_wrong_01',
+        timestamp: '1729501600',
+        type: 'text',
+        textBody: 'wrong number, not me',
+      });
+      expect(res1.updatedSession.optedOut).toBe(true);
+      expect(res1.updatedSession.optOutReason).toBe('WRONG_NUMBER');
+      expect(res1.updatedSession.state).toBe('OPTED_OUT');
+      expect(res1.response.nextExpectedAction).toBe('OPTED_OUT');
+
+      // 2. Wrong number in Marathi during SIBLING_SELECTION
+      const session2 = createInitialSession();
+      session2.consentProvided = true;
+      (session2 as any).associatedChildIds = ['CH-***-001', 'CH-***-002'];
+      session2.state = 'SIBLING_SELECTION';
+
+      const res2 = await stateMachine.processInbound(session2, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_wrong_02',
+        timestamp: '1729501650',
+        type: 'text',
+        textBody: 'हा माझा नंबर नाही, चुकीचा नंबर',
+      });
+      expect(res2.updatedSession.optedOut).toBe(true);
+      expect(res2.updatedSession.optOutReason).toBe('WRONG_NUMBER');
+      expect(res2.updatedSession.state).toBe('OPTED_OUT');
+      expect(res2.response.nextExpectedAction).toBe('OPTED_OUT');
+    });
+
+    it('proves persistence and handoff boundaries (in-memory store does not survive restart)', async () => {
+      // 1. Persistence boundary check: InMemorySessionStore truthfully returns false
+      expect(sessionStore.survivesProcessRestart()).toBe(false);
+
+      // 2. Handoff boundary check: humanHandoff is an in-memory marker, not an external DB transaction
+      const session = createInitialSession();
+      session.state = 'AWAITING_DOCUMENT';
+
+      const res = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_handoff_01',
+        timestamp: '1729501700',
+        type: 'text',
+        textBody: 'Please help, connect me to coordinator',
+      });
+
+      expect(res.updatedSession.state).toBe('ESCALATED_TO_CSC');
+      expect(res.updatedSession.isEscalated).toBe(true);
+      expect(res.updatedSession.humanHandoff).toBeDefined();
+      expect(res.updatedSession.humanHandoff?.isEscalated).toBe(true);
+      expect(res.updatedSession.humanHandoff?.caseworkerTicketId).toMatch(/^CSC-TKT-/);
+      expect(res.updatedSession.durableTaskCreationPending).toBe(true);
+      expect(res.response.isDispatched).toBe(false);
+    });
+
+    it('proves honest fallback when automated vision QA is unavailable (NOT_ASSESSED)', async () => {
+      // Production-like gateway with zero keys and syntheticTestMode false
+      const nonSyntheticGateway = new AIMultimodalGateway({ syntheticTestMode: false });
+      const sm = new BeneficiaryStateMachine(nonSyntheticGateway);
+
+      const session = createInitialSession();
+      session.state = 'AWAITING_DOCUMENT';
+
+      const unassessedImage = Buffer.from('ANY_REAL_IMAGE_WITHOUT_AI_KEYS');
+      const res = await sm.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_honest_01',
+        timestamp: '1729501800',
+        type: 'image',
+        mediaBuffer: unassessedImage,
+        mimeType: 'image/jpeg',
+      });
+
+      // Does NOT increment retry count, does NOT fail or loop
+      expect(res.updatedSession.retryCount).toBe(0);
+      expect(res.updatedSession.qualityAssessmentPending).toBe(true);
+      expect(res.updatedSession.state).toBe('COMPLETED');
+      expect(res.updatedSession.receivedDocuments?.['passbookPhoto']?.status).toBe('UPLOADED');
+      expect(res.updatedSession.receivedDocuments?.['passbookPhoto']?.qualityAssessmentPending).toBe(true);
+      expect(res.response.isDispatched).toBe(false);
+      expect(res.response.textMessage).toMatch(/स्वयंचलित तपासणी अनुपलब्ध|manual|पडताळणी/);
+    });
+
+    it('proves honest speech handling when voice note is in unsupported Indian language', async () => {
+      // Default gateway (Canary/Parakeet do NOT support Marathi)
+      const honestGw = new AIMultimodalGateway({ syntheticTestMode: false });
+      const sm = new BeneficiaryStateMachine(honestGw);
+
+      const session = createInitialSession();
+      session.state = 'AWAITING_DOCUMENT';
+
+      const audioBuffer = Buffer.from('REAL_MARATHI_VOICE_NOTE');
+      const res = await sm.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_voice_unsupported_01',
+        timestamp: '1729501900',
+        type: 'audio',
+        mediaBuffer: audioBuffer,
+        mimeType: 'audio/ogg; codecs=opus',
+      });
+
+      // Does not hallucinate transcription; informs caregiver to type or ask for help
+      expect(res.updatedSession.state).toBe('AWAITING_DOCUMENT');
+      expect(res.response.isDispatched).toBe(false);
+      expect(res.response.textMessage).toMatch(/व्हॉईस मेसेज ऐकणे सध्या शक्य नाही|मजकूर/);
     });
   });
 });

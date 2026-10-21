@@ -3,14 +3,22 @@ import crypto from 'crypto';
 /**
  * Privacy Gate & PII Sanitizer for AI Multimodal Inference
  *
- * Enforces:
+ * SCOPE & BOUNDARIES:
  * 1. Pre-inference PII scrubbing: Strips or masks 12-digit Aadhaar patterns,
- *    9-18 digit bank account numbers, unmasked phone numbers, and emails.
- * 2. SHA-256 phone hashing & masking (+91 ******3210) for all audit logs.
- * 3. Provider Data Retention Enforcement:
- *    - OpenRouter: `data_collection: 'deny'` parameter to prevent model training & retention.
- *    - NVIDIA NIM: Cloud APIs bound by zero-training customer privacy terms.
- * 4. Strictly blocks fallback to unapproved providers if privacy constraints are violated.
+ *    9-18 digit bank account numbers, unmasked phone numbers, and emails from TEXT strings.
+ * 2. CRITICAL LIMITATION - TEXT ONLY:
+ *    This filter scrubs text strings. It does NOT redact faces from photos, blur
+ *    sensitive text inside image pixels, or bleep acoustic identifiers inside audio files.
+ *    Any media sent to cloud endpoints contains raw visual or acoustic representations.
+ * 3. Provider Data Retention & Training Opt-Out:
+ *    - OpenRouter: Nested `provider: { data_collection: 'deny' }` parameter signals
+ *      OpenRouter not to log completions for model training. Note: upstream model hosts
+ *      may retain transient server logs (typically 30 days) for abuse prevention unless an
+ *      enterprise BAA with zero-retention is active.
+ *    - NVIDIA NIM: Developer cloud APIs bound by standard API terms.
+ *    - Local Deterministic Engine: 100% local in-process execution with ZERO network egress
+ *      and guaranteed zero external retention.
+ * 4. SHA-256 phone hashing & masking (+91 ******3210) for all audit logs.
  */
 
 export class PrivacyFilter {
@@ -87,12 +95,16 @@ export class PrivacyFilter {
 
   /**
    * OpenRouter Privacy Payload Decorator:
-   * Sets `data_collection: 'deny'` to guarantee zero data retention and prevent training on user prompts.
+   * Sets nested `provider: { data_collection: 'deny' }` parameter to request zero prompt retention
+   * and prevent provider model training.
    */
-  public static decorateOpenRouterPayload<T extends Record<string, any>>(payload: T): T & { data_collection: 'deny' } {
+  public static decorateOpenRouterPayload<T extends Record<string, any>>(payload: T): T & { provider: { data_collection: 'deny' } } {
     return {
       ...payload,
-      data_collection: 'deny',
+      provider: {
+        ...(payload.provider || {}),
+        data_collection: 'deny',
+      },
     };
   }
 
@@ -113,7 +125,7 @@ export class PrivacyFilter {
     if (normalized === 'OPENROUTER') {
       return {
         isApproved: true,
-        policy: 'OpenRouter Data Privacy: Enforced with data_collection=deny to prohibit prompt logging and model training.',
+        policy: 'OpenRouter Data Privacy: Enforced with provider.data_collection=deny to prohibit prompt logging and model training. Upstream free-tier model host terms apply.',
       };
     }
 

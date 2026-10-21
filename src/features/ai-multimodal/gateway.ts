@@ -17,10 +17,14 @@ import {
 import { PrivacyFilter } from './privacy-filter';
 import { VERIFIED_MODEL_CATALOG } from './model-catalog';
 
-export class AIMultimodalGateway {
-  private readonly config: AIProviderConfig;
+export interface AIMultimodalGatewayOptions extends Partial<AIProviderConfig> {
+  readonly syntheticTestMode?: boolean; // Explicit opt-in for synthetic test fixtures in unit tests
+}
 
-  constructor(overrides?: Partial<AIProviderConfig>) {
+export class AIMultimodalGateway {
+  private readonly config: AIProviderConfig & { syntheticTestMode: boolean };
+
+  constructor(overrides?: AIMultimodalGatewayOptions) {
     // Secret names confirmed: OPENROUTER_API_KEY and NVIDIA_API_KEY
     this.config = {
       openRouterApiKey: (
@@ -38,6 +42,7 @@ export class AIMultimodalGateway {
       maxRetries: overrides?.maxRetries ?? 2,
       timeoutMs: overrides?.timeoutMs ?? 10000,
       dataCollectionOptOut: overrides?.dataCollectionOptOut ?? true,
+      syntheticTestMode: overrides?.syntheticTestMode ?? false,
     };
   }
 
@@ -48,6 +53,7 @@ export class AIMultimodalGateway {
       defaultProvider: this.config.defaultProvider,
       allowPaidFallback: this.config.allowPaidFallback,
       dataCollectionOptOut: this.config.dataCollectionOptOut,
+      syntheticTestMode: this.config.syntheticTestMode,
     };
   }
 
@@ -58,7 +64,7 @@ export class AIMultimodalGateway {
   public async classifyIntent(input: MultilingualIntentInput): Promise<MultilingualIntentResult> {
     const sanitizedText = PrivacyFilter.scrubTextForInference(input.messageText);
 
-    // 1. If OpenRouter is available and configured, attempt inference
+    // 1. If OpenRouter is available and configured, attempt actual provider inference
     if (this.config.openRouterApiKey && (this.config.defaultProvider === 'OPENROUTER' || !this.config.nvidiaApiKey)) {
       try {
         return await this.callOpenRouterIntent(sanitizedText, input.context);
@@ -67,7 +73,7 @@ export class AIMultimodalGateway {
       }
     }
 
-    // 2. If NVIDIA NIM is available, attempt inference
+    // 2. If NVIDIA NIM is available, attempt actual provider inference
     if (this.config.nvidiaApiKey && this.config.defaultProvider === 'NVIDIA') {
       try {
         return await this.callNvidiaIntent(sanitizedText, input.context);
@@ -76,7 +82,7 @@ export class AIMultimodalGateway {
       }
     }
 
-    // 3. Fallback: Deterministic In-Process Intent Classifier (zero network, 100% reliable)
+    // 3. Fallback: Deterministic In-Process Intent Classifier (regex & multilingual keywords)
     return this.deterministicIntentClassification(sanitizedText, input.context);
   }
 
@@ -90,7 +96,7 @@ export class AIMultimodalGateway {
       try {
         return await this.callOpenRouterVisionQA(input);
       } catch (err) {
-        console.warn('[AI_GATEWAY] OpenRouter Vision QA failed, failing over to deterministic image QA:', (err as Error).message);
+        console.warn('[AI_GATEWAY] OpenRouter Vision QA failed, failing over to fallback engine:', (err as Error).message);
       }
     }
 
@@ -99,12 +105,38 @@ export class AIMultimodalGateway {
       try {
         return await this.callNvidiaVisionQA(input);
       } catch (err) {
-        console.warn('[AI_GATEWAY] NVIDIA Vision QA failed, failing over to deterministic image QA:', (err as Error).message);
+        console.warn('[AI_GATEWAY] NVIDIA Vision QA failed, failing over to fallback engine:', (err as Error).message);
       }
     }
 
-    // 3. Deterministic In-Process Image Analysis
-    return this.deterministicVisionAssessment(input);
+    // 3. Fallback Evaluation:
+    // If synthetic test mode is enabled, evaluate synthetic test markers for unit test harnesses
+    if (this.config.syntheticTestMode) {
+      return this.syntheticVisionAssessment(input);
+    }
+
+    // Honest Fallback: When no model is available or credentials absent, DO NOT infer semantic quality from dimensions or headers!
+    return {
+      detectedDocumentType: input.targetDocType,
+      classificationConfidence: 0.0,
+      isTargetMatch: false,
+      overallQualityScore: 0,
+      qualityFlags: {
+        isBlurry: false,
+        hasGlare: false,
+        isCutOff: false,
+        isDarkOrUnderexposed: false,
+        isRotatedOrUpsideDown: false,
+      },
+      legibility: 'NOT_ASSESSED',
+      modelRecommendation: 'NOT_ASSESSED',
+      assessmentStatus: 'NOT_ASSESSED',
+      specificGuidance: {
+        en: 'Automated quality assessment is currently unavailable. The document will be reviewed manually by a caseworker.',
+        hi: 'स्वचालित गुणवत्ता जांच वर्तमान में अनुपलब्ध है। कार्यकर्ता द्वारा दस्तावेज़ की मैन्युअल समीक्षा की जाएगी।',
+        mr: 'स्वयंचलित गुणवत्ता तपासणी सध्या अनुपलब्ध आहे. कार्यकर्त्याद्वारे कागदपत्राची व्यक्तिशः पडताळणी केली जाईल.',
+      },
+    };
   }
 
   // ==========================================================================
@@ -112,31 +144,81 @@ export class AIMultimodalGateway {
   // ==========================================================================
 
   public async transcribeAudio(input: SpeechTranscriptionInput): Promise<SpeechTranscriptionResult> {
+    if (this.config.syntheticTestMode) {
+      return this.syntheticAudioTranscription(input);
+    }
+
+    const langHint = input.languageHint || 'mr';
+
+    // LANGUAGE BOUNDARY CHECK:
+    // NVIDIA Canary-1b and Parakeet CTC 1.1b DO NOT support Indian languages (mr, hi, gu, bn).
+    // Parakeet is English-only. Canary supports en, es, de, fr only.
+    if (langHint !== 'en') {
+      return {
+        status: 'UNSUPPORTED_LANGUAGE',
+        transcribedText: '',
+        detectedLanguage: langHint,
+        confidence: 0,
+        durationSeconds: 0,
+        isSupportedLanguage: false,
+        error: `Language '${langHint}' is not supported by available ASR endpoints (Canary/Parakeet support English/European languages only). Indian language transcription unavailable without regional ASR provider.`,
+      };
+    }
+
+    // If English audio and NVIDIA API key is available
     if (this.config.nvidiaApiKey) {
       try {
         return await this.callNvidiaASR(input);
       } catch (err) {
-        console.warn('[AI_GATEWAY] NVIDIA ASR failed, using deterministic speech decoder:', (err as Error).message);
+        console.warn('[AI_GATEWAY] NVIDIA ASR failed, falling over to fallback:', (err as Error).message);
       }
     }
 
-    return this.deterministicAudioTranscription(input);
+    // Synthetic test mode for test fixtures
+    if (this.config.syntheticTestMode) {
+      return this.syntheticAudioTranscription(input);
+    }
+
+    // Honest Fallback: Do NOT guess transcription from audio duration or file size
+    return {
+      status: 'TRANSCRIPTION_UNAVAILABLE',
+      transcribedText: '',
+      detectedLanguage: langHint,
+      confidence: 0,
+      durationSeconds: 0,
+      isSupportedLanguage: true,
+      error: 'Speech transcription unavailable: no active provider credentials configured.',
+    };
   }
 
   // ==========================================================================
-  // 4. Speech Synthesis (Proposed Voice Responses)
+  // 4. Text-to-Speech (TTS - Proposed Voice Responses)
   // ==========================================================================
 
   public async synthesizeSpeech(input: SpeechSynthesisInput): Promise<SpeechSynthesisResult> {
+    // LANGUAGE BOUNDARY: Hosted NIM FastPitch HiFi-GAN supports English only
+    if (input.language !== 'en') {
+      return {
+        status: 'UNSUPPORTED_LANGUAGE',
+        isPlayable: false,
+        error: `Text-to-speech currently unsupported for language '${input.language}' on hosted NIM API. Voice synthesis requires regional Indic TTS provider.`,
+      };
+    }
+
     if (this.config.nvidiaApiKey) {
       try {
         return await this.callNvidiaTTS(input);
       } catch (err) {
-        console.warn('[AI_GATEWAY] NVIDIA TTS failed, using deterministic audio response:', (err as Error).message);
+        console.warn('[AI_GATEWAY] NVIDIA TTS failed, failing over:', (err as Error).message);
       }
     }
 
-    return this.deterministicSpeechSynthesis(input);
+    // Honest Fallback: Return only validated playable recordings, otherwise synthesis unavailable
+    return {
+      status: 'SYNTHESIS_UNAVAILABLE',
+      isPlayable: false,
+      error: 'Speech synthesis unavailable without active provider credentials. Fallback to text messaging.',
+    };
   }
 
   // ==========================================================================
@@ -162,6 +244,7 @@ Classify the beneficiary message into JSON adhering strictly to this schema:
 }
 Return ONLY valid JSON. No conversational preamble.`;
 
+    // OpenRouter request parameter: provider.data_collection = "deny"
     const payload = PrivacyFilter.decorateOpenRouterPayload({
       model,
       messages: [
@@ -253,6 +336,7 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
   "modelRecommendation": "ACCEPTABLE" | "NEEDS_REPLACEMENT" | "UNRECOGNIZED_DOCUMENT"
 }`;
 
+    // OpenRouter request parameter: provider.data_collection = "deny"
     const payload = PrivacyFilter.decorateOpenRouterPayload({
       model,
       messages: [
@@ -285,7 +369,10 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content;
     const parsed = JSON.parse(content);
-    return DocumentVisionQAResultSchema.parse(parsed);
+    return DocumentVisionQAResultSchema.parse({
+      ...parsed,
+      assessmentStatus: 'EVALUATED',
+    });
   }
 
   private async callNvidiaVisionQA(input: DocumentVisionQAInput): Promise<DocumentVisionQAResult> {
@@ -319,11 +406,13 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content;
     const parsed = JSON.parse(content);
-    return DocumentVisionQAResultSchema.parse(parsed);
+    return DocumentVisionQAResultSchema.parse({
+      ...parsed,
+      assessmentStatus: 'EVALUATED',
+    });
   }
 
   private async callNvidiaASR(input: SpeechTranscriptionInput): Promise<SpeechTranscriptionResult> {
-    // NVIDIA Canary / Parakeet ASR endpoint
     const res = await this.executeFetchWithRetry(
       'https://integrate.api.nvidia.com/v1/audio/transcriptions',
       {
@@ -335,17 +424,19 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         body: JSON.stringify({
           model: 'nvidia/canary-1b',
           audio: input.audioBuffer.toString('base64'),
-          language: input.languageHint || 'hi',
+          language: input.languageHint || 'en',
         }),
       }
     );
 
     const json = await res.json();
     return SpeechTranscriptionResultSchema.parse({
+      status: 'SUCCESS',
       transcribedText: json.text || '',
-      detectedLanguage: json.language || input.languageHint || 'hi',
+      detectedLanguage: json.language || input.languageHint || 'en',
       confidence: json.confidence || 0.95,
       durationSeconds: json.duration || 5.0,
+      isSupportedLanguage: true,
     });
   }
 
@@ -369,6 +460,8 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
     const json = await res.json();
     const audioBuffer = Buffer.from(json.audio || '', 'base64');
     return {
+      status: 'SUCCESS',
+      isPlayable: audioBuffer.length > 0,
       audioBuffer,
       mimeType: 'audio/ogg',
       durationSeconds: json.duration || 3.0,
@@ -376,7 +469,7 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
   }
 
   // ==========================================================================
-  // Deterministic Local Fallbacks (Zero Network Egress, 100% Reliable & Safe)
+  // Deterministic In-Process Intent Classifier
   // ==========================================================================
 
   public deterministicIntentClassification(
@@ -462,8 +555,7 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
       lower.includes('namaskar') ||
       lower.includes('नमस्ते') ||
       lower.includes('नमस्कार') ||
-      lower.includes('hello') ||
-      lower.includes('hi')
+      /\b(hello|hi|hey)\b/i.test(lower)
     ) {
       return {
         detectedLanguage,
@@ -488,7 +580,11 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
     };
   }
 
-  public deterministicVisionAssessment(input: DocumentVisionQAInput): DocumentVisionQAResult {
+  // ==========================================================================
+  // Synthetic Test Fixtures (Unit / Integration Test Suite Only)
+  // ==========================================================================
+
+  public syntheticVisionAssessment(input: DocumentVisionQAInput): DocumentVisionQAResult {
     const isMockClean = input.imageBuffer.includes(Buffer.from('VALID_CLEAR_PASSBOOK'));
     const isMockBlurry = input.imageBuffer.includes(Buffer.from('blurry_sample'));
     const isMockGlare = input.imageBuffer.includes(Buffer.from('glare_sample'));
@@ -514,6 +610,7 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
           mr: `तुम्ही कागदपत्राऐवजी वैयक्तिक फोटो पाठवला आहे. कृपया तुमच्या ${input.targetDocType} चा स्पष्ट फोटो पाठवा.`,
         },
         modelRecommendation: 'UNRECOGNIZED_DOCUMENT',
+        assessmentStatus: 'EVALUATED',
       };
     }
 
@@ -546,6 +643,7 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
             : 'कॅमेऱ्याच्या फ्लॅशच्या चकाकीमुळे माहिती दिसत नाही. कृपया फ्लॅश बंद करून सामान्य प्रकाशात फोटो काढा.',
         },
         modelRecommendation: 'NEEDS_REPLACEMENT',
+        assessmentStatus: 'EVALUATED',
       };
     }
 
@@ -575,11 +673,11 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
         mr: 'कागदपत्राचा फोटो स्पष्ट आणि वाचता येण्याजोगा आहे.',
       },
       modelRecommendation: 'ACCEPTABLE',
+      assessmentStatus: 'EVALUATED',
     };
   }
 
-  public deterministicAudioTranscription(input: SpeechTranscriptionInput): SpeechTranscriptionResult {
-    // For test fixtures, decode synthetic markers or provide realistic transcription
+  public syntheticAudioTranscription(input: SpeechTranscriptionInput): SpeechTranscriptionResult {
     const bufStr = input.audioBuffer.toString('utf8');
     let text = 'मी उद्या बँकेत जाऊन पासबुक अपडेट करून फोटो पाठवतो';
     let lang: SupportedLanguage = input.languageHint || 'mr';
@@ -593,20 +691,12 @@ Return strictly JSON adhering to DocumentVisionQAResult schema:
     }
 
     return {
+      status: 'SUCCESS',
       transcribedText: text,
       detectedLanguage: lang,
       confidence: 0.94,
       durationSeconds: 4.5,
-    };
-  }
-
-  public deterministicSpeechSynthesis(input: SpeechSynthesisInput): SpeechSynthesisResult {
-    // Return synthetic OGG audio buffer
-    const mockAudio = Buffer.from(`OGG_AUDIO_HEADER_SYNTHETIC:${input.language}:${input.textToSpeak.slice(0, 30)}`);
-    return {
-      audioBuffer: mockAudio,
-      mimeType: 'audio/ogg',
-      durationSeconds: 3.5,
+      isSupportedLanguage: true,
     };
   }
 

@@ -1,19 +1,15 @@
 import { z } from 'zod';
 import { DocType } from '../whatsapp-document-loop/types';
 
-// ============================================================================
-// 1. Core Provider Types & Configuration
-// ============================================================================
-
 export type AIProviderName = 'OPENROUTER' | 'NVIDIA' | 'DETERMINISTIC_FALLBACK';
 
 export interface AIProviderConfig {
   readonly openRouterApiKey?: string;
   readonly nvidiaApiKey?: string;
   readonly defaultProvider: AIProviderName;
-  readonly allowPaidFallback: boolean; // default false per cost constraints
+  readonly allowPaidFallback: boolean; // default false (free-first)
   readonly maxRetries: number; // default 2
-  readonly timeoutMs: number; // default 10000ms
+  readonly timeoutMs: number; // default 10,000ms
   readonly dataCollectionOptOut: boolean; // default true (deny retention)
 }
 
@@ -30,16 +26,15 @@ export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = [
 export interface ProviderTelemetry {
   readonly provider: AIProviderName;
   readonly modelId: string;
-  readonly task: 'INTENT' | 'VISION_QA' | 'TRANSCRIPTION' | 'SYNTHESIS';
   readonly latencyMs: number;
+  readonly costCents: number;
+  readonly isFreeTier: boolean;
   readonly tokensPrompt?: number;
   readonly tokensCompletion?: number;
-  readonly estimatedCostUsd: number; // Strictly 0.00 for verified free tier
-  readonly privacyCompliant: boolean; // Verifies data retention was denied
 }
 
 // ============================================================================
-// 2. Multilingual Text & Intent Interface
+// 1. Beneficiary Intent & Multilingual Extraction Interface
 // ============================================================================
 
 export const BeneficiaryIntentEnum = z.enum([
@@ -60,12 +55,13 @@ export const MultilingualIntentResultSchema = z.object({
   confidence: z.number().min(0).max(1),
   primaryIntent: BeneficiaryIntentEnum,
   secondaryIntents: z.array(BeneficiaryIntentEnum).default([]),
-  explanationSummary: z.string().optional(), // Redacted summary of why beneficiary is replying
+  explanationSummary: z.string().optional(),
   sentiment: z.enum(['POSITIVE', 'NEUTRAL', 'DISTRESSED', 'FRUSTRATED']).default('NEUTRAL'),
   extractedEntities: z.object({
     mentionedChildName: z.string().optional(),
     mentionedDocType: z.string().optional(),
     delayReason: z.string().optional(),
+    promisedDate: z.string().optional(),
   }).default({}),
   clarificationNeeded: z.boolean().default(false),
 });
@@ -83,7 +79,7 @@ export interface MultilingualIntentInput {
 }
 
 // ============================================================================
-// 3. Document Vision & Quality Assessment Interface
+// 2. Document Vision & Quality Assessment Interface
 // ============================================================================
 
 export const QualityFlagSchema = z.object({
@@ -94,7 +90,7 @@ export const QualityFlagSchema = z.object({
   isRotatedOrUpsideDown: z.boolean(),
 });
 
-export const DocumentLegibilityEnum = z.enum(['HIGH', 'MEDIUM', 'UNREADABLE']);
+export const DocumentLegibilityEnum = z.enum(['HIGH', 'MEDIUM', 'UNREADABLE', 'NOT_ASSESSED']);
 export type DocumentLegibility = z.infer<typeof DocumentLegibilityEnum>;
 
 export const PassbookFeatureSchema = z.object({
@@ -128,7 +124,8 @@ export const DocumentVisionQAResultSchema = z.object({
   passbookFeatures: PassbookFeatureSchema.optional(),
   aadhaarFeatures: AadhaarFeatureSchema.optional(),
   specificGuidance: z.record(z.string(), z.string()), // Guidance keyed by language (en, hi, mr, etc.)
-  modelRecommendation: z.enum(['ACCEPTABLE', 'NEEDS_REPLACEMENT', 'UNRECOGNIZED_DOCUMENT']),
+  modelRecommendation: z.enum(['ACCEPTABLE', 'NEEDS_REPLACEMENT', 'UNRECOGNIZED_DOCUMENT', 'NOT_ASSESSED']),
+  assessmentStatus: z.enum(['EVALUATED', 'NOT_ASSESSED', 'PROVIDER_UNAVAILABLE']).default('EVALUATED'),
 });
 
 export type DocumentVisionQAResult = z.infer<typeof DocumentVisionQAResultSchema>;
@@ -141,14 +138,17 @@ export interface DocumentVisionQAInput {
 }
 
 // ============================================================================
-// 4. Speech Transcription Interface (Asynchronous WhatsApp Voice Notes)
+// 3. Speech Transcription Interface (Asynchronous WhatsApp Voice Notes)
 // ============================================================================
 
 export const SpeechTranscriptionResultSchema = z.object({
+  status: z.enum(['SUCCESS', 'TRANSCRIPTION_UNAVAILABLE', 'UNSUPPORTED_LANGUAGE']).default('SUCCESS'),
   transcribedText: z.string(),
   detectedLanguage: z.enum(['en', 'hi', 'mr', 'gu', 'bn']),
   confidence: z.number().min(0).max(1),
   durationSeconds: z.number().min(0),
+  isSupportedLanguage: z.boolean().default(true),
+  error: z.string().optional(),
 });
 
 export type SpeechTranscriptionResult = z.infer<typeof SpeechTranscriptionResultSchema>;
@@ -160,7 +160,7 @@ export interface SpeechTranscriptionInput {
 }
 
 // ============================================================================
-// 5. Speech Synthesis Interface (Proposed / Optional Accessible Guidance)
+// 4. Speech Synthesis Interface (Proposed / Optional Accessible Guidance)
 // ============================================================================
 
 export interface SpeechSynthesisInput {
@@ -170,7 +170,10 @@ export interface SpeechSynthesisInput {
 }
 
 export interface SpeechSynthesisResult {
-  readonly audioBuffer: Buffer;
-  readonly mimeType: 'audio/ogg' | 'audio/mp4' | 'audio/mpeg';
-  readonly durationSeconds: number;
+  readonly status: 'SUCCESS' | 'SYNTHESIS_UNAVAILABLE' | 'UNSUPPORTED_LANGUAGE';
+  readonly isPlayable: boolean;
+  readonly audioBuffer?: Buffer;
+  readonly mimeType?: 'audio/ogg' | 'audio/mp4' | 'audio/mpeg';
+  readonly durationSeconds?: number;
+  readonly error?: string;
 }

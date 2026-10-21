@@ -16,6 +16,8 @@ import { SupportedLanguage } from '../ai-multimodal/types';
  * - Application rules control document attribution, receipt state, retries, and escalation.
  * - NO model eligibility/authenticity/approval decisions (status strictly 'UPLOADED', never 'VERIFIED').
  * - Strictly isolated from leadership reporting endpoints.
+ * - All responses are marked `isDispatched: false` (drafted intent, not sent network payload).
+ * - Distinguishes returning in-memory escalation notes from creating a durable CSC task.
  */
 export class BeneficiaryStateMachine {
   private readonly gateway: AIMultimodalGateway;
@@ -42,6 +44,7 @@ export class BeneficiaryStateMachine {
           recipientPhoneMasked: maskedPhone,
           language: session.preferredLanguage,
           textMessage: this.getOptedOutMessage(session.preferredLanguage),
+          isDispatched: false,
           nextExpectedAction: 'OPTED_OUT',
         },
       };
@@ -55,66 +58,152 @@ export class BeneficiaryStateMachine {
         mimeType: message.mimeType || 'audio/ogg',
         languageHint: session.preferredLanguage,
       });
+
+      // Honest speech handling: If language is unsupported or transcription unavailable,
+      // do not guess text. Return clear guidance to type or ask for human help.
+      if (
+        transcription.status === 'UNSUPPORTED_LANGUAGE' ||
+        transcription.status === 'TRANSCRIPTION_UNAVAILABLE' ||
+        !transcription.transcribedText.trim()
+      ) {
+        const errorMsg = this.getVoiceUnsupportedMessage(session.preferredLanguage);
+        return {
+          updatedSession: session,
+          response: {
+            recipientPhoneMasked: maskedPhone,
+            language: session.preferredLanguage,
+            textMessage: errorMsg,
+            isDispatched: false,
+            nextExpectedAction: session.state === 'REPLACEMENT_REQUESTED' ? 'AWAIT_REPLACEMENT' : 'AWAIT_PHOTO',
+          },
+        };
+      }
       processedText = transcription.transcribedText;
     }
 
-    // Check for Opt-Out (STOP)
-    const lowerText = processedText.toLowerCase().trim();
+    // 2. Strip WhatsApp quoted text (lines starting with '>')
+    const cleanUnquotedText = processedText
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('>'))
+      .join(' ')
+      .trim();
+    const lowerText = cleanUnquotedText.toLowerCase().trim();
+
+    // 3. STOP & WRONG-NUMBER HANDLING TAKES PRECEDENCE IN EVERY STATE
     const isStopWord = [
       'stop', 'stop all', 'unsubscribe', 'bas', 'bas karo', 'ruk jao',
       'रोको', 'बंद करा', 'थांबवा', 'नको', 'நிறுத்து', 'ఆపు'
     ].some((k) => lowerText === k || lowerText.startsWith(k));
 
-    if (isStopWord) {
+    const isWrongNumber = [
+      'wrong number', 'wrong no', 'chuki cha number', 'chukicha number',
+      'galat number', 'not me', 'not my child', 'wrong person',
+      'चूकीचा नंबर', 'गलत नंबर', 'माझा नंबर नाही', 'मेरा नंबर नहीं'
+    ].some((k) => lowerText === k || lowerText.includes(k));
+
+    if (isStopWord || isWrongNumber) {
       session.optedOut = true;
       session.optedOutAt = new Date().toISOString();
       session.state = 'OPTED_OUT';
+      session.optOutReason = isWrongNumber ? 'WRONG_NUMBER' : 'STOP';
       return {
         updatedSession: session,
         response: {
           recipientPhoneMasked: maskedPhone,
           language: session.preferredLanguage,
           textMessage: this.getOptedOutMessage(session.preferredLanguage),
+          isDispatched: false,
           nextExpectedAction: 'OPTED_OUT',
         },
       };
     }
 
-    // 0B. Check Mandatory Affirmative Consent
+    // 4. CONSENT MUST BE STATE-SPECIFIC (ONLY HANDLED WHEN IN CONSENT_PENDING)
     if (session.consentProvided === false) {
-      const affirmativeRegex = /\b(yes|agree|haan|ha|accept|ho|hoy|1)\b/i;
-      const devanagariConsent = ['हाँ', 'मंजूर', 'होय', 'स्वीकार', 'हो', 'சரி', 'అవును', 'হ্যাঁ'];
-      const affirmativeConsent =
-        affirmativeRegex.test(lowerText) ||
-        devanagariConsent.some((k) => lowerText.includes(k));
+      session.state = 'CONSENT_PENDING';
 
-      if (!affirmativeConsent) {
-        session.state = 'CONSENT_PENDING';
+      // If media is uploaded before granting consent, reject with consent prompt
+      if (message.type === 'image' || (message.type === 'audio' && !processedText)) {
         return {
           updatedSession: session,
           response: {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: this.getConsentRequestPrompt(session.preferredLanguage),
+            isDispatched: false,
             nextExpectedAction: 'AWAIT_CONSENT',
           },
         };
       }
 
+      // Negative / dissent expressions checked FIRST (prevents accidental affirmative match)
+      const negativeRegex = /\b(no|not|not yes|do not|don't|disagree|refuse|reject|nahi|na|nako|galat)\b/i;
+      const devanagariNegative = ['नाही', 'मंजूर नाही', 'नको', 'अस्वीकार', 'गलत', 'नहीं', 'मंजूर नहीं', 'इல்லை', 'వద్దు'];
+      const isNegative =
+        negativeRegex.test(lowerText) ||
+        devanagariNegative.some((k) => lowerText.includes(k));
+
+      if (isNegative) {
+        session.consentProvided = false;
+        session.state = 'CONSENT_PENDING';
+        return {
+          updatedSession: session,
+          response: {
+            recipientPhoneMasked: maskedPhone,
+            language: session.preferredLanguage,
+            textMessage: this.getConsentDeclinedMessage(session.preferredLanguage),
+            isDispatched: false,
+            nextExpectedAction: 'AWAIT_CONSENT',
+          },
+        };
+      }
+
+      // Explicit affirmative consent check
+      const affirmativeRegex = /\b(yes|agree|accept|haan|hoy)\b/i;
+      const devanagariConsent = ['हाँ', 'मंजूर', 'होय', 'स्वीकार', 'சரி', 'అవును', 'হ্যাঁ'];
+      const isExplicitOne = lowerText === '1';
+      const isAffirmative =
+        (affirmativeRegex.test(lowerText) || isExplicitOne || devanagariConsent.some((k) => lowerText.includes(k))) &&
+        !isNegative;
+
+      if (!isAffirmative) {
+        // Ambiguous text or question while consent is pending -> re-prompt
+        return {
+          updatedSession: session,
+          response: {
+            recipientPhoneMasked: maskedPhone,
+            language: session.preferredLanguage,
+            textMessage: this.getConsentRequestPrompt(session.preferredLanguage),
+            isDispatched: false,
+            nextExpectedAction: 'AWAIT_CONSENT',
+          },
+        };
+      }
+
+      // Explicit affirmative consent recorded
       session.consentProvided = true;
       session.consentRecordedAt = new Date().toISOString();
       session.contactPermission = true;
-      if (session.state === 'CONSENT_PENDING') {
-        session.state = 'LANGUAGE_SELECTION';
-      }
+      session.state = 'LANGUAGE_SELECTION';
+      return {
+        updatedSession: session,
+        response: {
+          recipientPhoneMasked: maskedPhone,
+          language: session.preferredLanguage,
+          textMessage: `✅ संमती नोंदवली गेली आहे / Consent recorded.\n\nकृपया भाषा निवडा / Please select language:\n1. मराठी (Marathi)\n2. हिंदी (Hindi)\n3. English`,
+          isDispatched: false,
+          nextExpectedAction: 'AWAIT_LANGUAGE',
+        },
+      };
     }
 
-    // 0C. Check Sibling / Multi-Child Disambiguation
+    // 5. Check Sibling / Multi-Child Disambiguation
     if (
       session.associatedChildIds &&
       session.associatedChildIds.length > 1 &&
       !session.selectedChildId
     ) {
+      session.state = 'SIBLING_SELECTION';
       const matchIndex = session.associatedChildIds.findIndex(
         (cid, idx) => lowerText === String(idx + 1) || lowerText.includes(cid.toLowerCase())
       );
@@ -132,11 +221,11 @@ export class BeneficiaryStateMachine {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: prompt,
+            isDispatched: false,
             nextExpectedAction: 'AWAIT_PHOTO',
           },
         };
       } else {
-        session.state = 'SIBLING_SELECTION';
         return {
           updatedSession: session,
           response: {
@@ -146,13 +235,14 @@ export class BeneficiaryStateMachine {
               session.preferredLanguage,
               session.associatedChildIds
             ),
+            isDispatched: false,
             nextExpectedAction: 'AWAIT_CHILD_SELECTION',
           },
         };
       }
     }
 
-    // 2. Handle Text or Transcribed Voice
+    // 6. Handle Text or Transcribed Voice
     if (message.type === 'text' || message.type === 'audio') {
       const intentResult = await this.gateway.classifyIntent({
         messageText: processedText,
@@ -166,32 +256,35 @@ export class BeneficiaryStateMachine {
 
       // A. State: LANGUAGE_SELECTION
       if (session.state === 'LANGUAGE_SELECTION') {
-        if (intentResult.primaryIntent === 'LANGUAGE_SELECTION') {
-          session.preferredLanguage = intentResult.detectedLanguage;
-          session.state = 'AWAITING_DOCUMENT';
-
-          const prompt = this.getDocumentRequestPrompt(session.preferredLanguage, session.targetDocType, session.childIdMasked);
-          return {
-            updatedSession: session,
-            response: {
-              recipientPhoneMasked: maskedPhone,
-              language: session.preferredLanguage,
-              textMessage: prompt,
-              nextExpectedAction: 'AWAIT_PHOTO',
-            },
-          };
+        let selectedLang: SupportedLanguage = session.preferredLanguage;
+        if (lowerText === '1' || lowerText.includes('मराठी') || lowerText.includes('marathi')) {
+          selectedLang = 'mr';
+        } else if (lowerText === '2' || lowerText.includes('हिंदी') || lowerText.includes('hindi')) {
+          selectedLang = 'hi';
+        } else if (lowerText === '3' || lowerText.includes('english')) {
+          selectedLang = 'en';
+        } else if (intentResult.primaryIntent === 'LANGUAGE_SELECTION') {
+          selectedLang = intentResult.detectedLanguage;
+        } else {
+          selectedLang = intentResult.detectedLanguage;
         }
 
-        // Beneficiary replied in text without explicit language selection -> infer language and proceed
-        session.preferredLanguage = intentResult.detectedLanguage;
+        session.preferredLanguage = selectedLang;
+        session.languageSelectionConfirmed = true;
         session.state = 'AWAITING_DOCUMENT';
-        const prompt = this.getDocumentRequestPrompt(session.preferredLanguage, session.targetDocType, session.childIdMasked);
+
+        const prompt = this.getDocumentRequestPrompt(
+          session.preferredLanguage,
+          session.targetDocType,
+          session.selectedChildId || session.childIdMasked
+        );
         return {
           updatedSession: session,
           response: {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: prompt,
+            isDispatched: false,
             nextExpectedAction: 'AWAIT_PHOTO',
           },
         };
@@ -203,11 +296,13 @@ export class BeneficiaryStateMachine {
         session.isEscalated = true;
         session.escalationReason = 'BENEFICIARY_REQUESTED_HUMAN_HELP';
         session.cscHandoffNotes = `Beneficiary asked for coordinator assistance: "${PrivacyFilter.scrubTextForInference(processedText)}"`;
+        session.durableTaskCreationPending = true; // Signals that persistent worker must insert into csc_caseworker_tasks
         session.humanHandoff = {
           isEscalated: true,
           escalatedAt: new Date().toISOString(),
           reason: 'BENEFICIARY_REQUESTED_HUMAN_HELP',
           caseworkerTicketId: `CSC-TKT-${Date.now().toString(36).toUpperCase()}`,
+          durableTaskCreated: false,
         };
 
         const reply = this.getEscalationResponse(session.preferredLanguage);
@@ -217,6 +312,7 @@ export class BeneficiaryStateMachine {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: reply,
+            isDispatched: false,
             nextExpectedAction: 'CSC_CONTACT',
           },
         };
@@ -232,6 +328,7 @@ export class BeneficiaryStateMachine {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: acknowledgment,
+            isDispatched: false,
             nextExpectedAction: session.state === 'REPLACEMENT_REQUESTED' ? 'AWAIT_REPLACEMENT' : 'AWAIT_PHOTO',
           },
         };
@@ -245,12 +342,13 @@ export class BeneficiaryStateMachine {
           recipientPhoneMasked: maskedPhone,
           language: session.preferredLanguage,
           textMessage: helpMsg,
+          isDispatched: false,
           nextExpectedAction: session.state === 'REPLACEMENT_REQUESTED' ? 'AWAIT_REPLACEMENT' : 'AWAIT_PHOTO',
         },
       };
     }
 
-    // 3. Handle Media (Photo Upload)
+    // 7. Handle Media (Photo Upload)
     if (message.type === 'image' && message.mediaBuffer) {
       session.state = 'DOCUMENT_EVALUATING';
 
@@ -261,6 +359,35 @@ export class BeneficiaryStateMachine {
         preferredLanguage: session.preferredLanguage,
       });
 
+      // HONEST FALLBACK: When model is unassessed or unavailable, do NOT guess or penalize retries
+      if (
+        assessment.modelRecommendation === 'NOT_ASSESSED' ||
+        assessment.assessmentStatus === 'NOT_ASSESSED'
+      ) {
+        session.state = 'COMPLETED';
+        session.qualityAssessmentPending = true;
+        session.receivedDocuments = session.receivedDocuments || {};
+        session.receivedDocuments[session.targetDocType] = {
+          status: 'UPLOADED',
+          uploadedAt: new Date().toISOString(),
+          mimeType: (message.mimeType as any) || 'image/jpeg',
+          fileUri: `tigris://childcare-docs/${session.submissionId}/${session.targetDocType}.jpg`,
+          qualityAssessmentPending: true,
+        };
+
+        const manualMsg = this.getManualReviewPendingMessage(session.preferredLanguage, session.targetDocType);
+        return {
+          updatedSession: session,
+          response: {
+            recipientPhoneMasked: maskedPhone,
+            language: session.preferredLanguage,
+            textMessage: manualMsg,
+            isDispatched: false,
+            nextExpectedAction: 'FINISHED',
+          },
+        };
+      }
+
       // Application Rule: Evaluate model classification against quality policy
       const isAcceptable =
         assessment.modelRecommendation === 'ACCEPTABLE' &&
@@ -270,12 +397,14 @@ export class BeneficiaryStateMachine {
       if (isAcceptable) {
         // Document Accepted -> Mark UPLOADED (Verification requires separate human reviewer)
         session.state = 'COMPLETED';
+        session.qualityAssessmentPending = false;
         session.receivedDocuments = session.receivedDocuments || {};
         session.receivedDocuments[session.targetDocType] = {
           status: 'UPLOADED',
           uploadedAt: new Date().toISOString(),
           mimeType: (message.mimeType as any) || 'image/jpeg',
           fileUri: `tigris://childcare-docs/${session.submissionId}/${session.targetDocType}.jpg`,
+          qualityAssessmentPending: false,
         };
         const successMsg = this.getUploadSuccessMessage(session.preferredLanguage, session.targetDocType);
         return {
@@ -284,6 +413,7 @@ export class BeneficiaryStateMachine {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: successMsg,
+            isDispatched: false,
             nextExpectedAction: 'FINISHED',
           },
         };
@@ -308,11 +438,13 @@ export class BeneficiaryStateMachine {
         session.isEscalated = true;
         session.escalationReason = `EXCEEDED_MAX_RETRIES (${session.retryCount}/${session.maxRetries})`;
         session.cscHandoffNotes = `Caregiver submitted ${session.retryCount} unreadable photos for ${session.targetDocType}. Quality flags: ${JSON.stringify(assessment.qualityFlags)}. Assigned to Field CSC for home visit.`;
+        session.durableTaskCreationPending = true;
         session.humanHandoff = {
           isEscalated: true,
           escalatedAt: new Date().toISOString(),
           reason: `EXCEEDED_MAX_RETRIES (${session.retryCount}/${session.maxRetries})`,
           caseworkerTicketId: `CSC-TKT-${Date.now().toString(36).toUpperCase()}`,
+          durableTaskCreated: false,
         };
 
         const escalationMsg = this.getRetryExceededEscalationMessage(session.preferredLanguage, session.targetDocType);
@@ -322,6 +454,7 @@ export class BeneficiaryStateMachine {
             recipientPhoneMasked: maskedPhone,
             language: session.preferredLanguage,
             textMessage: escalationMsg,
+            isDispatched: false,
             nextExpectedAction: 'CSC_CONTACT',
           },
         };
@@ -343,6 +476,7 @@ export class BeneficiaryStateMachine {
           recipientPhoneMasked: maskedPhone,
           language: session.preferredLanguage,
           textMessage: replacementPrompt,
+          isDispatched: false,
           nextExpectedAction: 'AWAIT_REPLACEMENT',
         },
       };
@@ -364,6 +498,7 @@ export class BeneficiaryStateMachine {
         recipientPhoneMasked: maskedPhone,
         language: session.preferredLanguage,
         textMessage: 'Please send a text message or photo of your requested document.',
+        isDispatched: false,
         nextExpectedAction: 'AWAIT_PHOTO',
       },
     };
@@ -435,6 +570,28 @@ export class BeneficiaryStateMachine {
     }
   }
 
+  private getManualReviewPendingMessage(lang: SupportedLanguage, docType: string): string {
+    switch (lang) {
+      case 'mr':
+        return `✅ तुमचे कागदपत्र प्राप्त झाले आहे. स्वयंचलित तपासणी अनुपलब्ध असल्याने आमचे को-ऑर्डिनेटर व्यक्तिशः याची पडताळणी करतील.`;
+      case 'hi':
+        return `✅ आपका दस्तावेज़ प्राप्त हो गया है। स्वचालित जांच अनुपलब्ध होने के कारण हमारे को-ऑर्डिनेटर इसकी समीक्षा करेंगे।`;
+      default:
+        return `✅ Your document has been received. Automated quality check is currently unavailable; a caseworker will review it manually.`;
+    }
+  }
+
+  private getVoiceUnsupportedMessage(lang: SupportedLanguage): string {
+    switch (lang) {
+      case 'mr':
+        return `व्हॉईस मेसेज ऐकणे सध्या शक्य नाही. कृपया तुमचा संदेश मजकूर (टेक्स्ट) स्वरूपात पाठवा किंवा समन्वयक संपर्कासाठी 'मदत' टाईप करा.`;
+      case 'hi':
+        return `वॉयस संदेश सुनना अभी संभव नहीं है। कृपया अपना संदेश लिखकर (टेक्स्ट में) भेजें या सहायता के लिए 'मदद' लिखें।`;
+      default:
+        return `Voice messages cannot be transcribed automatically at this time. Please send a typed message or reply 'help' to connect with a coordinator.`;
+    }
+  }
+
   private getRetryExceededEscalationMessage(lang: SupportedLanguage, docType: string): string {
     switch (lang) {
       case 'mr':
@@ -487,6 +644,17 @@ export class BeneficiaryStateMachine {
         return `नमस्ते। बच्चे के पोषण सहायता के लिए दस्तावेज़ प्राप्त करने हेतु आपकी सहमति आवश्यक है। आगे बढ़ने के लिए कृपया 'हाँ' या '1' भेजें।`;
       default:
         return `Hello. Alliance India requires your explicit consent to collect required childcare sponsorship documents via WhatsApp. Reply 'YES' or '1' to confirm.`;
+    }
+  }
+
+  private getConsentDeclinedMessage(lang: SupportedLanguage): string {
+    switch (lang) {
+      case 'mr':
+        return `तुम्ही संमती नाकारली आहे. व्हॉट्सॲपद्वारे कोणतीही कागदपत्रे गोळा केली जाणार नाहीत. आमचे सीएससी कार्यकर्ते तुमच्याशी प्रत्यक्ष संपर्क साधतील.`;
+      case 'hi':
+        return `आपने सहमति अस्वीकार कर दी है। व्हाट्सएप के माध्यम से कोई दस्तावेज़ नहीं लिए जाएंगे। हमारे सीएससी कार्यकर्ता आपसे सीधे संपर्क करेंगे।`;
+      default:
+        return `You have declined consent. No documents will be requested or collected via WhatsApp. Our local CSC caseworker will assist you directly in person.`;
     }
   }
 

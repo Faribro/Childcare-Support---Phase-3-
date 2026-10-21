@@ -4,43 +4,71 @@ import { PrivacyFilter } from '../privacy-filter';
 import { VERIFIED_MODEL_CATALOG } from '../model-catalog';
 
 describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
-  let gateway: AIMultimodalGateway;
+  let honestGateway: AIMultimodalGateway;
+  let syntheticGateway: AIMultimodalGateway;
 
   beforeEach(() => {
-    // Zero live keys by default to test bounded local and failover behavior
-    gateway = new AIMultimodalGateway({
+    // Default Honest Gateway: Zero keys, syntheticTestMode false (production-like fallback)
+    honestGateway = new AIMultimodalGateway({
       openRouterApiKey: undefined,
       nvidiaApiKey: undefined,
       allowPaidFallback: false,
+      syntheticTestMode: false,
+      maxRetries: 2,
+    });
+
+    // Synthetic Gateway: Explicit opt-in for testing fixture evaluation
+    syntheticGateway = new AIMultimodalGateway({
+      openRouterApiKey: undefined,
+      nvidiaApiKey: undefined,
+      allowPaidFallback: false,
+      syntheticTestMode: true,
       maxRetries: 2,
     });
   });
 
   describe('1. Configuration & Secret Names Verification', () => {
     it('confirms canonical secret names OPENROUTER_API_KEY and NVIDIA_API_KEY', () => {
-      const summary = gateway.getConfigSummary();
+      const summary = honestGateway.getConfigSummary();
       expect(summary.allowPaidFallback).toBe(false);
       expect(summary.dataCollectionOptOut).toBe(true);
       expect(summary.defaultProvider).toBe('OPENROUTER');
+      expect(summary.syntheticTestMode).toBe(false);
     });
 
-    it('verifies model catalog contains verified free tier models and zero speculative IDs', () => {
-      const freeModels = Object.values(VERIFIED_MODEL_CATALOG).filter((m) => m.isFreeTier);
-      expect(freeModels.length).toBeGreaterThanOrEqual(4);
+    it('verifies model catalog contains verified endpoints, hosting types, and reality notes', () => {
+      const catalogEntries = Object.values(VERIFIED_MODEL_CATALOG);
+      expect(catalogEntries.length).toBeGreaterThanOrEqual(6);
 
+      // Verify OpenRouter text & vision models
       const openRouterVision = VERIFIED_MODEL_CATALOG['meta-llama/llama-3.2-11b-vision-instruct:free'];
       expect(openRouterVision).toBeDefined();
+      expect(openRouterVision.hostingType).toBe('HOSTED_CLOUD_API');
+      expect(openRouterVision.accountEntitlement).toBe('FREE_COMMUNITY');
       expect(openRouterVision.modality).toContain('VISION');
-      expect(openRouterVision.contextWindowTokens).toBeGreaterThanOrEqual(128000);
 
       const openRouterText = VERIFIED_MODEL_CATALOG['meta-llama/llama-3.3-70b-instruct:free'];
       expect(openRouterText).toBeDefined();
+      expect(openRouterText.hostingType).toBe('HOSTED_CLOUD_API');
+      expect(openRouterText.accountEntitlement).toBe('FREE_COMMUNITY');
       expect(openRouterText.modality).toContain('TEXT');
+    });
+
+    it('strictly documents that Parakeet is English-only and Canary-1B does NOT support Indian languages', () => {
+      const parakeet = VERIFIED_MODEL_CATALOG['nvidia/parakeet-ctc-1.1b-asr'];
+      expect(parakeet).toBeDefined();
+      expect(parakeet.supportedLanguages).toEqual(['en']); // Strictly English ONLY
+
+      const canary = VERIFIED_MODEL_CATALOG['nvidia/canary-1b'];
+      expect(canary).toBeDefined();
+      expect(canary.supportedLanguages).toEqual(['en', 'es', 'de', 'fr']);
+      expect(canary.supportedLanguages).not.toContain('hi');
+      expect(canary.supportedLanguages).not.toContain('mr');
     });
   });
 
-  describe('2. Privacy Gate & Pre-Inference PII Scrubbing', () => {
-    it('scrubs 12-digit Aadhaar numbers and preserves only structural token', () => {
+  describe('2. Privacy Gate & Serialized Request Validation', () => {
+    it('scrubs 12-digit Aadhaar numbers and preserves only structural token in text', () => {
       const rawText = 'My Aadhaar number is 5482 1928 3841, please check enrollment.';
       const scrubbed = PrivacyFilter.scrubTextForInference(rawText);
 
@@ -67,14 +95,22 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
       expect(hash).not.toContain('9876543210');
     });
 
-    it('enforces data_collection: deny parameter on OpenRouter payloads', () => {
+    it('implements OpenRouter provider.data_collection="deny" request parameter and verifies serialized JSON', () => {
       const basePayload = {
-        model: 'nvidia/nemotron-3.5-lightning:free',
-        messages: [{ role: 'user', content: 'test' }],
+        model: 'meta-llama/llama-3.3-70b-instruct:free',
+        messages: [{ role: 'user', content: 'test message' }],
       };
       const decorated = PrivacyFilter.decorateOpenRouterPayload(basePayload);
 
-      expect(decorated.data_collection).toBe('deny');
+      // Verify in-memory structure
+      expect(decorated.provider).toBeDefined();
+      expect(decorated.provider.data_collection).toBe('deny');
+
+      // Verify exact serialized request JSON
+      const serialized = JSON.stringify(decorated);
+      const parsed = JSON.parse(serialized);
+      expect(parsed.provider).toEqual({ data_collection: 'deny' });
+      expect(parsed.provider.data_collection).toBe('deny');
     });
 
     it('validates provider compliance and blocks unapproved external providers', () => {
@@ -92,7 +128,7 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
 
   describe('3. Multilingual Text & Intent Classification Benchmarks', () => {
     it('classifies Marathi language selection with high confidence', async () => {
-      const res = await gateway.classifyIntent({
+      const res = await honestGateway.classifyIntent({
         messageText: 'मला मराठी भाषेत माहिती हवी आहे',
         context: { activeRequestedDoc: 'passbookPhoto' },
       });
@@ -103,7 +139,7 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
     });
 
     it('classifies Hindi delay explanation accurately', async () => {
-      const res = await gateway.classifyIntent({
+      const res = await honestGateway.classifyIntent({
         messageText: 'आज बैंक बंद है, मैं कल जाकर पासबुक की फोटो भेज दूंगा',
         context: { currentLanguage: 'hi', activeRequestedDoc: 'passbookPhoto' },
       });
@@ -114,14 +150,14 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
     });
 
     it('identifies human coordinator escalation request across Marathi and Hindi', async () => {
-      const mrRes = await gateway.classifyIntent({
+      const mrRes = await honestGateway.classifyIntent({
         messageText: 'मला को-ऑर्डिनेटरशी प्रत्यक्ष बोलायचे आहे, फॉर्म समजत नाही मदत करा',
         context: { currentLanguage: 'mr' },
       });
       expect(mrRes.primaryIntent).toBe('HUMAN_CSC_ESCALATION');
       expect(mrRes.sentiment).toBe('DISTRESSED');
 
-      const hiRes = await gateway.classifyIntent({
+      const hiRes = await honestGateway.classifyIntent({
         messageText: 'कृपया मुझे किसी कार्यकर्ता से बात करवाइए, मदद चाहिए',
         context: { currentLanguage: 'hi' },
       });
@@ -129,11 +165,65 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
     });
   });
 
-  describe('4. Document Vision & Quality Assessment Engine', () => {
-    it('approves clear acceptable passbook photo with high quality score', async () => {
-      // Simulate clean image buffer
+  describe('4. Honest Fallbacks & Quality Assessment', () => {
+    it('returns honest NOT_ASSESSED when credentials are absent and does not invent quality scores', async () => {
+      const anyImageBuffer = Buffer.from('RAW_UNEVALUATED_IMAGE_DATA');
+      const assessment = await honestGateway.assessDocumentImage({
+        imageBuffer: anyImageBuffer,
+        mimeType: 'image/jpeg',
+        targetDocType: 'passbookPhoto',
+        preferredLanguage: 'mr',
+      });
+
+      expect(assessment.modelRecommendation).toBe('NOT_ASSESSED');
+      expect(assessment.assessmentStatus).toBe('NOT_ASSESSED');
+      expect(assessment.legibility).toBe('NOT_ASSESSED');
+      expect(assessment.overallQualityScore).toBe(0);
+      expect(assessment.specificGuidance.mr).toContain('स्वयंचलित गुणवत्ता तपासणी सध्या अनुपलब्ध आहे');
+    });
+
+    it('returns UNSUPPORTED_LANGUAGE when speech transcription is attempted for Indian languages on Canary/Parakeet', async () => {
+      const mockAudio = Buffer.from('RIFF_OPUS_VOICE_NOTE_SAMPLE');
+      const result = await honestGateway.transcribeAudio({
+        audioBuffer: mockAudio,
+        mimeType: 'audio/ogg; codecs=opus',
+        languageHint: 'mr',
+      });
+
+      expect(result.status).toBe('UNSUPPORTED_LANGUAGE');
+      expect(result.isSupportedLanguage).toBe(false);
+      expect(result.transcribedText).toBe('');
+      expect(result.error).toContain('not supported by available ASR endpoints');
+    });
+
+    it('returns TRANSCRIPTION_UNAVAILABLE for English speech when provider credentials are not configured', async () => {
+      const mockAudio = Buffer.from('RIFF_OPUS_VOICE_NOTE_SAMPLE');
+      const result = await honestGateway.transcribeAudio({
+        audioBuffer: mockAudio,
+        mimeType: 'audio/ogg; codecs=opus',
+        languageHint: 'en',
+      });
+
+      expect(result.status).toBe('TRANSCRIPTION_UNAVAILABLE');
+      expect(result.isSupportedLanguage).toBe(true);
+      expect(result.transcribedText).toBe('');
+      expect(result.error).toContain('no active provider credentials configured');
+    });
+
+    it('returns SYNTHESIS_UNAVAILABLE for speech synthesis when no provider credentials exist', async () => {
+      const result = await honestGateway.synthesizeSpeech({
+        textToSpeak: 'Hello caregiver',
+        language: 'en',
+      });
+
+      expect(result.status).toBe('SYNTHESIS_UNAVAILABLE');
+      expect(result.isPlayable).toBe(false);
+      expect(result.audioBuffer).toBeUndefined();
+    });
+
+    it('evaluates synthetic test markers when explicitly configured in synthetic test mode', async () => {
       const cleanPassbookBuffer = Buffer.from('VALID_CLEAR_PASSBOOK_JPEG_HEADER_0xFF_0xD8_0xFF_CLEAN_TEXT');
-      const assessment = await gateway.assessDocumentImage({
+      const assessment = await syntheticGateway.assessDocumentImage({
         imageBuffer: cleanPassbookBuffer,
         mimeType: 'image/jpeg',
         targetDocType: 'passbookPhoto',
@@ -143,81 +233,7 @@ describe('AI Multimodal Gateway & Privacy Gate Suite', () => {
       expect(assessment.detectedDocumentType).toBe('passbookPhoto');
       expect(assessment.isTargetMatch).toBe(true);
       expect(assessment.overallQualityScore).toBeGreaterThanOrEqual(70);
-      expect(assessment.legibility).toBe('HIGH');
       expect(assessment.modelRecommendation).toBe('ACCEPTABLE');
-      expect(assessment.qualityFlags.isBlurry).toBe(false);
-      expect(assessment.qualityFlags.hasGlare).toBe(false);
-    });
-
-    it('detects blurry photo and returns specific Marathi replacement guidance', async () => {
-      const blurryBuffer = Buffer.from('blurry_sample_degraded_document_low_res');
-      const assessment = await gateway.assessDocumentImage({
-        imageBuffer: blurryBuffer,
-        mimeType: 'image/jpeg',
-        targetDocType: 'passbookPhoto',
-        preferredLanguage: 'mr',
-      });
-
-      expect(assessment.overallQualityScore).toBeLessThan(70);
-      expect(assessment.qualityFlags.isBlurry).toBe(true);
-      expect(assessment.modelRecommendation).toBe('NEEDS_REPLACEMENT');
-      expect(assessment.specificGuidance.mr).toMatch(/अस्पष्ट|धुरकट|चांगल्या प्रकाशात/);
-    });
-
-    it('detects camera flash glare and returns specific Hindi guidance', async () => {
-      const glareBuffer = Buffer.from('glare_sample_camera_flash_washout');
-      const assessment = await gateway.assessDocumentImage({
-        imageBuffer: glareBuffer,
-        mimeType: 'image/jpeg',
-        targetDocType: 'passbookPhoto',
-        preferredLanguage: 'hi',
-      });
-
-      expect(assessment.qualityFlags.hasGlare).toBe(true);
-      expect(assessment.modelRecommendation).toBe('NEEDS_REPLACEMENT');
-      expect(assessment.specificGuidance.hi).toMatch(/फ्लैश|चमक/);
-    });
-
-    it('flags document type mismatch when caregiver sends personal portrait instead of passbook', async () => {
-      const selfieBuffer = Buffer.from('selfie_sample_person_face_not_passbook');
-      const assessment = await gateway.assessDocumentImage({
-        imageBuffer: selfieBuffer,
-        mimeType: 'image/jpeg',
-        targetDocType: 'passbookPhoto',
-        preferredLanguage: 'en',
-      });
-
-      expect(assessment.detectedDocumentType).toBe('childPhoto');
-      expect(assessment.isTargetMatch).toBe(false);
-      expect(assessment.modelRecommendation).toBe('UNRECOGNIZED_DOCUMENT');
-      expect(assessment.specificGuidance.en).toContain('personal photo');
-    });
-  });
-
-  describe('5. Speech Transcription & Synthesis for Async Voice Notes', () => {
-    it('transcribes voice note audio into Marathi text with duration and confidence', async () => {
-      const mockAudio = Buffer.from('RIFF_OPUS_VOICE_NOTE_help_csc_voice');
-      const result = await gateway.transcribeAudio({
-        audioBuffer: mockAudio,
-        mimeType: 'audio/ogg; codecs=opus',
-        languageHint: 'mr',
-      });
-
-      expect(result.detectedLanguage).toBe('mr');
-      expect(result.confidence).toBeGreaterThan(0.8);
-      expect(result.transcribedText).toContain('अडचण');
-      expect(result.durationSeconds).toBeGreaterThan(0);
-    });
-
-    it('synthesizes accessible Marathi voice guidance audio', async () => {
-      const ttsResult = await gateway.synthesizeSpeech({
-        textToSpeak: 'कृपया तुमच्या बँक पासबुकचा स्पष्ट फोटो पाठवा',
-        language: 'mr',
-      });
-
-      expect(ttsResult.mimeType).toBe('audio/ogg');
-      expect(ttsResult.audioBuffer.length).toBeGreaterThan(0);
-      expect(ttsResult.durationSeconds).toBeGreaterThan(0);
     });
   });
 });

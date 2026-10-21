@@ -36,6 +36,7 @@ export interface ReceivedDocumentInfo {
   readonly mimeType?: string;
   readonly sha256Checksum?: string;
   readonly rejectionReason?: string;
+  readonly qualityAssessmentPending?: boolean;
 }
 
 export interface UnresolvedMessageItem {
@@ -59,6 +60,21 @@ export interface HumanHandoffRecord {
   escalatedAt?: string;
   reason?: string;
   caseworkerTicketId?: string;
+  durableTaskCreated?: boolean; // False until inserted into durable csc_caseworker_tasks table
+}
+
+export interface CscDurableTask {
+  readonly taskId: string;
+  readonly ticketId: string;
+  readonly beneficiaryPhoneHash: string;
+  readonly childIdMasked: string;
+  readonly submissionId: string;
+  readonly reason: string;
+  readonly notes: string;
+  readonly priority: 'NORMAL' | 'HIGH' | 'URGENT';
+  readonly status: 'PENDING_ASSIGNMENT' | 'ASSIGNED' | 'IN_PROGRESS' | 'RESOLVED';
+  readonly createdAt: string;
+  readonly assignedWorkerId?: string;
 }
 
 export interface BeneficiarySession {
@@ -74,6 +90,7 @@ export interface BeneficiarySession {
   contactPermission: boolean;
   optedOut: boolean;
   optedOutAt?: string;
+  optOutReason?: 'STOP' | 'WRONG_NUMBER' | 'USER_REQUEST';
 
   // Sibling / Multi-Child Disambiguation
   selectedChildId?: string;
@@ -88,6 +105,7 @@ export interface BeneficiarySession {
   readonly targetDocType: DocType;
   readonly requestedDocuments?: readonly DocType[];
   receivedDocuments?: Partial<Record<DocType, ReceivedDocumentInfo>>;
+  qualityAssessmentPending?: boolean;
 
   // Attempt Tracking & Safety Bounds
   retryCount: number;
@@ -110,6 +128,7 @@ export interface BeneficiarySession {
   escalationReason?: string;
   cscHandoffNotes?: string;
   humanHandoff?: HumanHandoffRecord;
+  durableTaskCreationPending?: boolean;
 }
 
 export interface InboundBeneficiaryMessage {
@@ -128,6 +147,7 @@ export interface OutboundBeneficiaryResponse {
   readonly textMessage: string;
   readonly isVoiceNote?: boolean;
   readonly audioBuffer?: Buffer;
+  readonly isDispatched: false; // Drafted message intent; live dispatch blocked by ALLOW_LIVE_WHATSAPP_SEND=false
   readonly nextExpectedAction:
     | 'AWAIT_CONSENT'
     | 'AWAIT_CHILD_SELECTION'
