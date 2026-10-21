@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:catalyst": "node scripts/package-catalyst-adapter.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
