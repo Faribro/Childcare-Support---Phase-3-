@@ -234,4 +234,125 @@ describe('Beneficiary Multimodal End-to-End Slice Suite', () => {
     expect(res.response.textMessage).not.toContain('XLSX');
     expect(res.response.nextExpectedAction).toBe('AWAIT_PHOTO');
   });
+
+  describe('Persistent Beneficiary State Safety Gates', () => {
+    it('enforces mandatory affirmative consent before allowing document intake', async () => {
+      const session = createInitialSession();
+      session.consentProvided = false;
+      session.state = 'CONSENT_PENDING';
+
+      // Non-affirmative / random query
+      const res1 = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_consent_01',
+        timestamp: '1729500900',
+        type: 'text',
+        textBody: 'What documents do you need?',
+      });
+
+      expect(res1.updatedSession.consentProvided).toBe(false);
+      expect(res1.updatedSession.state).toBe('CONSENT_PENDING');
+      expect(res1.response.nextExpectedAction).toBe('AWAIT_CONSENT');
+      expect(res1.response.textMessage).toMatch(/संमती आवश्यक|consent/i);
+
+      // Caregiver gives affirmative consent ("होय, संमती आहे")
+      const res2 = await stateMachine.processInbound(res1.updatedSession, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_consent_02',
+        timestamp: '1729500950',
+        type: 'text',
+        textBody: 'होय, संमती आहे',
+      });
+
+      expect(res2.updatedSession.consentProvided).toBe(true);
+      expect(res2.updatedSession.consentRecordedAt).toBeDefined();
+      expect(res2.updatedSession.contactPermission).toBe(true);
+    });
+
+    it('enforces immediate opt-out on STOP keywords and ceases automated prompts', async () => {
+      const session = createInitialSession();
+      session.state = 'AWAITING_DOCUMENT';
+
+      // Caregiver sends STOP
+      const res = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_stop_01',
+        timestamp: '1729501000',
+        type: 'text',
+        textBody: 'STOP',
+      });
+
+      expect(res.updatedSession.optedOut).toBe(true);
+      expect(res.updatedSession.optedOutAt).toBeDefined();
+      expect(res.updatedSession.state).toBe('OPTED_OUT');
+      expect(res.response.nextExpectedAction).toBe('OPTED_OUT');
+      expect(res.response.textMessage).toMatch(/थांबवले आहे|stopped/i);
+
+      // Subsequent message while opted-out remains halted
+      const res2 = await stateMachine.processInbound(res.updatedSession, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_stop_02',
+        timestamp: '1729501050',
+        type: 'text',
+        textBody: 'Are you there?',
+      });
+      expect(res2.updatedSession.optedOut).toBe(true);
+      expect(res2.response.nextExpectedAction).toBe('OPTED_OUT');
+    });
+
+    it('handles sibling / multi-child disambiguation without dropping context', async () => {
+      const session = createInitialSession();
+      // Caregiver has 2 registered children
+      (session as any).associatedChildIds = ['CH-***-001', 'CH-***-002'];
+      session.selectedChildId = undefined;
+      session.state = 'AWAITING_DOCUMENT';
+
+      // Arbitrary greeting -> Prompts for child selection
+      const res1 = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_sib_01',
+        timestamp: '1729501100',
+        type: 'text',
+        textBody: 'Hello',
+      });
+
+      expect(res1.updatedSession.state).toBe('SIBLING_SELECTION');
+      expect(res1.response.nextExpectedAction).toBe('AWAIT_CHILD_SELECTION');
+      expect(res1.response.textMessage).toContain('1. Child (CH-***-001)');
+      expect(res1.response.textMessage).toContain('2. Child (CH-***-002)');
+
+      // Caregiver selects child 2
+      const res2 = await stateMachine.processInbound(res1.updatedSession, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_sib_02',
+        timestamp: '1729501150',
+        type: 'text',
+        textBody: '2',
+      });
+
+      expect(res2.updatedSession.selectedChildId).toBe('CH-***-002');
+      expect(res2.updatedSession.state).toBe('AWAITING_DOCUMENT');
+      expect(res2.response.nextExpectedAction).toBe('AWAIT_PHOTO');
+    });
+
+    it('records received document metadata and human handoff records accurately', async () => {
+      const session = createInitialSession();
+      session.state = 'AWAITING_DOCUMENT';
+
+      const cleanPhoto = Buffer.from('VALID_CLEAR_PASSBOOK_JPEG_HEADER_0xFF_0xD8_0xFF_CLEAN_TEXT');
+      const res = await stateMachine.processInbound(session, {
+        fromPhone: TEST_PHONE,
+        messageId: 'msg_upload_audit_01',
+        timestamp: '1729501200',
+        type: 'image',
+        mediaBuffer: cleanPhoto,
+        mimeType: 'image/jpeg',
+      });
+
+      expect(res.updatedSession.state).toBe('COMPLETED');
+      expect(res.updatedSession.receivedDocuments).toBeDefined();
+      expect(res.updatedSession.receivedDocuments!['passbookPhoto']?.status).toBe('UPLOADED');
+      expect(res.updatedSession.receivedDocuments!['passbookPhoto']?.fileUri).toContain('tigris://');
+    });
+  });
 });

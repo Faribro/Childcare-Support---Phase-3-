@@ -82,10 +82,11 @@ export class BeneficiaryStateMachine {
 
     // 0B. Check Mandatory Affirmative Consent
     if (session.consentProvided === false) {
-      const affirmativeConsent = [
-        'yes', 'agree', 'haan', 'ha', 'accept', 'ho', 'hoy', '1',
-        'हाँ', 'मंजूर', 'होय', 'स्वीकार', 'हो', 'சரி', 'అవును', 'হ্যাঁ'
-      ].some((k) => lowerText === k || lowerText.includes(k));
+      const affirmativeRegex = /\b(yes|agree|haan|ha|accept|ho|hoy|1)\b/i;
+      const devanagariConsent = ['हाँ', 'मंजूर', 'होय', 'स्वीकार', 'हो', 'சரி', 'అవును', 'হ্যাঁ'];
+      const affirmativeConsent =
+        affirmativeRegex.test(lowerText) ||
+        devanagariConsent.some((k) => lowerText.includes(k));
 
       if (!affirmativeConsent) {
         session.state = 'CONSENT_PENDING';
