@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 import { BoundedOvernightController } from '@/controller/orchestrator';
 import { loadControllerConfig } from '@/controller/config';
@@ -11,6 +12,14 @@ import { WorktreeLockManager } from '@/controller/worktreeLock';
 import type { TaskDefinition } from '@/controller/types';
 
 describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', () => {
+  const currentBranch = (() => {
+    try {
+      return execSync('git branch --show-current', { stdio: 'pipe' }).toString().trim() || 'feat/cross-system-consistency';
+    } catch {
+      return 'feat/cross-system-consistency';
+    }
+  })();
+
   const testDir = path.join(process.cwd(), '.cache', 'controller_tests');
   const testStateFile = path.join(testDir, 'test_state.json');
   const testStopFile = path.join(testDir, 'STOP');
@@ -27,7 +36,7 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       title: 'Run local test suite inspection',
       actionType: 'TEST_EXECUTION',
       assignedWorktree: process.cwd(),
-      assignedBranch: 'feat/staging-destination-hardening',
+      assignedBranch: currentBranch,
       targetFiles: ['src/test/baseline.test.ts'],
       dependencies: [],
       requiresApproval: false,
@@ -44,7 +53,7 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       title: 'Dependent documentation sync',
       actionType: 'DOCUMENTATION',
       assignedWorktree: process.cwd(),
-      assignedBranch: 'feat/staging-destination-hardening',
+      assignedBranch: currentBranch,
       targetFiles: ['docs/INTEGRATION_BOARD.md'],
       dependencies: ['TASK-001'],
       requiresApproval: false,
@@ -61,7 +70,7 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       title: 'High-risk deployment task',
       actionType: 'INSPECTION',
       assignedWorktree: process.cwd(),
-      assignedBranch: 'feat/staging-destination-hardening',
+      assignedBranch: currentBranch,
       targetFiles: [],
       dependencies: [],
       requiresApproval: true, // Requires explicit sign-off
@@ -219,7 +228,7 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       const lock1 = await lockManager.acquireLock({
         worktreePath: worktree,
         workerId: 'worker-alpha-01',
-        expectedBranch: 'feat/staging-destination-hardening',
+        expectedBranch: currentBranch,
         leaseDurationMs: 60000,
         requireCleanState: false,
       });
@@ -229,7 +238,7 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       const lock2 = await lockManager.acquireLock({
         worktreePath: worktree,
         workerId: 'worker-beta-02',
-        expectedBranch: 'feat/staging-destination-hardening',
+        expectedBranch: currentBranch,
         leaseDurationMs: 60000,
         requireCleanState: false,
       });
@@ -244,7 +253,7 @@ describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', (
       const lock3 = await lockManager.acquireLock({
         worktreePath: worktree,
         workerId: 'worker-beta-02',
-        expectedBranch: 'feat/staging-destination-hardening',
+        expectedBranch: currentBranch,
         leaseDurationMs: 60000,
         requireCleanState: false,
       });

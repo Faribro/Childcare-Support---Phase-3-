@@ -1,21 +1,21 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getWhatsAppWebhookConfig = getWhatsAppWebhookConfig;
+const envConfig_1 = require("./envConfig");
 /**
  * Server-only configuration reader for Meta WhatsApp Cloud API Webhook.
  *
  * Values are sourced exclusively from server environment variables:
  * - WHATSAPP_WEBHOOK_ENABLED: 'true' enables the receiver, all other values disable it (fail-closed default).
- * - WHATSAPP_WEBHOOK_VERIFY_TOKEN: Shared secret used during the GET hub challenge handshake.
- * - META_APP_SECRET: Meta App Secret used to compute and verify HMAC-SHA256 signatures on POST requests.
+ * - verifyToken: META_WEBHOOK_VERIFY_TOKEN (with legacy alias WHATSAPP_WEBHOOK_VERIFY_TOKEN).
+ * - appSecret: META_APP_SECRET strictly for HMAC-SHA256 signature verification.
  */
 function getWhatsAppWebhookConfig() {
+    const env = (0, envConfig_1.getAppEnvConfig)();
     const isEnabled = process.env.WHATSAPP_WEBHOOK_ENABLED === 'true';
-    const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '';
-    const appSecret = process.env.META_APP_SECRET || '';
     return {
         isEnabled,
-        verifyToken,
-        appSecret,
+        verifyToken: env.metaWebhookVerifyToken || '',
+        appSecret: env.metaAppSecret || '',
     };
 }

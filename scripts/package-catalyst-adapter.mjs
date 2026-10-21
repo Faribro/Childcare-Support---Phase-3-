@@ -65,6 +65,7 @@ function transpileFile(srcRelativePath, destFileName, postProcess = null) {
 }
 
 // 3. Transpile shared security & parsing modules from PR #84
+transpileFile('envConfig.ts', 'envConfig.js');
 transpileFile('whatsappWebhookConfig.ts', 'whatsappWebhookConfig.js');
 transpileFile('whatsappWebhookVerifier.ts', 'whatsappWebhookVerifier.js');
 transpileFile('whatsappWebhookParser.ts', 'whatsappWebhookParser.js');
