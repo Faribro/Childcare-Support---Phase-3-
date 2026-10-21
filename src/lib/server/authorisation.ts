@@ -230,11 +230,21 @@ export function isSyntheticDemoModeAllowed(req: NextRequest): boolean {
   if (req.headers.get('x-test-unauthenticated') === 'true') {
     return false;
   }
-  return (
-    process.env.E2E_ALLOW_LOCAL_MOCK === 'true' &&
-    process.env.E2E_STAGING_ENABLED !== 'true' &&
-    process.env.SUPABASE_LIVE_TEST !== 'true'
-  );
+
+  // Hard production guard: Synthetic demo mode / local mock bypass is strictly forbidden in production
+  const isProductionOrLive =
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL_ENV === 'production' ||
+    process.env.APP_ENV === 'production' ||
+    process.env.NEXT_PUBLIC_APP_ENV === 'production' ||
+    process.env.E2E_STAGING_ENABLED === 'true' ||
+    process.env.SUPABASE_LIVE_TEST === 'true';
+
+  if (isProductionOrLive) {
+    return false;
+  }
+
+  return process.env.E2E_ALLOW_LOCAL_MOCK === 'true';
 }
 
 /**
