@@ -180,6 +180,18 @@ function escapeXml(str: string): string {
 }
 
 /**
+ * Neutralizes potential CSV/Formula Injection attacks (OWASP / CWE-1236).
+ * Prepends a single quote if untrusted cell text starts with '=', '+', '-', '@', '\t', or '\r'.
+ */
+export function sanitizeCellValue(val: string): string {
+  if (typeof val !== 'string') return '';
+  if (/^[=+\-@\t\r]/.test(val)) {
+    return `'${val}`;
+  }
+  return val;
+}
+
+/**
  * Builds standard column reference from zero-based index (0 -> A, 25 -> Z, 26 -> AA).
  */
 function getColumnRef(index: number): string {
@@ -290,7 +302,8 @@ export class LinelistExcelGenerator {
           const label = v.val.split('"')[3] || 'View Document';
           sheetXml += `      <c r="${cellRef}" s="3"><f>${escapeXml(v.val)}</f><v>${escapeXml(label)}</v></c>\n`;
         } else {
-          sheetXml += `      <c r="${cellRef}" s="2" t="inlineStr"><is><t>${escapeXml(v.val)}</t></is></c>\n`;
+          const sanitized = sanitizeCellValue(v.val);
+          sheetXml += `      <c r="${cellRef}" s="2" t="inlineStr"><is><t>${escapeXml(sanitized)}</t></is></c>\n`;
         }
       });
 
@@ -397,8 +410,16 @@ export class LinelistExcelGenerator {
       return { val: 'Pending Upload', isFormula: false };
     }
     const cleanUrl = driveUrl.trim();
+    // Validate Google Drive URL pattern (restricted access, authenticated leadership only)
+    if (
+      !cleanUrl.startsWith('https://drive.google.com/') &&
+      !cleanUrl.startsWith('https://docs.google.com/')
+    ) {
+      return { val: 'Invalid Link Pattern', isFormula: false };
+    }
+    const safeUrl = cleanUrl.replace(/"/g, '%22');
     return {
-      val: `HYPERLINK("${cleanUrl}", "${label}")`,
+      val: `HYPERLINK("${safeUrl}", "${label}")`,
       isFormula: true,
       isLink: true,
     };

@@ -1,5 +1,10 @@
 import crypto from 'crypto';
 import { CallerSecurityContext, SenderIdentity } from './types';
+import {
+  ILeadershipBindingRepository,
+  InMemoryLeadershipBindingRepository,
+  verifyLeadershipSender,
+} from './leadership-whatsapp-binding';
 
 export interface AuthorizedStaffEntry {
   readonly phoneNumber: string; // E.164 format e.g. "+919876543210"
@@ -50,13 +55,21 @@ export const DEFAULT_AUTHORIZED_STAFF_DIRECTORY: readonly AuthorizedStaffEntry[]
 ];
 
 export class SenderIdentityResolver {
+  private readonly repository?: ILeadershipBindingRepository;
   private readonly directory: Map<string, AuthorizedStaffEntry>;
 
-  constructor(customDirectory: readonly AuthorizedStaffEntry[] = DEFAULT_AUTHORIZED_STAFF_DIRECTORY) {
+  constructor(
+    customDirectoryOrRepo?: readonly AuthorizedStaffEntry[] | ILeadershipBindingRepository
+  ) {
     this.directory = new Map();
-    for (const entry of customDirectory) {
-      const normalized = this.normalizePhoneNumber(entry.phoneNumber);
-      this.directory.set(normalized, entry);
+    if (customDirectoryOrRepo && 'findByPhoneSync' in customDirectoryOrRepo) {
+      this.repository = customDirectoryOrRepo;
+    } else {
+      const dir = (customDirectoryOrRepo as readonly AuthorizedStaffEntry[]) || DEFAULT_AUTHORIZED_STAFF_DIRECTORY;
+      for (const entry of dir) {
+        const normalized = this.normalizePhoneNumber(entry.phoneNumber);
+        this.directory.set(normalized, entry);
+      }
     }
   }
 
@@ -114,6 +127,10 @@ export class SenderIdentityResolver {
    * Rejects spoofing attempts where an unverified sender supplies an arbitrary leadership email.
    */
   public resolveSender(rawPhone: string, senderSuppliedEmailInText?: string): SenderIdentity {
+    if (this.repository) {
+      return verifyLeadershipSender(rawPhone, this.repository, senderSuppliedEmailInText);
+    }
+
     const normalized = this.normalizePhoneNumber(rawPhone);
     const masked = this.maskPhoneNumber(normalized);
     const hash = this.hashPhoneNumber(normalized);

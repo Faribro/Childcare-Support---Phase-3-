@@ -11,3 +11,4 @@ export * from './meta-whatsapp-client';
 export * from './export-contract-service';
 export * from './whatsapp-formatter';
 export * from './whatsapp-pipeline';
+export * from './reporting-email-dispatcher';

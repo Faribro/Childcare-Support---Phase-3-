@@ -10,9 +10,11 @@ export interface LeadershipWhatsAppBinding {
   readonly role: 'LEADERSHIP' | 'STATE_LEAD' | 'SUPERVISOR';
   readonly permittedStates: readonly string[]; // ['*'] for national, or ['Maharashtra']
   readonly isVerified: boolean;
+  readonly isActive: boolean; // Administrative active status (for instant revocation)
   readonly boundAt: string;
   readonly verifiedAt?: string;
   readonly lastActiveAt?: string;
+  readonly revokedAt?: string | null;
 }
 
 export interface ILeadershipBindingRepository {
@@ -36,6 +38,7 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     role: 'LEADERSHIP',
     permittedStates: ['*'],
     isVerified: true,
+    isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
     verifiedAt: '2026-10-01T00:00:00.000Z',
   },
@@ -48,6 +51,7 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     role: 'STATE_LEAD',
     permittedStates: ['Maharashtra'],
     isVerified: true,
+    isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
     verifiedAt: '2026-10-01T00:00:00.000Z',
   },
@@ -60,6 +64,7 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     role: 'STATE_LEAD',
     permittedStates: ['Karnataka'],
     isVerified: true,
+    isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
     verifiedAt: '2026-10-01T00:00:00.000Z',
   },
@@ -72,21 +77,77 @@ export const DEFAULT_LEADERSHIP_BINDINGS: readonly LeadershipWhatsAppBinding[] =
     role: 'SUPERVISOR',
     permittedStates: ['Maharashtra'],
     isVerified: true,
+    isActive: true,
     boundAt: '2026-10-01T00:00:00.000Z',
     verifiedAt: '2026-10-01T00:00:00.000Z',
   },
 ];
 
 /**
+ * Checks if runtime is in a production deployment environment.
+ */
+export function isProductionEnvironment(): boolean {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL_ENV === 'production'
+  );
+}
+
+/**
+ * Loads production bindings strictly from administrative environment variables or Supabase.
+ * Fails closed if missing, empty, or malformed.
+ */
+export function loadProductionBindingsFromEnv(): readonly LeadershipWhatsAppBinding[] {
+  const raw = process.env.LEADERSHIP_WHATSAPP_BINDINGS_JSON;
+  if (!raw || raw.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.map((item: any) => ({
+      bindingId: String(item.bindingId || ''),
+      phoneNumberE164: normalizeToE164(String(item.phoneNumberE164 || '')),
+      phoneNumberHash: crypto.createHash('sha256').update(normalizeToE164(String(item.phoneNumberE164 || ''))).digest('hex'),
+      email: String(item.email || '').trim().toLowerCase(),
+      fullName: String(item.fullName || ''),
+      role: item.role === 'STATE_LEAD' ? 'STATE_LEAD' : item.role === 'SUPERVISOR' ? 'SUPERVISOR' : 'LEADERSHIP',
+      permittedStates: Array.isArray(item.permittedStates) ? item.permittedStates : ['*'],
+      isVerified: Boolean(item.isVerified),
+      isActive: Boolean(item.isActive !== false),
+      boundAt: String(item.boundAt || new Date().toISOString()),
+      verifiedAt: item.verifiedAt ? String(item.verifiedAt) : undefined,
+      lastActiveAt: item.lastActiveAt ? String(item.lastActiveAt) : undefined,
+      revokedAt: item.revokedAt ? String(item.revokedAt) : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * In-memory / file-backed leadership binding repository.
- * Fails closed on unverified or missing bindings.
+ * In production: strictly refuses synthetic fixtures and fails closed unless administrative bindings exist.
  */
 export class InMemoryLeadershipBindingRepository implements ILeadershipBindingRepository {
   private readonly bindingsByPhone: Map<string, LeadershipWhatsAppBinding> = new Map();
   private readonly bindingsByEmail: Map<string, LeadershipWhatsAppBinding> = new Map();
 
-  constructor(initialBindings: readonly LeadershipWhatsAppBinding[] = DEFAULT_LEADERSHIP_BINDINGS) {
-    for (const b of initialBindings) {
+  constructor(customBindings?: readonly LeadershipWhatsAppBinding[]) {
+    let source: readonly LeadershipWhatsAppBinding[];
+
+    if (customBindings) {
+      source = customBindings;
+    } else if (isProductionEnvironment()) {
+      // In production: strictly fail-closed, never use synthetic defaults
+      source = loadProductionBindingsFromEnv();
+    } else {
+      source = DEFAULT_LEADERSHIP_BINDINGS;
+    }
+
+    for (const b of source) {
       this.bindingsByPhone.set(b.phoneNumberE164, b);
       this.bindingsByEmail.set(b.email.toLowerCase(), b);
     }
@@ -110,7 +171,7 @@ export class InMemoryLeadershipBindingRepository implements ILeadershipBindingRe
   }
 
   public async getAllVerified(): Promise<readonly LeadershipWhatsAppBinding[]> {
-    return Array.from(this.bindingsByPhone.values()).filter((b) => b.isVerified);
+    return Array.from(this.bindingsByPhone.values()).filter((b) => b.isVerified && b.isActive);
   }
 }
 
@@ -148,6 +209,16 @@ export function verifyLeadershipSender(
       rawSenderPhoneHash: phoneHash,
       denialReason:
         'UNVERIFIED_BINDING: This leadership phone binding is pending administrative verification. Access denied fail-closed.',
+    };
+  }
+
+  if (!binding.isActive) {
+    return {
+      authorized: false,
+      senderPhoneMasked: maskedPhone,
+      rawSenderPhoneHash: phoneHash,
+      denialReason:
+        'ACCOUNT_REVOKED: This leadership account has been deactivated or revoked by administrative authority. Access denied fail-closed.',
     };
   }
 

@@ -70,13 +70,24 @@ export class WhatsAppFormatter {
       ? 'Excel (.xlsx) with Google Drive Document Links'
       : (preview.format || 'CSV / PDF Dossier');
     const linksLine = preview.driveLinksCount ? `• *Document Links:* ~${preview.driveLinksCount} Drive hyperlinks\n` : '';
+    const dateFieldLabel = preview.dateField === 'visit_date' ? 'visit_date (Field Visit Date)' : 'submission_date (Central Sync Date)';
+    const scopeLabel = preview.stateFilter ? `State: ${preview.stateFilter}` : 'National (All Authorized States)';
+    const columnsSummary = preview.columns && preview.columns.length > 0
+      ? `• *Columns (${preview.columns.length}):* ${preview.columns.slice(0, 4).join(', ')}, ... (+${preview.columns.length - 4} columns)\n`
+      : '';
+    const hashShort = preview.immutableParametersHash ? `• *Contract Hash:* \`${preview.immutableParametersHash.substring(0, 12)}...\`\n` : '';
 
     return (
       `📄 *${isLinelist ? 'CHILDCARE LINELIST EXPORT PREVIEW' : 'SURVEILLANCE EXPORT PREVIEW'}*\n\n` +
       `• *Report:* ${preview.title}\n` +
+      `• *Scope:* ${scopeLabel}\n` +
+      `• *Calendar Year:* ${preview.year}\n` +
+      `• *Date Field:* ${dateFieldLabel}\n` +
       `• *Beneficiaries:* ${preview.uniqueBeneficiaries} children\n` +
       `• *Assessments:* ${preview.totalAssessments} records\n` +
       linksLine +
+      columnsSummary +
+      hashShort +
       `• *Destination:* Registered Email (${preview.recipientEmailMasked})\n` +
       `• *Format:* ${formatLabel}\n\n` +
       `⚠️ *Confirmation Required:*\n` +
@@ -94,15 +105,23 @@ export class WhatsAppFormatter {
     const reportDesc = isLinelist
       ? 'Excel (.xlsx) Linelist with Drive Document Links'
       : 'Surveillance Cohort Summary';
+    const artifactLine = job.artifact
+      ? `• *File:* \`${job.artifact.filename}\` (${(job.artifact.byteSize / 1024).toFixed(1)} KB, ${job.artifact.rowCount} rows)\n`
+      : '';
+    const hashLine = job.artifact
+      ? `• *File SHA-256:* \`${job.artifact.sha256.substring(0, 16)}...\`\n`
+      : '';
 
     return (
-      `✅ *Export Job Queued*\n\n` +
+      `✅ *Export Job ${job.status === 'SENT' ? 'Dispatched' : 'Queued'}*\n\n` +
       `• *Job ID:* \`${job.jobId}\`\n` +
       `• *Export Ref:* \`${job.exportId}\`\n` +
       `• *Artifact:* ${reportDesc}\n` +
+      artifactLine +
+      hashLine +
       `• *Recipient:* ${job.recipientEmailMasked}\n` +
       `• *Target:* ${job.deliveryTarget}\n` +
-      `• *Status:* Scheduled for background delivery via Central Bridge.\n\n` +
+      `• *Status:* ${job.status === 'SENT' ? 'Dispatched via Email Attachment' : 'Scheduled for background delivery via Central Bridge'}.\n\n` +
       `_No confidential beneficiary PII was exposed or sent over WhatsApp._`
     );
   }

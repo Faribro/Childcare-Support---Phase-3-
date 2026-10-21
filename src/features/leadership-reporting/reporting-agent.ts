@@ -24,6 +24,15 @@ import {
 import { WhatsAppFormatter } from './whatsapp-formatter';
 import { ExportContractService } from './export-contract-service';
 import {
+  LinelistExcelGenerator,
+  LinelistExportRow,
+  GeneratedExcelArtifact,
+} from './linelist-excel-generator';
+import {
+  IReportingEmailDispatcher,
+  MockReportingEmailDispatcher,
+} from './reporting-email-dispatcher';
+import {
   AssistantMessage,
   CallerSecurityContext,
   ClarificationPrompt,
@@ -59,13 +68,15 @@ export class LeadershipReportingAgent {
   private readonly classifier: IntentClassifierProvider;
   private readonly formatter: WhatsAppFormatter;
   private readonly exportService: ExportContractService;
+  private readonly emailDispatcher: IReportingEmailDispatcher;
 
   constructor(
     dataAdapterOrNutrition?: AuthorizedReportingDataAdapter | readonly SyntheticChildRecord[],
     classifierOrAssessments?: IntentClassifierProvider | readonly SyntheticAssessmentRecord[],
     classifierProvider?: IntentClassifierProvider,
     formatter: WhatsAppFormatter = new WhatsAppFormatter(),
-    exportService: ExportContractService = new ExportContractService()
+    exportService: ExportContractService = new ExportContractService(),
+    emailDispatcher: IReportingEmailDispatcher = new MockReportingEmailDispatcher()
   ) {
     if (Array.isArray(dataAdapterOrNutrition)) {
       // Backwards-compatible legacy signature: (nutritionRecords, assessmentRecords, classifier)
@@ -89,6 +100,7 @@ export class LeadershipReportingAgent {
 
     this.formatter = formatter;
     this.exportService = exportService;
+    this.emailDispatcher = emailDispatcher;
   }
 
   public createSession(
@@ -260,8 +272,9 @@ export class LeadershipReportingAgent {
         };
       }
 
+      const pendingExport = session.pendingExport;
       const jobResult = this.exportService.confirmExportDelivery(
-        session.pendingExport,
+        pendingExport,
         effectiveCaller,
         userQuery
       );
@@ -281,14 +294,73 @@ export class LeadershipReportingAgent {
         };
       }
 
-      const formattedJob = this.formatter.formatExportJobQueued(jobResult.job);
+      let job = jobResult.job;
+
+      // Stage 7 & 8: Real XLSX Generation & Email Attachment Delivery for Linelist Exports
+      if (pendingExport.reportType === 'LINELIST_EXPORT') {
+        const linelistGenerator = new LinelistExcelGenerator();
+        const { records } = this.dataAdapter.fetchAssessmentRecordsSync(effectiveCaller, {
+          stateFilter: pendingExport.stateFilter,
+        });
+
+        const rows: LinelistExportRow[] = records.map((r, idx) => ({
+          childId: r.childId,
+          childNameMasked: `Child ${r.childId.replace(/[^0-9]/g, '').slice(-4) || (idx + 1).toString().padStart(4, '0')}`,
+          state: r.state,
+          district: r.district,
+          ageMonths: 36,
+          gender: (idx % 2 === 0 ? 'M' : 'F'),
+          orphanStatus: r.orphanStatus || 'SINGLE_ORPHAN',
+          schoolType: r.schoolType || 'GOVERNMENT_SCHOOL',
+          visitDate: r.visitDate,
+          submissionDate: r.submissionDate,
+          verificationStatus: r.verificationStatus,
+          signatureDriveUrl: `https://drive.google.com/file/d/sig_${r.childId}/view`,
+          passbookDriveUrl: `https://drive.google.com/file/d/pb_${r.childId}/view`,
+          aadhaarDriveUrl: `https://drive.google.com/file/d/aadh_${r.childId}/view`,
+          childPhotoDriveUrl: `https://drive.google.com/file/d/photo_${r.childId}/view`,
+          feeReceiptDriveUrl: `https://drive.google.com/file/d/fee_${r.childId}/view`,
+          marksheetDriveUrl: `https://drive.google.com/file/d/mark_${r.childId}/view`,
+        }));
+
+        const artifact = linelistGenerator.generateWorkbook(rows, {
+          title: pendingExport.title,
+          year: pendingExport.year,
+          monthOrRange: pendingExport.monthRange || pendingExport.month,
+          dateBasis: pendingExport.dateBasis,
+          stateFilter: pendingExport.stateFilter,
+          generatedByMasked: pendingExport.recipientEmailMasked,
+        });
+
+        const emailResult = this.emailDispatcher.dispatchReportEmailSync({
+          recipientEmail: pendingExport.recipientEmailExact,
+          recipientUserId: effectiveCaller.userId,
+          subject: pendingExport.title,
+          bodyText: `Dear Leadership Team,\n\nPlease find attached the requested childcare linelist report (${artifact.filename}).\n\nTotal Records: ${artifact.rowCount}\nDocument Links: ${artifact.driveLinksCount}\nFile Size: ${(artifact.byteSize / 1024).toFixed(1)} KB\nSHA-256 Checksum: ${artifact.sha256}\n\nAlliance India Childcare Surveillance System`,
+          attachment: {
+            filename: artifact.filename,
+            contentType: artifact.mimeType,
+            content: artifact.buffer,
+            byteSize: artifact.byteSize,
+            sha256: artifact.sha256,
+          },
+        });
+
+        job = {
+          ...job,
+          status: emailResult.success ? 'SENT' : 'FAILED',
+          artifact,
+        };
+      }
+
+      const formattedJob = this.formatter.formatExportJobQueued(job);
       const response: AssistantMessage = {
         id: `msg_asst_${Date.now()}`,
         role: 'assistant',
         content: formattedJob,
         timestamp: now,
         intent: 'EXPORT_CONFIRM',
-        structuredData: { exportJob: jobResult.job },
+        structuredData: { exportJob: job },
         isSynthetic: true,
       };
 
@@ -348,17 +420,17 @@ export class LeadershipReportingAgent {
       const queryYear = parsedFilter?.year;
       const queryDateBasis = parsedFilter?.dateBasis;
 
+      // Linelist exports strictly require explicit year and date basis (no silent defaults)
       const hasResolvedYear =
-        queryYear !== undefined || (session.isConfirmedPolicy && session.confirmedYear !== undefined);
+        queryYear !== undefined || (session.confirmedYear !== undefined && session.confirmedYearExplicitlyClarified === true);
       const hasResolvedDateBasis =
-        queryDateBasis !== undefined || (session.isConfirmedPolicy && session.confirmedDateBasis !== undefined);
+        queryDateBasis !== undefined || (session.confirmedDateBasis !== undefined && session.confirmedDateBasisExplicitlyClarified === true);
 
       if (!hasResolvedYear || !hasResolvedDateBasis) {
         const promptText =
           `Before preparing the **${targetMonthRange}** childcare linelist export, please clarify:\n` +
           `1. **Calendar Year**: Which year would you like to export (e.g., 2026 or 2025)?\n` +
-          `2. **Date Accounting Basis**: Should we filter records by **Visit Date** (field assessment date) or **Submission Date** (central sync date)?\n\n` +
-          `*(Alternatively, reply 'use defaults' to proceed with Calendar Year 2026 on Visit-Date basis)*.`;
+          `2. **Date Accounting Basis**: Should we filter records by **Visit Date** (field assessment date) or **Submission Date** (central sync date)?`;
 
         const clarificationPrompt: ClarificationPrompt = {
           queryType: 'COHORT_SURVEILLANCE',
@@ -391,8 +463,11 @@ export class LeadershipReportingAgent {
       }
 
       // Year and Date Basis are resolved!
-      const year = queryYear ?? session.confirmedYear ?? 2026;
-      const dateBasis = queryDateBasis ?? session.confirmedDateBasis ?? 'VISIT_DATE';
+      const year = queryYear ?? session.confirmedYear;
+      const dateBasis = queryDateBasis ?? session.confirmedDateBasis;
+      if (!year || !dateBasis) {
+        throw new Error('UNSPECIFIED_PARAMETERS: Linelist export requires explicitly confirmed calendar year and dateBasis.');
+      }
 
       const preview = this.exportService.createLinelistExportPreview(
         session,
@@ -435,13 +510,18 @@ export class LeadershipReportingAgent {
 
     // 6. Clarification Flow: Responding to missing parameters
     if (session.pendingClarification && (classification.intent === 'CLARIFICATION_ANSWER' || classification.parsedFilter)) {
-      let resolvedYear = session.confirmedYear;
-      let resolvedDateBasis = session.confirmedDateBasis;
+      const pendingQuery = session.pendingClarification.pendingFilter;
+      const isLinelistClarification = Boolean(pendingQuery?.includeDriveLinks || pendingQuery?.monthRange);
+
+      let resolvedYear = session.confirmedYearExplicitlyClarified ? session.confirmedYear : undefined;
+      let resolvedDateBasis = session.confirmedDateBasisExplicitlyClarified ? session.confirmedDateBasis : undefined;
 
       const lower = userQuery.toLowerCase();
       if (/^(use defaults?|defaults?|standard)$/i.test(lower)) {
-        resolvedYear = 2026;
-        resolvedDateBasis = 'VISIT_DATE';
+        if (!isLinelistClarification) {
+          resolvedYear = 2026;
+          resolvedDateBasis = 'VISIT_DATE';
+        }
       } else {
         if (classification.parsedFilter?.year) {
           resolvedYear = classification.parsedFilter.year;
@@ -452,7 +532,6 @@ export class LeadershipReportingAgent {
       }
 
       if (resolvedYear && resolvedDateBasis) {
-        const pendingQuery = session.pendingClarification.pendingFilter;
 
         // Check if this clarification was for a linelist export request
         if (pendingQuery?.includeDriveLinks || pendingQuery?.monthRange) {
@@ -489,6 +568,8 @@ export class LeadershipReportingAgent {
             ...this.appendMessages(session, userQuery, response, activeState, now),
             confirmedYear: resolvedYear,
             confirmedDateBasis: resolvedDateBasis,
+            confirmedYearExplicitlyClarified: true,
+            confirmedDateBasisExplicitlyClarified: true,
             isConfirmedPolicy: true,
             pendingClarification: null,
             pendingExport: preview,

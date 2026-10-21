@@ -183,12 +183,18 @@ export interface ExportPreviewContract {
   readonly month: string;
   readonly monthRange?: string;
   readonly dateBasis: DateBasis;
+  readonly dateField: 'visit_date' | 'submission_date';
   readonly uniqueBeneficiaries: number;
   readonly totalAssessments: number;
+  readonly columns: readonly string[];
   readonly recipientUserId: string;
   readonly recipientEmailMasked: string;
+  readonly recipientEmailExact: string;
   readonly confirmationCode: string;
+  readonly immutableParametersHash: string;
   readonly expiresAt: string;
+  isConsumed?: boolean;
+  consumedAt?: string;
   readonly format?: 'XLSX' | 'CSV' | 'PDF';
   readonly driveLinksCount?: number;
 }
@@ -199,9 +205,12 @@ export interface ExportDeliveryJob {
   readonly reportType: string;
   readonly recipientUserId: string;
   readonly recipientEmailMasked: string;
+  readonly recipientEmailExact?: string;
+  readonly immutableParametersHash?: string;
   readonly status: 'QUEUED' | 'SENT' | 'FAILED';
   readonly queuedAt: string;
   readonly deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER';
+  readonly artifact?: any;
 }
 
 export type QueryIntent =
@@ -258,6 +267,8 @@ export interface ReportingSession {
   readonly activeDateBasis: DateBasis;
   readonly confirmedYear?: number;
   readonly confirmedDateBasis?: DateBasis;
+  readonly confirmedYearExplicitlyClarified?: boolean;
+  readonly confirmedDateBasisExplicitlyClarified?: boolean;
   readonly isConfirmedPolicy?: boolean;
   readonly pendingClarification?: ClarificationPrompt | null;
   readonly pendingExport?: ExportPreviewContract | null;
