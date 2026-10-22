@@ -87,9 +87,12 @@ export class WorktreeLockManager {
       return { exists: false, currentBranch: '', currentHeadSha: '', isClean: false, error: 'Path does not exist' };
     }
     try {
-      const branch = execSync('git branch --show-current', { cwd: worktreePath, stdio: 'pipe' })
+      let branch = execSync('git branch --show-current', { cwd: worktreePath, stdio: 'pipe' })
         .toString()
         .trim();
+      if (!branch) {
+        branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || '';
+      }
       const sha = execSync('git rev-parse HEAD', { cwd: worktreePath, stdio: 'pipe' })
         .toString()
         .trim();
@@ -147,7 +150,7 @@ export class WorktreeLockManager {
       return { acquired: false, error: `Worktree directory not found: ${params.worktreePath}` };
     }
 
-    if (params.expectedBranch && gitState.currentBranch !== params.expectedBranch) {
+    if (params.expectedBranch && gitState.currentBranch && gitState.currentBranch !== params.expectedBranch) {
       return {
         acquired: false,
         error: `WORKTREE_BRANCH_MISMATCH: Expected branch "${params.expectedBranch}" but worktree is on "${gitState.currentBranch}".`,

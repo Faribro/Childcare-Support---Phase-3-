@@ -14,7 +14,8 @@ import type { TaskDefinition } from '@/controller/types';
 describe('Bounded Overnight Controller Test Suite (Perplexity + Antigravity)', () => {
   const currentBranch = (() => {
     try {
-      return execSync('git branch --show-current', { stdio: 'pipe' }).toString().trim() || 'feat/cross-system-consistency';
+      const b = execSync('git branch --show-current', { stdio: 'pipe' }).toString().trim();
+      return b || process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || 'feat/cross-system-consistency';
     } catch {
       return 'feat/cross-system-consistency';
     }
