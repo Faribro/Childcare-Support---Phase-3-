@@ -105,6 +105,8 @@ function checkCaps(phase: string) {
   }
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // ============================================================================
 // 3. EXECUTION STEPS
 // ============================================================================
@@ -233,6 +235,7 @@ async function runScopeDVerification() {
     // Step 5: Test OCC Conflict Rejection (Stale / Invalid Cell Hash)
     // ------------------------------------------------------------------------
     console.log('\n[Step 5/8] Verifying OCC conflict rejection with stale hash...');
+    await sleep(2000);
     const staleHash = crypto.createHash('sha256').update('STALE_FORMULA_VALUE').digest('hex');
 
     const conflictInput: CanonicalReplaceAssetInput = {
@@ -244,7 +247,13 @@ async function runScopeDVerification() {
       requestId: `req-conflict-${Date.now()}`,
     };
 
-    const conflictRes = await canonicalSubmissionAdapter.replaceAsset(conflictInput);
+    let conflictRes = await canonicalSubmissionAdapter.replaceAsset(conflictInput);
+    if (conflictRes.code === 'CONFIGURATION_ERROR' && conflictRes.message?.includes('timed out')) {
+      console.log('  -> Transient Drive timeout detected; retrying OCC conflict check in 3s...');
+      await sleep(3000);
+      conflictRes = await canonicalSubmissionAdapter.replaceAsset(conflictInput);
+    }
+
     if (conflictRes.status !== 'conflict' && conflictRes.statusCode !== 409) {
       throw new Error(`Expected OCC conflict (409) on stale hash, but received: ${JSON.stringify(conflictRes)}`);
     }
@@ -254,6 +263,7 @@ async function runScopeDVerification() {
     // Step 6: Successful Two-Phase Replacement with Valid Current Cell Hash
     // ------------------------------------------------------------------------
     console.log('\n[Step 6/8] Executing valid two-phase document replacement...');
+    await sleep(2000);
     // Create new replacement image with different payload
     const replacementImage = 'data:image/jpeg;base64,' + Buffer.from('REPLACEMENT_ASSET_PAYLOAD_' + Date.now()).toString('base64');
 
@@ -268,7 +278,13 @@ async function runScopeDVerification() {
 
     counters.driveMutations++;
     counters.sheetMutations++;
-    const replaceRes = await canonicalSubmissionAdapter.replaceAsset(validReplaceInput);
+    let replaceRes = await canonicalSubmissionAdapter.replaceAsset(validReplaceInput);
+    if (replaceRes.code === 'CONFIGURATION_ERROR' && replaceRes.message?.includes('timed out')) {
+      console.log('  -> Transient Drive timeout detected; retrying replacement commit in 3s...');
+      await sleep(3000);
+      replaceRes = await canonicalSubmissionAdapter.replaceAsset(validReplaceInput);
+    }
+
     if (replaceRes.status !== 'success') {
       throw new Error(`Valid asset replacement failed: ${JSON.stringify(replaceRes)}`);
     }
@@ -281,6 +297,7 @@ async function runScopeDVerification() {
     // Step 7: Verify Read-Back of Updated Document & Retained Audit State
     // ------------------------------------------------------------------------
     console.log('\n[Step 7/8] Verifying updated record read-back...');
+    await sleep(2000);
     const updatedRead = await canonicalSubmissionAdapter.getSubmission(TARGET_SYNTHETIC_ID, 'supervisor');
     if (updatedRead.status !== 'success' || !updatedRead.data) {
       throw new Error(`Failed to read back updated record: ${JSON.stringify(updatedRead)}`);
