@@ -15,7 +15,7 @@
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:db:integration": "vitest run src/test/integration/database-migration-and-concurrency.test.ts",
+    "test:db:integration": "vitest run src/test/integration/database-migration-and-concurrency.test.ts src/test/integration/beneficiary-durable-session-and-tasks.test.ts",
     "test:e2e": "playwright test",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
