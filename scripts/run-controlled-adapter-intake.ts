@@ -1,12 +1,16 @@
 /**
- * Controlled Browser Intake Verification Runner (Staging Environment)
+ * Controlled Adapter-Level Intake Verification Runner (Staging Backend)
+ * 
+ * NOTE: This is an ADAPTER-LEVEL integration test validating the
+ * canonicalSubmissionAdapter -> Apps Script bridge transmission pipeline.
+ * It does NOT execute browser DOM/UI actions (use Playwright for browser UI e2e).
  * 
  * Target Environment:
  * - Target Spreadsheet ID: 17Rm_U93nXilrvWu7LHBXlQ5LBC1f45Lydt76TIpiCg8
  * - Target Drive Root ID: 1P4KeWpUl9Psel-VpwmIhjMaA8gWyIElE
  * - Target Apps Script Project: 1AiOO6J2s_GmmeqwRmyJfXa0r9284LF0oyPIyVSQB08zkmiAtRkDUAFPF
  * - Target Web App Deployment ID: AKfycbxVskbuZ6d4UYoUK5mwDBFqF3lhNFNBYmOjXJ4EWbVQ7R0KGrvTWqV82cdchKGYYj5EgA
- * - Synthetic Beneficiary ID: BROWSER-E2E-TEST-001
+ * - Synthetic Beneficiary ID: ADAPTER-E2E-TEST-001
  * 
  * Strict Safety Invariants:
  * 1. ZERO writes or reads to production sheet (1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA) or production deployment
@@ -26,7 +30,7 @@ const TARGET_SPREADSHEET_ID = '17Rm_U93nXilrvWu7LHBXlQ5LBC1f45Lydt76TIpiCg8';
 const TARGET_ROOT_FOLDER_ID = '1P4KeWpUl9Psel-VpwmIhjMaA8gWyIElE';
 const TARGET_DEPLOYMENT_ID = 'AKfycbxVskbuZ6d4UYoUK5mwDBFqF3lhNFNBYmOjXJ4EWbVQ7R0KGrvTWqV82cdchKGYYj5EgA';
 const EXPECTED_BRIDGE_URL = `https://script.google.com/macros/s/${TARGET_DEPLOYMENT_ID}/exec`;
-const TARGET_SYNTHETIC_ID = 'BROWSER-E2E-TEST-001';
+const TARGET_SYNTHETIC_ID = 'ADAPTER-E2E-TEST-001';
 
 const BLOCKED_OPERATIONAL_SPREADSHEET_IDS = [
   '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA',
