@@ -191,40 +191,23 @@ async function main() {
 
   // STEP 3: Build & validate synthetic intake payload
   console.log('\nStep 3: Constructing 73-field synthetic intake submission...');
-  const syntheticSubmission = createSyntheticSubmission({
-    submissionId: TARGET_SYNTHETIC_ID,
-    childName: 'Controlled Test Beneficiary',
-    state: 'Maharashtra',
+  const rawPayload = createSyntheticSubmission({
+    runId: 'staging-browser-intake',
+    uniqueSuffix: 'BROWSER-001',
+    withSignature: false,
   });
+  rawPayload.uniqueId = TARGET_SYNTHETIC_ID;
+  rawPayload.demographics.artNumber = TARGET_SYNTHETIC_ID;
+  rawPayload.uuid = `syn-uuid-browser-${Date.now()}`;
+  rawPayload.clientSubmissionId = rawPayload.uuid;
 
   const intakeInput: CanonicalCreateInput = {
-    submissionId: TARGET_SYNTHETIC_ID,
-    state: 'Maharashtra',
-    formData: {
-      ...syntheticSubmission.formData,
-      beneficiaryId: TARGET_SYNTHETIC_ID,
-      childName: 'Controlled Test Beneficiary',
-      dateOfBirth: '2016-01-15',
-      caregiverName: 'Savita Patil',
-      caregiverPhone: '9876543210',
-      state: 'Maharashtra',
-      district: 'Pune',
-      schoolStatus: 'Enrolled',
-      weightKg: '24.5',
-      heightCm: '120.0',
-    },
-    attachments: [
-      {
-        containerId: 'passbook',
-        fieldKey: 'passbook_photo',
-        fileName: 'passbook.jpg',
-        contentType: 'image/jpeg',
-        base64Data: SYNTHETIC_BASE64_IMAGE,
-      },
-    ],
+    payload: rawPayload,
+    idempotencyKey: `idemp-${TARGET_SYNTHETIC_ID}-init`,
+    requestId: `req-browser-create-${Date.now()}`,
   };
 
-  console.log(`✔ Payload constructed with ${Object.keys(intakeInput.formData).length} fields and ${intakeInput.attachments?.length} attachment.`);
+  console.log(`✔ Payload constructed for ${rawPayload.demographics.childName} (${rawPayload.demographics.state}).`);
 
   if (!isExecute) {
     console.log('\n================================================================');
@@ -238,9 +221,12 @@ async function main() {
   // STEP 4: Mutating execution (requires owner authorization)
   console.log('\nStep 4: Executing controlled intake creation...');
   const createResult = await canonicalSubmissionAdapter.createSubmission(intakeInput);
+  if (createResult.status !== 'success') {
+    throw new Error(`[STEP 4 FAILED] Failed to create synthetic submission: ${JSON.stringify(createResult)}`);
+  }
   counters.sheetMutations++;
   counters.driveMutations++;
-  console.log(`✔ Submission created. Revision: ${createResult.revision}, Status: ${createResult.syncStatus}`);
+  console.log(`✔ Submission created. Revision: ${createResult.revisionNumber || createResult.version || 1}`);
   await sleep(2000);
 
   // STEP 5: Read-back verification
