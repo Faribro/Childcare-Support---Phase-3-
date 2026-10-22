@@ -13,6 +13,7 @@
 # Production build
 /build
 /dist
+/dist-client
 
 # Environment variables
 .env

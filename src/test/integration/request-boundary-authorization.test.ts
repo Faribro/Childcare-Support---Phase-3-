@@ -21,6 +21,8 @@ import {
   GET as getSingleSubmissionRoute,
   PATCH as patchSubmissionRoute,
 } from '@/app/api/submissions/[submissionId]/route';
+import { POST as postLoginRoute } from '@/app/api/auth/login/route';
+import { POST as postLogoutRoute } from '@/app/api/auth/logout/route';
 import { createSessionToken } from '@/lib/server/sessionService';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
 
@@ -448,6 +450,161 @@ describe('Next.js Request Boundary Authorization & Security Suite', () => {
           }
         }
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 8. Cross-Site Request Forgery (CSRF) & Origin Validation
+  // ---------------------------------------------------------------------------
+  describe('8. Cross-Site Request Forgery (CSRF) & Origin Validation', () => {
+    it('rejects POST /api/auth/login when Origin header is missing with 403 CSRF_VIOLATION', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identifier: 'state-mh',
+          password: 'test-password',
+        }),
+      });
+
+      const res = await postLoginRoute(req);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.code).toBe('CSRF_VIOLATION');
+    });
+
+    it('rejects POST /api/auth/login when Origin host mismatches with 403 CSRF_VIOLATION', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://evil-attacker.org',
+          Host: 'localhost:3000',
+        },
+        body: JSON.stringify({
+          identifier: 'state-mh',
+          password: 'test-password',
+        }),
+      });
+
+      const res = await postLoginRoute(req);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.code).toBe('CSRF_VIOLATION');
+    });
+
+    it('rejects POST /api/auth/logout when Origin header is missing with 403 CSRF_VIOLATION', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/logout', {
+        method: 'POST',
+      });
+
+      const res = await postLogoutRoute(req);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.code).toBe('CSRF_VIOLATION');
+    });
+
+    it('rejects cookie-authenticated PATCH on submission when Origin is missing with 403 CSRF_VIOLATION', async () => {
+      const token = createSessionToken({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `evaluation_session_token=${token}`,
+        },
+        body: JSON.stringify({
+          expectedVersion: 1,
+          approvedAllianceIndia: 'Approved',
+        }),
+      });
+
+      const res = await patchSubmissionRoute(req, { params: { submissionId: 'MH-PUN-081200-02' } });
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.code).toBe('CSRF_VIOLATION');
+    });
+
+    it('permits cookie-authenticated PATCH when Origin matches request host', async () => {
+      const token = createSessionToken({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost:3000',
+          Host: 'localhost:3000',
+          Cookie: `evaluation_session_token=${token}`,
+        },
+        body: JSON.stringify({
+          expectedVersion: 1,
+          approvedAllianceIndia: 'Approved',
+        }),
+      });
+
+      const res = await patchSubmissionRoute(req, { params: { submissionId: 'MH-PUN-081200-02' } });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.status).toBe('success');
+    });
+
+    it('permits safe GET requests without Origin header', async () => {
+      const token = createSessionToken({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+        method: 'GET',
+        headers: {
+          Cookie: `evaluation_session_token=${token}`,
+        },
+      });
+
+      const res = await getSingleSubmissionRoute(req, { params: { submissionId: 'MH-PUN-081200-02' } });
+      expect(res.status).toBe(200);
+    });
+
+    it('exempts non-cookie API requests with Bearer token from CSRF check', async () => {
+      const token = createSessionToken({
+        userId: 'lead-01',
+        name: 'Leadership User',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          expectedVersion: 1,
+          approvedAllianceIndia: 'Approved',
+        }),
+      });
+
+      const res = await patchSubmissionRoute(req, { params: { submissionId: 'MH-PUN-081200-02' } });
+      expect(res.status).toBe(200);
     });
   });
 });

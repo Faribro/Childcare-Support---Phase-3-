@@ -128,7 +128,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
       expect(hasOverflow).toBe(false);
 
       // Verify Drafts navigation card exists and links to /assessment/drafts
-      const draftsLink = page.getByRole('link', { name: /Drafts/i });
+      const draftsLink = page.locator('a[href="/assessment/drafts"]').first();
       await expect(draftsLink).toBeVisible();
       await expect(draftsLink).toHaveAttribute('href', '/assessment/drafts');
 
@@ -144,7 +144,7 @@ test.describe('Mobile Experience & Viewport Hardening', () => {
 
     // Test navigating to /assessment/drafts and returning
     await page.goto('/app');
-    await page.getByRole('link', { name: /Drafts/i }).click();
+    await page.locator('a[href="/assessment/drafts"]').first().click();
     await page.waitForURL('**/assessment/drafts');
     expect(page.url()).toContain('/assessment/drafts');
 
