@@ -890,7 +890,7 @@ export async function PUT(
       );
     }
 
-    const { docType, slotPrefix, fileData, fileDataUrl, expectedRevision, expectedVersion, simulatePointerMismatch } = rawBody || {};
+    const { docType, slotPrefix, fileData, fileDataUrl, expectedRevision, expectedVersion, expectedCurrentCellStateHash, simulatePointerMismatch } = rawBody || {};
 
     const targetDocType = docType || slotPrefix;
     if (!targetDocType || typeof targetDocType !== 'string') {
@@ -914,6 +914,15 @@ export async function PUT(
         { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing or invalid required field: expectedRevision (must be positive integer)' },
         { status: 400, headers: ASSET_NO_STORE_HEADERS }
       );
+    }
+
+    if (expectedCurrentCellStateHash !== undefined && expectedCurrentCellStateHash !== null && expectedCurrentCellStateHash !== '') {
+      if (typeof expectedCurrentCellStateHash !== 'string' || !/^[a-fA-F0-9]{64}$/.test(expectedCurrentCellStateHash.trim())) {
+        return NextResponse.json(
+          { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing or invalid required field: expectedCurrentCellStateHash (must be 64-character hex SHA-256 hash)' },
+          { status: 400, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
     }
 
     // Verify geographic scope if not wildcard
@@ -950,6 +959,7 @@ export async function PUT(
       docType: targetDocType,
       fileData: targetFileData,
       expectedRevision: targetRevision,
+      expectedCurrentCellStateHash: expectedCurrentCellStateHash ? expectedCurrentCellStateHash.trim() : undefined,
       requestId,
       simulatePointerMismatch: !!simulatePointerMismatch,
     });

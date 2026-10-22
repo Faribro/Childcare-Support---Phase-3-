@@ -232,4 +232,87 @@ describe('Two-Phase Document Replacement Architecture with OCC & Asset History',
       expect(data.oldAssetStatus).toBe('SUPERSEDED');
     });
   });
+
+  describe('6. Current Cell State Hash (expectedCurrentCellStateHash) Concurrency Verification', () => {
+    it('accepts replacement when expectedCurrentCellStateHash matches current cell state', async () => {
+      const crypto = require('crypto');
+      const initialFormula = '=HYPERLINK("https://drive.google.com/file/d/passbook-init-abc123xyz/view", "Restricted Doc [Passbook]")';
+      const cellHash = crypto.createHash('sha256').update(initialFormula.trim()).digest('hex');
+
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${TEST_ID}/asset`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-test-verified': 'true',
+          'x-test-role': 'ADMIN',
+          'x-test-state': '*',
+        },
+        body: JSON.stringify({
+          docType: 'Passbook',
+          fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          expectedRevision: 1,
+          expectedCurrentCellStateHash: cellHash,
+        }),
+      });
+
+      const res = await replaceAssetPutRoute(req, { params: { submissionId: TEST_ID } });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.status).toBe('success');
+      expect(data.newRevision).toBe(2);
+    });
+
+    it('rejects with 409 OCC_CONFLICT when expectedCurrentCellStateHash does not match current cell state', async () => {
+      const staleHash = 'f'.repeat(64); // Wrong hash
+
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${TEST_ID}/asset`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-test-verified': 'true',
+          'x-test-role': 'ADMIN',
+          'x-test-state': '*',
+        },
+        body: JSON.stringify({
+          docType: 'Passbook',
+          fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          expectedRevision: 1,
+          expectedCurrentCellStateHash: staleHash,
+        }),
+      });
+
+      const res = await replaceAssetPutRoute(req, { params: { submissionId: TEST_ID } });
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.code).toBe('OCC_CONFLICT');
+      expect(data.message).toContain('current cell state hash');
+
+      // Record remains unmodified at version 1
+      const record = MockSheetStore.findRecord(TEST_ID);
+      expect(record?.version).toBe(1);
+    });
+
+    it('rejects with 400 VALIDATION_ERROR when expectedCurrentCellStateHash is invalid format', async () => {
+      const req = new NextRequest(`http://localhost:3000/api/submissions/${TEST_ID}/asset`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-test-verified': 'true',
+          'x-test-role': 'ADMIN',
+          'x-test-state': '*',
+        },
+        body: JSON.stringify({
+          docType: 'Passbook',
+          fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          expectedRevision: 1,
+          expectedCurrentCellStateHash: 'not-a-valid-hex-hash',
+        }),
+      });
+
+      const res = await replaceAssetPutRoute(req, { params: { submissionId: TEST_ID } });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.code).toBe('VALIDATION_ERROR');
+    });
+  });
 });

@@ -2654,6 +2654,23 @@ function replaceAssetTwoPhase_(payload, requestId) {
   else if (slotUpper.indexOf('FEE') !== -1) targetCol = DOC_COLUMNS.FEE_RECEIPT;
   else if (slotUpper.indexOf('MARK') !== -1) targetCol = DOC_COLUMNS.MARKSHEET;
 
+  // Optimistic concurrency check: verify current cell state hash if provided
+  if (payload.expectedCurrentCellStateHash) {
+    var rawOldCell = String(sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue() || '').trim();
+    var cellBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, rawOldCell, Utilities.Charset.UTF_8);
+    var cellHash = '';
+    for (var b = 0; b < cellBytes.length; b++) {
+      var byteVal = cellBytes[b];
+      if (byteVal < 0) byteVal += 256;
+      var hex = byteVal.toString(16);
+      if (hex.length === 1) hex = '0' + hex;
+      cellHash += hex;
+    }
+    if (cellHash.toLowerCase() !== String(payload.expectedCurrentCellStateHash).toLowerCase()) {
+      return errorResponse_('Optimistic concurrency failed: current cell state hash changed after dry-run.', 'OCC_CONFLICT', 409, requestId);
+    }
+  }
+
   // Phase 1: Stage & Validate
   var slotFilename = getStandardSlotFilename_(slotPrefix);
   var commaIdx = fileDataUrl.indexOf(',');

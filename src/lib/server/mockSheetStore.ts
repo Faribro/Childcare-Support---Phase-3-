@@ -503,6 +503,7 @@ export const MockSheetStore = {
     options?: {
       expectedRevision?: number;
       expectedVersion?: number;
+      expectedCurrentCellStateHash?: string;
       simulatePointerMismatch?: boolean;
     }
   ) {
@@ -556,6 +557,18 @@ export const MockSheetStore = {
     else if (prefix === 'Child_Photo') oldVal = existing.child_photo_url || existing.childPhotoUrl || '';
     else if (prefix === 'Fee_Receipt') oldVal = existing.fee_receipt_photo_url || existing.feeReceiptPhotoUrl || '';
     else if (prefix === 'Marksheet') oldVal = existing.marksheet_photo_url || existing.marksheetPhotoUrl || '';
+
+    // Optimistic concurrency check: verify current cell state hash if provided
+    if (options?.expectedCurrentCellStateHash) {
+      const computedHash = crypto.createHash('sha256').update(oldVal.trim()).digest('hex');
+      if (computedHash.toLowerCase() !== options.expectedCurrentCellStateHash.toLowerCase()) {
+        return {
+          conflict: true,
+          code: 'OCC_CONFLICT',
+          message: 'Optimistic concurrency failed: current cell state hash changed after dry-run.',
+        };
+      }
+    }
 
     // Extract previous drive ID from formula e.g. =HYPERLINK("https://drive.google.com/file/d/{id}/view"...)
     let previousFileId = undefined;

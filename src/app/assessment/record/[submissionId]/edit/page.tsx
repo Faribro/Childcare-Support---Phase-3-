@@ -76,6 +76,18 @@ import {
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
+async function computeDocumentCellHash(content: string): Promise<string> {
+  const trimmed = (content || '').trim();
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    const enc = new TextEncoder();
+    const data = enc.encode(trimmed);
+    const hashBuf = await window.crypto.subtle.digest('SHA-256', data);
+    const hashArr = Array.from(new Uint8Array(hashBuf));
+    return hashArr.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return '0'.repeat(64);
+}
+
 export default function EditRecordPage() {
   const params = useParams();
   const router = useRouter();
@@ -137,7 +149,101 @@ export default function EditRecordPage() {
   // Preserves the complete original local record so edit starts from snapshot
   const [fullOriginalRecord, setFullOriginalRecord] = useState<any>(null);
 
-  const [amendmentReason, setAmendmentReason] = useState<string>('');
+    const [docReplaceSuccess, setDocReplaceSuccess] = useState<string | null>(null);
+
+  const handleReplaceDocument = useCallback(
+    async (
+      docType: 'passbookPhoto' | 'aadhaarCardPhoto' | 'childPhoto' | 'feeReceiptPhoto' | 'marksheetPhoto',
+      newDataUrl: string,
+      currentVal: string
+    ) => {
+      setConflictError(null);
+      setFormError(null);
+      setDocReplaceSuccess(null);
+
+      const targetId = confirmedRemoteSubmissionId || (fullOriginalRecord?.remoteSubmissionId) || submissionId;
+      if (!targetId) {
+        const msg = 'Unable to replace document: Record identifier is missing.';
+        setFormError(msg);
+        throw new Error(msg);
+      }
+
+      // Compute SHA-256 hash of the current cell state
+      const cellHash = await computeDocumentCellHash(currentVal || '');
+
+      try {
+        const res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}/asset`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            docType,
+            fileData: newDataUrl,
+            expectedRevision: currentVersion,
+            expectedCurrentCellStateHash: cellHash,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || data.status === 'error' || data.status === 'conflict') {
+          if (res.status === 409 || data.code === 'OCC_CONFLICT') {
+            const conflictMsg = 'Document Replacement Conflict: The record was modified on the server (version mismatch or cell state changed). Please reload the latest record.';
+            setConflictError({ code: 'OCC_CONFLICT', message: conflictMsg });
+            throw new Error(conflictMsg);
+          }
+          if (res.status === 401 || res.status === 403 || data.code === 'FORBIDDEN' || data.code === 'UNAUTHORIZED') {
+            const permMsg = data.message || 'Permission Denied: You do not have authorization to replace documents on this record.';
+            setFormError(permMsg);
+            throw new Error(permMsg);
+          }
+          const errDetail = data.message || 'Failed to replace document on the server.';
+          setFormError(`Document Replacement Failed: ${errDetail}`);
+          throw new Error(errDetail);
+        }
+
+        const newRev = data.newRevision || data.revisionNumber || (currentVersion + 1);
+        setCurrentVersion(newRev);
+
+        const fieldMap: Record<string, keyof typeof formData> = {
+          passbookPhoto: 'passbookPhotoUrl',
+          aadhaarCardPhoto: 'aadhaarCardPhotoUrl',
+          childPhoto: 'childPhotoUrl',
+          feeReceiptPhoto: 'feeReceiptPhotoUrl',
+          marksheetPhoto: 'marksheetPhotoUrl',
+        };
+        const fieldKey = fieldMap[docType];
+        if (fieldKey) {
+          setFormData((prev) => ({ ...prev, [fieldKey]: newDataUrl }));
+          setOriginalSnapshot((prev) => (prev ? { ...prev, [fieldKey]: newDataUrl } : prev));
+        }
+
+        setFullOriginalRecord((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            version: newRev,
+            revision: newRev,
+            ...(fieldKey ? { [fieldKey]: data.cellFormula || newDataUrl } : {}),
+          };
+        });
+
+        setDocReplaceSuccess(`Document replaced successfully and committed to revision ${newRev}.`);
+        return { success: true, newRevision: newRev };
+      } catch (err: any) {
+        if (!err.message?.includes('Document Replacement') && !err.message?.includes('Permission Denied') && !err.message?.includes('Conflict')) {
+          const netMsg = 'Network Error: Unable to reach server for document replacement. Your existing document has been preserved.';
+          setFormError(netMsg);
+          throw new Error(netMsg);
+        }
+        throw err;
+      }
+    },
+    [confirmedRemoteSubmissionId, fullOriginalRecord, submissionId, currentVersion]
+  );
+
+const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<string>('en');
   const [existingSignatureUrl, setExistingSignatureUrl] = useState<string>('');
@@ -1434,6 +1540,14 @@ export default function EditRecordPage() {
           </div>
         )}
 
+        {/* Document Replacement Success Banner */}
+        {docReplaceSuccess && (
+          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex items-center space-x-2.5 text-emerald-900 text-xs font-bold shadow-xs" role="status">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span>{docReplaceSuccess}</span>
+          </div>
+        )}
+
         {/* Revision Tracking Header Card */}
         <div className="p-5 sm:p-6 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1928,6 +2042,7 @@ export default function EditRecordPage() {
                 label="PASSBOOK FRONT PAGE PHOTO"
                 value={formData.passbookPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
+                onReplace={(newUrl: string) => handleReplaceDocument('passbookPhoto', newUrl, formData.passbookPhotoUrl)}
               />
               <PhotoUpload
                 id="banking-aadhaarCardPhotoUrl"
@@ -1935,6 +2050,7 @@ export default function EditRecordPage() {
                 label="AADHAAR CARD PHOTO"
                 value={formData.aadhaarCardPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
+                onReplace={(newUrl: string) => handleReplaceDocument('aadhaarCardPhoto', newUrl, formData.aadhaarCardPhotoUrl)}
               />
               <PhotoUpload
                 id="banking-childPhotoUrl"
@@ -1943,6 +2059,7 @@ export default function EditRecordPage() {
                 helperText="Recent photograph of child beneficiary"
                 value={formData.childPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, childPhotoUrl: url || '' })}
+                onReplace={(newUrl: string) => handleReplaceDocument('childPhoto', newUrl, formData.childPhotoUrl)}
               />
             </div>
           </section>
@@ -2683,6 +2800,12 @@ export default function EditRecordPage() {
                 }
                 onMarksheetPhotoChange={(url?: string) =>
                   setFormData((prev) => ({ ...prev, marksheetPhotoUrl: url || '' }))
+                }
+                onReceiptPhotoReplace={(newUrl: string) =>
+                  handleReplaceDocument('feeReceiptPhoto', newUrl, formData.feeReceiptPhotoUrl)
+                }
+                onMarksheetPhotoReplace={(newUrl: string) =>
+                  handleReplaceDocument('marksheetPhoto', newUrl, formData.marksheetPhotoUrl)
                 }
                 onRemarksChange={(rem: string) =>
                   setFormData((prev) => ({ ...prev, remarks: rem }))

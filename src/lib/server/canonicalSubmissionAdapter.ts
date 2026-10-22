@@ -40,6 +40,7 @@ export interface CanonicalReplaceAssetInput {
   fileData: string;
   expectedRevision?: number;
   expectedVersion?: number;
+  expectedCurrentCellStateHash?: string;
   requestId: string;
   simulatePointerMismatch?: boolean;
 }
@@ -1403,6 +1404,7 @@ class CanonicalSubmissionAdapterService {
             fileData: input.fileData,
             expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
             expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+            expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
             requestId: input.requestId,
             secret: webhookSecret,
           }),
@@ -1459,6 +1461,7 @@ class CanonicalSubmissionAdapterService {
       {
         expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
         expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+        expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
         simulatePointerMismatch: input.simulatePointerMismatch,
       }
     );

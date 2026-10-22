@@ -58,9 +58,19 @@ export class WorktreeLockManager {
       fs.mkdirSync(dir, { recursive: true });
     }
     const arr = Array.from(locks.values());
-    const tmp = `${this.lockFilePath}.tmp`;
+    const tmp = `${this.lockFilePath}.tmp.${Date.now()}`;
     fs.writeFileSync(tmp, JSON.stringify(arr, null, 2), 'utf-8');
-    fs.renameSync(tmp, this.lockFilePath);
+    try {
+      if (fs.existsSync(this.lockFilePath)) {
+        fs.unlinkSync(this.lockFilePath);
+      }
+      fs.renameSync(tmp, this.lockFilePath);
+    } catch {
+      fs.writeFileSync(this.lockFilePath, JSON.stringify(arr, null, 2), 'utf-8');
+      try {
+        if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {}
+    }
   }
 
   /**

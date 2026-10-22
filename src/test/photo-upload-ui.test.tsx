@@ -197,4 +197,98 @@ describe('Document UI & PhotoUpload Component Suite', () => {
     fireEvent.click(removeBtn);
     expect(handleChange).toHaveBeenCalledWith(undefined);
   });
+
+  it('8. Dedicated Replacement Flow: selecting file with existing attachment and onReplace opens confirmation modal', async () => {
+    const handleReplace = vi.fn();
+    const syntheticDataUrl = 'data:image/png;base64,initial-image';
+    const { container } = render(
+      <PhotoUpload
+        id="passbook-upload"
+        label={defaultLabel}
+        value={syntheticDataUrl}
+        onReplace={handleReplace}
+      />
+    );
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const newFile = new File(['new-passbook-content'], 'new_passbook.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [newFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Confirm Document Replacement')).toBeInTheDocument();
+      expect(screen.getByText(/You are about to replace/i)).toBeInTheDocument();
+    });
+
+    // onReplace should NOT be called yet (awaiting confirmation)
+    expect(handleReplace).not.toHaveBeenCalled();
+    // Original document is still displayed
+    expect(screen.getByAltText(defaultLabel)).toHaveAttribute('src', syntheticDataUrl);
+  });
+
+  it('9. Cancellation Before Submission: clicking Cancel in replacement modal preserves existing document', async () => {
+    const handleReplace = vi.fn();
+    const syntheticDataUrl = 'data:image/png;base64,initial-image';
+    const { container } = render(
+      <PhotoUpload
+        id="passbook-upload"
+        label={defaultLabel}
+        value={syntheticDataUrl}
+        onReplace={handleReplace}
+      />
+    );
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const newFile = new File(['new-content'], 'replacement.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [newFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Confirm Document Replacement')).toBeInTheDocument();
+    });
+
+    const cancelBtn = screen.getByTestId('cancel-replace-btn');
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Confirm Document Replacement')).not.toBeInTheDocument();
+    });
+
+    // Zero calls made, original document intact
+    expect(handleReplace).not.toHaveBeenCalled();
+    expect(screen.getByAltText(defaultLabel)).toHaveAttribute('src', syntheticDataUrl);
+  });
+
+  it('10. Confirm and Failure Isolation: when onReplace rejects, error alert is displayed and original document is preserved', async () => {
+    const handleReplace = vi.fn().mockRejectedValue(new Error('OCC Conflict: Record modified on server'));
+    const syntheticDataUrl = 'data:image/png;base64,initial-image';
+    const { container } = render(
+      <PhotoUpload
+        id="passbook-upload"
+        label={defaultLabel}
+        value={syntheticDataUrl}
+        onReplace={handleReplace}
+      />
+    );
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const newFile = new File(['new-content'], 'replacement.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [newFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Confirm Document Replacement')).toBeInTheDocument();
+    });
+
+    const confirmBtn = screen.getByTestId('confirm-replace-btn');
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(handleReplace).toHaveBeenCalled();
+      expect(screen.getAllByText(/OCC Conflict: Record modified on server/i).length).toBeGreaterThan(0);
+    });
+
+    // Original document is preserved
+    expect(screen.getByAltText(defaultLabel)).toHaveAttribute('src', syntheticDataUrl);
+  });
 });
