@@ -27,6 +27,8 @@
     "e2e:staging:verify": "tsx scripts/e2e/verify-staging-record.ts",
     "credentials:dry-run": "tsx scripts/admin/provision-evaluation-credentials.ts --dry-run",
     "sheet:passwords:dry-run": "tsx scripts/admin/setup-passwords-sheet-tab.ts --dry-run",
+    "staging:verify:scope-b": "tsx scripts/run-scope-b-staging.ts",
+    "staging:verify:scope-d": "tsx scripts/run-scope-d-staging.ts",
     "build:native-client": "vite build --config vite.native.config.ts"
   },
   "dependencies": {
