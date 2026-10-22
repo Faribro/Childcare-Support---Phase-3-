@@ -147,6 +147,27 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
   },
 
   // ── Section 2: Child Demographics ─────────────────────────────────────────
+  'demographics.srName': {
+    sectionKey: 'demographics',
+    elementId: 'child-srName',
+    label: 'SR Name',
+    defaultMessage: 'Please enter a valid SR name.',
+    order: 19,
+  },
+  'demographics.ssrName': {
+    sectionKey: 'demographics',
+    elementId: 'child-ssrName',
+    label: 'SSR Name',
+    defaultMessage: 'Please enter a valid SSR name.',
+    order: 20,
+  },
+  'demographics.guardianStatus': {
+    sectionKey: 'demographics',
+    elementId: 'child-guardianStatus',
+    label: 'Status of Guardian/Parent',
+    defaultMessage: 'Please enter the status of guardian/parent.',
+    order: 20.5,
+  },
   'demographics.artNumber': {
     sectionKey: 'demographics',
     elementId: 'demographics-artNumber',
@@ -432,6 +453,48 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
   },
 
   // ── Section 5: Health & Clinical ──────────────────────────────────────────
+  'health.artInitiationDate': {
+    sectionKey: 'health',
+    elementId: 'health-artInitiationDate',
+    label: 'On ART Since (DD-MM-YYYY)',
+    defaultMessage: 'Please enter a valid ART initiation date.',
+    order: 68,
+  },
+  'health.artMedicineType': {
+    sectionKey: 'health',
+    elementId: 'health-artMedicineType',
+    label: 'Type of ART Medicines',
+    defaultMessage: 'Please enter the type of ART medicines.',
+    order: 69,
+  },
+  'health.cd4Count': {
+    sectionKey: 'health',
+    elementId: 'health-cd4Count',
+    label: 'CD4 Count (Latest)',
+    defaultMessage: 'Please enter the latest CD4 count.',
+    order: 69.5,
+  },
+  'health.hasDisability': {
+    sectionKey: 'health',
+    elementId: 'health-hasDisability',
+    label: 'Is the child with disability?',
+    defaultMessage: 'Please indicate disability status.',
+    order: 69.6,
+  },
+  'health.disabilityType': {
+    sectionKey: 'health',
+    elementId: 'health-disabilityType',
+    label: 'Types of Disability',
+    defaultMessage: 'Please specify the type of disability.',
+    order: 69.7,
+  },
+  'health.disabilityCertificateStatus': {
+    sectionKey: 'health',
+    elementId: 'health-disabilityCertificateStatus',
+    label: 'Disability Certificate Status',
+    defaultMessage: 'Please indicate disability certificate status.',
+    order: 69.8,
+  },
   'health.weightKg': {
     sectionKey: 'health',
     elementId: 'health-weightKg',
@@ -469,7 +532,8 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
   'health.artIdNumber': {
     sectionKey: 'health',
     elementId: 'health-artIdNumber',
-    label: 'ART ID number',
+    label: 'UID / ART No.',
+    defaultMessage: 'Please enter a valid clinical ART ID Number.',
     order: 75,
   },
   'health.vlStatus': {
@@ -499,6 +563,13 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
   },
 
   // ── Section 6: Nutrition ──────────────────────────────────────────────────
+  'nutrition.malnutritionSymptoms': {
+    sectionKey: 'nutrition',
+    elementId: 'nutrition-malnutritionSymptoms',
+    label: 'Symptoms of Malnutrition',
+    defaultMessage: 'Please describe any observed symptoms of malnutrition.',
+    order: 104,
+  },
   'nutrition.appetite': {
     sectionKey: 'nutrition',
     elementId: 'nutrition-appetite',
@@ -560,6 +631,13 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     label: 'School session start date',
     defaultMessage: 'Please select school session start date.',
     order: 91.5,
+  },
+  'educationStatus.receivingEducationSchemeBenefit': {
+    sectionKey: 'education',
+    elementId: 'education-receivingEducationSchemeBenefit',
+    label: 'Education Scheme Benefit',
+    defaultMessage: 'Please indicate if the child receives education scheme benefits.',
+    order: 109,
   },
   'educationStatus.schoolType': {
     sectionKey: 'education',

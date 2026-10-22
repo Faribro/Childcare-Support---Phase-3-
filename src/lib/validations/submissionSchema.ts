@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 
-export const genderEnum = z.enum(['Male', 'Female', 'Other']);
+export const genderEnum = z.enum(['Male', 'Female', 'Other', 'Transgender', 'M', 'F', 'TG']);
 
 export const orphanStatusEnum = z.enum([
   'Both parents alive',
@@ -91,7 +91,7 @@ export const demographicsSchema = z.object({
       const d = new Date(val);
       return !isNaN(d.getTime()) && d <= new Date();
     }, 'Date of Birth cannot be in the future'),
-  gender: z.enum(['Male', 'Female', 'Other', 'Transgender']).default('Male'),
+  gender: genderEnum.default('Male'),
   orphanStatus: orphanStatusEnum.default('Both parents alive'),
   caregiverName: z.string().min(2, 'Caregiver name is required'),
   caregiverRelationship: z.string().min(2, 'Caregiver relationship is required'),
@@ -110,6 +110,9 @@ export const demographicsSchema = z.object({
   calculatedAgeMonths: z.number().min(0).optional(),
   childAadhaarNumber: z.string().optional(),
   maskedAadhaar: z.string().optional(),
+  srName: z.string().max(200).optional(),
+  ssrName: z.string().max(200).optional(),
+  guardianStatus: z.string().max(200).optional(),
 });
 
 // Step 2: Caregiver Consent & Signature Schema
@@ -167,11 +170,17 @@ export const healthSchema = z.object({
   // ART & Viral Load clinical tracking
   artStatus: z.string().optional(),
   artRegistrationDate: z.string().optional(),
+  artInitiationDate: z.string().optional(),
   artIdNumber: z.string().optional(),
+  artMedicineType: z.string().max(200).optional(),
+  cd4Count: z.union([z.number(), z.string()]).optional(),
   vlStatus: z.string().optional(),
   vlDate: z.string().optional(),
   viralLoad: z.union([z.number(), z.string()]).optional(),
   vlCategory: z.string().optional(),
+  hasDisability: z.string().optional(),
+  disabilityType: z.string().max(200).optional(),
+  disabilityCertificateStatus: z.string().max(200).optional(),
   // Clinical
   muacMm: z.number().optional(),
   bilateralPittingOedema: z.boolean().default(false),
@@ -182,6 +191,7 @@ export const healthSchema = z.object({
 export const nutritionHabitsSchema = z.object({
   appetite: z.string().optional().default('Good'),
   mealsPerDay: z.number().min(0).max(10).default(3),
+  malnutritionSymptoms: z.string().max(500).optional(),
 });
 
 // Step 6: Education Status
@@ -194,6 +204,7 @@ export const educationStatusSchema = z.object({
   currentClass: z.string().optional(),
   currentClassSpecify: z.string().optional(),
   attendance: permissiveAttendance,
+  receivingEducationSchemeBenefit: z.string().optional(),
   // Legacy
   schoolEnrolled: z.boolean().optional(),
   schoolGrade: z.string().optional(),
@@ -298,6 +309,9 @@ export function flattenPatchBody(body: any): any {
     if (flat.childAadhaarNumber === undefined) flat.childAadhaarNumber = d.childAadhaarNumber;
     if (flat.calculatedAgeYears === undefined) flat.calculatedAgeYears = d.calculatedAgeYears;
     if (flat.calculatedAgeMonths === undefined) flat.calculatedAgeMonths = d.calculatedAgeMonths;
+    if (flat.srName === undefined) flat.srName = d.srName;
+    if (flat.ssrName === undefined) flat.ssrName = d.ssrName;
+    if (flat.guardianStatus === undefined) flat.guardianStatus = d.guardianStatus;
   }
 
   if (body.consent && typeof body.consent === 'object') {
@@ -341,17 +355,24 @@ export function flattenPatchBody(body: any): any {
     if (flat.otherHealthConditionSpecify === undefined) flat.otherHealthConditionSpecify = hl.otherHealthConditionSpecify;
     if (flat.artStatus === undefined) flat.artStatus = hl.artStatus;
     if (flat.artRegistrationDate === undefined) flat.artRegistrationDate = hl.artRegistrationDate;
+    if (flat.artInitiationDate === undefined) flat.artInitiationDate = hl.artInitiationDate;
     if (flat.artIdNumber === undefined) flat.artIdNumber = hl.artIdNumber;
+    if (flat.artMedicineType === undefined) flat.artMedicineType = hl.artMedicineType;
+    if (flat.cd4Count === undefined) flat.cd4Count = hl.cd4Count;
     if (flat.vlStatus === undefined) flat.vlStatus = hl.vlStatus;
     if (flat.vlDate === undefined) flat.vlDate = hl.vlDate;
     if (flat.viralLoad === undefined) flat.viralLoad = hl.viralLoad;
     if (flat.vlCategory === undefined) flat.vlCategory = hl.vlCategory;
+    if (flat.hasDisability === undefined) flat.hasDisability = hl.hasDisability;
+    if (flat.disabilityType === undefined) flat.disabilityType = hl.disabilityType;
+    if (flat.disabilityCertificateStatus === undefined) flat.disabilityCertificateStatus = hl.disabilityCertificateStatus;
     if (flat.nutritionStatus === undefined) flat.nutritionStatus = hl.nutritionStatus;
   }
 
   if (body.nutrition && typeof body.nutrition === 'object') {
     if (flat.appetite === undefined) flat.appetite = body.nutrition.appetite;
     if (flat.mealsPerDay === undefined) flat.mealsPerDay = body.nutrition.mealsPerDay;
+    if (flat.malnutritionSymptoms === undefined) flat.malnutritionSymptoms = body.nutrition.malnutritionSymptoms;
   }
 
   if (body.nutritionHabits && typeof body.nutritionHabits === 'object') {
@@ -367,6 +388,7 @@ export function flattenPatchBody(body: any): any {
     if (flat.currentClass === undefined) flat.currentClass = ed.currentClass;
     if (flat.currentClassSpecify === undefined) flat.currentClassSpecify = ed.currentClassSpecify;
     if (flat.attendance === undefined) flat.attendance = ed.attendance;
+    if (flat.receivingEducationSchemeBenefit === undefined) flat.receivingEducationSchemeBenefit = ed.receivingEducationSchemeBenefit;
     flat.educationStatus = ed.educationStatus || 'Currently going to school';
   }
 
@@ -427,6 +449,9 @@ export const allowlistedPatchChangesSchema = z.object({
   state: z.string().optional(),
   district: z.string().optional(),
   childAadhaarNumber: z.string().optional(),
+  srName: z.string().optional(),
+  ssrName: z.string().optional(),
+  guardianStatus: z.string().optional(),
   agreeToParticipate: optionalBoolean,
   bankAccountHolderName: z.string().optional(),
   bankAccountNumber: z.string().optional(),
@@ -443,12 +468,19 @@ export const allowlistedPatchChangesSchema = z.object({
   otherHealthConditionSpecify: z.string().optional(),
   artStatus: z.string().optional(),
   artRegistrationDate: z.string().optional(),
+  artInitiationDate: z.string().optional(),
   artIdNumber: z.string().optional(),
+  artMedicineType: z.string().optional(),
+  cd4Count: z.union([optionalNumber, z.string()]).optional(),
   vlStatus: z.string().optional(),
   vlDate: z.string().optional(),
   viralLoad: z.string().optional(),
+  hasDisability: z.string().optional(),
+  disabilityType: z.string().optional(),
+  disabilityCertificateStatus: z.string().optional(),
   appetite: z.string().optional(),
   mealsPerDay: optionalNumber,
+  malnutritionSymptoms: z.string().optional(),
   educationStatus: z.union([z.string(), z.record(z.any()), z.any()]).optional(),
   educationStatusSpecify: z.string().optional(),
   schoolName: z.string().optional(),
@@ -457,6 +489,7 @@ export const allowlistedPatchChangesSchema = z.object({
   currentClass: z.string().optional(),
   currentClassSpecify: z.string().optional(),
   attendance: z.string().optional(),
+  receivingEducationSchemeBenefit: z.string().optional(),
   schoolFees: optionalNumber,
   tuitionFees: optionalNumber,
   books: optionalNumber,

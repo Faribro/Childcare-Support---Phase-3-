@@ -292,7 +292,17 @@ var COLUMN_HEADERS = [
   "70\nForm Submitted By",
   "71\nOrganization Email",
   "72\nSync Needed",
-  "73\nLast Updated"
+  "73\nLast Updated",
+  "74\nSR Name",
+  "75\nSSR Name",
+  "76\nStatus of Guardian/Parent",
+  "77\nType of ART Medicines",
+  "78\nCD4 Count (Latest)",
+  "79\nIs Child With Disability",
+  "80\nTypes of Disability",
+  "81\nDisability Certificate",
+  "82\nEducation Scheme Benefit",
+  "83\nSymptoms of Malnutrition"
 ];
 
 // Document Columns with 1-based indexing in the 73-column schema
@@ -315,7 +325,8 @@ var HEADER_CATEGORIES = [
   { start: 47, end: 48, color: '#E2EFDA' }, // Nutrition & Habits (Pale Green)
   { start: 49, end: 55, color: '#D9E2F3' }, // Education Status (Pale Blue)
   { start: 56, end: 66, color: '#FFF2CC' }, // Education Expenses & Documents (Pale Orange)
-  { start: 67, end: 73, color: '#D9E2F3' }  // Programme Governance & Audit (Pale Blue/Slate)
+  { start: 67, end: 73, color: '#D9E2F3' }, // Programme Governance & Audit (Pale Blue/Slate)
+  { start: 74, end: 83, color: '#E2EFDA' }  // Extended Linelist Data (Pale Green)
 ];
 
 // Fallback image URLs for sample rows
@@ -1310,7 +1321,7 @@ function handleCreate_(payload) {
   row[37] = Array.isArray(h.otherHealthConditions) ? h.otherHealthConditions.join(', ') : (payload.comorbidities || ''); // 38 Comorbidities
   row[38] = h.otherHealthConditionSpecify || payload.comorbiditiesOther || ''; // 39 Comorbidities Other
   row[39] = h.artStatus || payload.artStatus || 'On ART'; // 40 ART Status
-  row[40] = h.artRegistrationDate || payload.artRegistrationDate || ''; // 41 ART Registration Date
+  row[40] = h.artInitiationDate || h.artRegistrationDate || payload.artRegistrationDate || payload.artInitiationDate || ''; // 41 ART Registration Date
   row[41] = h.artIdNumber || payload.artIdNumber || ''; // 42 ART ID Number
   row[42] = h.vlStatus || payload.vlStatus || 'Tested in last 6 months'; // 43 VL Status
   row[43] = h.vlDate || payload.vlDate || ''; // 44 VL Date
@@ -1346,6 +1357,16 @@ function handleCreate_(payload) {
   row[70] = f.organizationEmail || payload.organizationEmail || ''; // 71 Organization Email
   row[71] = payload.syncNeeded || 'NO'; // 72 Sync Needed
   row[72] = payload.updatedAt || now; // 73 Last Updated
+  row[73] = d.srName || payload.srName || ''; // 74 SR Name
+  row[74] = d.ssrName || payload.ssrName || ''; // 75 SSR Name
+  row[75] = d.guardianStatus || payload.guardianStatus || ''; // 76 Status of Guardian/Parent
+  row[76] = h.artMedicineType || payload.artMedicineType || ''; // 77 Type of ART Medicines
+  row[77] = h.cd4Count !== undefined ? String(h.cd4Count) : (payload.cd4Count || ''); // 78 CD4 Count (Latest)
+  row[78] = h.hasDisability || payload.hasDisability || 'No'; // 79 Is Child With Disability
+  row[79] = h.disabilityType || payload.disabilityType || ''; // 80 Types of Disability
+  row[80] = h.disabilityCertificateStatus || payload.disabilityCertificateStatus || ''; // 81 Disability Certificate
+  row[81] = e.receivingEducationSchemeBenefit || payload.receivingEducationSchemeBenefit || 'No'; // 82 Education Scheme Benefit
+  row[82] = n.malnutritionSymptoms || payload.malnutritionSymptoms || ''; // 83 Symptoms of Malnutrition
 
   sheet.appendRow(row);
   var newRowIndex = sheet.getLastRow();
@@ -1551,7 +1572,19 @@ function handleUpdate_(payload) {
     organizationName: 69,
     formSubmittedBy: 70,
     organizationEmail: 71,
-    syncNeeded: 72
+    syncNeeded: 72,
+    srName: 74,
+    ssrName: 75,
+    guardianStatus: 76,
+    artInitiationDate: 41,
+    artMedicineType: 77,
+    cd4Count: 78,
+    hasDisability: 79,
+    disabilityType: 80,
+    disabilityCertificateStatus: 81,
+    receivingEducationSchemeBenefit: 82,
+    educationSchemeBenefit: 82,
+    malnutritionSymptoms: 83
   };
 
   // Direct mutations

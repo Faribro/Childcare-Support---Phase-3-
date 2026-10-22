@@ -158,6 +158,9 @@ export default function ResumeDraftSinglePage() {
     state: 'Maharashtra',
     district: '',
     childAadhaarNumber: '',
+    srName: '',
+    ssrName: '',
+    guardianStatus: '',
 
     // Section 2: Consent
     agreeToParticipate: null as boolean | null,
@@ -185,14 +188,21 @@ export default function ResumeDraftSinglePage() {
     otherHealthConditionSpecify: '',
     artStatus: 'On ART' as ARTStatus,
     artRegistrationDate: '',
+    artInitiationDate: '',
     artIdNumber: '',
+    artMedicineType: '',
+    cd4Count: '',
     vlStatus: 'Tested in last 6 months' as VLStatus,
     vlDate: '',
     viralLoad: '',
+    hasDisability: 'No',
+    disabilityType: '',
+    disabilityCertificateStatus: '',
 
     // Section 6: Nutrition Habits
     appetite: '' as AppetiteLevel,
     mealsPerDay: 0,
+    malnutritionSymptoms: '',
 
     // Section 7: Education Status
     educationStatus: '' as EducationStatus,
@@ -203,6 +213,7 @@ export default function ResumeDraftSinglePage() {
     currentClass: '',
     currentClassSpecify: '',
     attendance: '' as AttendanceType,
+    receivingEducationSchemeBenefit: '',
 
     // Section 8: Current Expenses & Documents
     schoolFees: 0,
@@ -282,6 +293,9 @@ export default function ResumeDraftSinglePage() {
             state: d.state || 'Maharashtra',
             district: d.district || 'Pune',
             childAadhaarNumber: d.childAadhaarNumber || b.childAadhaarNumber || '',
+            srName: d.srName || '',
+            ssrName: d.ssrName || '',
+            guardianStatus: d.guardianStatus || '',
 
             agreeToParticipate: c.agreeToParticipate ?? true,
 
@@ -305,13 +319,20 @@ export default function ResumeDraftSinglePage() {
             otherHealthConditionSpecify: h.otherHealthConditionSpecify || '',
             artStatus: (h.artStatus as ARTStatus) || 'On ART',
             artRegistrationDate: h.artRegistrationDate || '',
+            artInitiationDate: h.artInitiationDate || h.artRegistrationDate || '',
             artIdNumber: h.artIdNumber || '',
+            artMedicineType: h.artMedicineType || '',
+            cd4Count: h.cd4Count !== undefined ? String(h.cd4Count) : '',
             vlStatus: (h.vlStatus as VLStatus) || 'Tested in last 6 months',
             vlDate: h.vlDate || '',
             viralLoad: h.viralLoad !== undefined ? String(h.viralLoad) : '< 50',
+            hasDisability: h.hasDisability || 'No',
+            disabilityType: h.disabilityType || '',
+            disabilityCertificateStatus: h.disabilityCertificateStatus || '',
 
             appetite: (n.appetite as AppetiteLevel) || 'Good',
             mealsPerDay: Number(n.mealsPerDay) || 3,
+            malnutritionSymptoms: n.malnutritionSymptoms || '',
 
             educationStatus: (ed.educationStatus as EducationStatus) || 'Currently going to school',
             educationStatusSpecify: ed.educationStatusSpecify || '',
@@ -321,6 +342,7 @@ export default function ResumeDraftSinglePage() {
             currentClass: ed.currentClass !== undefined ? ed.currentClass : ((ed as any).schoolGrade || ''),
             currentClassSpecify: ed.currentClassSpecify || '',
             attendance: (ed.attendance as AttendanceType) || 'Regular',
+            receivingEducationSchemeBenefit: ed.receivingEducationSchemeBenefit || '',
 
             schoolFees: Number(exp.schoolFees) || 0,
             tuitionFees: Number(exp.tuitionFees) || 0,
@@ -471,6 +493,9 @@ export default function ResumeDraftSinglePage() {
         state: formData.state,
         district: formData.district,
         childAadhaarNumber: formData.childAadhaarNumber,
+        srName: formData.srName,
+        ssrName: formData.ssrName,
+        guardianStatus: formData.guardianStatus,
       },
       consent: {
         agreeToParticipate: formData.agreeToParticipate ?? false,
@@ -512,16 +537,23 @@ export default function ResumeDraftSinglePage() {
         otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
         artStatus: formData.artStatus,
         artRegistrationDate: formData.artRegistrationDate,
+        artInitiationDate: formData.artInitiationDate,
         artIdNumber: formData.artIdNumber,
+        artMedicineType: formData.artMedicineType,
+        cd4Count: formData.cd4Count,
         vlStatus: formData.vlStatus,
         vlDate: formData.vlDate,
         viralLoad: formData.viralLoad,
         vlCategory: vlCategory,
+        hasDisability: formData.hasDisability,
+        disabilityType: formData.disabilityType,
+        disabilityCertificateStatus: formData.disabilityCertificateStatus,
         nutritionStatus: nutritionResult.nutritionStatus,
       },
       nutrition: {
         appetite: formData.appetite,
         mealsPerDay: Number(formData.mealsPerDay) || 3,
+        malnutritionSymptoms: formData.malnutritionSymptoms,
       },
       educationStatus: {
         educationStatus: formData.educationStatus,
@@ -532,6 +564,7 @@ export default function ResumeDraftSinglePage() {
         currentClass: formData.currentClass,
         currentClassSpecify: formData.currentClassSpecify,
         attendance: formData.attendance,
+        receivingEducationSchemeBenefit: formData.receivingEducationSchemeBenefit,
       },
       educationExpenses: {
         schoolFees: Number(formData.schoolFees) || 0,
@@ -736,6 +769,9 @@ export default function ResumeDraftSinglePage() {
           state: formData.state,
           district: formData.district,
           childAadhaarNumber: formData.childAadhaarNumber,
+          srName: formData.srName,
+          ssrName: formData.ssrName,
+          guardianStatus: formData.guardianStatus,
         },
         consent: {
           agreeToParticipate: formData.agreeToParticipate ?? false,
@@ -779,16 +815,23 @@ export default function ResumeDraftSinglePage() {
           otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
           artStatus: formData.artStatus,
           artRegistrationDate: formData.artRegistrationDate,
+          artInitiationDate: formData.artInitiationDate,
           artIdNumber: formData.artIdNumber,
+          artMedicineType: formData.artMedicineType,
+          cd4Count: formData.cd4Count,
           vlStatus: formData.vlStatus,
           vlDate: formData.vlDate,
           viralLoad: formData.viralLoad,
           vlCategory: vlCategory,
+          hasDisability: formData.hasDisability,
+          disabilityType: formData.disabilityType,
+          disabilityCertificateStatus: formData.disabilityCertificateStatus,
           nutritionStatus: nutritionResult.nutritionStatus,
         },
         nutrition: {
           appetite: formData.appetite,
           mealsPerDay: Number(formData.mealsPerDay) || 3,
+          malnutritionSymptoms: formData.malnutritionSymptoms,
         },
         educationStatus: {
           educationStatus: formData.educationStatus,
@@ -799,6 +842,7 @@ export default function ResumeDraftSinglePage() {
           currentClass: formData.currentClass,
           currentClassSpecify: formData.currentClassSpecify,
           attendance: formData.attendance,
+          receivingEducationSchemeBenefit: formData.receivingEducationSchemeBenefit,
         },
         educationExpenses: {
           schoolFees: Number(formData.schoolFees) || 0,
@@ -1254,7 +1298,7 @@ export default function ResumeDraftSinglePage() {
             <div id="q-child-dob">
               <Input
                 id="demographics-dob"
-                label={t('dob', currentLanguage)}
+                label={`${t('dob', currentLanguage)} (DD-MM-YYYY)`}
                 type="date"
                 required
                 value={formData.dob}
@@ -1273,27 +1317,39 @@ export default function ResumeDraftSinglePage() {
                 {t('gender', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <div className="grid grid-cols-3 gap-2">
-                {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
-                  <label
-                    key={g}
-                    className={`flex items-center justify-center space-x-1.5 min-h-[44px] py-2 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
-                      formData.gender === g
-                        ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
-                        : 'bg-white border-black text-slate-800 hover:bg-slate-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="gender"
-                      value={g}
-                      checked={formData.gender === g}
-                      onChange={() => setFormData({ ...formData, gender: g })}
-                      className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
-                    />
-                    <span>{g}</span>
-                  </label>
-                ))}
+                {[
+                  { value: 'M' as Gender, label: 'Male (M)', alt: 'Male' },
+                  { value: 'F' as Gender, label: 'Female (F)', alt: 'Female' },
+                  { value: 'TG' as Gender, label: 'Transgender (TG)', alt: 'Transgender' },
+                ].map((item) => {
+                  const isSelected = formData.gender === item.value || formData.gender === item.alt;
+                  return (
+                    <label
+                      key={item.value}
+                      className={`flex items-center justify-center space-x-1.5 min-h-[44px] py-2 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                        isSelected
+                          ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                          : 'bg-white border-black text-slate-800 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="gender"
+                        value={item.value}
+                        checked={isSelected}
+                        onChange={() => setFormData({ ...formData, gender: item.value })}
+                        className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
+                      />
+                      <span>{item.label}</span>
+                    </label>
+                  );
+                })}
               </div>
+              {formData.gender === 'Other' && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 mt-1">
+                  Historical value preserved: <strong>Other</strong>
+                </p>
+              )}
             </div>
 
             <div
@@ -1399,6 +1455,33 @@ export default function ResumeDraftSinglePage() {
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
               error={errorsByField['demographics-district']?.message}
               placeholder="e.g. Pune"
+            />
+
+            <Input
+              id="child-srName"
+              label="SR Name"
+              value={formData.srName}
+              onChange={(e) => setFormData({ ...formData, srName: e.target.value })}
+              error={errorsByField['demographics-srName']?.message}
+              placeholder="e.g. Alliance India"
+            />
+
+            <Input
+              id="child-ssrName"
+              label="SSR Name"
+              value={formData.ssrName}
+              onChange={(e) => setFormData({ ...formData, ssrName: e.target.value })}
+              error={errorsByField['demographics-ssrName']?.message}
+              placeholder="e.g. District CBO / NGO"
+            />
+
+            <Input
+              id="child-guardianStatus"
+              label="Status of Guardian/Parent"
+              value={formData.guardianStatus}
+              onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value })}
+              error={errorsByField['demographics-guardianStatus']?.message}
+              placeholder="e.g. Alive / Deceased / Ill / Migrated"
             />
 
             <div className="flex flex-col justify-end">
@@ -1738,7 +1821,7 @@ export default function ResumeDraftSinglePage() {
                 <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
                   <Input
                     id="health-artIdNumber"
-                    label={t('art_num', currentLanguage)}
+                    label="UID / ART No. (Clinical ART ID)"
                     required
                     value={formData.artIdNumber}
                     onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
@@ -1748,10 +1831,36 @@ export default function ResumeDraftSinglePage() {
                 </div>
 
                 <Input
-                  label="ART REGISTRATION DATE"
+                  id="health-artInitiationDate"
+                  label="On ART Since (DD-MM-YYYY)"
                   type="date"
-                  value={formData.artRegistrationDate}
-                  onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
+                  value={formData.artInitiationDate || formData.artRegistrationDate}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      artInitiationDate: e.target.value,
+                      artRegistrationDate: e.target.value,
+                    })
+                  }
+                  error={errorsByField['health-artInitiationDate']?.message}
+                />
+
+                <Input
+                  id="health-artMedicineType"
+                  label="Type of ART Medicines"
+                  value={formData.artMedicineType}
+                  onChange={(e) => setFormData({ ...formData, artMedicineType: e.target.value })}
+                  error={errorsByField['health-artMedicineType']?.message}
+                  placeholder="e.g. TLD, ABC+3TC+EFV, Pediatric pellets"
+                />
+
+                <Input
+                  id="health-cd4Count"
+                  label="CD4 Count (Latest)"
+                  value={formData.cd4Count}
+                  onChange={(e) => setFormData({ ...formData, cd4Count: e.target.value })}
+                  error={errorsByField['health-cd4Count']?.message}
+                  placeholder="e.g. 650 cells/mm³"
                 />
               </div>
             </div>
@@ -1952,6 +2061,74 @@ export default function ResumeDraftSinglePage() {
                 </div>
               )}
             </div>
+
+            {/* Sub-Card 5: Disability Details */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Disability Details
+                </h4>
+                <p className="text-[11px] text-slate-500">Record child disability status and certification</p>
+              </div>
+
+              <div id="health-hasDisability" className="space-y-1.5">
+                <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                  Is the child with disability?
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['No', 'Yes', 'Unknown'].map((opt) => (
+                    <label
+                      key={opt}
+                      className={`flex items-center justify-center space-x-1.5 min-h-[44px] py-2 px-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all shadow-2xs ${
+                        formData.hasDisability === opt
+                          ? 'bg-purple-50/80 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-400/50 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                          : 'bg-white border-black text-slate-800 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="hasDisability"
+                        value={opt}
+                        checked={formData.hasDisability === opt}
+                        onChange={() => setFormData({ ...formData, hasDisability: opt })}
+                        className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
+                      />
+                      <span>{opt}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {formData.hasDisability === 'Yes' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 animate-in fade-in duration-200">
+                  <Input
+                    id="health-disabilityType"
+                    label="Types of Disability"
+                    value={formData.disabilityType}
+                    onChange={(e) => setFormData({ ...formData, disabilityType: e.target.value })}
+                    error={errorsByField['health-disabilityType']?.message}
+                    placeholder="e.g. Locomotor, Visual, Hearing, Intellectual"
+                  />
+
+                  <div className="flex flex-col space-y-1.5">
+                    <label htmlFor="health-disabilityCertificateStatus" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                      Does the child have a disability certificate?
+                    </label>
+                    <select
+                      id="health-disabilityCertificateStatus"
+                      value={formData.disabilityCertificateStatus}
+                      onChange={(e) => setFormData({ ...formData, disabilityCertificateStatus: e.target.value })}
+                      className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                    >
+                      <option value="">Select Certificate Status</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                      <option value="Applied / In Process">Applied / In Process</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -1973,6 +2150,17 @@ export default function ResumeDraftSinglePage() {
               highlightAppetiteClass={getHighlightClass('q-nut-appetite')}
               highlightMealsClass={getHighlightClass('q-nut-meals')}
             />
+
+            <div className="pt-3">
+              <Input
+                id="nutrition-malnutritionSymptoms"
+                label="Symptoms of Malnutrition"
+                value={formData.malnutritionSymptoms}
+                onChange={(e) => setFormData({ ...formData, malnutritionSymptoms: e.target.value })}
+                error={errorsByField['nutrition-malnutritionSymptoms']?.message}
+                placeholder="e.g. Visible muscle wasting, edema, hair changes, severe lethargy"
+              />
+            </div>
           </div>
         </section>
 
@@ -2188,6 +2376,24 @@ export default function ResumeDraftSinglePage() {
                 </div>
               </div>
             )}
+
+            <div id="education-receivingEducationSchemeBenefit" className="space-y-1.5 pt-2">
+              <label htmlFor="education-scheme-benefit" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                Is the child receiving any education-scheme benefit?
+              </label>
+              <select
+                id="education-scheme-benefit"
+                value={formData.receivingEducationSchemeBenefit}
+                onChange={(e) => setFormData({ ...formData, receivingEducationSchemeBenefit: e.target.value })}
+                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+              >
+                <option value="">Select Status</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+                <option value="Applied / Under Review">Applied / Under Review</option>
+                <option value="Not Applicable">Not Applicable</option>
+              </select>
+            </div>
           </div>
         </section>
 

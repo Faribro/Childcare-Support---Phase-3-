@@ -23,31 +23,46 @@ interface PdfTextCommand {
 
 export function generateBeneficiaryPdfBuffer(record: any): Buffer {
   const d = record.demographics || {};
-  const c = record.clinical || {};
+  const c = record.clinical || record.health || {};
   const e = record.education || record.educationStatus || {};
   const g = record.grantCalculation || record.educationExpenses || {};
   const r = record.finalReview || {};
 
   const id = String(record.id || record.uniqueId || record['1\nUnique ID'] || 'BEN-UNKNOWN');
   const childName = String(d.childName || record['9\nChild Name'] || record.childName || 'Beneficiary');
-  const artNumber = String(d.artNumber || record['42\nART ID Number'] || record.artNumber || 'N/A');
+  const artNumber = String(c.artIdNumber || record['42\nART ID Number'] || d.artNumber || record['1\nUnique ID'] || 'N/A');
   const age = String(d.calculatedAgeYears ?? record['11\nAge'] ?? record.age ?? 'N/A');
   const gender = String(d.gender || record['12\nGender'] || record.gender || 'N/A');
   const state = String(d.state || record['18\nState'] || record.state || 'Maharashtra');
   const district = String(d.district || record['19\nDistrict'] || record.district || 'General');
   const orphanStatus = String(d.orphanStatus || record['13\nOrphan Status'] || record.orphanStatus || 'N/A');
-  const caregiverName = String(d.caregiverName || record['14\nCaregiver Name'] || 'N/A');
+  const caregiverName = String(d.caregiverName || record['14\nCaregiver Full Name'] || record['14\nCaregiver Name'] || 'N/A');
+
+  const srName = String(d.srName || record['74\nSR Name'] || record.srName || 'N/A');
+  const ssrName = String(d.ssrName || record['75\nSSR Name'] || record.ssrName || 'N/A');
+  const guardianStatus = String(d.guardianStatus || record['76\nStatus of Guardian/Parent'] || record.guardianStatus || 'N/A');
 
   const bmi = String(c.bmi ?? record['34\nBMI'] ?? record.bmi ?? 'N/A');
   const bmiCategory = String(c.bmiCategory || record['35\nBMI Category'] || record.bmiCategory || 'N/A');
-  const viralLoad = String(c.viralLoadCopies || record['45\nViral Load Copies'] || record.viralLoad || 'N/A');
+  const viralLoad = String(c.viralLoad || c.viralLoadCopies || record['45\nViral Load'] || record['45\nViral Load Copies'] || 'N/A');
   const vlCategory = String(c.vlCategory || record['46\nVL Category'] || record.vlCategory || 'N/A');
-  const hemoglobin = String(c.hemoglobinLevel || record['36\nHaemoglobin Level'] || record.hemoglobin || 'N/A');
+  const hemoglobin = String(c.haemoglobinGdl || c.hemoglobinLevel || record['36\nHemoglobin (g/dL)'] || record['36\nHaemoglobin Level'] || 'N/A');
   const hbCategory = String(c.hbCategory || record['37\nHb Category'] || record.hbCategory || 'N/A');
 
+  const artInitiationDate = String(c.artInitiationDate || record.artInitiationDate || c.artRegistrationDate || record['41\nART Registration Date'] || 'N/A');
+  const artMedicineType = String(c.artMedicineType || record['77\nType of ART Medicines'] || record.artMedicineType || 'N/A');
+  const cd4Count = String(c.cd4Count || record['78\nCD4 Count (Latest)'] || record.cd4Count || 'N/A');
+  const hasDisability = String(c.hasDisability || record['79\nIs Child With Disability'] || record.hasDisability || 'No');
+  const disabilityType = String(c.disabilityType || record['80\nTypes of Disability'] || record.disabilityType || 'None');
+  const disabilityCert = String(c.disabilityCertificateStatus || record['81\nDisability Certificate'] || record.disabilityCertificateStatus || 'N/A');
+  const malnutritionSymptoms = String(record.nutrition?.malnutritionSymptoms || record['83\nSymptoms of Malnutrition'] || record.malnutritionSymptoms || 'None reported');
+
   const schoolType = String(e.schoolType || record['53\nSchool Type'] || record.schoolType || 'N/A');
-  const currentClass = String(e.currentClass || record['52\nCurrent Class'] || 'N/A');
-  const totalGrant = String(g.totalGrantAmount ?? record['63\nTotal Annual Education Cost'] ?? record.grantAmount ?? '0');
+  const currentClass = String(e.currentClass || record['54\nCurrent Class'] || record['52\nCurrent Class'] || 'N/A');
+  const schemeBenefit = String(e.receivingEducationSchemeBenefit || record['82\nEducation Scheme Benefit'] || record.receivingEducationSchemeBenefit || 'None');
+  const remarks = String(g.remarks || record['66\nRemarks (If Any)'] || record.remarks || 'None');
+
+  const totalGrant = String(g.totalGrantAmount ?? g.totalAnnualCost ?? record['63\nTotal Annual Education Cost'] ?? record.grantAmount ?? '0');
   const approvalStatus = String(r.approvedAllianceIndia ? 'APPROVED' : (record.isApproved ? 'APPROVED' : 'PENDING'));
   const exportDate = new Date().toISOString().split('T')[0];
 
@@ -60,35 +75,44 @@ export function generateBeneficiaryPdfBuffer(record: any): Buffer {
     { text: `Export Date: ${exportDate}   |   Record ID: ${id}`, x: 50, y: 690, fontSize: 9, bold: false },
 
     // Section 1: Demographics
-    { text: '1. BENEFICIARY DEMOGRAPHICS', x: 50, y: 660, fontSize: 11, bold: true },
-    { text: `Child Name:      ${childName}`, x: 60, y: 642, fontSize: 9 },
-    { text: `ART ID Number:   ${artNumber}`, x: 320, y: 642, fontSize: 9 },
-    { text: `Age / Gender:    ${age} Years / ${gender}`, x: 60, y: 626, fontSize: 9 },
-    { text: `Orphan Status:   ${orphanStatus}`, x: 320, y: 626, fontSize: 9 },
-    { text: `State / District: ${state} / ${district}`, x: 60, y: 610, fontSize: 9 },
-    { text: `Caregiver Name:  ${caregiverName}`, x: 320, y: 610, fontSize: 9 },
+    { text: '1. BENEFICIARY DEMOGRAPHICS', x: 50, y: 665, fontSize: 11, bold: true },
+    { text: `Child Name:      ${childName}`, x: 60, y: 650, fontSize: 9 },
+    { text: `UID / ART No.:   ${artNumber}`, x: 320, y: 650, fontSize: 9 },
+    { text: `Age / Gender:    ${age} Years / ${gender}`, x: 60, y: 635, fontSize: 9 },
+    { text: `Orphan Status:   ${orphanStatus}`, x: 320, y: 635, fontSize: 9 },
+    { text: `State / District: ${state} / ${district}`, x: 60, y: 620, fontSize: 9 },
+    { text: `Caregiver Name:  ${caregiverName}`, x: 320, y: 620, fontSize: 9 },
+    { text: `SR / SSR Name:   ${srName} / ${ssrName}`, x: 60, y: 605, fontSize: 9 },
+    { text: `Guardian Status: ${guardianStatus}`, x: 320, y: 605, fontSize: 9 },
 
     // Section 2: Clinical Assessment
     { text: '2. CLINICAL & NUTRITIONAL PROFILE', x: 50, y: 580, fontSize: 11, bold: true },
-    { text: `BMI:             ${bmi} (${bmiCategory})`, x: 60, y: 562, fontSize: 9 },
-    { text: `Viral Load:      ${viralLoad} copies/mL (${vlCategory})`, x: 320, y: 562, fontSize: 9 },
-    { text: `Haemoglobin:     ${hemoglobin} g/dL (${hbCategory})`, x: 60, y: 546, fontSize: 9 },
+    { text: `BMI:             ${bmi} (${bmiCategory})`, x: 60, y: 565, fontSize: 9 },
+    { text: `Viral Load:      ${viralLoad} copies/mL (${vlCategory})`, x: 320, y: 565, fontSize: 9 },
+    { text: `Haemoglobin:     ${hemoglobin} g/dL (${hbCategory})`, x: 60, y: 550, fontSize: 9 },
+    { text: `CD4 Count:       ${cd4Count} cells/mm3`, x: 320, y: 550, fontSize: 9 },
+    { text: `On ART Since:    ${artInitiationDate}`, x: 60, y: 535, fontSize: 9 },
+    { text: `ART Regimen:     ${artMedicineType}`, x: 320, y: 535, fontSize: 9 },
+    { text: `Disability:      ${hasDisability} (${disabilityType} - Cert: ${disabilityCert})`, x: 60, y: 520, fontSize: 9 },
+    { text: `Malnutrition:    ${malnutritionSymptoms}`, x: 320, y: 520, fontSize: 9 },
 
     // Section 3: Education & Entitlement
-    { text: '3. EDUCATION STATUS & GRANT ENTITLEMENT', x: 50, y: 516, fontSize: 11, bold: true },
-    { text: `School Type:     ${schoolType}`, x: 60, y: 498, fontSize: 9 },
-    { text: `Current Class:   ${currentClass}`, x: 320, y: 498, fontSize: 9 },
-    { text: `Grant Amount:    INR ${totalGrant}`, x: 60, y: 482, fontSize: 9, bold: true },
-    { text: `Alliance Review: ${approvalStatus}`, x: 320, y: 482, fontSize: 9, bold: true },
+    { text: '3. EDUCATION STATUS & GRANT ENTITLEMENT', x: 50, y: 490, fontSize: 11, bold: true },
+    { text: `School Type:     ${schoolType}`, x: 60, y: 475, fontSize: 9 },
+    { text: `Current Class:   ${currentClass}`, x: 320, y: 475, fontSize: 9 },
+    { text: `Scheme Benefit:  ${schemeBenefit}`, x: 60, y: 460, fontSize: 9 },
+    { text: `Alliance Review: ${approvalStatus}`, x: 320, y: 460, fontSize: 9, bold: true },
+    { text: `Grant Amount:    INR ${totalGrant}`, x: 60, y: 445, fontSize: 9, bold: true },
+    { text: `Remarks:         ${remarks}`, x: 320, y: 445, fontSize: 9 },
 
     // Section 4: Confidentiality Notice
-    { text: '4. CONFIDENTIALITY NOTICE', x: 50, y: 440, fontSize: 11, bold: true },
-    { text: 'Confidential - contains personal and programme information.', x: 60, y: 422, fontSize: 8 },
-    { text: 'For authorized internal use only. Do not forward or distribute.', x: 60, y: 410, fontSize: 8 },
-    { text: 'Unauthorized disclosure, copying, or dissemination is strictly prohibited.', x: 60, y: 398, fontSize: 8 },
+    { text: '4. CONFIDENTIALITY NOTICE', x: 50, y: 415, fontSize: 11, bold: true },
+    { text: 'Confidential - contains personal and programme information.', x: 60, y: 400, fontSize: 8 },
+    { text: 'For authorized internal use only. Do not forward or distribute.', x: 60, y: 388, fontSize: 8 },
+    { text: 'Unauthorized disclosure, copying, or dissemination is strictly prohibited.', x: 60, y: 376, fontSize: 8 },
 
     // Footer signature line
-    { text: 'Authorized Reviewer Signature: _______________________      Date: ______________', x: 60, y: 340, fontSize: 9, bold: true },
+    { text: 'Authorized Reviewer Signature: _______________________      Date: ______________', x: 60, y: 330, fontSize: 9, bold: true },
   ];
 
   // Generate content stream operations
@@ -101,9 +125,9 @@ export function generateBeneficiaryPdfBuffer(record: any): Buffer {
   // Section dividing lines
   streamLines.push('0.85 0.88 0.90 rg'); // Slate light gray
   streamLines.push('50 595 512 1 re f');
-  streamLines.push('50 530 512 1 re f');
-  streamLines.push('50 455 512 1 re f');
-  streamLines.push('50 365 512 1 re f');
+  streamLines.push('50 505 512 1 re f');
+  streamLines.push('50 430 512 1 re f');
+  streamLines.push('50 355 512 1 re f');
 
   // Text commands
   streamLines.push('0 0 0 rg'); // Black text default
