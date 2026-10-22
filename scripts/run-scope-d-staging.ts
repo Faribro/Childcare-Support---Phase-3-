@@ -219,8 +219,8 @@ async function runScopeDVerification() {
     }
 
     // Compute cell state hash of current cell value
-    const cellFormula = readRes.data.cellFormula || `=HYPERLINK("${currentDocUrl}", "View Passbook")`;
-    const initialCellHash = crypto.createHash('sha256').update(cellFormula).digest('hex');
+    const cellFormula = initAssetRes.cellFormula || (initAssetRes.data && initAssetRes.data.cellFormula) || readRes.data.cellFormula || `=HYPERLINK("${currentDocUrl}", "View Passbook")`;
+    const initialCellHash = crypto.createHash('sha256').update(String(cellFormula).trim()).digest('hex');
     const initialRevision = Number(readRes.data.version || readRes.data.revisionNumber || 1);
     console.log(`  -> Initial revision: ${initialRevision}`);
     console.log(`  -> Initial cell hash: ${initialCellHash.slice(0, 16)}...`);
