@@ -56,7 +56,7 @@ process.env.APPS_SCRIPT_URL = EXPECTED_BRIDGE_URL;
 process.env.WEBHOOK_SECRET = stagingSecret;
 process.env.E2E_STAGING_ENABLED = 'true';
 process.env.E2E_ALLOW_LOCAL_MOCK = 'false';
-process.env.SESSION_SECRET = 'c2b9f3a1d8e74560a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718';
+process.env.SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 process.env.INITIAL_ADMIN_PWD = 'StagingAdmin2026!TestOnly';
 
 // Hard collision assertion
