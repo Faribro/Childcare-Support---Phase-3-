@@ -1,6 +1,6 @@
 # Release Register — Childcare Support Phase 3
 **Owner**: Thread 02 (Release Coordinator) | **Last Updated**: 2026-10-22T19:40:00+05:30  
-**Active Release Candidate Head SHA**: `042f4aa07a23d8c359f665a1a336ab70b7f89ec2` (`feat/cross-system-consistency`, PR #93)  
+**Active Release Candidate Head SHA**: `40451d344b5048e7f5f790c1308c02b70fc1361d` (`feat/cross-system-consistency`, PR #93)  
 **Main Baseline SHA**: `d6187b7060e89a1a4975bc8664900f257f09676c` (Merge of PR #94 into `main`)  
 **Interim Production Vercel Deployed SHA**: `d6187b7060e89a1a4975bc8664900f257f09676c`  
 **Target Production URL**: `https://childcare-support-phase-3.vercel.app`
@@ -76,7 +76,7 @@ Playwright Browser E2E Suite (controlled-staging-browser-intake.spec.ts):
 
 | Parameter | Value |
 | :--- | :--- |
-| **Target Application Instance** | Isolated local Next.js instance on port 3005 (`APP_ENV=staging`, `STORAGE_ENGINE=sheets`) built from candidate `e5cb78f` |
+| **Target Application Instance** | Isolated local Next.js instance on port 3005 (`APP_ENV=staging`, `STORAGE_ENGINE=sheets`) built from candidate `40451d3` |
 | **Target Spreadsheet ID** | `17Rm_U93nXilrvWu7LHBXlQ5LBC1f45Lydt76TIpiCg8` (tab: `Child_Nutrition`) |
 | **Target Drive Root ID** | `1P4KeWpUl9Psel-VpwmIhjMaA8gWyIElE` |
 | **Target Apps Script Web App** | `AKfycbxVskbuZ6d4UYoUK5mwDBFqF3lhNFNBYmOjXJ4EWbVQ7R0KGrvTWqV82cdchKGYYj5EgA` (Version 4 in staging project `1AiOO6J2s_GmmeqwRmyJfXa0r9284LF0oyPIyVSQB08zkmiAtRkDUAFPF`) |
