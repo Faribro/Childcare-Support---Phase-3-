@@ -79,6 +79,13 @@ export interface StoredSheetRecord {
   declaration_date: string;
   sync_state: 'SYNCED';
   raw_payload?: CompleteSubmissionPayload;
+  assetHistory?: Array<{
+    slot: string;
+    previousFileId?: string;
+    newFileId: string;
+    supersededAt: string;
+    status: string;
+  }>;
   [key: string]: any;
 }
 
@@ -481,6 +488,154 @@ export const MockSheetStore = {
       rowNumber: rowInfo.rowIndex,
       assetStatus: 'UPLOADED' as const,
       updatedAt: now,
+      record: existing,
+    };
+  },
+
+  /**
+   * Safe Two-Phase Asset Replacement with OCC & History Tracking
+   */
+  replaceAsset(
+    id: string,
+    docType: string,
+    fileData: string,
+    requestId: string,
+    options?: {
+      expectedRevision?: number;
+      expectedVersion?: number;
+      simulatePointerMismatch?: boolean;
+    }
+  ) {
+    const allMatching = this.findAllMatching(id);
+    if (allMatching.length === 0) {
+      return { notFound: true, message: `Record not found with ID: ${id}` };
+    }
+    if (allMatching.length > 1) {
+      return {
+        conflict: true,
+        code: 'AMBIGUOUS_DUPLICATE_MATCH',
+        message: `Ambiguous match: multiple rows found with ID: ${id}. Execution refused.`,
+      };
+    }
+
+    const existing = allMatching[0];
+
+    // OCC Check: expectedRevision must match existing.version
+    const expRev = options?.expectedRevision !== undefined ? options.expectedRevision : options?.expectedVersion;
+    if (expRev !== undefined && existing.version !== expRev) {
+      return {
+        conflict: true,
+        code: 'OCC_CONFLICT',
+        message: `OCC Conflict: expected revision ${expRev} but found ${existing.version}`,
+      };
+    }
+
+    // Phase 1: Stage & Validate payload
+    if (!fileData || typeof fileData !== 'string' || (!fileData.startsWith('data:') && fileData.length < 10)) {
+      return {
+        error: true,
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid base64 data URL format for asset replacement',
+      };
+    }
+
+    const normType = (docType || '').toLowerCase();
+    let prefix = 'Signature';
+    if (normType.includes('passbook')) prefix = 'Passbook';
+    else if (normType.includes('aadhaar') || normType.includes('id')) prefix = 'Aadhaar';
+    else if (normType.includes('photo')) prefix = 'Child_Photo';
+    else if (normType.includes('fee')) prefix = 'Fee_Receipt';
+    else if (normType.includes('mark')) prefix = 'Marksheet';
+
+    // Retrieve previous cell formula / value
+    let oldVal = '';
+    if (prefix === 'Signature') oldVal = existing.signature_data_url || existing.signatureDataUrl || '';
+    else if (prefix === 'Passbook') oldVal = existing.passbook_photo_url || existing.passbookPhotoUrl || '';
+    else if (prefix === 'Aadhaar') oldVal = existing.aadhaar_card_photo_url || existing.aadhaarCardPhotoUrl || '';
+    else if (prefix === 'Child_Photo') oldVal = existing.child_photo_url || existing.childPhotoUrl || '';
+    else if (prefix === 'Fee_Receipt') oldVal = existing.fee_receipt_photo_url || existing.feeReceiptPhotoUrl || '';
+    else if (prefix === 'Marksheet') oldVal = existing.marksheet_photo_url || existing.marksheetPhotoUrl || '';
+
+    // Extract previous drive ID from formula e.g. =HYPERLINK("https://drive.google.com/file/d/{id}/view"...)
+    let previousFileId = undefined;
+    const match = oldVal.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (match) {
+      previousFileId = match[1];
+    }
+
+    // Phase 2: OCC Sheet Pointer Commit & Verification
+    const newFileId = `drive-file-${prefix.toLowerCase()}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const newFormula = `=HYPERLINK("https://drive.google.com/file/d/${newFileId}/view", "Restricted Doc [${prefix}]")`;
+
+    // Simulated pointer verification failure recovery / rollback test hook
+    if (options?.simulatePointerMismatch) {
+      return {
+        error: true,
+        statusCode: 500,
+        code: 'POINTER_VERIFICATION_MISMATCH',
+        message: 'Pointer verification mismatch. Asset quarantined and sheet write rolled back.',
+        quarantinedAssetId: newFileId,
+        rolledBackVersion: existing.version,
+      };
+    }
+
+    // Commit pointer and increment revision
+    const currentRev = existing.version || 1;
+    const nextRev = currentRev + 1;
+    existing.version = nextRev;
+
+    if (prefix === 'Signature') {
+      existing.signature_data_url = newFormula;
+      existing.signatureDataUrl = newFormula;
+    } else if (prefix === 'Passbook') {
+      existing.passbook_photo_url = newFormula;
+      existing.passbookPhotoUrl = newFormula;
+    } else if (prefix === 'Aadhaar') {
+      existing.aadhaar_card_photo_url = newFormula;
+      existing.aadhaarCardPhotoUrl = newFormula;
+    } else if (prefix === 'Child_Photo') {
+      existing.child_photo_url = newFormula;
+      existing.childPhotoUrl = newFormula;
+    } else if (prefix === 'Fee_Receipt') {
+      existing.fee_receipt_photo_url = newFormula;
+      existing.feeReceiptPhotoUrl = newFormula;
+    } else if (prefix === 'Marksheet') {
+      existing.marksheet_photo_url = newFormula;
+      existing.marksheetPhotoUrl = newFormula;
+    }
+
+    const nowIso = new Date().toISOString();
+    existing.updated_at = nowIso;
+
+    // Track asset history
+    existing.assetHistory = existing.assetHistory || [];
+    existing.assetHistory.push({
+      slot: prefix,
+      previousFileId,
+      newFileId,
+      supersededAt: nowIso,
+      status: 'SUPERSEDED',
+    });
+
+    const rowInfo = this.findRowIndex(id, prefix);
+
+    return {
+      status: 'success' as const,
+      acknowledged: true,
+      submissionId: id,
+      uniqueId: id,
+      slotPrefix: prefix,
+      docType: prefix,
+      newFileId,
+      previousFileId,
+      newRevision: nextRev,
+      revisionNumber: nextRev,
+      oldAssetStatus: previousFileId ? 'SUPERSEDED' : 'NONE',
+      cellFormula: newFormula,
+      resolvedRow: rowInfo.rowIndex,
+      rowNumber: rowInfo.rowIndex,
+      updatedAt: nowIso,
       record: existing,
     };
   },

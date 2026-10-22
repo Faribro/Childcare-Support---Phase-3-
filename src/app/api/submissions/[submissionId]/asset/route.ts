@@ -816,3 +816,180 @@ async function fetchTrustedRemoteAsset(
     { status: 502, headers: ASSET_NO_STORE_HEADERS }
   );
 }
+
+/**
+ * PUT /api/submissions/[submissionId]/asset
+ *
+ * Two-phase commit document replacement endpoint with OCC revision guard.
+ * Replaces an existing document slot, increments record revision, and preserves
+ * historical assets in the container revision folder as SUPERSEDED.
+ */
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { submissionId: string } }
+) {
+  const requestId = `req-replace-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+  try {
+    const submissionId = params.submissionId;
+    if (!submissionId) {
+      return NextResponse.json(
+        { status: 'error', code: 'INVALID_ID', message: 'Missing submissionId parameter' },
+        { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const scope = await resolveUserAccessScope(req);
+    if (!scope.isVerified) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: 'Unverified caller denied on PUT /api/submissions/[submissionId]/asset',
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required to replace submission assets.',
+          requestId,
+        },
+        { status: 401, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    if (scope.role !== 'ADMIN') {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        details: `Caller role '${scope.role}' forbidden to replace assets under Model A policy`,
+      });
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'FORBIDDEN',
+          message: 'Asset replacement is restricted to verified Administrator role.',
+          requestId,
+        },
+        { status: 403, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    let rawBody: any;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json(
+        { status: 'error', code: 'MALFORMED_JSON', message: 'Malformed JSON body' },
+        { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const { docType, slotPrefix, fileData, fileDataUrl, expectedRevision, expectedVersion, simulatePointerMismatch } = rawBody || {};
+
+    const targetDocType = docType || slotPrefix;
+    if (!targetDocType || typeof targetDocType !== 'string') {
+      return NextResponse.json(
+        { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing required field: docType or slotPrefix' },
+        { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const targetFileData = fileData || fileDataUrl;
+    if (!targetFileData || typeof targetFileData !== 'string') {
+      return NextResponse.json(
+        { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing required field: fileData or fileDataUrl' },
+        { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const targetRevision = expectedRevision !== undefined ? expectedRevision : expectedVersion;
+    if (targetRevision === undefined || targetRevision === null || typeof targetRevision !== 'number' || !Number.isInteger(targetRevision) || targetRevision < 1) {
+      return NextResponse.json(
+        { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing or invalid required field: expectedRevision (must be positive integer)' },
+        { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    // Verify geographic scope if not wildcard
+    if (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
+      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+      if (existing.status === 'success' && existing.data) {
+        const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
+        const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
+        if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: 'SCOPE_VIOLATION',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            scope: `state=${recordState},district=${recordDistrict || ''}`,
+            details: 'Caller forbidden to replace asset outside authorized geographic scope',
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: 'FORBIDDEN_SCOPE',
+              message: `Access denied to replace assets for records in state "${recordState}".`,
+              requestId,
+            },
+            { status: 403, headers: ASSET_NO_STORE_HEADERS }
+          );
+        }
+      }
+    }
+
+    const result = await canonicalSubmissionAdapter.replaceAsset({
+      submissionId,
+      docType: targetDocType,
+      fileData: targetFileData,
+      expectedRevision: targetRevision,
+      requestId,
+      simulatePointerMismatch: !!simulatePointerMismatch,
+    });
+
+    if (result.status === 'error' || result.status === 'conflict') {
+      return NextResponse.json(
+        {
+          status: result.status,
+          code: result.code || (result.status === 'conflict' ? 'OCC_CONFLICT' : 'UPSTREAM_FAILURE'),
+          message: result.message || 'Failed to replace asset',
+          requestId,
+        },
+        { status: result.statusCode || (result.status === 'conflict' ? 409 : 500), headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        status: 'success',
+        acknowledged: true,
+        submissionId: result.remoteSubmissionId || submissionId,
+        uniqueId: result.uniqueId || submissionId,
+        slotPrefix: result.docType || targetDocType,
+        docType: result.docType || targetDocType,
+        cellFormula: result.cellFormula,
+        newFileId: (result as any).newFileId,
+        previousFileId: (result as any).previousFileId,
+        newRevision: result.version || result.revisionNumber,
+        revisionNumber: result.version || result.revisionNumber,
+        oldAssetStatus: (result as any).oldAssetStatus || 'SUPERSEDED',
+        updatedAt: result.updatedAt,
+        requestId,
+      },
+      { status: 200, headers: ASSET_NO_STORE_HEADERS }
+    );
+  } catch (err: any) {
+    console.error('PUT /api/submissions/[submissionId]/asset error:', err?.message || 'Unknown error');
+    return NextResponse.json(
+      { status: 'error', code: 'INTERNAL_ERROR', message: 'Internal server error', requestId },
+      { status: 500, headers: ASSET_NO_STORE_HEADERS }
+    );
+  }
+}

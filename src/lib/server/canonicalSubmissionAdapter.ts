@@ -26,8 +26,22 @@ export interface CanonicalUpdateInput {
   submissionId: string;
   patch: PatchSubmissionPayload;
   expectedVersion?: number;
+  newRevision?: number;
+  previousFileId?: string;
+  newFileId?: string;
+  oldAssetStatus?: string;
   idempotencyKey?: string;
   requestId: string;
+}
+
+export interface CanonicalReplaceAssetInput {
+  submissionId: string;
+  docType: string;
+  fileData: string;
+  expectedRevision?: number;
+  expectedVersion?: number;
+  requestId: string;
+  simulatePointerMismatch?: boolean;
 }
 
 export interface CanonicalListParams {
@@ -63,6 +77,10 @@ export interface CanonicalSubmissionResult {
   data?: any;
   currentVersion?: number;
   expectedVersion?: number;
+  newRevision?: number;
+  previousFileId?: string;
+  newFileId?: string;
+  oldAssetStatus?: string;
   pagination?: {
     nextCursor?: string | null;
     hasMore: boolean;
@@ -1345,6 +1363,151 @@ class CanonicalSubmissionAdapterService {
       docType: mockRes.docType,
       cellFormula: mockRes.cellFormula,
       assetStatus: mockRes.assetStatus,
+      resolvedRow: mockRes.resolvedRow,
+      rowNumber: mockRes.rowNumber,
+      updatedAt: mockRes.updatedAt,
+      requestId: input.requestId,
+      data: mockRes.record,
+    };
+  }
+
+  /**
+   * CANONICAL ASSET REPLACEMENT (TWO-PHASE COMMIT WITH OCC)
+   */
+  async replaceAsset(input: CanonicalReplaceAssetInput): Promise<CanonicalSubmissionResult> {
+    const configCheck = this.checkConfiguration('write');
+    if (!configCheck.valid && configCheck.errorResponse) {
+      return configCheck.errorResponse;
+    }
+
+    const appsScriptUrl = this.getAppsScriptUrl();
+    const webhookSecret = this.getWebhookSecret();
+
+    if (this.isConfigured() && appsScriptUrl) {
+      try {
+        const res = await fetch(appsScriptUrl, {
+          method: 'POST',
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+          },
+          body: JSON.stringify({
+            action: 'replaceAsset',
+            remoteSubmissionId: input.submissionId,
+            submissionId: input.submissionId,
+            uniqueId: input.submissionId,
+            slotPrefix: input.docType,
+            docType: input.docType,
+            fileDataUrl: input.fileData,
+            fileData: input.fileData,
+            expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+            expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+            requestId: input.requestId,
+            secret: webhookSecret,
+          }),
+        });
+
+        const gasData = await res.json().catch(() => ({}));
+        if (!res.ok || gasData.status === 'error') {
+          return {
+            status: gasData.code === 'OCC_CONFLICT' ? 'conflict' : 'error',
+            statusCode: res.status || (gasData.code === 'OCC_CONFLICT' ? 409 : 500),
+            code: gasData.code || 'UPSTREAM_FAILURE',
+            message: gasData.message || 'Google Sheets backend returned error on asset replacement',
+            requestId: input.requestId,
+          };
+        }
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          acknowledged: true,
+          remoteSubmissionId: gasData.submissionId || input.submissionId,
+          uniqueId: gasData.uniqueId || input.submissionId,
+          docType: gasData.slotPrefix || gasData.docType || input.docType,
+          cellFormula: gasData.cellFormula,
+          assetStatus: 'UPLOADED',
+          version: gasData.newRevision || gasData.revisionNumber,
+          revisionNumber: gasData.newRevision || gasData.revisionNumber,
+          newRevision: gasData.newRevision,
+          newFileId: gasData.newFileId,
+          previousFileId: gasData.previousFileId,
+          oldAssetStatus: gasData.oldAssetStatus || 'SUPERSEDED',
+          updatedAt: gasData.updatedAt || new Date().toISOString(),
+          requestId: input.requestId,
+          data: gasData,
+        };
+      } catch (err: any) {
+        console.error('Canonical ASSET REPLACE fetch exception:', err?.message || err);
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'GATEWAY_TIMEOUT',
+          message: 'Unable to reach central Google Sheets bridge for asset replacement.',
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // Local / Dev Mock Store Execution
+    const mockRes = MockSheetStore.replaceAsset(
+      input.submissionId,
+      input.docType,
+      input.fileData,
+      input.requestId,
+      {
+        expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+        expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+        simulatePointerMismatch: input.simulatePointerMismatch,
+      }
+    );
+
+    if ('notFound' in mockRes) {
+      return {
+        status: 'error',
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        message: mockRes.message || `Submission ${input.submissionId} not found`,
+        requestId: input.requestId,
+      };
+    }
+
+    if ('conflict' in mockRes) {
+      return {
+        status: 'conflict',
+        statusCode: 409,
+        code: mockRes.code || 'OCC_CONFLICT',
+        message: mockRes.message || 'Asset replacement conflict',
+        requestId: input.requestId,
+      };
+    }
+
+    if ('error' in mockRes) {
+      return {
+        status: 'error',
+        statusCode: mockRes.statusCode || 500,
+        code: mockRes.code || 'INTERNAL_ERROR',
+        message: mockRes.message || 'Asset replacement failed',
+        requestId: input.requestId,
+      };
+    }
+
+    return {
+      status: 'success',
+      statusCode: 200,
+      acknowledged: true,
+      remoteSubmissionId: mockRes.submissionId,
+      uniqueId: mockRes.uniqueId,
+      docType: mockRes.docType,
+      cellFormula: mockRes.cellFormula,
+      assetStatus: 'UPLOADED',
+      version: mockRes.newRevision,
+      revisionNumber: mockRes.newRevision,
+      newRevision: mockRes.newRevision,
+      newFileId: mockRes.newFileId,
+      previousFileId: mockRes.previousFileId,
+      oldAssetStatus: mockRes.oldAssetStatus || 'SUPERSEDED',
       resolvedRow: mockRes.resolvedRow,
       rowNumber: mockRes.rowNumber,
       updatedAt: mockRes.updatedAt,
