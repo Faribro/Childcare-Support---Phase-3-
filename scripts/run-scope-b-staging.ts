@@ -209,7 +209,8 @@ async function runScopeB() {
     console.log('\n[STEP 1/10] POST /api/submissions (Create SYN-STAGING-001)...');
     const rawPayload = createSyntheticSubmission({
       runId: 'staging-scope-b',
-      uniqueSuffix: 'STAGING-001'
+      uniqueSuffix: 'STAGING-001',
+      withSignature: false
     });
     // Explicitly lock ID to SYN-STAGING-001
     rawPayload.uniqueId = TEST_ID;
@@ -313,16 +314,12 @@ async function runScopeB() {
     counters.driveMutations += 1; // File created in container
     checkCaps('Step 5: Asset Upload');
 
-    // Compute expected cell state hash: newly created cell had empty string
-    const emptyCellHash = crypto.createHash('sha256').update('').digest('hex');
-
     const assetRes = await canonicalSubmissionAdapter.updateAsset({
       submissionId: TEST_ID,
       docType: 'SIGNATURE',
       fileData: SYNTHETIC_BASE64_IMAGE,
       documentOperationId: `doc-op-${Date.now()}`,
       expectedVersion: 2,
-      expectedCurrentCellStateHash: emptyCellHash,
       requestId: `req-step5-${Date.now()}`
     });
 
@@ -413,7 +410,7 @@ async function runScopeB() {
     const folderSearchRes: any = await new Promise((resolve, reject) => {
       counters.directVerificationReads++;
       checkCaps('Drive folder search');
-      const q = encodeURIComponent(`'${TARGET_ROOT_FOLDER_ID}' in parents and trashed = false`);
+      const q = encodeURIComponent(`'${TARGET_ROOT_FOLDER_ID}' in parents and trashed = false and name contains '${TEST_ID}'`);
       const req = https.request({
         hostname: 'www.googleapis.com',
         path: `/drive/v3/files?q=${q}&fields=files(id,name,trashed)`,
@@ -428,7 +425,11 @@ async function runScopeB() {
       req.end();
     });
 
-    console.log('  âœ“ Direct Drive verification completed! 0 untrashed orphan folders found in staging root.');
+    const orphanCount = (folderSearchRes.files || []).length;
+    if (orphanCount > 0) {
+      throw new Error(`Direct Drive verification failed: ${orphanCount} untrashed folder(s) found for ${TEST_ID}!`);
+    }
+    console.log('  ✓ Direct Drive verification completed! 0 untrashed orphan folders found in staging root.');
 
     // ------------------------------------------------------------------------
     // SUMMARY REPORT
@@ -455,6 +456,15 @@ async function runScopeB() {
   } catch (err: any) {
     console.error('\n[SCOPE B RUNNER FAILED]:', err?.message || err);
     console.error('Current counters at failure:', counters);
+    if (counters.sheetMutations > 0 && counters.cleanupRetries < 1) {
+      console.log('\n[EMERGENCY CLEANUP] Attempting cleanup after failure...');
+      try {
+        await canonicalSubmissionAdapter.deleteSubmission(TEST_ID);
+        console.log('Emergency cleanup delete acknowledged.');
+      } catch (cleanErr) {
+        console.error('Emergency cleanup failed:', cleanErr);
+      }
+    }
     process.exit(1);
   }
 }
