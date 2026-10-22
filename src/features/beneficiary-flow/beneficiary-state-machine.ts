@@ -167,6 +167,44 @@ export class BeneficiaryStateMachine {
         !isNegative;
 
       if (!isAffirmative) {
+        // Check if beneficiary is requesting human caseworker assistance
+        const consentIntent = await this.gateway.classifyIntent({
+          messageText: processedText,
+          context: {
+            currentLanguage: session.preferredLanguage,
+            activeRequestedDoc: session.targetDocType,
+            childIdMasked: session.childIdMasked,
+            previousState: session.state,
+          },
+        });
+
+        if (consentIntent.primaryIntent === 'HUMAN_CSC_ESCALATION') {
+          session.state = 'ESCALATED_TO_CSC';
+          session.isEscalated = true;
+          session.escalationReason = 'BENEFICIARY_REQUESTED_HUMAN_HELP';
+          session.cscHandoffNotes = `Beneficiary asked for coordinator assistance during consent phase: "${PrivacyFilter.scrubTextForInference(processedText)}"`;
+          session.durableTaskCreationPending = true;
+          session.humanHandoff = {
+            isEscalated: true,
+            escalatedAt: new Date().toISOString(),
+            reason: 'BENEFICIARY_REQUESTED_HUMAN_HELP',
+            caseworkerTicketId: `CSC-TKT-${Date.now().toString(36).toUpperCase()}`,
+            durableTaskCreated: false,
+          };
+
+          const reply = this.getEscalationResponse(session.preferredLanguage);
+          return {
+            updatedSession: session,
+            response: {
+              recipientPhoneMasked: maskedPhone,
+              language: session.preferredLanguage,
+              textMessage: reply,
+              isDispatched: false,
+              nextExpectedAction: 'CSC_CONTACT',
+            },
+          };
+        }
+
         // Ambiguous text or question while consent is pending -> re-prompt
         return {
           updatedSession: session,
