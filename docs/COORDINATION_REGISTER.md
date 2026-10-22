@@ -2,7 +2,7 @@
 
 **Role**: Release Integrator (Storage/Integration, Staging, PR Reconciliation, Final Assembly)  
 **Base Commit (main)**: `908abdf8cdb21512625322ba8ba0566f760b1253`  
-**Current Candidate Integration SHA**: `930193d109e5d0c949e559f283e646daf7bd7023`  
+**Current Candidate Integration SHA**: `d1a1e355df4c7154e8a2feb4479c5554ddfd43f8`  
 **Worktree**: `Childcare-Main-Verify` (Branch: `feat/cross-system-consistency`)  
 **Status Date**: 2026-10-22T10:58:00+05:30  
 
@@ -88,3 +88,54 @@
 ## 5. Coordination Limitation Notice
 * **Communication Boundary**: Separate agent threads (Thread 04, Thread 07, Integrator) run in independent process sessions without direct inter-agent IPC.
 * **Coordination Protocol**: Inter-thread alignment is mediated asynchronously via git branch tracking, shared handoff documentation (`docs/COORDINATION_REGISTER.md`), and local filesystem artifacts. Owner relaying of repetitive messages is avoided.
+
+---
+
+## 4. Worker Handoff Integration & Verification Audit
+
+### 4.1 Thread 04 (Identity & Access Readiness)
+- Worktree: Childcare-Support-Phase-3(1)
+- Branch: feat/identity-access-readiness
+- Base SHA: 908abdf8cdb21512625322ba8ba0566f760b1253
+- Head SHA: a44fac41481a9c3c5971807c0526374016c95d56
+- Transplanted Changes:
+  - src/test/integration/request-boundary-authorization.test.ts (Section 8: CSRF & Origin validation tests on login, logout, and PATCH).
+  - docs/THREAD_AUTH_HANDOFF_TO_THREAD_02.md.
+  - Identity/programme scopes and fail-closed production guards were already matched with candidate.
+- Verification Evidence: 142/142 auth tests passed across 6 test suites in candidate worktree.
+
+### 4.2 Thread 07 (Intake UI & Offline Device Acceptance)
+- Worktree: Childcare-Native-Offline
+- Branch: feat/intake-offline-device-acceptance
+- Base SHA: 69d0a67b7bb05b7027d0cf7945497780f18f6392 (PR #88)
+- Head SHA: 2b0ba8ddf47ae583fadbfb89b93371b16dc638c7
+- Transplanted Changes:
+  - src/components/ui/PhotoUpload.tsx (enlarged modal preview, retry on error, 10MB/MIME validation, plus restored isValidImageUrl function).
+  - src/test/photo-upload-ui.test.tsx (7 tests).
+  - src/test/integration/intake-offline-device-acceptance.test.ts (15 tests).
+  - Offline platform subsystem: src/lib/platform/* (SQLite, SecureStorage, Network, OfflineFormManager, PlatformRegistry).
+  - Native client packaging: capacitor.config.ts, vite.native.config.ts, src/native/*.
+- Verification Evidence: 22/22 tests passed in targeted suites; 40/40 Playwright browser tests passed across 5 viewports.
+
+### 4.3 Native Android Build & Provenance Audit
+- Reported APK: release-artifacts/app-v3-debug.apk (27,167,999 bytes).
+- Filesystem Modified Time: 2026-10-16T17:09:53.229Z.
+- Provenance Verdict: Built on October 16, 2026, from base commit 69d0a67 (or prior). NOT compiled from worker head 2b0ba8d (committed October 22, 2026).
+- Release Status: Debug APK (app-v3-debug.apk), unsigned for production. Physical-device acceptance NOT EXECUTED.
+
+### 4.4 Document Replacement Contract Audit
+- UI Layer (PhotoUpload.tsx): File picker with preview modal and local replacement action emitting onChange(dataUrl). Does not execute remote network requests or pass expectedVersion / cell state hashes.
+- Backend Layer (asset/route.ts & replace-document/route.ts): Fully implemented two-phase OCC replacement:
+  - Validates 64-char hex SHA-256 cell state hash.
+  - Validates integer expectedVersion against current record version (fails closed with 409 OCC_CONFLICT on mismatch).
+  - Stages new asset and archives superseded file to assetHistory.
+  - 7/7 tests passed in document-replacement-two-phase.test.ts.
+- Reconciliation Requirement: Future wire-up must connect UI replacement button to POST /api/submissions/[id]/replace-document when editing existing server records.
+
+### 4.5 Full Application Required Gaps Register
+1. Leadership Email-OTP: LEADERSHIP_EMAIL_AUTH_ENABLED=false by default. Requires Supabase Migration 003 (leader_identities) and operational email gateway.
+2. Beneficiary Session Durability: Operates in-memory (InMemoryBeneficiarySessionStore.survivesProcessRestart() === false). Needs DB migration for persistence across server restarts.
+3. Beneficiary Opt-Out: Deterministic in-memory regex filter. Opt-out state resets on process restart.
+4. CSC Caseworker Escalation: In-memory status marker (reviewEscalationPath: CSC_CASEWORKER_REVIEW). Does not generate persistent DB tasks in Supabase.
+5. Voice Calling Agent: Prototype evaluation mode paused. Telephony and Indian-language models not provisioned.
+6. Staging Script Deployment Secret: Deployment AKfycbxVskbuZ6d4UYoUK5mwDBFqF3lhNFNBYmOjXJ4EWbVQ7R0KGrvTWqV82cdchKGYYj5EgA evaluates WEBHOOK_SECRET to null/empty in runtime, returning HTTP 503 CONFIGURATION_ERROR on doPost.
