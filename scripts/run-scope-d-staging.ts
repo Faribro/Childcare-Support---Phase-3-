@@ -63,7 +63,7 @@ process.env.WEBHOOK_SECRET = stagingSecret;
 process.env.E2E_STAGING_ENABLED = 'true';
 process.env.E2E_ALLOW_LOCAL_MOCK = 'false';
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-process.env.INITIAL_ADMIN_PWD = 'StagingAdmin2026!TestOnly';
+process.env.INITIAL_ADMIN_PWD = process.env.INITIAL_ADMIN_PWD || crypto.randomBytes(24).toString('base64');
 
 // Safety collision assertions
 if (BLOCKED_OPERATIONAL_SPREADSHEET_IDS.includes(TARGET_SPREADSHEET_ID)) {
