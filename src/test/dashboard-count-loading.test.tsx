@@ -225,9 +225,6 @@ describe('Dashboard Count Loading Performance (/app)', () => {
         screen.getAllByRole('status', { name: /loading draft count/i }).length
       ).toBeGreaterThan(0);
       expect(
-        screen.getAllByRole('status', { name: /loading waiting count/i }).length
-      ).toBeGreaterThan(0);
-      expect(
         screen.getAllByRole('status', { name: /loading submitted count/i }).length
       ).toBeGreaterThan(0);
 
@@ -249,8 +246,8 @@ describe('Dashboard Count Loading Performance (/app)', () => {
       await waitFor(() => {
         // Must show localSyncedCount (5)
         expect(screen.getAllByText('5').length).toBeGreaterThan(0);
-        // Desktop card shows Offline badge
-        expect(screen.getByText('Offline')).toBeDefined();
+        // Mobile feedback shows offline status
+        expect(screen.getByText('Showing locally confirmed (offline)')).toBeDefined();
       });
 
       // Remote fetch should not have been called when offline
@@ -302,8 +299,8 @@ describe('Dashboard Count Loading Performance (/app)', () => {
           name: /retry loading submitted count/i,
         });
         expect(retryButtons.length).toBeGreaterThan(0);
-        // Must NOT display "Offline" badge because device is online
-        expect(screen.queryByText('Offline')).toBeNull();
+        // Must NOT display offline status because device is online
+        expect(screen.queryByText('Showing locally confirmed (offline)')).toBeNull();
       });
     });
 
@@ -317,7 +314,7 @@ describe('Dashboard Count Loading Performance (/app)', () => {
       render(<FieldWorkspacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Offline')).toBeDefined();
+        expect(screen.getByText('Showing locally confirmed (offline)')).toBeDefined();
       });
 
       // Now come online
@@ -338,7 +335,7 @@ describe('Dashboard Count Loading Performance (/app)', () => {
 
       await waitFor(() => {
         expect(screen.getAllByText('77').length).toBeGreaterThan(0);
-        expect(screen.queryByText('Offline')).toBeNull();
+        expect(screen.queryByText('Showing locally confirmed (offline)')).toBeNull();
       });
     });
   });

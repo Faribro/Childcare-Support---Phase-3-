@@ -395,19 +395,9 @@ export default function FieldWorkspacePage() {
           {/* Miniature Children Garden Playground (Physics-based live interactive garden) */}
           <MiniatureGardenPlayground />
 
-          {/* Needs Attention Panel */}
-          <NeedsAttentionPanel
-            localDraftsCount={draftCount ?? drafts.length}
-            outboxAttentionCount={waitingCount ?? 0}
-            submittedMissingDocsCount={submittedMissingDocsCount}
-            approvedBankPendingCount={approvedBankPendingCount}
-            serverScopeLabel={serverScopeLabel}
-            isServerLoading={isSubmittedLoading}
-          />
-
-          {/* Featured Primary Form Card Matching Reference FormLibrary */}
-          <div className="p-6 md:p-8 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[hsl(215,18%,90%)] pb-6">
+          {/* Survey Action Row */}
+          <div className="p-4 sm:p-5 md:p-6 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center space-x-3.5 flex-wrap gap-y-2">
                 <h2 className="text-lg md:text-xl font-bold text-[hsl(220,15%,15%)] leading-snug">
                   Child Nutrition &amp; Support Form
@@ -415,7 +405,7 @@ export default function FieldWorkspacePage() {
                 <AnimatedHeartUnlock />
               </div>
 
-              <div className="waves-wrapper self-center md:self-start my-2 md:my-0">
+              <div className="waves-wrapper self-center sm:self-auto my-1 sm:my-0">
                 <div className="waves-block">
                   <div className="waves wave-1"></div>
                   <div className="waves wave-2"></div>
@@ -449,87 +439,17 @@ export default function FieldWorkspacePage() {
                 </Link>
               </div>
             </div>
-
-            {/* Operational Statistics */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
-              <div className="p-3.5 rounded-lg bg-[hsl(215,20%,97%)] border border-[hsl(215,18%,88%)]">
-                <span className="text-[11px] font-semibold text-[hsl(215,12%,45%)] block">
-                  Local In-Progress Drafts
-                </span>
-                <span className="text-xl font-bold text-[hsl(220,15%,15%)] tabular-nums flex items-center min-h-[28px]">
-                  {isDraftsLoading ? (
-                    <span
-                      className="inline-block w-8 h-5 bg-slate-200 animate-pulse rounded"
-                      role="status"
-                      aria-label="Loading draft count"
-                    />
-                  ) : (
-                    (draftCount ?? drafts.length)
-                  )}
-                </span>
-              </div>
-
-              <Link
-                href="/assessment/sync"
-                className="p-3.5 rounded-lg bg-[hsl(210,80%,98%)] border border-[hsl(210,80%,85%)] cursor-pointer hover:bg-[hsl(210,80%,95%)] transition-colors block"
-              >
-                <span className="text-[11px] font-semibold text-[hsl(210,80%,35%)] block">
-                  Waiting to be Sent
-                </span>
-                <span className="text-xl font-bold text-[hsl(210,80%,30%)] tabular-nums flex items-center min-h-[28px]">
-                  {isWaitingLoading ? (
-                    <span
-                      className="inline-block w-8 h-5 bg-blue-200 animate-pulse rounded"
-                      role="status"
-                      aria-label="Loading waiting count"
-                    />
-                  ) : (
-                    (waitingCount ?? 0)
-                  )}
-                </span>
-              </Link>
-
-              <div className="p-3.5 rounded-lg bg-[hsl(145,60%,97%)] border border-[hsl(145,50%,85%)] col-span-2 sm:col-span-1 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <Link
-                    href="/assessment/sync?tab=synced"
-                    className="text-[11px] font-semibold text-[hsl(145,65%,28%)] hover:underline"
-                  >
-                    Submitted Surveys
-                  </Link>
-                  {submittedStatus === 'offline' && (
-                    <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                      Offline
-                    </span>
-                  )}
-                  {submittedStatus === 'error' && (
-                    <button
-                      type="button"
-                      onClick={handleRetrySubmitted}
-                      className="text-[11px] font-medium text-amber-700 hover:text-amber-900 underline cursor-pointer"
-                      aria-label="Retry loading submitted count"
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-                <Link
-                  href="/assessment/sync?tab=synced"
-                  className="text-xl font-bold text-[hsl(145,65%,25%)] tabular-nums flex items-center min-h-[28px] mt-0.5 hover:opacity-80 transition-opacity"
-                >
-                  {isSubmittedLoading ? (
-                    <span
-                      className="inline-block w-8 h-5 bg-emerald-200 animate-pulse rounded"
-                      role="status"
-                      aria-label="Loading submitted count"
-                    />
-                  ) : (
-                    (submittedCount ?? 0)
-                  )}
-                </Link>
-              </div>
-            </div>
           </div>
+
+          {/* Needs Attention Panel */}
+          <NeedsAttentionPanel
+            localDraftsCount={draftCount ?? drafts.length}
+            outboxAttentionCount={waitingCount ?? 0}
+            submittedMissingDocsCount={submittedMissingDocsCount}
+            approvedBankPendingCount={approvedBankPendingCount}
+            serverScopeLabel={serverScopeLabel}
+            isServerLoading={isSubmittedLoading}
+          />
 
           {/* In-Progress Drafts Section */}
           <section className="space-y-4">
