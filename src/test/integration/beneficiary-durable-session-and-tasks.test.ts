@@ -45,8 +45,10 @@ describe('Durable Beneficiary Session & CSC Task Persistence Suite', () => {
 
     const client = await pool.connect();
     try {
-      // Bootstrap required roles if running in clean local postgres
+      // Bootstrap required roles and auth schema if running in clean local postgres
       await client.query(`
+        CREATE SCHEMA IF NOT EXISTS auth;
+        CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT '{}'::jsonb; $$;
         DO $$
         BEGIN
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN

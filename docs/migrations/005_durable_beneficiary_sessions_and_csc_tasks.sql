@@ -7,6 +7,7 @@
 
 BEGIN;
 
+CREATE SCHEMA IF NOT EXISTS auth;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 --------------------------------------------------------------------------------
