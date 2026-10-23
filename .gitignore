@@ -61,3 +61,4 @@ scratch/
 *manifest*.json
 supabase/.temp/
 probe_register.json
+probe_*.json
