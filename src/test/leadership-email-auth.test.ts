@@ -1414,5 +1414,67 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         if (prevKey) process.env.SUPABASE_SERVICE_ROLE_KEY = prevKey;
       }
     });
+
+    it('getLeaderIdentityByEmail resolves active leader identity from store case-insensitively', async () => {
+      const memoryStore = new MemoryLeaderAuthStore();
+      memoryStore.setLeaderIdentityForTesting({
+        id: 'lead-custom-exec',
+        email: 'executive.director@allianceindia.org',
+        name: 'Executive Director',
+        title: 'Country Director',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isActive: true,
+        authVersion: 1,
+      });
+
+      const leader = await memoryStore.getLeaderIdentityByEmail('  EXECUTIVE.DIRECTOR@AllianceIndia.Org ');
+      expect(leader).not.toBeNull();
+      expect(leader?.id).toBe('lead-custom-exec');
+      expect(leader?.name).toBe('Executive Director');
+
+      const nonExistent = await memoryStore.getLeaderIdentityByEmail('nobody@allianceindia.org');
+      expect(nonExistent).toBeNull();
+    });
+
+    it('requestLeadershipAuthCode resolves leader stored only in persistent store by email', async () => {
+      const memoryStore = new MemoryLeaderAuthStore();
+      setLeaderAuthStoreForTesting(memoryStore);
+
+      memoryStore.setLeaderIdentityForTesting({
+        id: 'lead-store-only',
+        email: 'database.leader@allianceindia.org',
+        name: 'Database Leader',
+        title: 'National Director',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isActive: true,
+        authVersion: 1,
+      });
+
+      const prevFlag = process.env.LEADERSHIP_EMAIL_AUTH_ENABLED;
+      process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = 'true';
+
+      try {
+        const result = await requestLeadershipAuthCode({
+          email: 'DATABASE.LEADER@allianceindia.org',
+          deviceBindingSecret: 'test-device-secret-1234567890123456',
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.statusCode).toBe(200);
+        }
+
+        const pending = await memoryStore.getPendingChallenge('database.leader@allianceindia.org');
+        expect(pending).not.toBeNull();
+        expect(pending?.leaderId).toBe('lead-store-only');
+      } finally {
+        if (prevFlag) process.env.LEADERSHIP_EMAIL_AUTH_ENABLED = prevFlag;
+        else delete process.env.LEADERSHIP_EMAIL_AUTH_ENABLED;
+      }
+    });
   });
 });

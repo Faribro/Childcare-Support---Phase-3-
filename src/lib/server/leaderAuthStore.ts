@@ -13,7 +13,7 @@
  */
 
 import crypto from 'crypto';
-import { findLeaderById, type LeaderIdentity } from './leaderIdentityStore';
+import { findLeaderById, findLeaderByEmail, getPublicDirectoryLeaders, type LeaderIdentity, type PublicDirectoryLeader } from './leaderIdentityStore';
 
 export const LEADER_COOKIE_NAME = 'leader_session_id';
 export const LEADER_DEVICE_COOKIE_NAME = 'leader_device_binding';
@@ -101,6 +101,8 @@ export interface LeaderAuthStore {
 
   // Persistent identity inspection
   getLeaderIdentity(leaderId: string): Promise<LeaderIdentity | null>;
+  getLeaderIdentityByEmail(email: string): Promise<LeaderIdentity | null>;
+  listActiveLeaderIdentities(): Promise<LeaderIdentity[]>;
 
   clearAllForTesting?(): Promise<void>;
   setLeaderIdentityForTesting?(identity: LeaderIdentity): void;
@@ -182,6 +184,14 @@ export class UnavailableLeaderAuthStore implements LeaderAuthStore {
   async getLeaderIdentity(): Promise<LeaderIdentity | null> {
     return null;
   }
+
+  async getLeaderIdentityByEmail(): Promise<LeaderIdentity | null> {
+    return null;
+  }
+
+  async listActiveLeaderIdentities(): Promise<LeaderIdentity[]> {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +215,35 @@ export class MemoryLeaderAuthStore implements LeaderAuthStore {
     if (fromStore) return { ...fromStore };
     const found = this.identities.get(leaderId);
     return found ? { ...found } : null;
+  }
+
+  async getLeaderIdentityByEmail(email: string): Promise<LeaderIdentity | null> {
+    const norm = email.trim().toLowerCase();
+    for (const identity of this.identities.values()) {
+      if (identity.email.trim().toLowerCase() === norm) {
+        return { ...identity };
+      }
+    }
+    const fromStore = findLeaderByEmail(email);
+    if (fromStore) return { ...fromStore };
+    return null;
+  }
+
+  async listActiveLeaderIdentities(): Promise<LeaderIdentity[]> {
+    if (this.identities.size > 0) {
+      return Array.from(this.identities.values()).filter((l) => l.isActive).map((l) => ({ ...l }));
+    }
+    return getPublicDirectoryLeaders().map((l: PublicDirectoryLeader) => ({
+      id: l.id,
+      email: `${l.id}@example.org`,
+      name: l.name,
+      title: l.title,
+      role: 'LEADERSHIP' as const,
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+      isActive: true,
+      authVersion: 1,
+    }));
   }
 
   async checkAndRecordRateLimit(key: string, now: number): Promise<RateLimitCheckResult> {
@@ -835,6 +874,56 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
       isActive: Boolean(r.is_active),
       authVersion: Number(r.auth_version || 1),
     };
+  }
+
+  async getLeaderIdentityByEmail(email: string): Promise<LeaderIdentity | null> {
+    const norm = encodeURIComponent(email.trim().toLowerCase());
+    const url = `${this.baseUrl}/rest/v1/leader_identities?email=eq.${norm}&select=*`;
+    const res = await fetch(url, { headers: this.headers });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database getLeaderIdentityByEmail failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
+    }
+
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      email: r.email,
+      name: r.full_name,
+      title: r.title,
+      role: 'LEADERSHIP',
+      allowedStates: r.allowed_states || ['*'],
+      allowedDistricts: r.allowed_districts || ['*'],
+      isActive: Boolean(r.is_active),
+      authVersion: Number(r.auth_version || 1),
+    };
+  }
+
+  async listActiveLeaderIdentities(): Promise<LeaderIdentity[]> {
+    const url = `${this.baseUrl}/rest/v1/leader_identities?is_active=eq.true&select=*`;
+    const res = await fetch(url, { headers: this.headers });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Database listActiveLeaderIdentities failed (status ${res.status}): ${sanitizeDatabaseError(errText)}`);
+    }
+
+    const rows = await res.json();
+    if (!rows || !Array.isArray(rows)) return [];
+    return rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      name: r.full_name,
+      title: r.title,
+      role: 'LEADERSHIP' as const,
+      allowedStates: r.allowed_states || ['*'],
+      allowedDistricts: r.allowed_districts || ['*'],
+      isActive: Boolean(r.is_active),
+      authVersion: Number(r.auth_version || 1),
+    }));
   }
 }
 

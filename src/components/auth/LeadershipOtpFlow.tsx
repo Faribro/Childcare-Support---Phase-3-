@@ -42,28 +42,31 @@ export interface ApprovedLeaderProfile {
   email?: string;
 }
 
-export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] = [
-  {
-    id: 'lead-ananya-roy',
-    name: 'Dr. Ananya Roy',
-    title: 'National Programme Director',
-  },
-  {
-    id: 'lead-rajiv-menon',
-    name: 'Rajiv Menon',
-    title: 'Senior Technical Lead',
-  },
-  {
-    id: 'lead-priya-sharma',
-    name: 'Priya Sharma',
-    title: 'Regional Operations Head',
-  },
-  {
-    id: 'lead-samuel-k',
-    name: 'Samuel K',
-    title: 'Governance & Compliance Officer',
-  },
-];
+export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] =
+  process.env.NODE_ENV === 'production'
+    ? []
+    : [
+        {
+          id: 'lead-ananya-roy',
+          name: 'Dr. Ananya Roy',
+          title: 'National Programme Director',
+        },
+        {
+          id: 'lead-rajiv-menon',
+          name: 'Rajiv Menon',
+          title: 'Senior Technical Lead',
+        },
+        {
+          id: 'lead-priya-sharma',
+          name: 'Priya Sharma',
+          title: 'Regional Operations Head',
+        },
+        {
+          id: 'lead-samuel-k',
+          name: 'Samuel K',
+          title: 'Governance & Compliance Officer',
+        },
+      ];
 
 // Synthetic fixtures for local development & testing ONLY.
 // Gate: rendered ONLY when process.env.NODE_ENV !== 'production' AND NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true'.
@@ -978,8 +981,9 @@ export function LeadershipOtpFlow({
       {/* STEP 1: Enter Email / Select Account */}
       {step === 'input' && (
         <form onSubmit={handleRequestCode} className="space-y-4">
-          {/* Real Leadership Account Combobox (Always Available) */}
-          <div className="relative" ref={comboboxRef}>
+          {/* Real Leadership Account Combobox (Rendered when directory profiles are available) */}
+          {availableProfiles.length > 0 && (
+            <div className="relative" ref={comboboxRef}>
             <div className="flex items-center justify-between mb-1">
               <label
                 id="leadership-combobox-label"
@@ -1061,7 +1065,8 @@ export function LeadershipOtpFlow({
                 })}
               </ul>
             )}
-          </div>
+            </div>
+          )}
 
           {/* Privacy-Preserving Work Email Input */}
           <div>

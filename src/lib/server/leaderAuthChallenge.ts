@@ -114,7 +114,10 @@ export async function requestLeadershipAuthCode({
     }
   } else if (email && typeof email === 'string') {
     targetEmail = normalizeEmail(email);
-    leader = findLeaderByEmail(targetEmail);
+    leader = await store.getLeaderIdentityByEmail(targetEmail).catch(() => null);
+    if (!leader) {
+      leader = findLeaderByEmail(targetEmail);
+    }
   }
 
   if (!targetEmail || !targetEmail.includes('@')) {
@@ -260,7 +263,10 @@ export async function verifyLeadershipAuthCode({
     }
   } else if (email && typeof email === 'string') {
     norm = normalizeEmail(email);
-    leader = findLeaderByEmail(norm);
+    leader = await store.getLeaderIdentityByEmail(norm).catch(() => null);
+    if (!leader) {
+      leader = findLeaderByEmail(norm);
+    }
   }
 
   const cleanCode = normalizeOtpCode(code);
@@ -312,6 +318,9 @@ export async function verifyLeadershipAuthCode({
 
   if (!leader) {
     leader = await store.getLeaderIdentity(challenge.leaderId).catch(() => null);
+    if (!leader) {
+      leader = await store.getLeaderIdentityByEmail(norm).catch(() => null);
+    }
     if (!leader) {
       leader = findLeaderByEmail(norm);
     }
