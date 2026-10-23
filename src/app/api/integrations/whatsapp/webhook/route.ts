@@ -281,11 +281,24 @@ export async function POST(req: NextRequest) {
                 pipelineResult.status === 'ERROR' ? 'Pipeline evaluation error' : undefined
               );
 
-              const isLiveAllowed = process.env.ALLOW_LIVE_WHATSAPP_SEND === 'true';
-              if (isLiveAllowed) {
-                console.info(`[WHATSAPP_WEBHOOK] Live send enabled for ${senderMasked}`);
-              } else {
-                console.info(`[WHATSAPP_WEBHOOK] Outbound response prepared (live sends disabled): intent=${pipelineResult.diagnosticRecord?.intent || 'unknown'}`);
+              if (pipelineResult.outboundMessage?.text?.body) {
+                try {
+                  await outboundSender.dispatch(
+                    {
+                      idempotencyKey: `lead-reply-${messageId}`,
+                      correlationId: diagnostics.correlationId,
+                      recipientPhoneE164: normalizedPhone,
+                      messageType: 'TEXT',
+                      textBody: pipelineResult.outboundMessage.text.body,
+                    },
+                    {
+                      userId: senderIdentity.callerScope?.userId || 'system-leadership-reporting',
+                      role: 'LEADERSHIP',
+                    }
+                  );
+                } catch (dispatchErr: any) {
+                  console.error(`[WHATSAPP_WEBHOOK] Failed to dispatch leadership reply: ${dispatchErr?.message || dispatchErr}`);
+                }
               }
             } catch (err: any) {
               const errMsg = err instanceof Error ? err.message : 'Unknown pipeline error';
@@ -309,6 +322,43 @@ export async function POST(req: NextRequest) {
               await inboundPersistence.updateEventStatus(messageId, 'PROCESSED');
 
               console.info(`[WHATSAPP_WEBHOOK] Caregiver state transitioned: state=${caregiverResult.record.state}, recipient=${senderMasked}`);
+
+              // Dispatch outbound OTP if newly generated
+              if (caregiverResult.rawOtpForTransport) {
+                try {
+                  const otpText = `Your Child Nutrition Programme verification code is: ${caregiverResult.rawOtpForTransport}\n\nValid for 10 minutes. Do not share this code.`;
+                  await outboundSender.dispatch(
+                    {
+                      idempotencyKey: `otp-dispatch-${caregiverResult.record.subscriptionId}-${Date.now()}`,
+                      correlationId: diagnostics.correlationId,
+                      recipientPhoneE164: normalizedPhone,
+                      messageType: 'TEXT',
+                      textBody: otpText,
+                    },
+                    { userId: 'system-caregiver-otp', role: 'SYSTEM' }
+                  );
+                } catch (otpErr: any) {
+                  console.error(`[WHATSAPP_WEBHOOK] Failed to dispatch caregiver OTP: ${otpErr?.message || otpErr}`);
+                }
+              }
+
+              // Dispatch outbound reply or prompt
+              if (caregiverResult.response?.textBody) {
+                try {
+                  await outboundSender.dispatch(
+                    {
+                      idempotencyKey: `caregiver-reply-${messageId}`,
+                      correlationId: diagnostics.correlationId,
+                      recipientPhoneE164: normalizedPhone,
+                      messageType: 'TEXT',
+                      textBody: caregiverResult.response.textBody,
+                    },
+                    { userId: 'system-caregiver-response', role: 'SYSTEM' }
+                  );
+                } catch (replyErr: any) {
+                  console.error(`[WHATSAPP_WEBHOOK] Failed to dispatch caregiver response: ${replyErr?.message || replyErr}`);
+                }
+              }
             } catch (cgErr: any) {
               const errMsg = cgErr instanceof Error ? cgErr.message : 'Caregiver processing error';
               console.error(`[WHATSAPP_WEBHOOK] Caregiver handling failed for ${messageId}:`, errMsg);
@@ -321,8 +371,13 @@ export async function POST(req: NextRequest) {
               const mimeType = String(mediaItem?.mime_type || (msgType === 'image' ? 'image/jpeg' : 'application/pdf'));
 
               pipelineExecutions++;
-              await inboundPersistence.updateEventStatus(messageId, 'PROCESSED');
-              console.info(`[WHATSAPP_WEBHOOK] Media document received [id=${mediaId}, mime=${mimeType}] from ${senderMasked}`);
+              // Durable processing: Queue event for secure retrieval and verification; DO NOT mark PROCESSED prematurely
+              await inboundPersistence.updateEventStatus(
+                messageId,
+                'CLAIMED',
+                'Media queued for secure download and verification'
+              );
+              console.info(`[WHATSAPP_WEBHOOK] Media document queued for processing [id=${mediaId}, mime=${mimeType}] from ${senderMasked}`);
             } catch (medErr: any) {
               const errMsg = medErr instanceof Error ? medErr.message : 'Media upload error';
               console.error(`[WHATSAPP_WEBHOOK] Media handling failed for ${messageId}:`, errMsg);

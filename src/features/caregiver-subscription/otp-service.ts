@@ -11,6 +11,8 @@
  * 5. Rate Limiting: 60-second cooldown between resend requests per phone hash.
  * 6. Attempt Bounding: Max 5 attempts per challenge. Exceeding locks the challenge.
  * 7. Expiry: 10 minutes absolute expiration.
+ * 8. Concurrency-Safe: Serialized atomic locks prevent concurrent attempt exhaustion
+ *    bypass or double-consumption races.
  */
 
 import crypto from 'crypto';
@@ -21,6 +23,31 @@ import {
 } from './types';
 
 export class CaregiverOtpService {
+  private readonly activeLocks = new Map<string, Promise<void>>();
+
+  /**
+   * Concurrency mutex: serializes operations on a specific challenge ID using a promise chain.
+   */
+  public async withChallengeLock<T>(challengeId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.activeLocks.get(challengeId) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = prev.then(() => current, () => current);
+    this.activeLocks.set(challengeId, chained);
+
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.activeLocks.get(challengeId) === chained) {
+        this.activeLocks.delete(challengeId);
+      }
+    }
+  }
+
   /**
    * Generates a new OTP challenge and returns the challenge record and the raw code.
    * The caller is responsible for passing the raw code to the SMS/WhatsApp transport,
@@ -144,6 +171,50 @@ export class CaregiverOtpService {
       result: { success: true },
       updatedChallenge: updated,
     };
+  }
+
+  /**
+   * Concurrency-safe atomic verification with store persistence callback.
+   * Serializes verify attempts per challengeId so concurrent requests cannot race.
+   * When provided a dynamic challenge resolver, fetches the freshest challenge record inside the lock.
+   */
+  public async verifyCodeAtomic(
+    challengeOrId: CaregiverOtpChallenge | string,
+    getChallengeOrCode: (() => Promise<CaregiverOtpChallenge | null>) | string,
+    enteredCodeOrPersist?: string | ((c: CaregiverOtpChallenge) => Promise<void>),
+    persistUpdate?: (c: CaregiverOtpChallenge) => Promise<void>,
+    now: number = Date.now()
+  ): Promise<{ result: OtpVerificationResult; updatedChallenge: CaregiverOtpChallenge | null }> {
+    let challengeId: string;
+    let resolver: () => Promise<CaregiverOtpChallenge | null>;
+    let code: string;
+    let persist: (c: CaregiverOtpChallenge) => Promise<void>;
+
+    if (typeof challengeOrId === 'string' && typeof getChallengeOrCode === 'function') {
+      challengeId = challengeOrId;
+      resolver = getChallengeOrCode;
+      code = enteredCodeOrPersist as string;
+      persist = persistUpdate!;
+    } else {
+      const ch = challengeOrId as CaregiverOtpChallenge;
+      challengeId = ch.challengeId;
+      resolver = async () => ch;
+      code = getChallengeOrCode as string;
+      persist = enteredCodeOrPersist as (c: CaregiverOtpChallenge) => Promise<void>;
+    }
+
+    return this.withChallengeLock(challengeId, async () => {
+      const challenge = await resolver();
+      if (!challenge) {
+        return {
+          result: { success: false, reason: 'SUPERSEDED' },
+          updatedChallenge: null,
+        };
+      }
+      const verification = this.verifyCode(challenge, code, now);
+      await persist(verification.updatedChallenge);
+      return verification;
+    });
   }
 
   /**

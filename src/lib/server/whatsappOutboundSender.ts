@@ -312,6 +312,67 @@ export class MockWhatsAppHttpTransport implements WhatsAppHttpTransport {
 }
 
 /**
+ * Production HTTPS Fetch Transport for Meta WhatsApp Cloud API.
+ * Makes real outbound calls to Graph API when ALLOW_LIVE_WHATSAPP_SEND=true.
+ * When ALLOW_LIVE_WHATSAPP_SEND=false, simulates gateway acceptance safely without network egress.
+ */
+export class FetchWhatsAppHttpTransport implements WhatsAppHttpTransport {
+  public async post(
+    url: string,
+    headers: Record<string, string>,
+    body: any,
+    timeoutMs: number = 10000
+  ): Promise<WhatsAppHttpResponse> {
+    const isLiveAllowed = process.env.ALLOW_LIVE_WHATSAPP_SEND === 'true';
+
+    if (!isLiveAllowed) {
+      return {
+        status: 200,
+        data: {
+          messaging_product: 'whatsapp',
+          contacts: [{ input: body?.to, wa_id: String(body?.to || '').replace('+', '') }],
+          messages: [{ id: `wamid.simulated_${Date.now()}_${crypto.randomBytes(4).toString('hex')}` }],
+        },
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      const data = await res.json().catch(() => undefined);
+      return {
+        status: res.status,
+        data,
+        error: !res.ok ? (data?.error?.message || `HTTP ${res.status}`) : undefined,
+      };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return {
+          status: 0,
+          isTimeout: true,
+          error: `Request timed out after ${timeoutMs}ms`,
+        };
+      }
+      return {
+        status: 0,
+        isNetworkError: true,
+        error: err.message || 'Fetch failed',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
  * WhatsApp Outbound Sender
  */
 export class WhatsAppOutboundSender {

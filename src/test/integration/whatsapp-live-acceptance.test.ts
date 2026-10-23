@@ -20,7 +20,7 @@ import {
   InMemoryReportingSessionRepository,
 } from '@/features/leadership-reporting';
 
-describe('Approved Live Acceptance & End-to-End WhatsApp Trace (Synthetic Fixtures)', () => {
+describe('WhatsApp End-to-End State Machine Integration Trace (Synthetic Mocks)', () => {
   // Synthetic Test Constants (Zero real beneficiary PII, Zero real phone numbers)
   const SYNTHETIC_CAREGIVER_PHONE = '+919988776655';
   const SYNTHETIC_CHILD_ID = 'CH-SYN-999';

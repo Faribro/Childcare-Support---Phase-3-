@@ -18,20 +18,26 @@ import {
   IInboundPersistence,
   SupabaseInboundPersistence,
   MemoryInboundPersistence,
+  IDurableDocumentLoopStore,
+  MemoryDocumentLoopStore,
+  SupabaseDocumentLoopStore,
 } from '@/features/whatsapp-document-loop/persistence';
 import {
   CaregiverSubscriptionStateMachine,
   ICaregiverSubscriptionStore,
   MemoryCaregiverSubscriptionStore,
+  SupabaseCaregiverSubscriptionStore,
 } from '@/features/caregiver-subscription';
 import {
   WhatsAppDocumentLoopService,
   DocumentReminderScheduler,
-  MemoryDocumentLoopStore,
+  IReminderStore,
+  MemoryReminderStore,
+  SupabaseReminderStore,
 } from '@/features/whatsapp-document-loop';
 import {
   WhatsAppOutboundSender,
-  MockWhatsAppHttpTransport,
+  FetchWhatsAppHttpTransport,
   PersistentFileOutboundRegistry,
 } from '@/lib/server/whatsappOutboundSender';
 import { getAppEnvConfig } from '@/lib/server/envConfig';
@@ -137,7 +143,16 @@ export function getWhatsAppReportingPipeline(): WhatsAppReportingPipeline {
 
 export function getCaregiverSubscriptionStore(): ICaregiverSubscriptionStore {
   if (!sharedCaregiverStore) {
-    sharedCaregiverStore = new MemoryCaregiverSubscriptionStore();
+    const env = getAppEnvConfig();
+    if (env.supabaseUrl && env.supabaseServiceRoleKey) {
+      sharedCaregiverStore = new SupabaseCaregiverSubscriptionStore(env.supabaseUrl, env.supabaseServiceRoleKey);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Caregiver subscription store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+      );
+    } else {
+      sharedCaregiverStore = new MemoryCaregiverSubscriptionStore();
+    }
   }
   return sharedCaregiverStore;
 }
@@ -152,14 +167,37 @@ export function getCaregiverSubscriptionStateMachine(): CaregiverSubscriptionSta
 
 export function getDocumentReminderScheduler(): DocumentReminderScheduler {
   if (!sharedReminderScheduler) {
-    sharedReminderScheduler = new DocumentReminderScheduler();
+    const env = getAppEnvConfig();
+    let reminderStore: IReminderStore;
+    if (env.supabaseUrl && env.supabaseServiceRoleKey) {
+      reminderStore = new SupabaseReminderStore(env.supabaseUrl, env.supabaseServiceRoleKey);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Reminder store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+      );
+    } else {
+      reminderStore = new MemoryReminderStore();
+    }
+    sharedReminderScheduler = new DocumentReminderScheduler(undefined, reminderStore);
   }
   return sharedReminderScheduler;
 }
 
 export function getDocumentLoopService(): WhatsAppDocumentLoopService {
   if (!sharedDocumentLoopService) {
-    const store = new MemoryDocumentLoopStore();
+    const env = getAppEnvConfig();
+    let store: IDurableDocumentLoopStore;
+
+    if (env.supabaseUrl && env.supabaseServiceRoleKey) {
+      store = new SupabaseDocumentLoopStore(env.supabaseUrl, env.supabaseServiceRoleKey);
+    } else if (env.isProduction) {
+      throw new Error(
+        'SERVER_MISCONFIGURED: Document loop store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production. In-memory fallback is strictly forbidden.'
+      );
+    } else {
+      store = new MemoryDocumentLoopStore();
+    }
+
     const scheduler = getDocumentReminderScheduler();
     sharedDocumentLoopService = new WhatsAppDocumentLoopService(
       store,
@@ -176,18 +214,31 @@ export function getDocumentLoopService(): WhatsAppDocumentLoopService {
 
 export function getWhatsAppOutboundSender(): WhatsAppOutboundSender {
   if (!sharedOutboundSender) {
-    const mockTransport = new MockWhatsAppHttpTransport();
+    const env = getAppEnvConfig();
+    const token = env.metaAccessToken;
+    const phoneId = env.metaPhoneNumberId;
+
+    if (env.isProduction) {
+      if (!token || !phoneId) {
+        throw new Error(
+          'SERVER_MISCONFIGURED: WhatsApp outbound sender requires META_ACCESS_TOKEN and META_PHONE_NUMBER_ID in production. Synthetic fallback is strictly forbidden.'
+        );
+      }
+    }
+
+    const transport = new FetchWhatsAppHttpTransport();
     const registry = new PersistentFileOutboundRegistry({
       allowLocalFilesystemInProduction: true,
     });
+
     sharedOutboundSender = new WhatsAppOutboundSender(
       {
-        phoneNumberId: process.env.META_PHONE_NUMBER_ID || '1413691425156891',
-        accessToken: process.env.META_ACCESS_TOKEN || 'synthetic_access_token',
-        graphApiVersion: process.env.META_GRAPH_API_VERSION || 'v20.0',
+        phoneNumberId: phoneId || '1413691425156891',
+        accessToken: token || 'synthetic_access_token',
+        graphApiVersion: env.metaGraphApiVersion || 'v20.0',
         allowLocalFilesystemInProduction: true,
       },
-      mockTransport,
+      transport,
       registry
     );
   }

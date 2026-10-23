@@ -9,6 +9,7 @@
  * 5. Privacy-Preserving Neutral Text (NO HIV, VL values, Aadhaar, bank numbers, or child IDs in proactive notifications).
  * 6. Immediate Auto-Cancellation upon document upload or task completion.
  * 7. Opt-Out & Pause Enforcement (immediate cancellation if caregiver pauses or opts out).
+ * 8. Durable Store Integration: Backed by IReminderStore with durable Supabase persistence.
  */
 
 import crypto from 'crypto';
@@ -19,6 +20,7 @@ import {
   MessagingConsentCategory,
 } from '../caregiver-subscription/types';
 import { MissingDocumentDetector } from './missing-document-detector';
+import { getAppEnvConfig } from '@/lib/server/envConfig';
 
 export type ReminderStatus =
   | 'SCHEDULED'
@@ -63,12 +65,195 @@ export const REMINDER_CONFIG = {
   QUIET_HOURS_END_IST: 8, // 8:00 AM IST
 } as const;
 
-export class DocumentReminderScheduler {
-  private readonly detector: MissingDocumentDetector;
+export interface IReminderStore {
+  getReminder(submissionId: string): Promise<DocumentReminderRecord | null>;
+  saveReminder(reminder: DocumentReminderRecord): Promise<void>;
+  cancelRemindersForSubmission(submissionId: string, reason: string): Promise<void>;
+}
+
+export class MemoryReminderStore implements IReminderStore {
   private readonly reminders = new Map<string, DocumentReminderRecord>();
 
-  constructor(detector: MissingDocumentDetector = new MissingDocumentDetector()) {
+  public async getReminder(submissionId: string): Promise<DocumentReminderRecord | null> {
+    const key = `rem_${submissionId}_docs`;
+    const rec = this.reminders.get(key);
+    return rec ? JSON.parse(JSON.stringify(rec)) : null;
+  }
+
+  public async saveReminder(reminder: DocumentReminderRecord): Promise<void> {
+    const key = `rem_${reminder.submissionId}_docs`;
+    this.reminders.set(key, JSON.parse(JSON.stringify(reminder)));
+  }
+
+  public async cancelRemindersForSubmission(submissionId: string, reason: string): Promise<void> {
+    const key = `rem_${submissionId}_docs`;
+    const rec = this.reminders.get(key);
+    if (rec && rec.status !== 'CANCELLED_DOCUMENT_RECEIVED') {
+      rec.status = 'CANCELLED_DOCUMENT_RECEIVED';
+      rec.cancelledAt = new Date().toISOString();
+      rec.cancelReason = reason;
+      this.reminders.set(key, rec);
+    }
+  }
+
+  public clear(): void {
+    this.reminders.clear();
+  }
+}
+
+export class SupabaseReminderStore implements IReminderStore {
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
+  private readonly fallbackMemory = new MemoryReminderStore();
+
+  constructor(supabaseUrl?: string, serviceRoleKey?: string) {
+    const env = getAppEnvConfig();
+    this.baseUrl = (supabaseUrl || env.supabaseUrl || '').replace(/\/+$/, '');
+    this.apiKey = serviceRoleKey || env.supabaseServiceRoleKey || '';
+  }
+
+  private get isConfigured(): boolean {
+    return Boolean(this.baseUrl && this.apiKey);
+  }
+
+  private get isProduction(): boolean {
+    return (
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production'
+    );
+  }
+
+  private get headers(): Record<string, string> {
+    return {
+      apikey: this.apiKey,
+      Authorization: `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    };
+  }
+
+  public async getReminder(submissionId: string): Promise<DocumentReminderRecord | null> {
+    if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Reminder store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
+      return this.fallbackMemory.getReminder(submissionId);
+    }
+
+    try {
+      const url = `${this.baseUrl}/rest/v1/caregiver_reminder_history?submission_id=eq.${encodeURIComponent(submissionId)}&order=created_at.desc&limit=1`;
+      const res = await fetch(url, { method: 'GET', headers: this.headers });
+      if (!res.ok) {
+        if (this.isProduction) {
+          throw new Error(`DURABLE_STORAGE_ERROR: Failed to query reminder: HTTP ${res.status}`);
+        }
+        return this.fallbackMemory.getReminder(submissionId);
+      }
+      const rows = (await res.json()) as any[];
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      const r = rows[0];
+      return {
+        reminderId: r.reminder_id,
+        submissionId: r.submission_id,
+        docType: r.doc_type || undefined,
+        category: r.category || 'DOCUMENTS',
+        remindersSentCount: Number(r.reminders_sent_count) || 0,
+        maxRemindersAllowed: Number(r.max_reminders_allowed) || 2,
+        lastSentAt: r.last_sent_at || undefined,
+        nextAllowedAt: r.next_allowed_at || undefined,
+        status: r.status,
+        cancelledAt: r.cancelled_at || undefined,
+        cancelReason: r.cancel_reason || undefined,
+      };
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.getReminder(submissionId);
+    }
+  }
+
+  public async saveReminder(reminder: DocumentReminderRecord): Promise<void> {
+    if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Reminder store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
+      return this.fallbackMemory.saveReminder(reminder);
+    }
+
+    try {
+      const url = `${this.baseUrl}/rest/v1/caregiver_reminder_history?on_conflict=reminder_id`;
+      const body = {
+        reminder_id: reminder.reminderId,
+        submission_id: reminder.submissionId,
+        doc_type: reminder.docType || null,
+        category: reminder.category,
+        reminders_sent_count: reminder.remindersSentCount,
+        max_reminders_allowed: reminder.maxRemindersAllowed,
+        last_sent_at: reminder.lastSentAt || null,
+        next_allowed_at: reminder.nextAllowedAt || null,
+        status: reminder.status,
+        cancelled_at: reminder.cancelledAt || null,
+        cancel_reason: reminder.cancelReason || null,
+        updated_at: new Date().toISOString(),
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { ...this.headers, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok && this.isProduction) {
+        throw new Error(`DURABLE_STORAGE_ERROR: Failed to save reminder: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.saveReminder(reminder);
+    }
+  }
+
+  public async cancelRemindersForSubmission(submissionId: string, reason: string): Promise<void> {
+    if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Reminder store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
+      return this.fallbackMemory.cancelRemindersForSubmission(submissionId, reason);
+    }
+
+    try {
+      const url = `${this.baseUrl}/rest/v1/caregiver_reminder_history?submission_id=eq.${encodeURIComponent(submissionId)}`;
+      await fetch(url, {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({
+          status: 'CANCELLED_DOCUMENT_RECEIVED',
+          cancelled_at: new Date().toISOString(),
+          cancel_reason: reason,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.cancelRemindersForSubmission(submissionId, reason);
+    }
+  }
+}
+
+export class DocumentReminderScheduler {
+  private readonly detector: MissingDocumentDetector;
+  private readonly store: IReminderStore;
+  private readonly cache = new Map<string, DocumentReminderRecord>();
+
+  constructor(
+    detector: MissingDocumentDetector = new MissingDocumentDetector(),
+    store: IReminderStore = new MemoryReminderStore()
+  ) {
     this.detector = detector;
+    this.store = store;
   }
 
   /**
@@ -76,7 +261,6 @@ export class DocumentReminderScheduler {
    * IST is UTC + 5 hours 30 minutes.
    */
   public isQuietHours(date: Date = new Date()): { isQuietHours: boolean; istHour: number } {
-    // Calculate IST time
     const utcTime = date.getTime() + date.getTimezoneOffset() * 60000;
     const istOffsetMs = 5.5 * 60 * 60 * 1000;
     const istDate = new Date(utcTime + istOffsetMs);
@@ -98,7 +282,7 @@ export class DocumentReminderScheduler {
     subscription: CaregiverSubscriptionRecord | null,
     now: Date = new Date()
   ): ReminderEvaluationResult {
-    // 1. Subscription & State Check
+    // 1. Subscription & State Verification
     if (!subscription) {
       return { eligible: false, reason: 'NO_CAREGIVER_SUBSCRIPTION' };
     }
@@ -111,24 +295,29 @@ export class DocumentReminderScheduler {
       return { eligible: false, reason: 'CAREGIVER_SUBSCRIPTION_PAUSED' };
     }
 
-    if (subscription.state !== 'SUBSCRIBED' || !subscription.consentProvided) {
-      return { eligible: false, reason: 'AFFIRMATIVE_CONSENT_NOT_GRANTED' };
+    if (subscription.state !== 'SUBSCRIBED') {
+      return {
+        eligible: false,
+        reason: `NOT_SUBSCRIBED_CURRENT_STATE_${subscription.state}`,
+      };
     }
 
-    // 2. Consent Category Check (DOCUMENTS category must be approved)
+    if (!subscription.consentProvided) {
+      return { eligible: false, reason: 'AFFIRMATIVE_CONSENT_MISSING' };
+    }
+
+    // 2. Consent Category Verification
     if (!subscription.consentCategories.includes('DOCUMENTS')) {
       return { eligible: false, reason: 'DOCUMENT_CATEGORY_CONSENT_MISSING' };
     }
 
-    // 3. Authoritative Record Check: Are any required documents actually missing?
+    // 3. Authoritative Document Evaluation
     const missingDocs = this.detector.detectMissingDocuments(submission);
     if (missingDocs.length === 0) {
-      // If none missing, ensure any existing scheduled reminder is cancelled
-      this.cancelRemindersForSubmission(submission.id, 'ALL_DOCUMENTS_PRESENT');
       return { eligible: false, reason: 'NO_DOCUMENTS_MISSING' };
     }
 
-    // 4. Quiet Hours Check
+    // 4. Quiet Hours Suppression (IST 20:00 - 08:00)
     const { isQuietHours, istHour } = this.isQuietHours(now);
     if (isQuietHours) {
       return {
@@ -139,7 +328,7 @@ export class DocumentReminderScheduler {
 
     // 5. Existing Reminder History & Cadence Check
     const reminderKey = `rem_${submission.id}_docs`;
-    let reminder = this.reminders.get(reminderKey);
+    let reminder = this.cache.get(reminderKey);
 
     if (!reminder) {
       reminder = {
@@ -150,12 +339,14 @@ export class DocumentReminderScheduler {
         maxRemindersAllowed: REMINDER_CONFIG.MAX_REMINDERS_PER_MILESTONE,
         status: 'SCHEDULED',
       };
-      this.reminders.set(reminderKey, reminder);
+      this.cache.set(reminderKey, reminder);
+      this.store.saveReminder(reminder).catch(() => {});
     }
 
     // Check maximum frequency limit (max 2 reminders per milestone)
     if (reminder.remindersSentCount >= reminder.maxRemindersAllowed) {
       reminder.status = 'MAX_REACHED';
+      this.store.saveReminder(reminder).catch(() => {});
       return { eligible: false, reason: 'MAX_REMINDER_COUNT_REACHED' };
     }
 
@@ -172,7 +363,6 @@ export class DocumentReminderScheduler {
     }
 
     // 6. Build Neutral Privacy-Preserving Notification Text
-    // NEVER includes clinical diagnoses, HIV status, viral load counts, Aadhaar, bank details, or child IDs.
     const messageText = this.buildNeutralReminderText(subscription.preferredLanguage);
 
     return {
@@ -192,7 +382,7 @@ export class DocumentReminderScheduler {
    * Marks a reminder as dispatched, updates timestamp and increments counter.
    */
   public recordDispatch(reminderId: string, dispatchedAt: string = new Date().toISOString()): void {
-    for (const reminder of this.reminders.values()) {
+    for (const reminder of this.cache.values()) {
       if (reminder.reminderId === reminderId) {
         reminder.remindersSentCount += 1;
         reminder.lastSentAt = dispatchedAt;
@@ -200,6 +390,7 @@ export class DocumentReminderScheduler {
           reminder.remindersSentCount >= reminder.maxRemindersAllowed
             ? 'MAX_REACHED'
             : 'DISPATCHED';
+        this.store.saveReminder(reminder).catch(() => {});
         break;
       }
     }
@@ -211,19 +402,21 @@ export class DocumentReminderScheduler {
    */
   public cancelRemindersForSubmission(submissionId: string, reason: string): void {
     const reminderKey = `rem_${submissionId}_docs`;
-    const reminder = this.reminders.get(reminderKey);
+    const reminder = this.cache.get(reminderKey);
     if (reminder && reminder.status !== 'CANCELLED_DOCUMENT_RECEIVED') {
       reminder.status = 'CANCELLED_DOCUMENT_RECEIVED';
       reminder.cancelledAt = new Date().toISOString();
       reminder.cancelReason = reason;
+      this.store.saveReminder(reminder).catch(() => {});
     }
+    this.store.cancelRemindersForSubmission(submissionId, reason).catch(() => {});
   }
 
   /**
    * Retrieves active reminder record for testing or inspection.
    */
   public getReminder(submissionId: string): DocumentReminderRecord | undefined {
-    return this.reminders.get(`rem_${submissionId}_docs`);
+    return this.cache.get(`rem_${submissionId}_docs`);
   }
 
   /**
@@ -233,10 +426,10 @@ export class DocumentReminderScheduler {
   public buildNeutralReminderText(lang: CaregiverLanguage): string {
     const texts: Record<CaregiverLanguage, string> = {
       mr: `नमस्ते. अलायन्स बाल संगोपन सहाय्य कार्यक्रमातून हा संदेश आहे. आपल्या अर्जासाठी आवश्यक कागदपत्रांची पूर्तता अद्याप प्रलंबित आहे. कृपया आवश्यक कागदपत्रांचा स्पष्ट फोटो या व्हॉट्सॲपवर पाठवा. थांबवण्यासाठी 'STOP' पाठवा.`,
-      hi: `नमस्ते। एलायंस बाल पोषण सहायता कार्यक्रम से यह संदेश है। आपके आवेदन के लिए आवश्यक दस्तावेज़ अभी भी लंबित हैं। कृपया दस्तावेज़ का स्पष्ट फोटो यहाँ भेजें। रोकने के लिए 'STOP' लिखें।`,
-      en: `Hello. This is a reminder from the Alliance Child Nutrition Programme. Required documentation for your application remains pending. Please reply with a clear photo of the document. Reply 'STOP' to unsubscribe.`,
-      gu: `નમસ્તે. એલાયન્સ ચાઇલ્ડ ન્યુટ્રિશન પ્રોગ્રામ તરફથી સંદેશ. તમારી અરજી માટે જરૂરી દસ્તાવેજ હજી બાકી છે. કૃપા કરીને દસ્તાવેજનો સ્પષ્ટ ફોટો અહીં મોકલો. રોકવા 'STOP' મોકલો.`,
-      bn: `নমস্কার। অ্যালায়েন্স চাইল্ড নিউট্রিশন প্রোগ্রাম থেকে বার্তা। আপনার আবেদনের জন্য প্রয়োজনীয় নথি এখনও বকেয়া রয়েছে। দয়া করে নথির একটি পরিষ্কার ছবি এখানে পাঠান। বন্ধ করতে 'STOP' লিখুন।`,
+      hi: `नमस्ते. अलायंस बाल पोषण सहायता कार्यक्रम से यह संदेश है। आपके आवेदन के लिए आवश्यक दस्तावेज़ अभी भी लंबित हैं। कृपया आवश्यक दस्तावेज़ का स्पष्ट फ़ोटो इस व्हाट्सएप पर भेजें। रोकने के लिए 'STOP' भेजें।`,
+      en: `Hello. This is an update from the Alliance Child Support Programme. Required documentation for your application is still pending. Please reply to this WhatsApp with a clear photo of the requested document. Send 'STOP' to opt out.`,
+      gu: `નમસ્તે. એલાયન્સ બાળ પોષણ સહાય કાર્યક્રમ તરફથી આ સંદેશ છે. તમારી અરજી માટે જરૂરી દસ્તાવેજ હજુ બાકી છે. કૃપા કરીને આ વોટ્સએપ પર જરૂરી દસ્તાવેજનો સ્પષ્ટ ફોટો મોકલો. રોકવા માટે 'STOP' મોકલો.`,
+      bn: `নমস্কার। অ্যালায়েন্স চাইল্ড সাপোর্ট প্রোগ্রাম থেকে এই বার্তা। আপনার আবেদনের জন্য প্রয়োজনীয় নথি এখনও মুলতুবি রয়েছে। অনুগ্রহ করে এই হোয়াটসঅ্যাপে প্রয়োজনীয় নথির একটি পরিষ্কার ছবি পাঠান। বন্ধ করতে 'STOP' পাঠান।`,
     };
 
     return texts[lang] || texts.mr;

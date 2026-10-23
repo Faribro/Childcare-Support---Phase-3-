@@ -18,6 +18,10 @@ export interface AppEnvConfig {
   appsScriptSecret: string | undefined;
   metaAppSecret: string | undefined;
   metaWebhookVerifyToken: string | undefined;
+  metaAccessToken: string | undefined;
+  metaPhoneNumberId: string | undefined;
+  metaBusinessAccountId: string | undefined;
+  metaGraphApiVersion: string;
   allowLiveWhatsAppSend: boolean;
   allowLiveEmailDispatch: boolean;
   isProduction: boolean;
@@ -84,9 +88,16 @@ export function getAppEnvConfig(): AppEnvConfig {
   }
   const appsScriptSecret = distinctAppsScriptSecrets[0] || undefined;
 
-  // 5. Meta WhatsApp Secrets: Strict Separation
+  // 5. Meta WhatsApp Secrets: Strict Separation & Alias Resolution
   // META_APP_SECRET is used ONLY for Meta payload HMAC signature verification.
-  const metaAppSecret = (process.env.META_APP_SECRET || '').trim() || undefined;
+  const canonicalAppSecret = (process.env.META_APP_SECRET || '').trim();
+  const aliasAppSecret = (process.env.WHATSAPP_APP_SECRET || '').trim();
+  if (canonicalAppSecret && aliasAppSecret && canonicalAppSecret !== aliasAppSecret) {
+    throw new Error(
+      `CONFIGURATION_CONFLICT: META_APP_SECRET and WHATSAPP_APP_SECRET conflict. Rejecting ambiguous configuration.`
+    );
+  }
+  const metaAppSecret = canonicalAppSecret || aliasAppSecret || undefined;
 
   // META_WEBHOOK_VERIFY_TOKEN may alias WHATSAPP_WEBHOOK_VERIFY_TOKEN (reject if conflicting)
   const canonicalVerifyToken = (process.env.META_WEBHOOK_VERIFY_TOKEN || '').trim();
@@ -98,8 +109,37 @@ export function getAppEnvConfig(): AppEnvConfig {
   }
   const metaWebhookVerifyToken = canonicalVerifyToken || aliasVerifyToken || undefined;
 
-  // Invariant check: Verify token must never be substituted for app secret or vice-versa
-  // (Both have distinct cryptographic purposes and lifetimes)
+  // META_ACCESS_TOKEN (Cloud API bearer token) may alias WHATSAPP_CLOUD_API_TOKEN
+  const canonicalAccessToken = (process.env.META_ACCESS_TOKEN || '').trim();
+  const aliasAccessToken = (process.env.WHATSAPP_CLOUD_API_TOKEN || '').trim();
+  if (canonicalAccessToken && aliasAccessToken && canonicalAccessToken !== aliasAccessToken) {
+    throw new Error(
+      `CONFIGURATION_CONFLICT: META_ACCESS_TOKEN and WHATSAPP_CLOUD_API_TOKEN conflict. Rejecting ambiguous configuration.`
+    );
+  }
+  const metaAccessToken = canonicalAccessToken || aliasAccessToken || undefined;
+
+  // META_PHONE_NUMBER_ID may alias WHATSAPP_PHONE_NUMBER_ID
+  const canonicalPhoneId = (process.env.META_PHONE_NUMBER_ID || '').trim();
+  const aliasPhoneId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  if (canonicalPhoneId && aliasPhoneId && canonicalPhoneId !== aliasPhoneId) {
+    throw new Error(
+      `CONFIGURATION_CONFLICT: META_PHONE_NUMBER_ID and WHATSAPP_PHONE_NUMBER_ID conflict. Rejecting ambiguous configuration.`
+    );
+  }
+  const metaPhoneNumberId = canonicalPhoneId || aliasPhoneId || undefined;
+
+  // META_BUSINESS_ACCOUNT_ID may alias WHATSAPP_BUSINESS_ACCOUNT_ID
+  const canonicalWabaId = (process.env.META_BUSINESS_ACCOUNT_ID || '').trim();
+  const aliasWabaId = (process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || '').trim();
+  if (canonicalWabaId && aliasWabaId && canonicalWabaId !== aliasWabaId) {
+    throw new Error(
+      `CONFIGURATION_CONFLICT: META_BUSINESS_ACCOUNT_ID and WHATSAPP_BUSINESS_ACCOUNT_ID conflict. Rejecting ambiguous configuration.`
+    );
+  }
+  const metaBusinessAccountId = canonicalWabaId || aliasWabaId || undefined;
+
+  const metaGraphApiVersion = (process.env.META_GRAPH_API_VERSION || 'v20.0').trim();
 
   // 6. Operational Kill-Switches (strict boolean parsing, default false)
   const allowLiveWhatsAppSend = process.env.ALLOW_LIVE_WHATSAPP_SEND === 'true';
@@ -112,6 +152,10 @@ export function getAppEnvConfig(): AppEnvConfig {
     appsScriptSecret,
     metaAppSecret,
     metaWebhookVerifyToken,
+    metaAccessToken,
+    metaPhoneNumberId,
+    metaBusinessAccountId,
+    metaGraphApiVersion,
     allowLiveWhatsAppSend,
     allowLiveEmailDispatch,
     isProduction,

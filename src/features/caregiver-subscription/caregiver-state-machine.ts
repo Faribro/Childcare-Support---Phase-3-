@@ -261,8 +261,14 @@ export class CaregiverSubscriptionStateMachine {
           return await this.initiateOtpVerification(record, normalizedPhone);
         }
 
-        const verification = this.otpService.verifyCode(latestChallenge, candidateCode);
-        await this.store.saveOtpChallenge(verification.updatedChallenge);
+        const verification = await this.otpService.verifyCodeAtomic(
+          latestChallenge.challengeId,
+          async () => await this.store.getLatestOtpChallenge(phoneHash),
+          candidateCode,
+          async (ch) => {
+            await this.store.saveOtpChallenge(ch);
+          }
+        );
 
         if (!verification.result.success) {
           let errorKey: string = 'OTP_INVALID';

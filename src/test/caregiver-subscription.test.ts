@@ -129,6 +129,32 @@ describe('Caregiver Verification & Subscription State Machine Suite', () => {
       expect(second.result.success).toBe(false);
       expect(second.result.reason).toBe('ALREADY_VERIFIED');
     });
+
+    it('enforces concurrency-safe atomic verification under parallel verify requests', async () => {
+      const phoneHash = stateMachine.hashPhoneNumber('+919876543210');
+      const created = otpService.createChallenge(phoneHash);
+      if (!('challenge' in created)) throw new Error('Challenge creation failed');
+
+      let currentChallenge = created.challenge;
+      const updateStore = async (ch: any) => {
+        currentChallenge = ch;
+      };
+
+      // Execute 8 concurrent verify attempts in parallel with wrong code
+      const parallelAttempts = Array.from({ length: 8 }, (_, i) =>
+        otpService.verifyCodeAtomic(
+          created.challenge.challengeId,
+          async () => currentChallenge,
+          `00000${i}`,
+          updateStore
+        )
+      );
+      const results = await Promise.all(parallelAttempts);
+
+      expect(currentChallenge.attempts).toBe(5);
+      const lockouts = results.filter((r) => r.result.reason === 'MAX_ATTEMPTS_EXCEEDED');
+      expect(lockouts.length).toBeGreaterThan(0);
+    });
   });
 
   describe('3. Explicit State Machine Lifecycle', () => {

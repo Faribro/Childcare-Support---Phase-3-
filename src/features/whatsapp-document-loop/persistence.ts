@@ -574,3 +574,94 @@ export class SupabaseInboundPersistence implements IInboundPersistence {
     }
   }
 }
+
+
+/**
+ * Supabase PostgREST implementation of IDurableDocumentLoopStore.
+ * Synchronizes document loop events and submission records with Supabase.
+ */
+export class SupabaseDocumentLoopStore implements IDurableDocumentLoopStore {
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
+  private readonly fallbackMemory: MemoryDocumentLoopStore;
+
+  constructor(supabaseUrl?: string, serviceRoleKey?: string) {
+    const env = getAppEnvConfig();
+    this.baseUrl = (supabaseUrl || env.supabaseUrl || '').replace(/\/+$/, '');
+    this.apiKey = serviceRoleKey || env.supabaseServiceRoleKey || '';
+    this.fallbackMemory = new MemoryDocumentLoopStore();
+  }
+
+  private get isConfigured(): boolean {
+    return Boolean(this.baseUrl && this.apiKey);
+  }
+
+  private get isProduction(): boolean {
+    return (
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production'
+    );
+  }
+
+  private get headers(): Record<string, string> {
+    return {
+      apikey: this.apiKey,
+      Authorization: `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    };
+  }
+
+  public hasEvent(eventId: string, idempotencyKey?: string): boolean {
+    return this.fallbackMemory.hasEvent(eventId, idempotencyKey);
+  }
+
+  public recordEvent(eventId: string, idempotencyKey?: string, metadata?: Record<string, any>): void {
+    this.fallbackMemory.recordEvent(eventId, idempotencyKey);
+    if (this.isConfigured) {
+      const url = `${this.baseUrl}/rest/v1/whatsapp_inbound_events`;
+      fetch(url, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          event_id: eventId,
+          idempotency_key: idempotencyKey || eventId,
+          event_type: 'DOCUMENT_UPLOAD',
+          from_phone_hash: 'system_loop',
+          sender_masked: '+** ****',
+          payload_redacted: metadata || {},
+          processing_status: 'PROCESSED',
+        }),
+      }).catch(() => {});
+    }
+  }
+
+  public getSubmission(submissionId: string): SubmissionEntity | undefined {
+    return this.fallbackMemory.getSubmission(submissionId);
+  }
+
+  public saveSubmission(submission: SubmissionEntity): void {
+    this.fallbackMemory.saveSubmission(submission);
+    if (this.isConfigured) {
+      const url = `${this.baseUrl}/rest/v1/submissions?on_conflict=id`;
+      fetch(url, {
+        method: 'POST',
+        headers: { ...this.headers, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          id: submission.id,
+          submission_status: submission.submissionStatus,
+          updated_at: new Date().toISOString(),
+        }),
+      }).catch(() => {});
+    }
+  }
+
+  public saveOutboundRequest(request: OutboundDocumentRequest): void {
+    this.fallbackMemory.saveOutboundRequest(request);
+  }
+
+  public getOutboundRequest(requestId: string): OutboundDocumentRequest | undefined {
+    return this.fallbackMemory.getOutboundRequest(requestId);
+  }
+}
