@@ -288,6 +288,8 @@ export class AppsScriptEmailProvider implements EmailProvider {
         body: JSON.stringify({
           action,
           secret: this.dispatchSecret,
+          webhookSecret: process.env.WEBHOOK_SECRET || '',
+          dispatchSecret: this.dispatchSecret,
           recipient,
           otp,
           subject: params.subject,

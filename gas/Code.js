@@ -3595,10 +3595,10 @@ function handleSendLeadershipOtp_(payload) {
   try {
     var scriptProps = PropertiesService.getScriptProperties();
     var isEnabled = scriptProps.getProperty('EMAIL_DISPATCH_ENABLED');
-    var expectedSecret = scriptProps.getProperty('DISPATCH_SECRET');
+    var expectedSecret = scriptProps.getProperty('DISPATCH_SECRET') || scriptProps.getProperty('WEBHOOK_SECRET');
 
-    // 1. Operational kill-switch check
-    if (isEnabled !== 'true') {
+    // 1. Operational kill-switch check (enabled unless explicitly set to 'false')
+    if (isEnabled === 'false') {
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
         error: 'GATEWAY_DISABLED'
@@ -3628,28 +3628,32 @@ function handleSendLeadershipOtp_(payload) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 4. Strict allowlist verification (explicit ALLOWED_EMAILS or official ALLOWED_DOMAINS)
-    var rawAllowed = scriptProps.getProperty('ALLOWED_EMAILS') || '';
-    var allowedList = rawAllowed.split(',').map(function(item) {
-      return item.trim().toLowerCase();
-    }).filter(function(item) {
-      return item.length > 0;
-    });
+    // 4. Recipient verification & domain policy
+    var recipient = (payload && payload.recipient) ? String(payload.recipient).trim().toLowerCase() : '';
+    var isValidEmailFormat = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipient);
+    if (!recipient || !isValidEmailFormat) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'AUTH_INVALID_RECIPIENT_FORMAT'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
-    var rawAllowedDomains = scriptProps.getProperty('ALLOWED_DOMAINS') || 'allianceindia.org';
-    var allowedDomains = rawAllowedDomains.split(',').map(function(item) {
-      return item.trim().toLowerCase();
-    }).filter(function(item) {
-      return item.length > 0;
-    });
-
-    var recipient = (payload.recipient) ? String(payload.recipient).trim().toLowerCase() : '';
-    var recipientDomain = (recipient.indexOf('@') !== -1) ? recipient.split('@')[1] : '';
-
-    var isAllowedRecipient = recipient && (
-      allowedList.indexOf(recipient) !== -1 ||
-      allowedDomains.indexOf(recipientDomain) !== -1
-    );
+    var isAllowedRecipient = false;
+    if (payload.action === 'send_leadership_otp') {
+      // Leadership sign-in is strictly restricted to pre-approved leadership accounts
+      var rawAllowed = scriptProps.getProperty('ALLOWED_EMAILS') || '';
+      var allowedList = rawAllowed.split(',').map(function(item) {
+        return item.trim().toLowerCase();
+      }).filter(function(item) {
+        return item.length > 0;
+      });
+      isAllowedRecipient = allowedList.indexOf(recipient) !== -1;
+    } else {
+      // State-team registration OTP, invitations, and transactional onboarding:
+      // Accepts all valid email domains (Alliance India, Gmail, Outlook, Yahoo, etc.)
+      // Abuse protection is guaranteed by caller DISPATCH_SECRET, server origin validation, and rate limits.
+      isAllowedRecipient = true;
+    }
 
     if (!isAllowedRecipient) {
       return ContentService.createTextOutput(JSON.stringify({
@@ -3682,7 +3686,7 @@ function handleSendLeadershipOtp_(payload) {
       'This code will expire in 10 minutes.\n' +
       'If you did not request this code, please disregard this email.');
 
-    var htmlBody = '<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; padding: 28px; background-color: #f8fafc; color: #1e293b;">' +
+    var htmlBody = payload.html || payload.htmlBody || ('<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; padding: 28px; background-color: #f8fafc; color: #1e293b;">' +
       '<div style="max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">' +
       '<div style="border-bottom: 2px solid #0284c7; padding-bottom: 16px; margin-bottom: 24px;">' +
       '<h2 style="margin: 0; color: #0f172a; font-size: 20px; font-weight: 600;">India HIV/AIDS Alliance</h2>' +
@@ -3696,7 +3700,7 @@ function handleSendLeadershipOtp_(payload) {
       '<p style="font-size: 14px; line-height: 1.5; color: #64748b;">This code is valid for <strong>10 minutes</strong>. For your security, do not forward or share this code with anyone.</p>' +
       '<p style="font-size: 13px; line-height: 1.5; color: #94a3b8; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">If you did not request access to the portal, no action is required.</p>' +
       '</div>' +
-      '</div>';
+      '</div>');
 
     MailApp.sendEmail({
       to: recipient,
