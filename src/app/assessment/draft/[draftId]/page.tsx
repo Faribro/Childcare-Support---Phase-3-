@@ -34,6 +34,9 @@ import {
   classifyHbCategory,
   classifyVLCategory,
 } from '@/lib/clinical/nutritionCalculations';
+import { ArtRegimenCombobox } from '@/components/clinical/ArtRegimenCombobox';
+import { getRegimenUIConfig, getArtInitiationConfig, getArtIdConfig, isCurrentRegimenApplicable } from '@/lib/clinical/artStatusLogic';
+import { classifyVLCategoryPolicy } from '@/lib/clinical/viralLoadPolicy';
 import {
   INDIAN_STATES_AND_UTS,
   type AssessmentRecord,
@@ -191,6 +194,7 @@ export default function ResumeDraftSinglePage() {
     artInitiationDate: '',
     artIdNumber: '',
     artMedicineType: '',
+    currentlyOnArt: '' as 'Yes' | 'No' | '',
     cd4Count: '',
     vlStatus: 'Tested in last 6 months' as VLStatus,
     vlDate: '',
@@ -322,6 +326,7 @@ export default function ResumeDraftSinglePage() {
             artInitiationDate: h.artInitiationDate || h.artRegistrationDate || '',
             artIdNumber: h.artIdNumber || '',
             artMedicineType: h.artMedicineType || '',
+            currentlyOnArt: (h.currentlyOnArt || (found as any).currentlyOnArt || '') as any,
             cd4Count: h.cd4Count !== undefined ? String(h.cd4Count) : '',
             vlStatus: (h.vlStatus as VLStatus) || 'Tested in last 6 months',
             vlDate: h.vlDate || '',
@@ -416,9 +421,26 @@ export default function ResumeDraftSinglePage() {
     return classifyHbCategory(formData.haemoglobinGdl, ageResult.years || 5);
   }, [formData.haemoglobinGdl, ageResult.years]);
 
-  const vlCategory = useMemo(() => {
-    return classifyVLCategory(formData.viralLoad);
-  }, [formData.viralLoad]);
+    const vlPolicyResult = useMemo(() => {
+    return classifyVLCategoryPolicy({
+      viralLoad: formData.viralLoad,
+      vlStatus: formData.vlStatus,
+    });
+  }, [formData.viralLoad, formData.vlStatus]);
+
+  const vlCategory = vlPolicyResult.vlCategory;
+
+  const regimenUIConfig = useMemo(() => {
+    return getRegimenUIConfig(formData.artStatus, formData.currentlyOnArt);
+  }, [formData.artStatus, formData.currentlyOnArt]);
+
+  const artInitiationConfig = useMemo(() => {
+    return getArtInitiationConfig(formData.artStatus);
+  }, [formData.artStatus]);
+
+  const artIdConfig = useMemo(() => {
+    return getArtIdConfig(formData.artStatus);
+  }, [formData.artStatus]);
 
   const nutritionResult = useMemo(() => {
     return classifyNutritionStatus({
@@ -540,6 +562,7 @@ export default function ResumeDraftSinglePage() {
         artInitiationDate: formData.artInitiationDate,
         artIdNumber: formData.artIdNumber,
         artMedicineType: formData.artMedicineType,
+          currentlyOnArt: formData.currentlyOnArt || undefined,
         cd4Count: formData.cd4Count,
         vlStatus: formData.vlStatus,
         vlDate: formData.vlDate,
@@ -1457,33 +1480,6 @@ export default function ResumeDraftSinglePage() {
               placeholder="e.g. Pune"
             />
 
-            <Input
-              id="child-srName"
-              label="SR Name"
-              value={formData.srName}
-              onChange={(e) => setFormData({ ...formData, srName: e.target.value })}
-              error={errorsByField['demographics-srName']?.message}
-              placeholder="e.g. Alliance India"
-            />
-
-            <Input
-              id="child-ssrName"
-              label="SSR Name"
-              value={formData.ssrName}
-              onChange={(e) => setFormData({ ...formData, ssrName: e.target.value })}
-              error={errorsByField['demographics-ssrName']?.message}
-              placeholder="e.g. District CBO / NGO"
-            />
-
-            <Input
-              id="child-guardianStatus"
-              label="Status of Guardian/Parent"
-              value={formData.guardianStatus}
-              onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value })}
-              error={errorsByField['demographics-guardianStatus']?.message}
-              placeholder="e.g. Alive / Deceased / Ill / Migrated"
-            />
-
             <div className="flex flex-col justify-end">
               <LocationFetchButton
                 onLocationFetched={(loc) => setFormData((prev) => ({
@@ -1818,11 +1814,29 @@ export default function ResumeDraftSinglePage() {
                   </select>
                 </div>
 
+                {formData.artStatus === 'Transferred In' && (
+                  <div className="flex flex-col space-y-1.5 animate-fadeIn">
+                    <label htmlFor="health-currentlyOnArt" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-purple-900 block">
+                      CURRENTLY TAKING ART? <span className="text-rose-500 ml-0.5">*</span>
+                    </label>
+                    <select
+                      id="health-currentlyOnArt"
+                      value={formData.currentlyOnArt}
+                      onChange={(e) => setFormData({ ...formData, currentlyOnArt: e.target.value as any })}
+                      className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-purple-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
+                    >
+                      <option value="">Select Confirmation...</option>
+                      <option value="Yes">Yes — Currently taking ART at receiving centre</option>
+                      <option value="No">No — Not currently on treatment / transfer review</option>
+                    </select>
+                  </div>
+                )}
+
                 <div id="q-cli-art-num" className={getHighlightClass('q-cli-art-num')}>
                   <Input
                     id="health-artIdNumber"
-                    label="UID / ART No. (Clinical ART ID)"
-                    required
+                    label={artIdConfig.label}
+                    required={formData.artStatus === 'On ART'}
                     value={formData.artIdNumber}
                     onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
                     error={errorsByField['health-artIdNumber']?.message}
@@ -1832,27 +1846,31 @@ export default function ResumeDraftSinglePage() {
 
                 <Input
                   id="health-artInitiationDate"
-                  label="On ART Since (DD-MM-YYYY)"
+                  label={artInitiationConfig.label}
                   type="date"
-                  value={formData.artInitiationDate || formData.artRegistrationDate}
+                  value={formData.artInitiationDate}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
                       artInitiationDate: e.target.value,
-                      artRegistrationDate: e.target.value,
                     })
                   }
                   error={errorsByField['health-artInitiationDate']?.message}
                 />
 
-                <Input
-                  id="health-artMedicineType"
-                  label="Type of ART Medicines"
-                  value={formData.artMedicineType}
-                  onChange={(e) => setFormData({ ...formData, artMedicineType: e.target.value })}
-                  error={errorsByField['health-artMedicineType']?.message}
-                  placeholder="e.g. TLD, ABC+3TC+EFV, Pediatric pellets"
-                />
+                <div className="sm:col-span-2">
+                  <ArtRegimenCombobox
+                    id="health-artMedicineType"
+                    label={regimenUIConfig.label}
+                    value={formData.artMedicineType}
+                    onChange={(val: string) => setFormData({ ...formData, artMedicineType: val })}
+                    disabled={!regimenUIConfig.isApplicable}
+                    disabledExplanation={regimenUIConfig.disabledExplanation}
+                    required={formData.artStatus === 'On ART'}
+                    error={errorsByField['health-artMedicineType']?.message}
+                    helperText={regimenUIConfig.helpText}
+                  />
+                </div>
 
                 <Input
                   id="health-cd4Count"
@@ -1941,14 +1959,16 @@ export default function ResumeDraftSinglePage() {
                     </span>
                     <span
                       className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                        vlCategory.includes('Undetectable') || vlCategory.includes('Suppressed')
+                        vlPolicyResult.isUndetectable || vlPolicyResult.isSuppressed
                           ? 'bg-emerald-100 text-emerald-800'
-                          : vlCategory.includes('Unsuppressed')
+                          : vlPolicyResult.isUnsuppressed
                           ? 'bg-rose-100 text-rose-800 font-black animate-pulse'
-                          : 'bg-slate-100 text-slate-500'
+                          : vlPolicyResult.isNotTested
+                          ? 'bg-slate-100 text-slate-500'
+                          : 'bg-amber-100 text-amber-800'
                       }`}
                     >
-                      {vlCategory}
+                      {vlPolicyResult.displayBadge}
                     </span>
                   </div>
 
@@ -1961,7 +1981,7 @@ export default function ResumeDraftSinglePage() {
                         id="health-vlStatus"
                         value={formData.vlStatus}
                         onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                        className="w-full h-11 px-2.5 text-xs font-medium text-slate-900 bg-white border border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400"
+                        className="w-full h-11 px-2.5 text-xs font-medium text-slate-900 bg-white border border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
                       >
                         {[
                           'Tested in last 6 months',
@@ -1976,22 +1996,40 @@ export default function ResumeDraftSinglePage() {
                       </select>
                     </div>
 
-                    <Input
-                      label="VL TEST DATE"
-                      type="date"
-                      value={formData.vlDate}
-                      onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
-                    />
+                    {formData.vlStatus !== 'Not tested' ? (
+                      <Input
+                        label={formData.vlStatus === 'Tested > 6 months ago' ? 'VL TEST DATE (HISTORICAL)' : 'VL TEST DATE'}
+                        type="date"
+                        value={formData.vlDate}
+                        onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
+                      />
+                    ) : (
+                      <div className="flex items-center text-xs text-slate-500 italic p-2 bg-slate-100/60 rounded-xl">
+                        No test date applicable
+                      </div>
+                    )}
                   </div>
 
-                  <div id="q-cli-vl" className={getHighlightClass('q-cli-vl')}>
-                    <Input
-                      label={t('viral_load', currentLanguage)}
-                      value={formData.viralLoad}
-                      onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
-                      placeholder="e.g. < 50 or 450"
-                    />
-                  </div>
+                  {formData.vlStatus === 'Not tested' ? (
+                    <div className="p-3 bg-slate-100/70 border border-slate-200 rounded-xl text-xs text-slate-600">
+                      Child has not undergone HIV viral load testing. Laboratory result and suppression classification are not applicable.
+                    </div>
+                  ) : formData.vlStatus === 'Awaiting results' ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                      Viral load specimen collected; laboratory report is awaiting results. No numeric copies/mL entered.
+                    </div>
+                  ) : (
+                    <div id="q-cli-vl" className={getHighlightClass('q-cli-vl')}>
+                      <Input
+                        id="health-viralLoad"
+                        label={formData.vlStatus === 'Tested > 6 months ago' ? 'VIRAL LOAD RESULT (HISTORICAL >6M)' : t('viral_load', currentLanguage)}
+                        value={formData.viralLoad}
+                        onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
+                        placeholder="e.g. < 50, 450, 0, or Target Not Detected"
+                        helperText={vlPolicyResult.reason}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

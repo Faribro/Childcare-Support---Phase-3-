@@ -233,6 +233,7 @@ export interface HealthData {
   artInitiationDate?: string; // Question 8: On ART Since (DD-MM-YYYY)
   artIdNumber?: string;       // Question 7: Clinical UID/ART No.
   artMedicineType?: string;   // Question 9: Type of ART Medicines
+  currentlyOnArt?: boolean | string;
   cd4Count?: string | number; // Question 10: CD4 Count (Latest)
   vlStatus?: VLStatus;
   vlDate?: string;
@@ -463,6 +464,7 @@ export interface AllowlistedEditableFields {
   artInitiationDate?: string;
   artIdNumber?: string;
   artMedicineType?: string;
+  currentlyOnArt?: boolean | string;
   cd4Count?: string | number;
   viralLoad?: string | number;
   hasDisability?: string;

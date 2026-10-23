@@ -1,3 +1,4 @@
+import { classifyVLCategory } from '../clinical/nutritionCalculations';
 /**
  * Canonical Server-Side Submission Adapter
  * 
@@ -490,7 +491,8 @@ export function normalizeSubmissionData(raw: any, submissionId: string, fallback
       vlStatus: raw['43\nVL Status'] || raw.health?.vlStatus || '',
       vlDate: raw['44\nVL Date'] || raw.health?.vlDate || '',
       viralLoad: raw['45\nViral Load'] || raw.health?.viralLoad || '',
-      vlCategory: raw['46\nVL Category'] || raw.health?.vlCategory || '',
+      currentlyOnArt: raw.health?.currentlyOnArt || raw.currentlyOnArt || undefined,
+      vlCategory: raw['46\nVL Category'] || raw.health?.vlCategory || (raw['45\nViral Load'] || raw.health?.viralLoad || raw['43\nVL Status'] || raw.health?.vlStatus ? classifyVLCategory(raw['45\nViral Load'] || raw.health?.viralLoad, raw['43\nVL Status'] || raw.health?.vlStatus) : ''),
       hasDisability: raw['79\nIs Child With Disability'] || raw.hasDisability || raw.health?.hasDisability || 'No',
       disabilityType: raw['80\nTypes of Disability'] || raw.disabilityType || raw.health?.disabilityType || '',
       disabilityCertificateStatus: raw['81\nDisability Certificate'] || raw.disabilityCertificateStatus || raw.health?.disabilityCertificateStatus || '',

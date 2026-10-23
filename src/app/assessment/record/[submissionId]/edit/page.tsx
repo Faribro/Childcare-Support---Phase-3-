@@ -38,6 +38,9 @@ import {
   classifyHbCategory,
   classifyVLCategory,
 } from '@/lib/clinical/nutritionCalculations';
+import { ArtRegimenCombobox } from '@/components/clinical/ArtRegimenCombobox';
+import { getRegimenUIConfig, getArtInitiationConfig, getArtIdConfig, isCurrentRegimenApplicable } from '@/lib/clinical/artStatusLogic';
+import { classifyVLCategoryPolicy } from '@/lib/clinical/viralLoadPolicy';
 import {
   INDIAN_STATES_AND_UTS,
   type Gender,
@@ -299,6 +302,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
     artInitiationDate: '',
     artIdNumber: '',
     artMedicineType: '',
+    currentlyOnArt: '' as 'Yes' | 'No' | '',
     cd4Count: '',
     vlStatus: 'Tested in last 6 months' as VLStatus,
     vlDate: '',
@@ -761,6 +765,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           artInitiationDate: toDateInputString(h.artInitiationDate || foundRecord.artInitiationDate || h.artRegistrationDate || foundRecord['41\nART Registration Date'] || ''),
           artIdNumber: h.artIdNumber || foundRecord['42\nART ID Number'] || '',
           artMedicineType: h.artMedicineType || foundRecord['77\nType of ART Medicines'] || foundRecord.artMedicineType || '',
+          currentlyOnArt: (h.currentlyOnArt || foundRecord.currentlyOnArt || '') as any,
           cd4Count: String(h.cd4Count !== undefined ? h.cd4Count : (foundRecord['78\nCD4 Count (Latest)'] || foundRecord.cd4Count || '')),
           vlStatus: (h.vlStatus || foundRecord['43\nVL Status'] || 'Tested in last 6 months') as VLStatus,
           vlDate: toDateInputString(h.vlDate || foundRecord['44\nVL Date'] || ''),
@@ -939,9 +944,26 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
     return classifyHbCategory(formData.haemoglobinGdl, ageResult.years || 5);
   }, [formData.haemoglobinGdl, ageResult.years]);
 
-  const vlCategory = useMemo(() => {
-    return classifyVLCategory(formData.viralLoad);
-  }, [formData.viralLoad]);
+    const vlPolicyResult = useMemo(() => {
+    return classifyVLCategoryPolicy({
+      viralLoad: formData.viralLoad,
+      vlStatus: formData.vlStatus,
+    });
+  }, [formData.viralLoad, formData.vlStatus]);
+
+  const vlCategory = vlPolicyResult.vlCategory;
+
+  const regimenUIConfig = useMemo(() => {
+    return getRegimenUIConfig(formData.artStatus, formData.currentlyOnArt);
+  }, [formData.artStatus, formData.currentlyOnArt]);
+
+  const artInitiationConfig = useMemo(() => {
+    return getArtInitiationConfig(formData.artStatus);
+  }, [formData.artStatus]);
+
+  const artIdConfig = useMemo(() => {
+    return getArtIdConfig(formData.artStatus);
+  }, [formData.artStatus]);
 
   const nutritionResult = useMemo(() => {
     return classifyNutritionStatus({
@@ -1155,6 +1177,9 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
             state: formData.state,
             district: formData.district,
             childAadhaarNumber: formData.childAadhaarNumber,
+            srName: formData.srName || baseRecord.demographics?.srName || baseRecord['74\nSR Name'] || '',
+            ssrName: formData.ssrName || baseRecord.demographics?.ssrName || baseRecord['75\nSSR Name'] || '',
+            guardianStatus: formData.guardianStatus || baseRecord.demographics?.guardianStatus || baseRecord['76\nStatus of Guardian/Parent'] || '',
           },
           bankingAndKyc: {
             ...(baseRecord.bankingAndKyc || {}),
@@ -1185,7 +1210,11 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
             otherHealthConditionSpecify: formData.otherHealthConditionSpecify,
             artStatus: formData.artStatus,
             artRegistrationDate: formData.artRegistrationDate,
-            artIdNumber: formData.artIdNumber,
+            artInitiationDate: formData.artInitiationDate || baseRecord.health?.artInitiationDate || '',
+            artIdNumber: formData.artIdNumber || baseRecord.health?.artIdNumber || '',
+            artMedicineType: formData.artMedicineType || baseRecord.health?.artMedicineType || '',
+            currentlyOnArt: formData.currentlyOnArt || baseRecord.health?.currentlyOnArt || undefined,
+            cd4Count: formData.cd4Count || baseRecord.health?.cd4Count || '',
             vlStatus: formData.vlStatus,
             vlDate: formData.vlDate,
             viralLoad: formData.viralLoad,
@@ -2000,30 +2029,6 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                 placeholder="e.g. Pune"
               />
 
-              <Input
-                id="child-srName"
-                label="SR Name"
-                value={formData.srName}
-                onChange={(e) => setFormData({ ...formData, srName: e.target.value })}
-                placeholder="e.g. Alliance India"
-              />
-
-              <Input
-                id="child-ssrName"
-                label="SSR Name"
-                value={formData.ssrName}
-                onChange={(e) => setFormData({ ...formData, ssrName: e.target.value })}
-                placeholder="e.g. District CBO / NGO"
-              />
-
-              <Input
-                id="child-guardianStatus"
-                label="Status of Guardian/Parent"
-                value={formData.guardianStatus}
-                onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value })}
-                placeholder="e.g. Alive / Deceased / Ill / Migrated"
-              />
-
               <div className="flex flex-col justify-end">
                 <LocationFetchButton
                   onLocationFetched={(loc) => setFormData((prev) => ({
@@ -2327,49 +2332,77 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">ART STATUS *</label>
                     <select
+                      id="health-artStatus"
                       value={formData.artStatus}
                       onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
-                      className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none cursor-pointer"
                     >
-                      <option value="On ART">On ART</option>
-                      <option value="Initiating ART">Initiating ART</option>
-                      <option value="Defaulted / Lost to follow-up">Defaulted / Lost to follow-up</option>
-                      <option value="Not enrolled">Not enrolled</option>
+                      {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
+                  {formData.artStatus === 'Transferred In' && (
+                    <div className="flex flex-col space-y-1 animate-fadeIn">
+                      <label className="block text-xs font-bold text-purple-900 mb-1">
+                        CURRENTLY TAKING ART? *
+                      </label>
+                      <select
+                        id="health-currentlyOnArt"
+                        value={formData.currentlyOnArt}
+                        onChange={(e) => setFormData({ ...formData, currentlyOnArt: e.target.value as any })}
+                        className="w-full h-11 px-3 text-xs rounded-xl border border-purple-600 bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Select Confirmation...</option>
+                        <option value="Yes">Yes — Currently taking ART at receiving centre</option>
+                        <option value="No">No — Not currently on treatment / transfer review</option>
+                      </select>
+                    </div>
+                  )}
+
                   <Input
-                    label="UID / ART No. (Clinical ART ID) *"
-                    required
+                    id="health-artIdNumber"
+                    label={artIdConfig.label + (formData.artStatus === 'On ART' ? ' *' : '')}
+                    required={formData.artStatus === 'On ART'}
                     value={formData.artIdNumber}
-                    onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                    onChange={(e: any) => setFormData({ ...formData, artIdNumber: e.target.value })}
                     placeholder="e.g. MH-PUN-00123"
                   />
 
                   <Input
-                    label="On ART Since (DD-MM-YYYY)"
+                    id="health-artInitiationDate"
+                    label={artInitiationConfig.label}
                     type="date"
-                    value={formData.artInitiationDate || formData.artRegistrationDate}
-                    onChange={(e) =>
+                    value={formData.artInitiationDate}
+                    onChange={(e: any) =>
                       setFormData({
                         ...formData,
                         artInitiationDate: e.target.value,
-                        artRegistrationDate: e.target.value,
                       })
                     }
                   />
 
-                  <Input
-                    label="Type of ART Medicines"
-                    value={formData.artMedicineType}
-                    onChange={(e) => setFormData({ ...formData, artMedicineType: e.target.value })}
-                    placeholder="e.g. TLD, ABC+3TC+EFV, Pediatric pellets"
-                  />
+                  <div className="sm:col-span-2">
+                    <ArtRegimenCombobox
+                      id="health-artMedicineType"
+                      label={regimenUIConfig.label}
+                      value={formData.artMedicineType}
+                      onChange={(val: string) => setFormData({ ...formData, artMedicineType: val })}
+                      disabled={!regimenUIConfig.isApplicable}
+                      disabledExplanation={regimenUIConfig.disabledExplanation}
+                      required={formData.artStatus === 'On ART'}
+                      helperText={regimenUIConfig.helpText}
+                    />
+                  </div>
 
                   <Input
+                    id="health-cd4Count"
                     label="CD4 Count (Latest)"
                     value={formData.cd4Count}
-                    onChange={(e) => setFormData({ ...formData, cd4Count: e.target.value })}
+                    onChange={(e: any) => setFormData({ ...formData, cd4Count: e.target.value })}
                     placeholder="e.g. 650 cells/mm³"
                   />
                 </div>
@@ -2446,13 +2479,15 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                         Viral Load (VL) &amp; Suppression
                       </span>
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                        vlCategory.includes('Undetectable') || vlCategory.includes('Suppressed')
+                        vlPolicyResult.isUndetectable || vlPolicyResult.isSuppressed
                           ? 'bg-emerald-100 text-emerald-800'
-                          : vlCategory.includes('Unsuppressed')
+                          : vlPolicyResult.isUnsuppressed
                           ? 'bg-rose-100 text-rose-800 font-black animate-pulse'
-                          : 'bg-slate-100 text-slate-500'
+                          : vlPolicyResult.isNotTested
+                          ? 'bg-slate-100 text-slate-500'
+                          : 'bg-amber-100 text-amber-800'
                       }`}>
-                        {vlCategory}
+                        {vlPolicyResult.displayBadge}
                       </span>
                     </div>
 
@@ -2462,31 +2497,56 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                           VL STATUS *
                         </label>
                         <select
+                          id="health-vlStatus"
                           value={formData.vlStatus}
                           onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
-                          className="w-full h-11 px-2.5 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          className="w-full h-11 px-2.5 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none cursor-pointer"
                         >
-                          <option value="Tested in last 6 months">Tested in last 6 months</option>
-                          <option value="Tested > 6 months ago">Tested &gt; 6 months ago</option>
-                          <option value="Never tested">Never tested</option>
-                          <option value="Awaiting result">Awaiting result</option>
+                          {[
+                            'Tested in last 6 months',
+                            'Tested > 6 months ago',
+                            'Awaiting results',
+                            'Not tested',
+                          ].map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
                         </select>
                       </div>
 
-                      <Input
-                        label="VIRAL LOAD TEST DATE"
-                        type="date"
-                        value={formData.vlDate}
-                        onChange={(e) => setFormData({ ...formData, vlDate: e.target.value })}
-                      />
+                      {formData.vlStatus !== 'Not tested' ? (
+                        <Input
+                          label={formData.vlStatus === 'Tested > 6 months ago' ? 'VL TEST DATE (HISTORICAL)' : 'VIRAL LOAD TEST DATE'}
+                          type="date"
+                          value={formData.vlDate}
+                          onChange={(e: any) => setFormData({ ...formData, vlDate: e.target.value })}
+                        />
+                      ) : (
+                        <div className="flex items-center text-xs text-slate-500 italic p-2 bg-slate-50 rounded-xl">
+                          No test date applicable
+                        </div>
+                      )}
                     </div>
 
-                    <Input
-                      label="VIRAL LOAD (COPIES/ML)"
-                      value={formData.viralLoad}
-                      onChange={(e) => setFormData({ ...formData, viralLoad: e.target.value })}
-                      placeholder="e.g. < 50 or 450"
-                    />
+                    {formData.vlStatus === 'Not tested' ? (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
+                        Child has not undergone HIV viral load testing. Laboratory result and suppression classification are not applicable.
+                      </div>
+                    ) : formData.vlStatus === 'Awaiting results' ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                        Viral load specimen collected; laboratory report is awaiting results. No numeric copies/mL entered.
+                      </div>
+                    ) : (
+                      <Input
+                        id="health-viralLoad"
+                        label={formData.vlStatus === 'Tested > 6 months ago' ? 'VIRAL LOAD (COPIES/ML) - HISTORICAL' : 'VIRAL LOAD (COPIES/ML)'}
+                        value={formData.viralLoad}
+                        onChange={(e: any) => setFormData({ ...formData, viralLoad: e.target.value })}
+                        placeholder="e.g. < 50, 450, 0, or Target Not Detected"
+                        helperText={vlPolicyResult.reason}
+                      />
+                    )}
                   </div>
                 </div>
               </div>
