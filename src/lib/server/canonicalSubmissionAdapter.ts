@@ -1617,6 +1617,13 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL DELETE
    */
   async deleteSubmission(submissionId: string): Promise<{ success: boolean; message: string; statusCode: number }> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      if (typeof adapter.deleteSubmission === 'function') {
+        return await adapter.deleteSubmission(submissionId);
+      }
+    }
+
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return {
