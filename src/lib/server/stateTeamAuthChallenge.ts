@@ -258,8 +258,10 @@ export async function verifyStateTeamOtp(params: {
 
   if (!matches) {
     challenge.failedAttempts += 1;
-    if (challenge.failedAttempts >= STATE_TEAM_MAX_VERIFY_ATTEMPTS) {
-      challenge.isLocked = true;
+    const isLocked = challenge.failedAttempts >= STATE_TEAM_MAX_VERIFY_ATTEMPTS;
+    challenge.isLocked = isLocked;
+    await store.recordStateTeamChallengeAttempt(normEmail, challenge.failedAttempts, isLocked);
+    if (isLocked) {
       activeChallenges.delete(normEmail);
       return {
         success: false,
