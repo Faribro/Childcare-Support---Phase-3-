@@ -309,4 +309,104 @@ describe('Caregiver Verification & Subscription State Machine Suite', () => {
       expect(sub?.linkedSubmissionIds).toEqual(['sub-01', 'sub-02']);
     });
   });
+  describe('4. Cross-Instance & Atomic Concurrency Verification', () => {
+    it('enforces atomic single-use consumption under concurrent parallel verification calls', async () => {
+      const phoneHash = stateMachine.hashPhoneNumber('+919876543210');
+      const challengeResult = otpService.createChallenge(phoneHash);
+      if (!('challenge' in challengeResult)) throw new Error('Challenge creation failed');
+
+      await store.issueOtpChallengeAtomic(phoneHash, challengeResult.challenge, OTP_CONFIG.COOLDOWN_SECONDS);
+
+      // Launch 5 concurrent verification attempts with the correct OTP
+      const concurrentAttempts = await Promise.all([
+        store.verifyOtpCodeAtomic(phoneHash, challengeResult.rawOtp),
+        store.verifyOtpCodeAtomic(phoneHash, challengeResult.rawOtp),
+        store.verifyOtpCodeAtomic(phoneHash, challengeResult.rawOtp),
+        store.verifyOtpCodeAtomic(phoneHash, challengeResult.rawOtp),
+        store.verifyOtpCodeAtomic(phoneHash, challengeResult.rawOtp),
+      ]);
+
+      const successCount = concurrentAttempts.filter((a) => a.result.success).length;
+      const alreadyVerifiedCount = concurrentAttempts.filter(
+        (a) => !a.result.success && a.result.reason === 'ALREADY_VERIFIED'
+      ).length;
+
+      expect(successCount).toBe(1);
+      expect(alreadyVerifiedCount).toBe(4);
+    });
+
+    it('enforces atomic attempt increments and lockout under concurrent wrong-code verification calls', async () => {
+      const phoneHash = stateMachine.hashPhoneNumber('+919876543210');
+      const challengeResult = otpService.createChallenge(phoneHash);
+      if (!('challenge' in challengeResult)) throw new Error('Challenge creation failed');
+
+      await store.issueOtpChallengeAtomic(phoneHash, challengeResult.challenge, OTP_CONFIG.COOLDOWN_SECONDS);
+
+      // Launch 8 concurrent verification attempts with wrong code
+      const concurrentFails = await Promise.all([
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+        store.verifyOtpCodeAtomic(phoneHash, '000000'),
+      ]);
+
+      // All must fail
+      expect(concurrentFails.every((a) => !a.result.success)).toBe(true);
+
+      // The last 3 must be locked out with MAX_ATTEMPTS_EXCEEDED
+      const lockedOut = concurrentFails.filter((a) => a.result.reason === 'MAX_ATTEMPTS_EXCEEDED');
+      expect(lockedOut.length).toBeGreaterThanOrEqual(3);
+
+      // Subsequent attempt must immediately return MAX_ATTEMPTS_EXCEEDED
+      const finalAttempt = await store.verifyOtpCodeAtomic(phoneHash, '000000');
+      expect(finalAttempt.result.success).toBe(false);
+      expect(finalAttempt.result.reason).toBe('MAX_ATTEMPTS_EXCEEDED');
+      expect(finalAttempt.result.remainingAttempts).toBe(0);
+    });
+
+    it('supersedes previous active challenge when new challenge is atomically issued', async () => {
+      const phoneHash = stateMachine.hashPhoneNumber('+919876543210');
+      const now = Date.now();
+
+      const challenge1 = otpService.createChallenge(phoneHash, null, now);
+      if (!('challenge' in challenge1)) throw new Error('Challenge 1 failed');
+      await store.issueOtpChallengeAtomic(phoneHash, challenge1.challenge, OTP_CONFIG.COOLDOWN_SECONDS, now);
+
+      // Advance time past cooldown
+      const later = now + 65000;
+      const challenge2 = otpService.createChallenge(phoneHash, null, later);
+      if (!('challenge' in challenge2)) throw new Error('Challenge 2 failed');
+      await store.issueOtpChallengeAtomic(phoneHash, challenge2.challenge, OTP_CONFIG.COOLDOWN_SECONDS, later);
+
+      // Verifying code from old challenge 1 must fail
+      const tryOld = await store.verifyOtpCodeAtomic(phoneHash, challenge1.rawOtp, later);
+      expect(tryOld.result.success).toBe(false);
+
+      // Verifying code from new challenge 2 must succeed
+      const tryNew = await store.verifyOtpCodeAtomic(phoneHash, challenge2.rawOtp, later);
+      expect(tryNew.result.success).toBe(true);
+    });
+
+    it('enforces cooldown on challenge re-issuance atomically', async () => {
+      const phoneHash = stateMachine.hashPhoneNumber('+919876543210');
+      const now = Date.now();
+
+      const ch1 = otpService.createChallenge(phoneHash, null, now);
+      if (!('challenge' in ch1)) throw new Error('Challenge 1 failed');
+      await store.issueOtpChallengeAtomic(phoneHash, ch1.challenge, OTP_CONFIG.COOLDOWN_SECONDS, now);
+
+      // Attempt to re-issue 10 seconds later
+      const ch2 = otpService.createChallenge(phoneHash, null, now + 10000);
+      if (!('challenge' in ch2)) throw new Error('Challenge 2 failed');
+      const blocked = await store.issueOtpChallengeAtomic(phoneHash, ch2.challenge, OTP_CONFIG.COOLDOWN_SECONDS, now + 10000);
+
+      expect(blocked.success).toBe(false);
+      expect(blocked.error).toBe('COOLDOWN_ACTIVE');
+      expect(blocked.cooldownRemainingSeconds).toBe(50);
+    });
+  });
 });

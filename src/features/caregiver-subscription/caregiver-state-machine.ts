@@ -16,10 +16,13 @@
 import crypto from 'crypto';
 import {
   CaregiverLanguage,
+  CaregiverOtpChallenge,
   CaregiverSubscriptionRecord,
   CaregiverSubscriptionState,
   InboundCaregiverMessage,
   MessagingConsentCategory,
+  OTP_CONFIG,
+  OtpVerificationResult,
   OutboundCaregiverResponse,
 } from './types';
 import { CaregiverOtpService } from './otp-service';
@@ -255,20 +258,24 @@ export class CaregiverSubscriptionStateMachine {
         }
 
         const candidateCode = codeMatch[0];
-        const latestChallenge = await this.store.getLatestOtpChallenge(phoneHash);
+        let verification: { result: OtpVerificationResult; updatedChallenge?: CaregiverOtpChallenge | null };
 
-        if (!latestChallenge) {
-          return await this.initiateOtpVerification(record, normalizedPhone);
-        }
-
-        const verification = await this.otpService.verifyCodeAtomic(
-          latestChallenge.challengeId,
-          async () => await this.store.getLatestOtpChallenge(phoneHash),
-          candidateCode,
-          async (ch) => {
-            await this.store.saveOtpChallenge(ch);
+        if (this.store.verifyOtpCodeAtomic) {
+          verification = await this.store.verifyOtpCodeAtomic(phoneHash, candidateCode, Date.now());
+        } else {
+          const latestChallenge = await this.store.getLatestOtpChallenge(phoneHash);
+          if (!latestChallenge) {
+            return await this.initiateOtpVerification(record, normalizedPhone);
           }
-        );
+          verification = await this.otpService.verifyCodeAtomic(
+            latestChallenge.challengeId,
+            async () => await this.store.getLatestOtpChallenge(phoneHash),
+            candidateCode,
+            async (ch) => {
+              await this.store.saveOtpChallenge(ch);
+            }
+          );
+        }
 
         if (!verification.result.success) {
           let errorKey: string = 'OTP_INVALID';
@@ -493,7 +500,29 @@ export class CaregiverSubscriptionStateMachine {
       };
     }
 
-    await this.store.saveOtpChallenge(challengeResult.challenge);
+    if (this.store.issueOtpChallengeAtomic) {
+      const atomicIssue = await this.store.issueOtpChallengeAtomic(
+        record.phoneHash,
+        challengeResult.challenge,
+        OTP_CONFIG.COOLDOWN_SECONDS,
+        Date.now()
+      );
+      if (!atomicIssue.success && atomicIssue.error === 'COOLDOWN_ACTIVE') {
+        return {
+          record,
+          response: {
+            toPhoneMasked: record.phoneMasked,
+            textBody: this.getLocalizedText(record.preferredLanguage, 'COOLDOWN_ACTIVE', {
+              seconds: String(atomicIssue.cooldownRemainingSeconds ?? OTP_CONFIG.COOLDOWN_SECONDS),
+            }),
+            isProactive: false,
+            nextExpectedState: 'OTP_PENDING',
+          },
+        };
+      }
+    } else {
+      await this.store.saveOtpChallenge(challengeResult.challenge);
+    }
     record.state = 'OTP_PENDING';
     record.updatedAt = new Date().toISOString();
     await this.store.saveSubscription(record);

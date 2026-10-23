@@ -74,7 +74,8 @@ export interface OtpVerificationResult {
     | 'MAX_ATTEMPTS_EXCEEDED'
     | 'SUPERSEDED'
     | 'ALREADY_VERIFIED'
-    | 'COOLDOWN_ACTIVE';
+    | 'COOLDOWN_ACTIVE'
+    | 'NO_ACTIVE_CHALLENGE';
   readonly remainingAttempts?: number;
   readonly cooldownRemainingSeconds?: number;
 }

@@ -8,13 +8,16 @@
  * 1. Strict Fail-Closed in Production: Fails closed with SERVER_MISCONFIGURED
  *    if Supabase credentials are missing in production.
  * 2. Protected Hash Storage: Only salted hashes and masked identifiers are stored.
- * 3. Concurrency Safety: Atomic challenge superseding and state transitions.
+ * 3. Database-Atomic Verification: Uses PostgreSQL SELECT ... FOR UPDATE RPC
+ *    to guarantee ACID attempt bounding and single-use consumption across all instances.
  */
 
+import crypto from 'crypto';
 import { getAppEnvConfig } from '@/lib/server/envConfig';
 import {
   CaregiverOtpChallenge,
   CaregiverSubscriptionRecord,
+  OtpVerificationResult,
 } from './types';
 
 export interface ICaregiverSubscriptionStore {
@@ -25,12 +28,45 @@ export interface ICaregiverSubscriptionStore {
   isOptedOut(phoneHash: string): Promise<boolean>;
   recordOptOut(phoneHash: string, reason: string): Promise<void>;
   clearOptOut(phoneHash: string): Promise<void>;
+
+  issueOtpChallengeAtomic(
+    phoneHash: string,
+    challenge: CaregiverOtpChallenge,
+    cooldownSeconds: number,
+    now?: number
+  ): Promise<{ success: boolean; error?: 'COOLDOWN_ACTIVE'; cooldownRemainingSeconds?: number }>;
+
+  verifyOtpCodeAtomic(
+    phoneHash: string,
+    enteredCode: string,
+    now?: number
+  ): Promise<{ result: OtpVerificationResult; updatedChallenge?: CaregiverOtpChallenge | null }>;
 }
 
 export class MemoryCaregiverSubscriptionStore implements ICaregiverSubscriptionStore {
   private readonly subscriptions = new Map<string, CaregiverSubscriptionRecord>();
   private readonly challenges = new Map<string, CaregiverOtpChallenge[]>();
   private readonly optOuts = new Set<string>();
+  private readonly phoneLocks = new Map<string, Promise<void>>();
+
+  private async withPhoneLock<T>(phoneHash: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.phoneLocks.get(phoneHash) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = prev.then(() => current, () => current);
+    this.phoneLocks.set(phoneHash, chained);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.phoneLocks.get(phoneHash) === chained) {
+        this.phoneLocks.delete(phoneHash);
+      }
+    }
+  }
 
   public async getSubscription(phoneHash: string): Promise<CaregiverSubscriptionRecord | null> {
     const found = this.subscriptions.get(phoneHash);
@@ -48,7 +84,6 @@ export class MemoryCaregiverSubscriptionStore implements ICaregiverSubscriptionS
 
   public async saveOtpChallenge(challenge: CaregiverOtpChallenge): Promise<void> {
     const list = this.challenges.get(challenge.phoneHash) || [];
-    // Mark prior active challenges as superseded
     for (const c of list) {
       if (!c.verified) {
         c.superseded = true;
@@ -62,6 +97,92 @@ export class MemoryCaregiverSubscriptionStore implements ICaregiverSubscriptionS
     const list = this.challenges.get(phoneHash);
     if (!list || list.length === 0) return null;
     return JSON.parse(JSON.stringify(list[list.length - 1]));
+  }
+
+  public async issueOtpChallengeAtomic(
+    phoneHash: string,
+    challenge: CaregiverOtpChallenge,
+    cooldownSeconds: number,
+    now: number = Date.now()
+  ): Promise<{ success: boolean; error?: 'COOLDOWN_ACTIVE'; cooldownRemainingSeconds?: number }> {
+    return this.withPhoneLock(phoneHash, async () => {
+      const list = this.challenges.get(phoneHash) || [];
+      const active = list.filter((c) => !c.verified && !c.superseded);
+      const latest = active[active.length - 1];
+
+      if (latest) {
+        const elapsed = Math.floor((now - latest.lastRequestedAt) / 1000);
+        if (elapsed < cooldownSeconds) {
+          return {
+            success: false,
+            error: 'COOLDOWN_ACTIVE',
+            cooldownRemainingSeconds: cooldownSeconds - elapsed,
+          };
+        }
+      }
+
+      for (const c of list) {
+        if (!c.verified) {
+          c.superseded = true;
+        }
+      }
+      list.push(JSON.parse(JSON.stringify(challenge)));
+      this.challenges.set(phoneHash, list);
+      return { success: true };
+    });
+  }
+
+  public async verifyOtpCodeAtomic(
+    phoneHash: string,
+    enteredCode: string,
+    now: number = Date.now()
+  ): Promise<{ result: OtpVerificationResult; updatedChallenge?: CaregiverOtpChallenge | null }> {
+    return this.withPhoneLock(phoneHash, async () => {
+      const list = this.challenges.get(phoneHash) || [];
+      const activeList = list.filter((c) => !c.superseded);
+      const challenge = activeList[activeList.length - 1];
+
+      if (!challenge) {
+        return { result: { success: false, reason: 'NO_ACTIVE_CHALLENGE' }, updatedChallenge: null };
+      }
+      if (challenge.verified) {
+        return { result: { success: false, reason: 'ALREADY_VERIFIED' }, updatedChallenge: challenge };
+      }
+      if (challenge.attempts >= challenge.maxAttempts) {
+        return { result: { success: false, reason: 'MAX_ATTEMPTS_EXCEEDED', remainingAttempts: 0 }, updatedChallenge: challenge };
+      }
+      if (now > challenge.expiresAt) {
+        return { result: { success: false, reason: 'EXPIRED' }, updatedChallenge: challenge };
+      }
+
+      challenge.attempts += 1;
+      const cleaned = (enteredCode || '').replace(/\D/g, '').trim();
+      const candidateHash = crypto.createHash('sha256').update(`${cleaned}:${challenge.salt}`).digest('hex');
+      const candBuf = Buffer.from(candidateHash, 'hex');
+      const expBuf = Buffer.from(challenge.verifierHash, 'hex');
+
+      const matches =
+        candBuf.length === expBuf.length &&
+        crypto.timingSafeEqual(candBuf, expBuf);
+
+      if (!matches) {
+        const remainingAttempts = Math.max(0, challenge.maxAttempts - challenge.attempts);
+        return {
+          result: {
+            success: false,
+            reason: remainingAttempts === 0 ? 'MAX_ATTEMPTS_EXCEEDED' : 'INVALID_CODE',
+            remainingAttempts,
+          },
+          updatedChallenge: challenge,
+        };
+      }
+
+      challenge.verified = true;
+      return {
+        result: { success: true },
+        updatedChallenge: challenge,
+      };
+    });
   }
 
   public async isOptedOut(phoneHash: string): Promise<boolean> {
@@ -80,12 +201,14 @@ export class MemoryCaregiverSubscriptionStore implements ICaregiverSubscriptionS
     this.subscriptions.clear();
     this.challenges.clear();
     this.optOuts.clear();
+    this.phoneLocks.clear();
   }
 }
 
 /**
  * Supabase PostgREST implementation of ICaregiverSubscriptionStore.
  * Connects directly to public.caregiver_subscriptions and public.caregiver_otp_challenges.
+ * Implements cross-instance atomic RPC calls: caregiver_issue_otp_challenge and caregiver_verify_otp_atomic.
  */
 export class SupabaseCaregiverSubscriptionStore implements ICaregiverSubscriptionStore {
   private readonly baseUrl: string;
@@ -223,7 +346,6 @@ export class SupabaseCaregiverSubscriptionStore implements ICaregiverSubscriptio
     }
 
     try {
-      // 1. Mark prior active challenges as superseded
       const supersedeUrl = `${this.baseUrl}/rest/v1/caregiver_otp_challenges?phone_hash=eq.${encodeURIComponent(challenge.phoneHash)}&verified=eq.false`;
       await fetch(supersedeUrl, {
         method: 'PATCH',
@@ -231,7 +353,6 @@ export class SupabaseCaregiverSubscriptionStore implements ICaregiverSubscriptio
         body: JSON.stringify({ superseded: true }),
       });
 
-      // 2. Insert new challenge
       const url = `${this.baseUrl}/rest/v1/caregiver_otp_challenges`;
       const body = {
         challenge_id: challenge.challengeId,
@@ -297,6 +418,122 @@ export class SupabaseCaregiverSubscriptionStore implements ICaregiverSubscriptio
     } catch (err) {
       if (this.isProduction) throw err;
       return this.fallbackMemory.getLatestOtpChallenge(phoneHash);
+    }
+  }
+
+  public async issueOtpChallengeAtomic(
+    phoneHash: string,
+    challenge: CaregiverOtpChallenge,
+    cooldownSeconds: number,
+    now: number = Date.now()
+  ): Promise<{ success: boolean; error?: 'COOLDOWN_ACTIVE'; cooldownRemainingSeconds?: number }> {
+    if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Caregiver store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
+      return this.fallbackMemory.issueOtpChallengeAtomic(phoneHash, challenge, cooldownSeconds, now);
+    }
+
+    try {
+      const url = `${this.baseUrl}/rest/v1/rpc/caregiver_issue_otp_challenge`;
+      const body = {
+        p_phone_hash: phoneHash,
+        p_challenge_id: challenge.challengeId,
+        p_verifier_hash: challenge.verifierHash,
+        p_salt: challenge.salt,
+        p_max_attempts: challenge.maxAttempts,
+        p_expires_at: new Date(challenge.expiresAt).toISOString(),
+        p_now: new Date(now).toISOString(),
+        p_cooldown_seconds: cooldownSeconds,
+      };
+
+      const res = await fetch(url, { method: 'POST', headers: this.headers, body: JSON.stringify(body) });
+      if (!res.ok) {
+        if (this.isProduction) {
+          throw new Error(`DURABLE_RPC_ERROR: caregiver_issue_otp_challenge failed: HTTP ${res.status}`);
+        }
+        return this.fallbackMemory.issueOtpChallengeAtomic(phoneHash, challenge, cooldownSeconds, now);
+      }
+
+      const r = await res.json();
+      if (r?.error === 'COOLDOWN_ACTIVE') {
+        return {
+          success: false,
+          error: 'COOLDOWN_ACTIVE',
+          cooldownRemainingSeconds: Number(r.cooldownRemainingSeconds) || cooldownSeconds,
+        };
+      }
+      return { success: Boolean(r?.success ?? true) };
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.issueOtpChallengeAtomic(phoneHash, challenge, cooldownSeconds, now);
+    }
+  }
+
+  public async verifyOtpCodeAtomic(
+    phoneHash: string,
+    enteredCode: string,
+    now: number = Date.now()
+  ): Promise<{ result: OtpVerificationResult; updatedChallenge?: CaregiverOtpChallenge | null }> {
+    if (!this.isConfigured) {
+      if (this.isProduction) {
+        throw new Error(
+          'DURABLE_STORAGE_UNAVAILABLE: Caregiver store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in production.'
+        );
+      }
+      return this.fallbackMemory.verifyOtpCodeAtomic(phoneHash, enteredCode, now);
+    }
+
+    try {
+      const url = `${this.baseUrl}/rest/v1/rpc/caregiver_verify_otp_atomic`;
+      const cleaned = (enteredCode || '').replace(/\D/g, '').trim();
+      const body = {
+        p_phone_hash: phoneHash,
+        p_candidate_code: cleaned,
+        p_candidate_hash: null,
+        p_now: new Date(now).toISOString(),
+      };
+
+      const res = await fetch(url, { method: 'POST', headers: this.headers, body: JSON.stringify(body) });
+      if (!res.ok) {
+        if (this.isProduction) {
+          throw new Error(`DURABLE_RPC_ERROR: caregiver_verify_otp_atomic failed: HTTP ${res.status}`);
+        }
+        return this.fallbackMemory.verifyOtpCodeAtomic(phoneHash, enteredCode, now);
+      }
+
+      const r = await res.json();
+      if (r?.success) {
+        return {
+          result: { success: true },
+          updatedChallenge: {
+            challengeId: r.challengeId || 'verified_ch',
+            phoneHash,
+            verifierHash: '',
+            salt: '',
+            attempts: Number(r.attempts) || 1,
+            maxAttempts: 5,
+            expiresAt: now + 600000,
+            lastRequestedAt: now,
+            verified: true,
+            superseded: false,
+          },
+        };
+      }
+
+      return {
+        result: {
+          success: false,
+          reason: r?.reason || 'INVALID_CODE',
+          remainingAttempts: typeof r?.remainingAttempts === 'number' ? r.remainingAttempts : undefined,
+        },
+        updatedChallenge: null,
+      };
+    } catch (err) {
+      if (this.isProduction) throw err;
+      return this.fallbackMemory.verifyOtpCodeAtomic(phoneHash, enteredCode, now);
     }
   }
 

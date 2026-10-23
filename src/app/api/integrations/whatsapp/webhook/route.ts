@@ -327,7 +327,7 @@ export async function POST(req: NextRequest) {
               if (caregiverResult.rawOtpForTransport) {
                 try {
                   const otpText = `Your Child Nutrition Programme verification code is: ${caregiverResult.rawOtpForTransport}\n\nValid for 10 minutes. Do not share this code.`;
-                  await outboundSender.dispatch(
+                  const otpDispatch = await outboundSender.dispatch(
                     {
                       idempotencyKey: `otp-dispatch-${caregiverResult.record.subscriptionId}-${Date.now()}`,
                       correlationId: diagnostics.correlationId,
@@ -337,6 +337,11 @@ export async function POST(req: NextRequest) {
                     },
                     { userId: 'system-caregiver-otp', role: 'SYSTEM' }
                   );
+                  if (otpDispatch.status === 'SIMULATED_LOCAL') {
+                    console.info(`[WHATSAPP_WEBHOOK] OTP send simulated locally (ALLOW_LIVE_WHATSAPP_SEND=false). No live carrier dispatch.`);
+                  } else {
+                    console.info(`[WHATSAPP_WEBHOOK] OTP dispatched to Meta gateway: status=${otpDispatch.status}, wamid=${otpDispatch.wamid}`);
+                  }
                 } catch (otpErr: any) {
                   console.error(`[WHATSAPP_WEBHOOK] Failed to dispatch caregiver OTP: ${otpErr?.message || otpErr}`);
                 }
@@ -345,7 +350,7 @@ export async function POST(req: NextRequest) {
               // Dispatch outbound reply or prompt
               if (caregiverResult.response?.textBody) {
                 try {
-                  await outboundSender.dispatch(
+                  const replyDispatch = await outboundSender.dispatch(
                     {
                       idempotencyKey: `caregiver-reply-${messageId}`,
                       correlationId: diagnostics.correlationId,
@@ -355,6 +360,11 @@ export async function POST(req: NextRequest) {
                     },
                     { userId: 'system-caregiver-response', role: 'SYSTEM' }
                   );
+                  if (replyDispatch.status === 'SIMULATED_LOCAL') {
+                    console.info(`[WHATSAPP_WEBHOOK] Caregiver reply simulated locally (ALLOW_LIVE_WHATSAPP_SEND=false).`);
+                  } else {
+                    console.info(`[WHATSAPP_WEBHOOK] Caregiver reply dispatched: status=${replyDispatch.status}, wamid=${replyDispatch.wamid}`);
+                  }
                 } catch (replyErr: any) {
                   console.error(`[WHATSAPP_WEBHOOK] Failed to dispatch caregiver response: ${replyErr?.message || replyErr}`);
                 }

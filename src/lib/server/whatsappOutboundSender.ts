@@ -23,6 +23,7 @@ import path from 'path';
 export type OutboundDeliveryStatus =
   | 'PREPARED'
   | 'ACCEPTED_BY_GATEWAY'
+  | 'SIMULATED_LOCAL'
   | 'FAILED'
   | 'UNCERTAIN'
   | 'DELIVERED'
@@ -51,6 +52,7 @@ export interface WhatsAppHttpResponse {
   readonly error?: string;
   readonly isTimeout?: boolean;
   readonly isNetworkError?: boolean;
+  readonly isSimulated?: boolean;
 }
 
 export interface WhatsAppHttpTransport {
@@ -328,8 +330,11 @@ export class FetchWhatsAppHttpTransport implements WhatsAppHttpTransport {
     if (!isLiveAllowed) {
       return {
         status: 200,
+        isSimulated: true,
         data: {
           messaging_product: 'whatsapp',
+          simulation: true,
+          status: 'SIMULATED_LOCAL',
           contacts: [{ input: body?.to, wa_id: String(body?.to || '').replace('+', '') }],
           messages: [{ id: `wamid.simulated_${Date.now()}_${crypto.randomBytes(4).toString('hex')}` }],
         },
@@ -547,6 +552,29 @@ export class WhatsAppOutboundSender {
     }
 
     // 7. Outcome Classification
+    if (response.isSimulated) {
+      const wamid = response.data?.messages?.[0]?.id;
+      record.status = 'SIMULATED_LOCAL';
+      record.wamid = wamid;
+      record.gatewayStatusCode = 200;
+      record.errorDetails = 'SIMULATED_LOCAL: Live sending disabled (ALLOW_LIVE_WHATSAPP_SEND=false). No message transmitted to Meta.';
+      record.updatedAt = new Date().toISOString();
+      await this.registry.save(record);
+
+      return {
+        success: false,
+        status: 'SIMULATED_LOCAL',
+        outboundId,
+        idempotencyKey: params.idempotencyKey,
+        correlationId: params.correlationId,
+        wamid,
+        gatewayStatusCode: 200,
+        recipientPhoneMasked,
+        error: record.errorDetails,
+        timestamp: record.updatedAt,
+      };
+    }
+
     if (response.status >= 200 && response.status < 300) {
       const wamid = response.data?.messages?.[0]?.id;
       record.status = 'ACCEPTED_BY_GATEWAY';

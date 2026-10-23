@@ -152,4 +152,196 @@ CREATE POLICY "Service role full access on caregiver_reminder_history"
     USING (true)
     WITH CHECK (true);
 
+--------------------------------------------------------------------------------
+-- 5. DATABASE-ATOMIC OTP CHALLENGE ISSUANCE & VERIFICATION FUNCTIONS (RPC)
+-- Cross-instance ACID serialization: Uses SELECT ... FOR UPDATE to eliminate
+-- race conditions, double-consumption, and attempt limit bypass across all instances.
+--------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.caregiver_issue_otp_challenge(
+    p_phone_hash TEXT,
+    p_challenge_id TEXT,
+    p_verifier_hash TEXT,
+    p_salt TEXT,
+    p_max_attempts INTEGER,
+    p_expires_at TIMESTAMPTZ,
+    p_now TIMESTAMPTZ,
+    p_cooldown_seconds INTEGER
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_last_requested TIMESTAMPTZ;
+    v_elapsed NUMERIC;
+    v_cooldown_rem INTEGER;
+BEGIN
+    -- 1. Check cooldown across instances with row locking
+    SELECT last_requested_at INTO v_last_requested
+    FROM public.caregiver_otp_challenges
+    WHERE phone_hash = p_phone_hash
+      AND verified = FALSE
+      AND superseded = FALSE
+    ORDER BY created_at DESC
+    LIMIT 1
+    FOR UPDATE;
+
+    IF v_last_requested IS NOT NULL THEN
+        v_elapsed := EXTRACT(EPOCH FROM (p_now - v_last_requested));
+        IF v_elapsed < p_cooldown_seconds THEN
+            v_cooldown_rem := CEIL(p_cooldown_seconds - v_elapsed);
+            RETURN jsonb_build_object(
+                'success', FALSE,
+                'error', 'COOLDOWN_ACTIVE',
+                'cooldownRemainingSeconds', v_cooldown_rem
+            );
+        END IF;
+    END IF;
+
+    -- 2. Mark any prior active challenges for this phone as superseded
+    UPDATE public.caregiver_otp_challenges
+    SET superseded = TRUE
+    WHERE phone_hash = p_phone_hash
+      AND verified = FALSE
+      AND superseded = FALSE;
+
+    -- 3. Insert new challenge
+    INSERT INTO public.caregiver_otp_challenges (
+        challenge_id,
+        phone_hash,
+        verifier_hash,
+        salt,
+        attempts,
+        max_attempts,
+        expires_at,
+        last_requested_at,
+        verified,
+        superseded,
+        created_at
+    ) VALUES (
+        p_challenge_id,
+        p_phone_hash,
+        p_verifier_hash,
+        p_salt,
+        0,
+        p_max_attempts,
+        p_expires_at,
+        p_now,
+        FALSE,
+        FALSE,
+        p_now
+    );
+
+    RETURN jsonb_build_object(
+        'success', TRUE,
+        'challengeId', p_challenge_id
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.caregiver_verify_otp_atomic(
+    p_phone_hash TEXT,
+    p_candidate_code TEXT,
+    p_candidate_hash TEXT,
+    p_now TIMESTAMPTZ
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_challenge RECORD;
+    v_attempts INTEGER;
+    v_remaining INTEGER;
+    v_computed_hash TEXT;
+    v_hash_to_check TEXT;
+BEGIN
+    -- 1. Lock the latest active challenge row for this phone hash
+    SELECT * INTO v_challenge
+    FROM public.caregiver_otp_challenges
+    WHERE phone_hash = p_phone_hash
+      AND superseded = FALSE
+    ORDER BY created_at DESC
+    LIMIT 1
+    FOR UPDATE;
+
+    IF v_challenge IS NULL THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'reason', 'NO_ACTIVE_CHALLENGE'
+        );
+    END IF;
+
+    IF v_challenge.verified = TRUE THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'reason', 'ALREADY_VERIFIED'
+        );
+    END IF;
+
+    IF v_challenge.attempts >= v_challenge.max_attempts THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'reason', 'MAX_ATTEMPTS_EXCEEDED',
+            'remainingAttempts', 0
+        );
+    END IF;
+
+    IF p_now > v_challenge.expires_at THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'reason', 'EXPIRED'
+        );
+    END IF;
+
+    -- Increment attempt count atomically
+    v_attempts := LEAST(v_challenge.max_attempts, v_challenge.attempts + 1);
+    v_remaining := GREATEST(0, v_challenge.max_attempts - v_attempts);
+
+    -- Compute candidate hash if candidate code provided, otherwise use candidate hash
+    IF p_candidate_hash IS NOT NULL AND length(trim(p_candidate_hash)) > 0 THEN
+        v_hash_to_check := lower(trim(p_candidate_hash));
+    ELSE
+        -- Compute sha256(code:salt) via pgcrypto
+        v_computed_hash := encode(digest(trim(p_candidate_code) || ':' || v_challenge.salt, 'sha256'), 'hex');
+        v_hash_to_check := lower(v_computed_hash);
+    END IF;
+
+    -- Compare against verifier_hash
+    IF lower(v_challenge.verifier_hash) = v_hash_to_check THEN
+        -- Verification SUCCESS: Single-use consumption
+        UPDATE public.caregiver_otp_challenges
+        SET attempts = v_attempts,
+            verified = TRUE
+        WHERE id = v_challenge.id;
+
+        RETURN jsonb_build_object(
+            'success', TRUE,
+            'challengeId', v_challenge.challenge_id,
+            'attempts', v_attempts
+        );
+    ELSE
+        -- Verification FAILURE: Record attempt
+        UPDATE public.caregiver_otp_challenges
+        SET attempts = v_attempts
+        WHERE id = v_challenge.id;
+
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'reason', CASE WHEN v_remaining = 0 THEN 'MAX_ATTEMPTS_EXCEEDED' ELSE 'INVALID_CODE' END,
+            'remainingAttempts', v_remaining,
+            'challengeId', v_challenge.challenge_id
+        );
+    END IF;
+END;
+$$;
+
+-- Security Grants: Only service_role may execute administrative OTP functions
+REVOKE ALL ON FUNCTION public.caregiver_issue_otp_challenge(TEXT, TEXT, TEXT, TEXT, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.caregiver_issue_otp_challenge(TEXT, TEXT, TEXT, TEXT, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, INTEGER) TO service_role;
+
+REVOKE ALL ON FUNCTION public.caregiver_verify_otp_atomic(TEXT, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.caregiver_verify_otp_atomic(TEXT, TEXT, TEXT, TIMESTAMPTZ) TO service_role;
+
 COMMIT;
