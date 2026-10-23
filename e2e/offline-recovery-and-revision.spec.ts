@@ -54,7 +54,7 @@ test.describe('Offline Recovery, Outbox Replay & Fault Matrix', () => {
       await draftsLink.click();
       await page.waitForURL('**/assessment/drafts');
     } else {
-      await expect(page.locator('text=Local In-Progress Drafts')).toBeVisible();
+      await expect(page.locator('text=My In-Progress Drafts')).toBeVisible();
     }
 
     // Verify draft item is listed without false synced acknowledgment

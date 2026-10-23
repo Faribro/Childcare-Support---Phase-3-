@@ -26,8 +26,23 @@ export interface CanonicalUpdateInput {
   submissionId: string;
   patch: PatchSubmissionPayload;
   expectedVersion?: number;
+  newRevision?: number;
+  previousFileId?: string;
+  newFileId?: string;
+  oldAssetStatus?: string;
   idempotencyKey?: string;
   requestId: string;
+}
+
+export interface CanonicalReplaceAssetInput {
+  submissionId: string;
+  docType: string;
+  fileData: string;
+  expectedRevision?: number;
+  expectedVersion?: number;
+  expectedCurrentCellStateHash?: string;
+  requestId: string;
+  simulatePointerMismatch?: boolean;
 }
 
 export interface CanonicalListParams {
@@ -63,6 +78,10 @@ export interface CanonicalSubmissionResult {
   data?: any;
   currentVersion?: number;
   expectedVersion?: number;
+  newRevision?: number;
+  previousFileId?: string;
+  newFileId?: string;
+  oldAssetStatus?: string;
   pagination?: {
     nextCursor?: string | null;
     hasMore: boolean;
@@ -351,8 +370,8 @@ export function normalizeSubmissionData(raw: any, submissionId: string, fallback
     remote_submission_id: id,
     uniqueId: id,
     art_number: raw['1\nUnique ID'] || raw['42\nART ID Number'] || raw.artNumber || raw.art_number || id,
-    child_name: raw['9\nChild Name'] || raw.child_name || raw.childName || '',
-    childName: raw['9\nChild Name'] || raw.childName || raw.child_name || '',
+    child_name: raw['9\nChild Name'] || raw.child_name || raw.childName || raw.demographics?.childName || '',
+    childName: raw['9\nChild Name'] || raw.childName || raw.child_name || raw.demographics?.childName || '',
     dob: raw['10\nDate of Birth'] || raw.dob || '',
     calculated_age: Number(raw['11\nAge'] || raw.calculated_age || raw.calculatedAgeYears || 0),
     gender: raw['12\nGender'] || raw.gender || '',
@@ -423,6 +442,65 @@ export function normalizeSubmissionData(raw: any, submissionId: string, fallback
       aadhaarCardPhotoUrl,
       childPhotoUrl,
     },
+    srName: raw['74\nSR Name'] || raw.srName || raw.demographics?.srName || '',
+    ssrName: raw['75\nSSR Name'] || raw.ssrName || raw.demographics?.ssrName || '',
+    guardianStatus: raw['76\nStatus of Guardian/Parent'] || raw.guardianStatus || raw.demographics?.guardianStatus || '',
+    artInitiationDate: raw['41\nART Registration Date'] || raw.artInitiationDate || raw.artRegistrationDate || raw.health?.artInitiationDate || '',
+    artIdNumber: raw['42\nART ID Number'] || raw.artIdNumber || raw.health?.artIdNumber || '',
+    artMedicineType: raw['77\nType of ART Medicines'] || raw.artMedicineType || raw.health?.artMedicineType || '',
+    cd4Count: raw['78\nCD4 Count (Latest)'] || raw.cd4Count || raw.health?.cd4Count || '',
+    hasDisability: raw['79\nIs Child With Disability'] || raw.hasDisability || raw.health?.hasDisability || 'No',
+    disabilityType: raw['80\nTypes of Disability'] || raw.disabilityType || raw.health?.disabilityType || '',
+    disabilityCertificateStatus: raw['81\nDisability Certificate'] || raw.disabilityCertificateStatus || raw.health?.disabilityCertificateStatus || '',
+    receivingEducationSchemeBenefit: raw['82\nEducation Scheme Benefit'] || raw.receivingEducationSchemeBenefit || raw.educationStatus?.receivingEducationSchemeBenefit || 'No',
+    malnutritionSymptoms: raw['83\nSymptoms of Malnutrition'] || raw.malnutritionSymptoms || raw.nutrition?.malnutritionSymptoms || '',
+    demographics: {
+      ...(raw.demographics || {}),
+      artNumber: raw['1\nUnique ID'] || raw['42\nART ID Number'] || raw.artNumber || raw.art_number || id,
+      childName: raw['9\nChild Name'] || raw.childName || raw.child_name || raw.demographics?.childName || '',
+      dob: raw['10\nDate of Birth'] || raw.dob || '',
+      calculatedAgeYears: Number(raw['11\nAge'] || raw.calculated_age || raw.calculatedAgeYears || 0),
+      gender: raw['12\nGender'] || raw.gender || '',
+      orphanStatus: raw['13\nOrphan Status'] || raw.orphanStatus || raw.demographics?.orphanStatus || '',
+      caregiverName: raw['14\nCaregiver Full Name'] || raw.caregiverName || raw.caregiver_name || '',
+      caregiverRelationship: raw['15\nCaregiver Relation'] || raw.caregiverRelationship || raw.caregiver_relationship || '',
+      contactNumber: raw['16\nCaregiver Contact'] ? String(raw['16\nCaregiver Contact']) : (raw.caregiverPhone || raw.caregiver_phone || ''),
+      fullAddress: raw['17\nAddress'] || raw.address || raw.fullAddress || '',
+      state: raw['18\nState'] || raw.state || '',
+      district: raw['19\nDistrict'] || raw.district || '',
+      srName: raw['74\nSR Name'] || raw.srName || raw.demographics?.srName || '',
+      ssrName: raw['75\nSSR Name'] || raw.ssrName || raw.demographics?.ssrName || '',
+      guardianStatus: raw['76\nStatus of Guardian/Parent'] || raw.guardianStatus || raw.demographics?.guardianStatus || '',
+    },
+    health: {
+      ...(raw.health || {}),
+      weightKg: Number(raw['32\nCurrent Weight (kg)'] || raw.weight_kg || raw.weightKg || 0),
+      heightCm: Number(raw['33\nCurrent Height (cm)'] || raw.height_cm || raw.heightCm || 0),
+      bmi: Number(raw['34\nBMI'] || raw.bmi || 0),
+      bmiCategory: raw['35\nBMI Category'] || raw.bmiCategory || '',
+      haemoglobinGdl: Number(raw['36\nHemoglobin (g/dL)'] || raw.haemoglobinGdl || 0),
+      otherHealthConditions: raw['38\nComorbidities'] ? String(raw['38\nComorbidities']).split(',').map((s: string) => s.trim()).filter(Boolean) : (raw.health?.otherHealthConditions || []),
+      otherHealthConditionSpecify: raw['39\nComorbidities Other'] || raw.health?.otherHealthConditionSpecify || '',
+      artStatus: raw['40\nART Status'] || raw.health?.artStatus || 'On ART',
+      artRegistrationDate: raw['41\nART Registration Date'] || raw.health?.artRegistrationDate || '',
+      artInitiationDate: raw['41\nART Registration Date'] || raw.artInitiationDate || raw.health?.artInitiationDate || '',
+      artIdNumber: raw['42\nART ID Number'] || raw.artIdNumber || raw.health?.artIdNumber || '',
+      artMedicineType: raw['77\nType of ART Medicines'] || raw.artMedicineType || raw.health?.artMedicineType || '',
+      cd4Count: raw['78\nCD4 Count (Latest)'] || raw.cd4Count || raw.health?.cd4Count || '',
+      vlStatus: raw['43\nVL Status'] || raw.health?.vlStatus || '',
+      vlDate: raw['44\nVL Date'] || raw.health?.vlDate || '',
+      viralLoad: raw['45\nViral Load'] || raw.health?.viralLoad || '',
+      vlCategory: raw['46\nVL Category'] || raw.health?.vlCategory || '',
+      hasDisability: raw['79\nIs Child With Disability'] || raw.hasDisability || raw.health?.hasDisability || 'No',
+      disabilityType: raw['80\nTypes of Disability'] || raw.disabilityType || raw.health?.disabilityType || '',
+      disabilityCertificateStatus: raw['81\nDisability Certificate'] || raw.disabilityCertificateStatus || raw.health?.disabilityCertificateStatus || '',
+    },
+    nutrition: {
+      ...(raw.nutrition || {}),
+      appetite: raw['47\nAppetite'] || raw.nutrition?.appetite || 'Good',
+      mealsPerDay: Number(raw['48\nMeals per Day'] || raw.nutrition?.mealsPerDay || 3),
+      malnutritionSymptoms: raw['83\nSymptoms of Malnutrition'] || raw.malnutritionSymptoms || raw.nutrition?.malnutritionSymptoms || '',
+    },
     educationStatus: {
       ...(raw.educationStatus || {}),
       educationStatus: raw['49\nEducation Status'] || raw.educationStatus?.educationStatus || '',
@@ -433,6 +511,7 @@ export function normalizeSubmissionData(raw: any, submissionId: string, fallback
       currentClass: raw['54\nCurrent Class'] || raw.school_grade || raw.schoolGrade || raw.currentClass || raw.educationStatus?.currentClass || '',
       currentClassSpecify: raw['Current Class Specify'] || raw.school_grade_specify || raw.currentClassSpecify || raw.educationStatus?.currentClassSpecify || '',
       attendance: raw['55\nAttendance Status'] || raw.educationStatus?.attendance || '',
+      receivingEducationSchemeBenefit: raw['82\nEducation Scheme Benefit'] || raw.receivingEducationSchemeBenefit || raw.educationStatus?.receivingEducationSchemeBenefit || 'No',
     },
     educationExpenses: {
       schoolFees: Number(raw['56\nSchool Fees'] || raw.school_fees || raw.schoolFees || raw.educationExpenses?.schoolFees || 0),
@@ -488,16 +567,143 @@ export function extractUpstreamStatusCode(res: Response, gasData: any): number {
   return 502;
 }
 
+export const OPERATIONAL_APPS_SCRIPT_DEPLOYMENT_IDS = [
+  'AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL',
+] as const;
+
+export interface UpstreamEndpointValidation {
+  valid: boolean;
+  code?: string;
+  error?: string;
+  parsedUrl?: URL;
+  deploymentId?: string;
+}
+
+/**
+ * Validates upstream Apps Script Web App endpoints strictly:
+ * - URL must parse via new URL()
+ * - Protocol must be HTTPS
+ * - Host must be script.google.com
+ * - Path must match /macros/s/{deploymentId}/exec
+ * - Prohibits secret/key/token/auth in URL query parameters (enforces JSON-body credentials)
+ * - In staging (APP_ENV === 'staging' or NEXT_PUBLIC_APP_ENV === 'staging'), rejects operational deployment IDs
+ * - In production, allows operational deployment IDs
+ */
+export function validateUpstreamEndpoint(
+  urlStr?: string,
+  environment?: string
+): UpstreamEndpointValidation {
+  if (!urlStr || typeof urlStr !== 'string' || !urlStr.trim()) {
+    return {
+      valid: false,
+      code: 'MISSING_ENDPOINT',
+      error: 'Upstream Apps Script URL is missing or empty.',
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr.trim());
+  } catch {
+    return {
+      valid: false,
+      code: 'INVALID_URL',
+      error: 'Upstream Apps Script URL is malformed.',
+    };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      code: 'INSECURE_PROTOCOL',
+      error: `Upstream Apps Script endpoint must use HTTPS protocol, received: ${parsed.protocol}`,
+    };
+  }
+
+  if (parsed.hostname !== 'script.google.com') {
+    return {
+      valid: false,
+      code: 'INVALID_HOST',
+      error: `Upstream Apps Script endpoint must be on script.google.com, received: ${parsed.hostname}`,
+    };
+  }
+
+  const pathRegex = /^\/macros\/s\/([a-zA-Z0-9_-]+)\/exec$/;
+  const match = parsed.pathname.match(pathRegex);
+  if (!match) {
+    return {
+      valid: false,
+      code: 'INVALID_PATH',
+      error: `Upstream Apps Script URL path must follow /macros/s/{deploymentId}/exec format, received: ${parsed.pathname}`,
+    };
+  }
+
+  const deploymentId = match[1];
+
+  // Strictly prohibit secrets in query parameters (Authentication must remain JSON-body payload.secret)
+  if (
+    parsed.searchParams.has('secret') ||
+    parsed.searchParams.has('key') ||
+    parsed.searchParams.has('token') ||
+    parsed.searchParams.has('auth') ||
+    parsed.searchParams.has('webhookSecret')
+  ) {
+    return {
+      valid: false,
+      code: 'QUERY_SECRET_PROHIBITED',
+      error: 'Passing secrets or credentials in URL query parameters is prohibited. Use HTTPS JSON-body payload.secret.',
+    };
+  }
+
+  const env = (environment || process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || '').toLowerCase().trim();
+
+  // Destination Isolation: Staging environment MUST NOT target operational deployment ID
+  if (env === 'staging') {
+    if ((OPERATIONAL_APPS_SCRIPT_DEPLOYMENT_IDS as readonly string[]).includes(deploymentId)) {
+      return {
+        valid: false,
+        code: 'OPERATIONAL_DESTINATION_REJECTED',
+        error: `Staging environment rejected targeting operational Apps Script deployment ID (${deploymentId}).`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    parsedUrl: parsed,
+    deploymentId,
+  };
+}
+
 class CanonicalSubmissionAdapterService {
+  private supabaseAdapterInstance: any = null;
+
+  public getStorageEngine(): 'sheets' | 'supabase' {
+    if (process.env.STORAGE_ENGINE === 'supabase') {
+      return 'supabase';
+    }
+    return 'sheets';
+  }
+
+  public setSupabaseAdapter(adapter: any): void {
+    this.supabaseAdapterInstance = adapter;
+  }
+
+  public async getSupabaseAdapter(): Promise<any> {
+    if (!this.supabaseAdapterInstance) {
+      const { SupabaseSubmissionAdapter } = await import('./supabaseSubmissionAdapter');
+      this.supabaseAdapterInstance = new SupabaseSubmissionAdapter();
+    }
+    return this.supabaseAdapterInstance;
+  }
+
   public getAppsScriptUrl(): string | undefined {
     return (
       process.env.APPS_SCRIPT_URL ||
       process.env.APPS_SCRIPT_WEBAPP_URL ||
       process.env.APPS_SCRIPT_WEBHOOK_URL ||
       process.env.STAGING_APPS_SCRIPT_URL ||
-      (process.env.RENDER === 'true'
-        ? 'https://script.google.com/macros/s/AKfycbxbo4ErI10K505h1qMIY8HY7bo-gQU2Gw6c8NSZ3Py6aOTVAsjeK28OPsxilyHjgmTL/exec'
-        : undefined)
+      undefined
     );
   }
 
@@ -523,7 +729,9 @@ class CanonicalSubmissionAdapterService {
       return false;
     }
     const url = this.getAppsScriptUrl();
-    return !!(url && url.startsWith('https://script.google.com'));
+    const env = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV;
+    const validation = validateUpstreamEndpoint(url, env);
+    return validation.valid;
   }
 
   public isProductionOrStaging(): boolean {
@@ -534,23 +742,65 @@ class CanonicalSubmissionAdapterService {
     ) {
       return false;
     }
-    return process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+    return (
+      process.env.NODE_ENV === 'production' ||
+      process.env.RENDER === 'true' ||
+      process.env.APP_ENV === 'staging' ||
+      process.env.APP_ENV === 'production' ||
+      process.env.NEXT_PUBLIC_APP_ENV === 'staging' ||
+      process.env.NEXT_PUBLIC_APP_ENV === 'production'
+    );
   }
 
   public checkConfiguration(operationType: 'read' | 'write' = 'write'): { valid: boolean; errorResponse?: CanonicalSubmissionResult } {
-    const hasValidUrl = this.isConfigured();
+    const url = this.getAppsScriptUrl();
+    const env = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV;
+    const endpointValidation = validateUpstreamEndpoint(url, env);
     const hasSecret = Boolean(this.getWebhookSecret());
 
-    // In production or staging, fail-closed immediately if unconfigured
+    // In production or staging, fail-closed immediately if unconfigured or destination invalid
     if (this.isProductionOrStaging()) {
-      if (!hasValidUrl || !hasSecret) {
+      if (!endpointValidation.valid || !hasSecret) {
+        let errorCode = 'CONFIGURATION_ERROR';
+        if (endpointValidation.code === 'OPERATIONAL_DESTINATION_REJECTED') {
+          errorCode = 'OPERATIONAL_DESTINATION_REJECTED';
+        } else if (endpointValidation.code === 'QUERY_SECRET_PROHIBITED') {
+          errorCode = 'QUERY_SECRET_PROHIBITED';
+        }
+
+        const errorMessage = !endpointValidation.valid
+          ? `Central Google Sheets bridge destination error: ${endpointValidation.error}`
+          : 'Central Google Sheets bridge (WEBHOOK_SECRET) is not configured. Requests fail-closed for data safety.';
+
         return {
           valid: false,
           errorResponse: {
             status: 'error',
             statusCode: 503,
-            code: 'CONFIGURATION_ERROR',
-            message: `Central Google Sheets bridge (${!hasValidUrl ? 'APPS_SCRIPT_URL' : 'WEBHOOK_SECRET'}) is not configured. Requests fail-closed for data safety.`,
+            code: errorCode,
+            message: errorMessage,
+          },
+        };
+      }
+    }
+
+    // In test or local environments, if outbound staging is active, still enforce destination safety
+    if (process.env.E2E_STAGING_ENABLED === 'true') {
+      if (!endpointValidation.valid || !hasSecret) {
+        let errorCode = 'CONFIGURATION_ERROR';
+        if (endpointValidation.code === 'OPERATIONAL_DESTINATION_REJECTED') {
+          errorCode = 'OPERATIONAL_DESTINATION_REJECTED';
+        } else if (endpointValidation.code === 'QUERY_SECRET_PROHIBITED') {
+          errorCode = 'QUERY_SECRET_PROHIBITED';
+        }
+
+        return {
+          valid: false,
+          errorResponse: {
+            status: 'error',
+            statusCode: 503,
+            code: errorCode,
+            message: endpointValidation.error || 'Outbound staging configuration is invalid.',
           },
         };
       }
@@ -564,6 +814,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL CREATE
    */
   async createSubmission(input: CanonicalCreateInput): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.createSubmission(input);
+    }
+
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -655,6 +910,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL UPDATE (OCC)
    */
   async updateSubmission(input: CanonicalUpdateInput): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.updateSubmission(input);
+    }
+
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -780,6 +1040,18 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL GET (READ)
    */
   async getSubmission(submissionId: string, role: UserRole = 'caseworker'): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      const res = await adapter.getSubmission(submissionId, role);
+      if (res.status === 'success') {
+        return res;
+      }
+      // If record is not found in Supabase, fall back to Google Sheets for pre-migration compatibility
+      if (res.code !== 'NOT_FOUND') {
+        return res;
+      }
+    }
+
     const configCheck = this.checkConfiguration('read');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -825,6 +1097,7 @@ class CanonicalSubmissionAdapterService {
           statusCode: 200,
           data: authorised,
           remoteSubmissionId: gasData.uniqueId || submissionId,
+          uniqueId: gasData.uniqueId || submissionId,
           version: gasData.revisionNumber || gasData.version || 1,
         };
       } catch (err: any) {
@@ -865,6 +1138,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL LIST
    */
   async listSubmissions(params: CanonicalListParams): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      return await adapter.listSubmissions(params);
+    }
+
     const configCheck = this.checkConfiguration('read');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -1004,6 +1282,38 @@ class CanonicalSubmissionAdapterService {
     expectedCurrentCellStateHash?: string;
     requestId: string;
   }): Promise<CanonicalSubmissionResult> {
+    if (this.getStorageEngine() === 'supabase') {
+      const adapter = await this.getSupabaseAdapter();
+      if (typeof adapter.updateAsset === 'function') {
+        const appsScriptUrl = this.getAppsScriptUrl();
+        const webhookSecret = this.getWebhookSecret();
+        let gatewayClient: any = undefined;
+        if (this.isConfigured() && appsScriptUrl) {
+          gatewayClient = {
+            callGateway: async (payload: Record<string, any>) => {
+              const res = await fetch(appsScriptUrl, {
+                method: 'POST',
+                cache: 'no-store',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+                },
+                body: JSON.stringify({ ...payload, secret: webhookSecret }),
+              });
+              const gasData = await res.json().catch(() => ({}));
+              return {
+                status: gasData.status || (res.ok ? 'success' : 'error'),
+                statusCode: res.status,
+                resolvedRow: gasData.resolvedRow || gasData.rowNumber,
+                currentVersion: gasData.currentVersion,
+                message: gasData.message,
+              };
+            },
+          };
+        }
+        return await adapter.updateAsset(input, undefined, gatewayClient);
+      }
+    }
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -1123,6 +1433,153 @@ class CanonicalSubmissionAdapterService {
   }
 
   /**
+   * CANONICAL ASSET REPLACEMENT (TWO-PHASE COMMIT WITH OCC)
+   */
+  async replaceAsset(input: CanonicalReplaceAssetInput): Promise<CanonicalSubmissionResult> {
+    const configCheck = this.checkConfiguration('write');
+    if (!configCheck.valid && configCheck.errorResponse) {
+      return configCheck.errorResponse;
+    }
+
+    const appsScriptUrl = this.getAppsScriptUrl();
+    const webhookSecret = this.getWebhookSecret();
+
+    if (this.isConfigured() && appsScriptUrl) {
+      try {
+        const res = await fetch(appsScriptUrl, {
+          method: 'POST',
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+          },
+          body: JSON.stringify({
+            action: 'replaceAsset',
+            remoteSubmissionId: input.submissionId,
+            submissionId: input.submissionId,
+            uniqueId: input.submissionId,
+            slotPrefix: input.docType,
+            docType: input.docType,
+            fileDataUrl: input.fileData,
+            fileData: input.fileData,
+            expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+            expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+            expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+            requestId: input.requestId,
+            secret: webhookSecret,
+          }),
+        });
+
+        const gasData = await res.json().catch(() => ({}));
+        if (!res.ok || gasData.status === 'error') {
+          return {
+            status: gasData.code === 'OCC_CONFLICT' ? 'conflict' : 'error',
+            statusCode: res.status || (gasData.code === 'OCC_CONFLICT' ? 409 : 500),
+            code: gasData.code || 'UPSTREAM_FAILURE',
+            message: gasData.message || 'Google Sheets backend returned error on asset replacement',
+            requestId: input.requestId,
+          };
+        }
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          acknowledged: true,
+          remoteSubmissionId: gasData.submissionId || input.submissionId,
+          uniqueId: gasData.uniqueId || input.submissionId,
+          docType: gasData.slotPrefix || gasData.docType || input.docType,
+          cellFormula: gasData.cellFormula,
+          assetStatus: 'UPLOADED',
+          version: gasData.newRevision || gasData.revisionNumber,
+          revisionNumber: gasData.newRevision || gasData.revisionNumber,
+          newRevision: gasData.newRevision,
+          newFileId: gasData.newFileId,
+          previousFileId: gasData.previousFileId,
+          oldAssetStatus: gasData.oldAssetStatus || 'SUPERSEDED',
+          updatedAt: gasData.updatedAt || new Date().toISOString(),
+          requestId: input.requestId,
+          data: gasData,
+        };
+      } catch (err: any) {
+        console.error('Canonical ASSET REPLACE fetch exception:', err?.message || err);
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'GATEWAY_TIMEOUT',
+          message: 'Unable to reach central Google Sheets bridge for asset replacement.',
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // Local / Dev Mock Store Execution
+    const mockRes = MockSheetStore.replaceAsset(
+      input.submissionId,
+      input.docType,
+      input.fileData,
+      input.requestId,
+      {
+        expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+        expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+        expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+        simulatePointerMismatch: input.simulatePointerMismatch,
+      }
+    );
+
+    if ('notFound' in mockRes) {
+      return {
+        status: 'error',
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        message: mockRes.message || `Submission ${input.submissionId} not found`,
+        requestId: input.requestId,
+      };
+    }
+
+    if ('conflict' in mockRes) {
+      return {
+        status: 'conflict',
+        statusCode: 409,
+        code: mockRes.code || 'OCC_CONFLICT',
+        message: mockRes.message || 'Asset replacement conflict',
+        requestId: input.requestId,
+      };
+    }
+
+    if ('error' in mockRes) {
+      return {
+        status: 'error',
+        statusCode: mockRes.statusCode || 500,
+        code: mockRes.code || 'INTERNAL_ERROR',
+        message: mockRes.message || 'Asset replacement failed',
+        requestId: input.requestId,
+      };
+    }
+
+    return {
+      status: 'success',
+      statusCode: 200,
+      acknowledged: true,
+      remoteSubmissionId: mockRes.submissionId,
+      uniqueId: mockRes.uniqueId,
+      docType: mockRes.docType,
+      cellFormula: mockRes.cellFormula,
+      assetStatus: 'UPLOADED',
+      version: mockRes.newRevision,
+      revisionNumber: mockRes.newRevision,
+      newRevision: mockRes.newRevision,
+      newFileId: mockRes.newFileId,
+      previousFileId: mockRes.previousFileId,
+      oldAssetStatus: mockRes.oldAssetStatus || 'SUPERSEDED',
+      resolvedRow: mockRes.resolvedRow,
+      rowNumber: mockRes.rowNumber,
+      updatedAt: mockRes.updatedAt,
+      requestId: input.requestId,
+      data: mockRes.record,
+    };
+  }
+
+  /**
    * Safe server-side row lookup for reconciliation inspection
    */
   async lookupSubmissionRow(submissionId: string, docType = 'Signature'): Promise<{
@@ -1172,7 +1629,7 @@ class CanonicalSubmissionAdapterService {
 
     if (this.isConfigured() && appsScriptUrl) {
       try {
-        await fetch(appsScriptUrl, {
+        const res = await fetch(appsScriptUrl, {
           method: 'POST',
           cache: 'no-store',
           headers: {
@@ -1186,11 +1643,24 @@ class CanonicalSubmissionAdapterService {
             secret: webhookSecret,
           }),
         });
-      } catch (err) {
-        console.warn('Apps Script delete notice:', err);
+
+        const gasData = await res.json().catch(() => ({}));
+        if (!res.ok || gasData.status === 'error') {
+          return {
+            success: false,
+            message: gasData.message || ('Upstream bridge failed to delete record ' + submissionId),
+            statusCode: res.status || (gasData.code === 'NOT_FOUND' ? 404 : 502),
+          };
+        }
+      } catch (err: any) {
+        console.error('Apps Script delete exception:', err);
+        return {
+          success: false,
+          message: err?.message || ('Failed to communicate with bridge for deletion of ' + submissionId),
+          statusCode: 504,
+        };
       }
     }
-
     MockSheetStore.deleteRecord(submissionId);
     return { success: true, message: `Record ${submissionId} deleted`, statusCode: 200 };
   }

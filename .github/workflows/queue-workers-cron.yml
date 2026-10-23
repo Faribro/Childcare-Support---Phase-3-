@@ -1,0 +1,27 @@
+name: Queue Workers Scheduled Drain
+
+on:
+  schedule:
+    # Run every 15 minutes as an external authenticated scheduler for Vercel Hobby
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drain-queues:
+    name: Drain Sheets Mirror & Export Delivery Queues
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger Sheets Mirror Worker
+        run: |
+          curl -s -f -X POST "https://childcare-support-phase-3.vercel.app/api/workers/sheets-mirror" \
+            -H "x-webhook-secret: ${{ secrets.WEBHOOK_SECRET }}" || echo "Sheets mirror drain skipped or empty"
+
+      - name: Trigger Export Delivery Worker
+        run: |
+          curl -s -f -X POST "https://childcare-support-phase-3.vercel.app/api/workers/export-delivery" \
+            -H "x-webhook-secret: ${{ secrets.WEBHOOK_SECRET }}" || echo "Export delivery drain skipped or empty"

@@ -46,7 +46,9 @@ interface ExpensesAndApprovalGridProps {
   onCurrentExpenseChange: (field: string, value: number) => void;
   onRequiredSupportChange: (field: string, value: number) => void;
   onReceiptPhotoChange?: (dataUrl?: string) => void;
+  onReceiptPhotoReplace?: (dataUrl: string) => Promise<{ success: boolean; newRevision?: number; error?: string } | void>;
   onMarksheetPhotoChange?: (dataUrl?: string) => void;
+  onMarksheetPhotoReplace?: (dataUrl: string) => Promise<{ success: boolean; newRevision?: number; error?: string } | void>;
   onRemarksChange?: (remarks: string) => void;
   isReadOnly?: boolean;
   errors?: Record<string, string>;
@@ -202,7 +204,9 @@ export function ExpensesAndApprovalGrid({
   onCurrentExpenseChange,
   onRequiredSupportChange,
   onReceiptPhotoChange,
+  onReceiptPhotoReplace,
   onMarksheetPhotoChange,
+  onMarksheetPhotoReplace,
   onRemarksChange,
   isReadOnly = false,
   errors = {},
@@ -632,6 +636,7 @@ export function ExpensesAndApprovalGrid({
                 helperText="Clear photo of the fee receipt. All text must be readable (< 10MB)."
                 value={currentExpenses.feeReceiptPhotoUrl}
                 onChange={onReceiptPhotoChange}
+                onReplace={onReceiptPhotoReplace}
                 error={errors['expenses-feeReceiptPhotoUrl'] || errors['educationExpenses.feeReceiptPhotoUrl']}
               />
             </div>
@@ -643,6 +648,7 @@ export function ExpensesAndApprovalGrid({
                 helperText="Photo of last year's report card. Click here to upload file (< 10MB)."
                 value={currentExpenses.marksheetPhotoUrl}
                 onChange={onMarksheetPhotoChange}
+                onReplace={onMarksheetPhotoReplace}
                 error={errors['expenses-marksheetPhotoUrl'] || errors['educationExpenses.marksheetPhotoUrl']}
               />
             </div>

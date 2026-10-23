@@ -574,6 +574,18 @@ export default function RecordDetailPage() {
                   {record["Orphan Status"] || record.orphan_status || record.demographics?.orphanStatus || 'Both parents alive'}
                 </dd>
               </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">SR / SSR Name:</dt>
+                <dd className="font-semibold text-slate-800">
+                  {record["74\nSR Name"] || record["SR Name"] || record.srName || record.raw_payload?.demographics?.srName || '—'} / {record["75\nSSR Name"] || record["SSR Name"] || record.ssrName || record.raw_payload?.demographics?.ssrName || '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Guardian / Parent Status:</dt>
+                <dd className="font-semibold text-slate-800">
+                  {record["76\nStatus of Guardian/Parent"] || record["Status of Guardian/Parent"] || record.guardianStatus || record.raw_payload?.demographics?.guardianStatus || '—'}
+                </dd>
+              </div>
               <div className="flex justify-between border-t border-slate-100 pt-2">
                 <dt className="text-slate-500">Primary Caregiver:</dt>
                 <dd className="font-semibold text-slate-800">
@@ -630,9 +642,38 @@ export default function RecordDetailPage() {
                   </dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-slate-500">ART Registration Date:</dt>
+                  <dt className="text-slate-500">On ART Since (Initiation):</dt>
                   <dd className="font-mono text-slate-800">
-                    {record["ART Registration Date"] || record.raw_payload?.health?.artRegistrationDate || '—'}
+                    {record.artInitiationDate || record.raw_payload?.health?.artInitiationDate || record["41\nART Registration Date"] || record["ART Registration Date"] || record.raw_payload?.health?.artRegistrationDate || '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Type of ART Medicines:</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {record["77\nType of ART Medicines"] || record["Type of ART Medicines"] || record.artMedicineType || record.raw_payload?.health?.artMedicineType || '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">CD4 Count (Latest):</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {record["78\nCD4 Count (Latest)"] || record["CD4 Count (Latest)"] || record.cd4Count || record.raw_payload?.health?.cd4Count || '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Child With Disability:</dt>
+                  <dd className="font-semibold text-slate-800">
+                    {record["79\nIs Child With Disability"] || record["Is Child With Disability"] || record.hasDisability || record.raw_payload?.health?.hasDisability || 'No'}
+                    {(record["79\nIs Child With Disability"] === 'Yes' || record["Is Child With Disability"] === 'Yes' || record.hasDisability === 'Yes' || record.raw_payload?.health?.hasDisability === 'Yes') && (
+                      <span className="text-slate-600 font-normal ml-1">
+                        ({record["80\nTypes of Disability"] || record["Types of Disability"] || record.disabilityType || record.raw_payload?.health?.disabilityType || 'Unspecified'} — Cert: {record["81\nDisability Certificate"] || record["Disability Certificate"] || record.disabilityCertificateStatus || record.raw_payload?.health?.disabilityCertificateStatus || 'No'})
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Symptoms of Malnutrition:</dt>
+                  <dd className="text-slate-800 font-medium">
+                    {record["83\nSymptoms of Malnutrition"] || record["Symptoms of Malnutrition"] || record.malnutritionSymptoms || record.raw_payload?.nutrition?.malnutritionSymptoms || 'None reported'}
                   </dd>
                 </div>
                 <div className="flex justify-between">
@@ -718,6 +759,12 @@ export default function RecordDetailPage() {
                     record["Current Class"] || record.current_class || record.raw_payload?.educationStatus?.currentClass || record.school_grade,
                     record["Current Class Specify"] || record.current_class_specify || record.raw_payload?.educationStatus?.currentClassSpecify
                   ) || '—'} ({record["School Type"] || record.school_type || 'Government'})
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Education Scheme Benefit:</dt>
+                <dd className="font-semibold text-slate-800">
+                  {record["82\nEducation Scheme Benefit"] || record["Education Scheme Benefit"] || record.receivingEducationSchemeBenefit || record.raw_payload?.educationStatus?.receivingEducationSchemeBenefit || '—'}
                 </dd>
               </div>
               <div className="flex justify-between">

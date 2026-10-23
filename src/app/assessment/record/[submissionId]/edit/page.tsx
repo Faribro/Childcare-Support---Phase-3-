@@ -76,6 +76,18 @@ import {
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
+async function computeDocumentCellHash(content: string): Promise<string> {
+  const trimmed = (content || '').trim();
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    const enc = new TextEncoder();
+    const data = enc.encode(trimmed);
+    const hashBuf = await window.crypto.subtle.digest('SHA-256', data);
+    const hashArr = Array.from(new Uint8Array(hashBuf));
+    return hashArr.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return '0'.repeat(64);
+}
+
 export default function EditRecordPage() {
   const params = useParams();
   const router = useRouter();
@@ -137,7 +149,101 @@ export default function EditRecordPage() {
   // Preserves the complete original local record so edit starts from snapshot
   const [fullOriginalRecord, setFullOriginalRecord] = useState<any>(null);
 
-  const [amendmentReason, setAmendmentReason] = useState<string>('');
+    const [docReplaceSuccess, setDocReplaceSuccess] = useState<string | null>(null);
+
+  const handleReplaceDocument = useCallback(
+    async (
+      docType: 'passbookPhoto' | 'aadhaarCardPhoto' | 'childPhoto' | 'feeReceiptPhoto' | 'marksheetPhoto',
+      newDataUrl: string,
+      currentVal: string
+    ) => {
+      setConflictError(null);
+      setFormError(null);
+      setDocReplaceSuccess(null);
+
+      const targetId = confirmedRemoteSubmissionId || (fullOriginalRecord?.remoteSubmissionId) || submissionId;
+      if (!targetId) {
+        const msg = 'Unable to replace document: Record identifier is missing.';
+        setFormError(msg);
+        throw new Error(msg);
+      }
+
+      // Compute SHA-256 hash of the current cell state
+      const cellHash = await computeDocumentCellHash(currentVal || '');
+
+      try {
+        const res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}/asset`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            docType,
+            fileData: newDataUrl,
+            expectedRevision: currentVersion,
+            expectedCurrentCellStateHash: cellHash,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || data.status === 'error' || data.status === 'conflict') {
+          if (res.status === 409 || data.code === 'OCC_CONFLICT') {
+            const conflictMsg = 'Document Replacement Conflict: The record was modified on the server (version mismatch or cell state changed). Please reload the latest record.';
+            setConflictError({ code: 'OCC_CONFLICT', message: conflictMsg });
+            throw new Error(conflictMsg);
+          }
+          if (res.status === 401 || res.status === 403 || data.code === 'FORBIDDEN' || data.code === 'UNAUTHORIZED') {
+            const permMsg = data.message || 'Permission Denied: You do not have authorization to replace documents on this record.';
+            setFormError(permMsg);
+            throw new Error(permMsg);
+          }
+          const errDetail = data.message || 'Failed to replace document on the server.';
+          setFormError(`Document Replacement Failed: ${errDetail}`);
+          throw new Error(errDetail);
+        }
+
+        const newRev = data.newRevision || data.revisionNumber || (currentVersion + 1);
+        setCurrentVersion(newRev);
+
+        const fieldMap: Record<string, keyof typeof formData> = {
+          passbookPhoto: 'passbookPhotoUrl',
+          aadhaarCardPhoto: 'aadhaarCardPhotoUrl',
+          childPhoto: 'childPhotoUrl',
+          feeReceiptPhoto: 'feeReceiptPhotoUrl',
+          marksheetPhoto: 'marksheetPhotoUrl',
+        };
+        const fieldKey = fieldMap[docType];
+        if (fieldKey) {
+          setFormData((prev) => ({ ...prev, [fieldKey]: newDataUrl }));
+          setOriginalSnapshot((prev) => (prev ? { ...prev, [fieldKey]: newDataUrl } : prev));
+        }
+
+        setFullOriginalRecord((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            version: newRev,
+            revision: newRev,
+            ...(fieldKey ? { [fieldKey]: data.cellFormula || newDataUrl } : {}),
+          };
+        });
+
+        setDocReplaceSuccess(`Document replaced successfully and committed to revision ${newRev}.`);
+        return { success: true, newRevision: newRev };
+      } catch (err: any) {
+        if (!err.message?.includes('Document Replacement') && !err.message?.includes('Permission Denied') && !err.message?.includes('Conflict')) {
+          const netMsg = 'Network Error: Unable to reach server for document replacement. Your existing document has been preserved.';
+          setFormError(netMsg);
+          throw new Error(netMsg);
+        }
+        throw err;
+      }
+    },
+    [confirmedRemoteSubmissionId, fullOriginalRecord, submissionId, currentVersion]
+  );
+
+const [amendmentReason, setAmendmentReason] = useState<string>('');
   const [hasSavedSignature, setHasSavedSignature] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<string>('en');
   const [existingSignatureUrl, setExistingSignatureUrl] = useState<string>('');
@@ -160,6 +266,9 @@ export default function EditRecordPage() {
     state: 'Maharashtra',
     district: 'Pune',
     childAadhaarNumber: '',
+    srName: '',
+    ssrName: '',
+    guardianStatus: '',
 
     // Section 2: Consent
     agreeToParticipate: true,
@@ -187,14 +296,21 @@ export default function EditRecordPage() {
     otherHealthConditionSpecify: '',
     artStatus: 'On ART' as ARTStatus,
     artRegistrationDate: '',
+    artInitiationDate: '',
     artIdNumber: '',
+    artMedicineType: '',
+    cd4Count: '',
     vlStatus: 'Tested in last 6 months' as VLStatus,
     vlDate: '',
     viralLoad: '< 50',
+    hasDisability: 'No',
+    disabilityType: '',
+    disabilityCertificateStatus: '',
 
     // Section 6: Nutrition Habits
     appetite: 'Good' as AppetiteLevel,
     mealsPerDay: 3,
+    malnutritionSymptoms: '',
 
     // Section 7: Education Status
     educationStatus: 'Currently going to school' as EducationStatus,
@@ -205,6 +321,7 @@ export default function EditRecordPage() {
     currentClass: '',
     currentClassSpecify: '',
     attendance: 'Regular' as AttendanceType,
+    receivingEducationSchemeBenefit: '',
 
     // Section 8: Current Expenses & Documents
     schoolFees: 0,
@@ -610,6 +727,9 @@ export default function EditRecordPage() {
           state: d.state || foundRecord['18\nState'] || 'Maharashtra',
           district: d.district || foundRecord['19\nDistrict'] || 'Pune',
           childAadhaarNumber: d.childAadhaarNumber || b.childAadhaarNumber || foundRecord['24\nChild Aadhaar Number'] || '',
+          srName: d.srName || foundRecord['74\nSR Name'] || foundRecord.srName || '',
+          ssrName: d.ssrName || foundRecord['75\nSSR Name'] || foundRecord.ssrName || '',
+          guardianStatus: d.guardianStatus || foundRecord['76\nStatus of Guardian/Parent'] || foundRecord.guardianStatus || '',
 
           agreeToParticipate: hasConsent
             ? true
@@ -638,13 +758,20 @@ export default function EditRecordPage() {
           otherHealthConditionSpecify: h.otherHealthConditionSpecify || '',
           artStatus: (h.artStatus || foundRecord['40\nART Status'] || 'On ART') as ARTStatus,
           artRegistrationDate: toDateInputString(h.artRegistrationDate || foundRecord['41\nART Registration Date'] || ''),
+          artInitiationDate: toDateInputString(h.artInitiationDate || foundRecord.artInitiationDate || h.artRegistrationDate || foundRecord['41\nART Registration Date'] || ''),
           artIdNumber: h.artIdNumber || foundRecord['42\nART ID Number'] || '',
+          artMedicineType: h.artMedicineType || foundRecord['77\nType of ART Medicines'] || foundRecord.artMedicineType || '',
+          cd4Count: String(h.cd4Count !== undefined ? h.cd4Count : (foundRecord['78\nCD4 Count (Latest)'] || foundRecord.cd4Count || '')),
           vlStatus: (h.vlStatus || foundRecord['43\nVL Status'] || 'Tested in last 6 months') as VLStatus,
           vlDate: toDateInputString(h.vlDate || foundRecord['44\nVL Date'] || ''),
           viralLoad: String(h.viralLoad || foundRecord['45\nViral Load'] || '< 50'),
+          hasDisability: h.hasDisability || foundRecord['79\nIs Child With Disability'] || foundRecord.hasDisability || 'No',
+          disabilityType: h.disabilityType || foundRecord['80\nTypes of Disability'] || foundRecord.disabilityType || '',
+          disabilityCertificateStatus: h.disabilityCertificateStatus || foundRecord['81\nDisability Certificate'] || foundRecord.disabilityCertificateStatus || '',
 
           appetite: (n.appetite || foundRecord['47\nAppetite'] || 'Good') as AppetiteLevel,
           mealsPerDay: pickNum([n.mealsPerDay, foundRecord['48\nMeals per Day']], 3),
+          malnutritionSymptoms: n.malnutritionSymptoms || foundRecord['83\nSymptoms of Malnutrition'] || foundRecord.malnutritionSymptoms || '',
 
           educationStatus: (ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school') as EducationStatus,
           educationStatusSpecify: ed.educationStatusSpecify || '',
@@ -654,6 +781,7 @@ export default function EditRecordPage() {
           currentClass: (ed.currentClass !== undefined ? ed.currentClass : (ed.schoolGrade || foundRecord['54\nCurrent Class'] || '')) || '',
           currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',
           attendance: (ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular') as AttendanceType,
+          receivingEducationSchemeBenefit: ed.receivingEducationSchemeBenefit || foundRecord['82\nEducation Scheme Benefit'] || foundRecord.receivingEducationSchemeBenefit || '',
 
           schoolFees: pickNum([exp.schoolFees, foundRecord.schoolFees, foundRecord.school_fees, foundRecord['56\nSchool Fees']], 0),
           tuitionFees: pickNum([exp.tuitionFees, foundRecord.tuitionFees, foundRecord.tuition_fees, foundRecord['57\nPrivate Tuition Fee']], 0),
@@ -1434,6 +1562,14 @@ export default function EditRecordPage() {
           </div>
         )}
 
+        {/* Document Replacement Success Banner */}
+        {docReplaceSuccess && (
+          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex items-center space-x-2.5 text-emerald-900 text-xs font-bold shadow-xs" role="status">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span>{docReplaceSuccess}</span>
+          </div>
+        )}
+
         {/* Revision Tracking Header Card */}
         <div className="p-5 sm:p-6 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1749,7 +1885,7 @@ export default function EditRecordPage() {
               <Input
                 id="demographics-dob"
                 error={errorsByField['demographics-dob']?.message}
-                label="Date of Birth *"
+                label="Date of Birth (DD-MM-YYYY) *"
                 type="date"
                 required
                 value={formData.dob}
@@ -1758,29 +1894,41 @@ export default function EditRecordPage() {
               />
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 block">Gender *</label>
+                <label className="text-xs font-bold text-slate-800 block">Sex (M/F/TG) *</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['Male', 'Female', 'Other'] as Gender[]).map((g) => (
-                    <label
-                      key={g}
-                      className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                        formData.gender === g
-                          ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
-                          : 'bg-white border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="gender"
-                        value={g}
-                        checked={formData.gender === g}
-                        onChange={() => setFormData({ ...formData, gender: g })}
-                        className="text-teal-600 focus:ring-teal-500"
-                      />
-                      <span>{g}</span>
-                    </label>
-                  ))}
+                  {[
+                    { value: 'M' as Gender, label: 'Male (M)', alt: 'Male' },
+                    { value: 'F' as Gender, label: 'Female (F)', alt: 'Female' },
+                    { value: 'TG' as Gender, label: 'Transgender (TG)', alt: 'Transgender' },
+                  ].map((item) => {
+                    const isSelected = formData.gender === item.value || formData.gender === item.alt;
+                    return (
+                      <label
+                        key={item.value}
+                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="gender"
+                          value={item.value}
+                          checked={isSelected}
+                          onChange={() => setFormData({ ...formData, gender: item.value })}
+                          className="text-teal-600 focus:ring-teal-500"
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
+                {formData.gender === 'Other' && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 mt-1">
+                    Historical value preserved: <strong>Other</strong>
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5 sm:col-span-2">
@@ -1850,6 +1998,30 @@ export default function EditRecordPage() {
                 value={formData.district}
                 onChange={(e) => setFormData({ ...formData, district: e.target.value })}
                 placeholder="e.g. Pune"
+              />
+
+              <Input
+                id="child-srName"
+                label="SR Name"
+                value={formData.srName}
+                onChange={(e) => setFormData({ ...formData, srName: e.target.value })}
+                placeholder="e.g. Alliance India"
+              />
+
+              <Input
+                id="child-ssrName"
+                label="SSR Name"
+                value={formData.ssrName}
+                onChange={(e) => setFormData({ ...formData, ssrName: e.target.value })}
+                placeholder="e.g. District CBO / NGO"
+              />
+
+              <Input
+                id="child-guardianStatus"
+                label="Status of Guardian/Parent"
+                value={formData.guardianStatus}
+                onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value })}
+                placeholder="e.g. Alive / Deceased / Ill / Migrated"
               />
 
               <div className="flex flex-col justify-end">
@@ -1928,6 +2100,7 @@ export default function EditRecordPage() {
                 label="PASSBOOK FRONT PAGE PHOTO"
                 value={formData.passbookPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, passbookPhotoUrl: url || '' })}
+                onReplace={(newUrl: string) => handleReplaceDocument('passbookPhoto', newUrl, formData.passbookPhotoUrl)}
               />
               <PhotoUpload
                 id="banking-aadhaarCardPhotoUrl"
@@ -1935,6 +2108,7 @@ export default function EditRecordPage() {
                 label="AADHAAR CARD PHOTO"
                 value={formData.aadhaarCardPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, aadhaarCardPhotoUrl: url || '' })}
+                onReplace={(newUrl: string) => handleReplaceDocument('aadhaarCardPhoto', newUrl, formData.aadhaarCardPhotoUrl)}
               />
               <PhotoUpload
                 id="banking-childPhotoUrl"
@@ -1943,6 +2117,7 @@ export default function EditRecordPage() {
                 helperText="Recent photograph of child beneficiary"
                 value={formData.childPhotoUrl}
                 onChange={(url?: string) => setFormData({ ...formData, childPhotoUrl: url || '' })}
+                onReplace={(newUrl: string) => handleReplaceDocument('childPhoto', newUrl, formData.childPhotoUrl)}
               />
             </div>
           </section>
@@ -2164,7 +2339,7 @@ export default function EditRecordPage() {
                   </div>
 
                   <Input
-                    label="ART ID NUMBER *"
+                    label="UID / ART No. (Clinical ART ID) *"
                     required
                     value={formData.artIdNumber}
                     onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
@@ -2172,10 +2347,30 @@ export default function EditRecordPage() {
                   />
 
                   <Input
-                    label="ART REGISTRATION DATE"
+                    label="On ART Since (DD-MM-YYYY)"
                     type="date"
-                    value={formData.artRegistrationDate}
-                    onChange={(e) => setFormData({ ...formData, artRegistrationDate: e.target.value })}
+                    value={formData.artInitiationDate || formData.artRegistrationDate}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        artInitiationDate: e.target.value,
+                        artRegistrationDate: e.target.value,
+                      })
+                    }
+                  />
+
+                  <Input
+                    label="Type of ART Medicines"
+                    value={formData.artMedicineType}
+                    onChange={(e) => setFormData({ ...formData, artMedicineType: e.target.value })}
+                    placeholder="e.g. TLD, ABC+3TC+EFV, Pediatric pellets"
+                  />
+
+                  <Input
+                    label="CD4 Count (Latest)"
+                    value={formData.cd4Count}
+                    onChange={(e) => setFormData({ ...formData, cd4Count: e.target.value })}
+                    placeholder="e.g. 650 cells/mm³"
                   />
                 </div>
               </div>
@@ -2335,6 +2530,71 @@ export default function EditRecordPage() {
                   })}
                 </div>
               </div>
+
+              {/* Disability Assessment */}
+              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                    Disability Assessment
+                  </h4>
+                  <p className="text-[11px] text-slate-500">Record disability status and certification</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 block">
+                    Is the child with disability?
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {['No', 'Yes', 'Unknown'].map((opt) => (
+                      <label
+                        key={opt}
+                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                          formData.hasDisability === opt
+                            ? 'bg-teal-50 border-teal-500 text-teal-900 font-semibold'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="hasDisability"
+                          value={opt}
+                          checked={formData.hasDisability === opt}
+                          onChange={() => setFormData({ ...formData, hasDisability: opt })}
+                          className="text-teal-600 focus:ring-teal-500"
+                        />
+                        <span>{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {formData.hasDisability === 'Yes' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <Input
+                      label="Types of Disability"
+                      value={formData.disabilityType}
+                      onChange={(e) => setFormData({ ...formData, disabilityType: e.target.value })}
+                      placeholder="e.g. Locomotor, Visual, Hearing, Intellectual"
+                    />
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Does the child have a disability certificate?
+                      </label>
+                      <select
+                        value={formData.disabilityCertificateStatus}
+                        onChange={(e) => setFormData({ ...formData, disabilityCertificateStatus: e.target.value })}
+                        className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      >
+                        <option value="">Select Certificate Status</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                        <option value="Applied / In Process">Applied / In Process</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
@@ -2370,6 +2630,15 @@ export default function EditRecordPage() {
                 onAppetiteChange={(app) => setFormData((prev) => ({ ...prev, appetite: app }))}
                 onMealsChange={(m) => setFormData((prev) => ({ ...prev, mealsPerDay: m }))}
               />
+
+              <div className="pt-3">
+                <Input
+                  label="Symptoms of Malnutrition"
+                  value={formData.malnutritionSymptoms}
+                  onChange={(e) => setFormData({ ...formData, malnutritionSymptoms: e.target.value })}
+                  placeholder="e.g. Visible muscle wasting, edema, hair changes, severe lethargy"
+                />
+              </div>
             </div>
           </section>
 
@@ -2620,6 +2889,23 @@ export default function EditRecordPage() {
                   </div>
                 </div>
               )}
+
+              <div className="pt-3">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Is the child receiving any education-scheme benefit?
+                </label>
+                <select
+                  value={formData.receivingEducationSchemeBenefit}
+                  onChange={(e) => setFormData({ ...formData, receivingEducationSchemeBenefit: e.target.value })}
+                  className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                >
+                  <option value="">Select Status</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                  <option value="Applied / Under Review">Applied / Under Review</option>
+                  <option value="Not Applicable">Not Applicable</option>
+                </select>
+              </div>
             </div>
           </section>
 
@@ -2683,6 +2969,12 @@ export default function EditRecordPage() {
                 }
                 onMarksheetPhotoChange={(url?: string) =>
                   setFormData((prev) => ({ ...prev, marksheetPhotoUrl: url || '' }))
+                }
+                onReceiptPhotoReplace={(newUrl: string) =>
+                  handleReplaceDocument('feeReceiptPhoto', newUrl, formData.feeReceiptPhotoUrl)
+                }
+                onMarksheetPhotoReplace={(newUrl: string) =>
+                  handleReplaceDocument('marksheetPhoto', newUrl, formData.marksheetPhotoUrl)
                 }
                 onRemarksChange={(rem: string) =>
                   setFormData((prev) => ({ ...prev, remarks: rem }))

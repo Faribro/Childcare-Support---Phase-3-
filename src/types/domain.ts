@@ -6,7 +6,7 @@
 
 export * from '@/lib/constants/educationClasses';
 
-export type Gender = 'Male' | 'Female' | 'Other';
+export type Gender = 'Male' | 'Female' | 'Other' | 'M' | 'F' | 'TG' | 'Transgender';
 
 export type OrphanStatus =
   | 'Both parents alive'
@@ -193,6 +193,10 @@ export interface DemographicsData {
   state: string;
   district: string;
   childAadhaarNumber?: string;
+  // Linelist Programme & Caregiver Fields (Questions 2, 3, 17)
+  srName?: string;
+  ssrName?: string;
+  guardianStatus?: string;
   // Backward compatibility
   caregiverPhone?: string;
   maskedAadhaar?: string;
@@ -211,6 +215,9 @@ export interface HouseholdFinancialData {
   numberOfSiblings?: number;
 }
 
+export type DisabilityStatus = 'Yes' | 'No' | 'Unknown';
+export type DisabilityCertificateStatus = 'Yes' | 'No' | 'Applied / In Process' | 'Not Applicable';
+
 export interface HealthData {
   weightKg: number;
   heightCm: number;
@@ -223,11 +230,18 @@ export interface HealthData {
   // ART & Viral Load clinical tracking
   artStatus?: ARTStatus;
   artRegistrationDate?: string;
-  artIdNumber?: string;
+  artInitiationDate?: string; // Question 8: On ART Since (DD-MM-YYYY)
+  artIdNumber?: string;       // Question 7: Clinical UID/ART No.
+  artMedicineType?: string;   // Question 9: Type of ART Medicines
+  cd4Count?: string | number; // Question 10: CD4 Count (Latest)
   vlStatus?: VLStatus;
   vlDate?: string;
-  viralLoad?: string | number;
+  viralLoad?: string | number; // Question 11: Viral Load (Latest)
   vlCategory?: VLCategory;
+  // Disability tracking (Questions 21, 22, 23)
+  hasDisability?: DisabilityStatus | string;
+  disabilityType?: string;
+  disabilityCertificateStatus?: DisabilityCertificateStatus | string;
   // Clinical triage
   bmiZScore?: number;
   nutritionStatus?: NutritionStatus;
@@ -239,6 +253,7 @@ export interface HealthData {
 export interface NutritionData {
   appetite: AppetiteLevel;
   mealsPerDay: number;
+  malnutritionSymptoms?: string; // Question 25: Symptoms of Malnutrition
   // Clinical anthropometry backward-compatibility aliases
   heightCm?: number;
   weightKg?: number;
@@ -257,6 +272,7 @@ export interface EducationStatusData {
   currentClass?: string;
   currentClassSpecify?: string;
   attendance?: AttendanceType;
+  receivingEducationSchemeBenefit?: 'Yes' | 'No' | 'Unknown' | string; // Question 24: Education scheme benefit
   // Backward compatibility
   schoolEnrolled?: boolean;
   attendancePercentage?: number;
@@ -441,6 +457,19 @@ export interface AuditEvent {
 }
 
 export interface AllowlistedEditableFields {
+  srName?: string;
+  ssrName?: string;
+  guardianStatus?: string;
+  artInitiationDate?: string;
+  artIdNumber?: string;
+  artMedicineType?: string;
+  cd4Count?: string | number;
+  viralLoad?: string | number;
+  hasDisability?: string;
+  disabilityType?: string;
+  disabilityCertificateStatus?: string;
+  receivingEducationSchemeBenefit?: string;
+  malnutritionSymptoms?: string;
   contactNumber?: string;
   caregiverPhone?: string;
   caregiverName?: string;

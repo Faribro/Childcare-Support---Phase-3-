@@ -26,6 +26,7 @@ export interface SessionPayload {
   role: AuthPolicyRole;
   allowedStates: string[];
   allowedDistricts: string[];
+  allowedProgrammes?: string[];
   credentialVersion?: number;
   credentialKind?: 'STATE_EVALUATION' | 'LEADERSHIP_EVALUATION' | 'ADMIN';
   createdAt: number;
@@ -399,6 +400,7 @@ export async function authenticateUser(
       role,
       allowedStates,
       allowedDistricts: ['*'],
+      allowedProgrammes: credential.programmeScope || ['alliance-childcare-phase3'],
       credentialVersion: credential.credentialVersion,
       credentialKind: credential.credentialKind,
       createdAt: now,

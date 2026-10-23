@@ -13,12 +13,14 @@
 # Production build
 /build
 /dist
+/dist-client
 
 # Environment variables
 .env
 .env*.local
 
 # Vitest & Testing
+/.cache/
 /coverage
 /test-results/
 /playwright-report/
@@ -47,3 +49,12 @@ Thumbs.db
 *.swo
 
 *.tsbuildinfo
+
+# Backups, Database Dumps & Scratch Exports (Security Guardrail)
+*.dump
+*.sql.dump
+*.backup
+*backup*.json
+scratch/
+.staging*
+

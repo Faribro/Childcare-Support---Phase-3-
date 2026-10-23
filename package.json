@@ -15,7 +15,7 @@
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:db:integration": "vitest run src/test/integration/database-migration-and-concurrency.test.ts",
+    "test:db:integration": "vitest run --fileParallelism=false src/test/integration/database-migration-and-concurrency.test.ts src/test/integration/beneficiary-durable-session-and-tasks.test.ts",
     "test:e2e": "playwright test",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
@@ -26,9 +26,13 @@
     "e2e:staging:run": "playwright test e2e/full-data-lifecycle.spec.ts e2e/offline-recovery-and-revision.spec.ts",
     "e2e:staging:verify": "tsx scripts/e2e/verify-staging-record.ts",
     "credentials:dry-run": "tsx scripts/admin/provision-evaluation-credentials.ts --dry-run",
-    "sheet:passwords:dry-run": "tsx scripts/admin/setup-passwords-sheet-tab.ts --dry-run"
+    "sheet:passwords:dry-run": "tsx scripts/admin/setup-passwords-sheet-tab.ts --dry-run",
+    "staging:verify:scope-b": "tsx scripts/run-scope-b-staging.ts",
+    "staging:verify:scope-d": "tsx scripts/run-scope-d-staging.ts",
+    "build:native-client": "vite build --config vite.native.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
     "@deck.gl/core": "^9.4.0",
     "@deck.gl/layers": "^9.4.0",
     "@deck.gl/react": "^9.4.0",
@@ -52,7 +56,14 @@
     "react-map-gl": "^8.1.3",
     "tailwind-merge": "^2.5.2",
     "topojson-client": "^3.1.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@aparajita/capacitor-secure-storage": "8.0.1",
+    "@capacitor-community/sqlite": "8.1.1",
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/network": "8.0.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -75,7 +86,8 @@
     "tailwindcss": "~3.4.19",
     "tsx": "^4.17.0",
     "typescript": "^5.5.4",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "@capacitor/cli": "8.5.3"
   },
   "engines": {
     "node": ">=18.18.0"

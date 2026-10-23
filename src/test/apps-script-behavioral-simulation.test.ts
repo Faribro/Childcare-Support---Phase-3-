@@ -91,27 +91,39 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
         };
         mockProtections.push(protection);
         return protection;
-      }
+      },
+      setVerticalAlignment: () => {},
+      setFontSize: () => {},
+      setBackground: () => {},
+      setBorder: () => {},
+      setWrap: () => {},
+      setHorizontalAlignment: () => {},
+      setNumberFormat: () => {},
+      setFontWeight: () => {},
+      setFontColor: () => {},
     };
   }
 
   beforeEach(() => {
     scriptProperties = {
       WEBHOOK_SECRET: 'TEST_SECRET_KEY_888999',
+      APP_ENV: 'production',
+      TARGET_SPREADSHEET_ID: 'mock-sheet-id-production',
+      ROOT_DOCUMENTS_FOLDER_ID: 'root-folder-id',
     };
 
     mockSheetData = [
       ['Section 1', 'Section 1', 'Section 2'],
       ['Field 1', 'Field 2', 'Field 3'],
-      ['1\nUnique ID', '2\nRevision Number', '3\nSubmission Time', '4\nSubmitted By', '5\nConsent', '6\nVisit Date', '7\nInterviewer', '8\nInterviewer Name', '9\nChild Name', '10\nDOB', '11\nAge', '12\nGender', '13\nOrphan', '14\nCaregiver Name', '15\nCaregiver Relation', '16\nCaregiver Contact', '17\nAddress', '18\nState', '19\nDistrict', '20\nAccount Holder', '21\nBank Account Number', '22\nIFSC', '23\nBank Mobile', '24\nChild Aadhaar Number', '25\nPassbook Front Page Link', '26\nAadhaar Card Link', '27\nPassport Size Photo Link', '28\nFamily Members', '29\nChildren', '30\nMonthly Income', '31\nIncome Source', '32\nCurrent Weight (kg)', '33\nCurrent Height (cm)', '34\nBMI', '35\nBMI Category', '36\nHb Level', '37\nHb Category', '38\nComorbidities', '39\nComorbidities Other', '40\nART Status', '41\nART Reg Date', '42\nART ID Number', '43\nVL Status', '44\nVL Date', '45\nViral Load', '46\nVL Category', '47\nAppetite', '48\nMeals Per Day', '49\nEducation Status', '50\nEducation Status Specify', '51\nSchool Name', '52\nSession Start', '53\nSchool Type', '54\nCurrent Class', '55\nAttendance Status', '56\nSchool Fees', '57\nPrivate Tuition Fee', '58\nSchool Books', '59\nSchool Stationery', '60\nSchool Uniform', '61\nSchool Transport', '62\nSchool Other Expenses', '63\nTotal Annual Education Cost', '64\nSchool Fee Receipt Link', '65\nMarksheet Photo Link', '66\nRemarks (If Any)', '67\nApproved Alliance India', '68\nReview Confirmed', '69\nOrganization Name', '70\nForm Submitted By', '71\nOrganization Email', '72\nSignature Link', '73\nLast Updated'],
-      ['BEN-SYN-001', '1', '2026-06-25T10:00:00Z', 'Caseworker Jane', 'Yes', '2026-06-25', 'Caseworker Jane', 'Caseworker Jane', 'Aarav Kumar', '2015-05-10', '11', 'Male', 'Single Orphan', 'Sunita Devi', 'Mother', '9876543210', '123 Test Lane', 'Delhi', 'South Delhi', 'Sunita Devi', '123456789012', 'SBIN0001234', '9876543210', '123456789012', '=HYPERLINK("https://drive.google.com/open?id=passbook-file-111", "passbook.jpg")', '=HYPERLINK("https://drive.google.com/open?id=aadhaar-file-222", "identity-document.jpg")', '=HYPERLINK("https://drive.google.com/open?id=photo-file-333", "child-photo.jpg")', '4', '2', '5000', 'Daily wage', '28', '130', '16.5', 'Normal', '11.5', 'Normal', 'None', '', 'On ART', '2020-01-01', 'ART-9988', 'Suppressed', '2026-01-01', '50', 'Suppressed', 'Good', '3', 'In School', '', 'Govt School', '2026-04-01', 'Government', 'Class 5', 'Regular', '0', '0', '500', '200', '600', '0', '0', '1300', '=HYPERLINK("https://drive.google.com/open?id=fee-file-444", "school-fee-receipt.pdf")', '=HYPERLINK("https://drive.google.com/open?id=mark-file-555", "marksheet.pdf")', 'Recommended', 'Yes', 'Confirmed', 'Alliance Partner', 'Jane Doe', 'jane@alliance.org', '=HYPERLINK("https://drive.google.com/open?id=sig-file-666", "caregiver-signature.png")', '2026-06-25T10:00:00Z']
+      ['1\nUnique ID', '2\nRevision Number', '3\nSubmission Time', '4\nSubmitted By', '5\nConsent', '6\nVisit Date', '7\nInterviewer', '8\nInterviewer Name', '9\nChild Name', '10\nDOB', '11\nAge', '12\nGender', '13\nOrphan', '14\nCaregiver Name', '15\nCaregiver Relation', '16\nCaregiver Contact', '17\nAddress', '18\nState', '19\nDistrict', '20\nAccount Holder', '21\nBank Account Number', '22\nIFSC', '23\nBank Mobile', '24\nChild Aadhaar Number', '25\nPassbook Front Page Link', '26\nAadhaar Card Link', '27\nPassport Size Photo Link', '28\nFamily Members', '29\nChildren', '30\nMonthly Income', '31\nIncome Source', '32\nCurrent Weight (kg)', '33\nCurrent Height (cm)', '34\nBMI', '35\nBMI Category', '36\nHb Level', '37\nHb Category', '38\nComorbidities', '39\nComorbidities Other', '40\nART Status', '41\nART Reg Date', '42\nART ID Number', '43\nVL Status', '44\nVL Date', '45\nViral Load', '46\nVL Category', '47\nAppetite', '48\nMeals Per Day', '49\nEducation Status', '50\nEducation Status Specify', '51\nSchool Name', '52\nSession Start', '53\nSchool Type', '54\nCurrent Class', '55\nAttendance Status', '56\nSchool Fees', '57\nPrivate Tuition Fee', '58\nSchool Books', '59\nSchool Stationery', '60\nSchool Uniform', '61\nSchool Transport', '62\nSchool Other Expenses', '63\nTotal Annual Education Cost', '64\nSchool Fee Receipt Link', '65\nMarksheet Photo Link', '66\nRemarks (If Any)', '67\nApproved Alliance India', '68\nReview Confirmed', '69\nOrganization Name', '70\nForm Submitted By', '71\nOrganization Email', '72\nSignature Link', '73\nLast Updated', '74\nSR Name', '75\nSSR Name', '76\nStatus of Guardian/Parent', '77\nType of ART Medicines', '78\nCD4 Count (Latest)', '79\nIs Child With Disability', '80\nTypes of Disability', '81\nDisability Certificate', '82\nEducation Scheme Benefit', '83\nSymptoms of Malnutrition'],
+      ['BEN-SYN-001', '1', '2026-06-25T10:00:00Z', 'Caseworker Jane', 'Yes', '2026-06-25', 'Caseworker Jane', 'Caseworker Jane', 'Aarav Kumar', '2015-05-10', '11', 'Male', 'Single Orphan', 'Sunita Devi', 'Mother', '9876543210', '123 Test Lane', 'Delhi', 'South Delhi', 'Sunita Devi', '123456789012', 'SBIN0001234', '9876543210', '123456789012', '=HYPERLINK("https://drive.google.com/open?id=passbook-file-111", "passbook.jpg")', '=HYPERLINK("https://drive.google.com/open?id=aadhaar-file-222", "identity-document.jpg")', '=HYPERLINK("https://drive.google.com/open?id=photo-file-333", "child-photo.jpg")', '4', '2', '5000', 'Daily wage', '28', '130', '16.5', 'Normal', '11.5', 'Normal', 'None', '', 'On ART', '2020-01-01', 'ART-9988', 'Suppressed', '2026-01-01', '50', 'Suppressed', 'Good', '3', 'In School', '', 'Govt School', '2026-04-01', 'Government', 'Class 5', 'Regular', '0', '0', '500', '200', '600', '0', '0', '1300', '=HYPERLINK("https://drive.google.com/open?id=fee-file-444", "school-fee-receipt.pdf")', '=HYPERLINK("https://drive.google.com/open?id=mark-file-555", "marksheet.pdf")', 'Recommended', 'Yes', 'Confirmed', 'Alliance Partner', 'Jane Doe', 'jane@alliance.org', '=HYPERLINK("https://drive.google.com/open?id=sig-file-666", "caregiver-signature.png")', '2026-06-25T10:00:00Z', 'SR North', 'SSR Delhi', 'Both Parents Alive', 'First-line', '450', 'No', '', '', 'Scholarship Scheme', 'None']
     ];
 
     mockSheetFormulas = [
       ['', '', ''],
       ['', '', ''],
-      new Array(73).fill(''),
-      ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '=HYPERLINK("https://drive.google.com/open?id=passbook-file-111", "passbook.jpg")', '=HYPERLINK("https://drive.google.com/open?id=aadhaar-file-222", "identity-document.jpg")', '=HYPERLINK("https://drive.google.com/open?id=photo-file-333", "child-photo.jpg")', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '=HYPERLINK("https://drive.google.com/open?id=fee-file-444", "school-fee-receipt.pdf")', '=HYPERLINK("https://drive.google.com/open?id=mark-file-555", "marksheet.pdf")', '', '', '', '', '', '', '=HYPERLINK("https://drive.google.com/open?id=sig-file-666", "caregiver-signature.png")', '']
+      new Array(83).fill(''),
+      ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '=HYPERLINK("https://drive.google.com/open?id=passbook-file-111", "passbook.jpg")', '=HYPERLINK("https://drive.google.com/open?id=aadhaar-file-222", "identity-document.jpg")', '=HYPERLINK("https://drive.google.com/open?id=photo-file-333", "child-photo.jpg")', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '=HYPERLINK("https://drive.google.com/open?id=fee-file-444", "school-fee-receipt.pdf")', '=HYPERLINK("https://drive.google.com/open?id=mark-file-555", "marksheet.pdf")', '', '', '', '', '', '', '=HYPERLINK("https://drive.google.com/open?id=sig-file-666", "caregiver-signature.png")', '', '', '', '', '', '', '', '', '', '', '']
     ];
 
     mockRegistryData = [
@@ -182,7 +194,8 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
           const idx = files.indexOf(f);
           if (idx !== -1) files.splice(idx, 1);
         },
-        setTrashed: (t: boolean) => {}
+        trashed: false,
+        setTrashed: function(t: boolean) { this.trashed = t; }
       };
       return folderObj;
     }
@@ -199,7 +212,8 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     mockDriveFolders = {
       'root-folder-id': rootFolder,
       '_e2e_staging_runs': stagingFolder,
-      'assessments': assessmentsFolder
+      'assessments': assessmentsFolder,
+      'folder-ast-e2e-001': sampleContainer
     };
 
     sandbox = {
@@ -245,6 +259,7 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
       },
       SpreadsheetApp: {
         ProtectionType: { RANGE: 'RANGE', SHEET: 'SHEET' },
+        BorderStyle: { SOLID: 'SOLID' },
         getActiveSpreadsheet: () => sandbox.SpreadsheetApp.openById('MOCK_SS_ID'),
         openById: (id: string) => ({
           getSheetByName: (name: string) => {
@@ -258,15 +273,21 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
                 insertColumnsAfter: () => {},
                 insertRowsAfter: () => {},
                 getRange: (r: number, c: number, numR: number, numC: number) => createMockRange('_Asset_Containers', r, c, numR, numC),
-                appendRow: (row: any[]) => mockRegistryData.push(row)
+                appendRow: (row: any[]) => mockRegistryData.push(row),
+                deleteRow: (r: number) => { mockRegistryData.splice(r - 1, 1); },
+                deleteRows: (r: number, cnt: number) => { mockRegistryData.splice(r - 1, cnt); },
+                setRowHeight: () => {},
+                setColumnWidth: () => {},
+                setFrozenRows: () => {},
+                setFrozenColumns: () => {}
               };
             }
             return {
               getName: () => 'Child_Nutrition_Phase3_Linelist',
               getLastRow: () => mockSheetData.length,
-              getLastColumn: () => mockSheetData[2] ? mockSheetData[2].length : 73,
+              getLastColumn: () => mockSheetData[2] ? mockSheetData[2].length : 83,
               getMaxRows: () => Math.max(100, mockSheetData.length),
-              getMaxColumns: () => 73,
+              getMaxColumns: () => 83,
               insertColumnsAfter: () => {},
               insertRowsAfter: () => {},
               getRange: (r: number, c: number, numR?: number, numC?: number) => {
@@ -275,8 +296,13 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
               getProtections: (type: any) => [...mockProtections],
               setName: (n: string) => {},
               clear: () => { mockSheetData = []; mockSheetFormulas = []; },
+              deleteRow: (r: number) => { mockSheetData.splice(r - 1, 1); },
               deleteRows: (r: number, cnt: number) => { mockSheetData.splice(r - 1, cnt); },
-              appendRow: (row: any[]) => mockSheetData.push(row)
+              appendRow: (row: any[]) => mockSheetData.push(row),
+              setRowHeight: () => {},
+              setColumnWidth: () => {},
+              setFrozenRows: () => {},
+              setFrozenColumns: () => {}
             };
           },
           getSheets: () => [sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Child_Nutrition_Phase3_Linelist')],
@@ -320,6 +346,7 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
           };
         },
         getFolderById: (id: string) => {
+          if (mockDriveFolders[id]) return mockDriveFolders[id];
           return createFolderObject('ast-folder', id);
         }
       },
@@ -741,5 +768,220 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     const dataValid = JSON.parse(resValid.getContent());
     expect(dataValid.status).toBe('success');
     expect(dataValid.stagingRunId).toBe('staging-e2e-run-99887766');
+  });
+
+  // ==========================================================================
+  // SCENARIO 15: Missing explicit destination configuration fails closed with 503
+  // ==========================================================================
+  it('Scenario 15: Missing APP_ENV, TARGET_SPREADSHEET_ID, or ROOT_DOCUMENTS_FOLDER_ID fails closed with 503 and performs zero writes', () => {
+    const requiredKeys = ['APP_ENV', 'TARGET_SPREADSHEET_ID', 'ROOT_DOCUMENTS_FOLDER_ID'];
+    const initialRowsCount = mockSheetData.length;
+
+    for (const key of requiredKeys) {
+      const saved = scriptProperties[key];
+      delete scriptProperties[key];
+
+      const postPayload = {
+        postData: {
+          contents: JSON.stringify({
+            action: 'create',
+            secret: 'TEST_SECRET_KEY_888999',
+            uniqueId: 'BEN-TEST-MUTATION-BLOCKED',
+            demographics: { childName: 'Blocked Child' }
+          })
+        }
+      };
+
+      const res = sandbox.doPost(postPayload);
+      const data = JSON.parse(res.getContent());
+
+      expect(data.status).toBe('error');
+      expect(data.code).toBe('CONFIGURATION_ERROR');
+      expect(data.statusCode).toBe(503);
+      // Zero writes performed
+      expect(mockSheetData.length).toBe(initialRowsCount);
+
+      // Restore for next iteration
+      scriptProperties[key] = saved;
+    }
+  });
+
+  // ==========================================================================
+  // SCENARIO 16: Invalid APP_ENV fails closed with 503 CONFIGURATION_ERROR
+  // ==========================================================================
+  it('Scenario 16: Invalid APP_ENV (not staging or production) fails closed with 503', () => {
+    const invalidEnvs = ['dev', 'test', 'qa', 'sandbox', 'local', ''];
+    for (const badEnv of invalidEnvs) {
+      scriptProperties.APP_ENV = badEnv;
+      const res = sandbox.doPost({
+        postData: {
+          contents: JSON.stringify({
+            action: 'create',
+            secret: 'TEST_SECRET_KEY_888999',
+            uniqueId: 'BEN-TEST-INVALID-ENV'
+          })
+        }
+      });
+      const data = JSON.parse(res.getContent());
+      expect(data.status).toBe('error');
+      expect(data.code).toBe('CONFIGURATION_ERROR');
+      expect(data.statusCode).toBe(503);
+    }
+  });
+
+  // ==========================================================================
+  // SCENARIO 17: Staging environment targeting operational spreadsheet ID is rejected before writes
+  // ==========================================================================
+  it('Scenario 17: Staging environment targeting operational spreadsheet ID is rejected with 503 before any write or read', () => {
+    scriptProperties.APP_ENV = 'staging';
+    const initialRowsCount = mockSheetData.length;
+
+    const operationalIds = [
+      '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA',
+      '1YORdIKiIdSILyOekMJ5BCO5WCujoZ87U7H65x88HKkM'
+    ];
+
+    for (const opId of operationalIds) {
+      scriptProperties.TARGET_SPREADSHEET_ID = opId;
+
+      const res = sandbox.doPost({
+        postData: {
+          contents: JSON.stringify({
+            action: 'create',
+            secret: 'TEST_SECRET_KEY_888999',
+            uniqueId: 'BEN-STAGING-INTRUSION-ATTEMPT',
+            demographics: { childName: 'Should Not Write' }
+          })
+        }
+      });
+
+      const data = JSON.parse(res.getContent());
+      expect(data.status).toBe('error');
+      expect(data.code).toBe('CONFIGURATION_ERROR');
+      expect(data.statusCode).toBe(503);
+      expect(data.message).toContain('Staging environment rejected targeting operational spreadsheet ID');
+      // Zero writes performed
+      expect(mockSheetData.length).toBe(initialRowsCount);
+    }
+  });
+
+  // ==========================================================================
+  // SCENARIO 18: Staging environment targeting valid isolated non-operational spreadsheet succeeds
+  // ==========================================================================
+  it('Scenario 18: Staging environment targeting valid isolated non-operational spreadsheet succeeds', () => {
+    scriptProperties.APP_ENV = 'staging';
+    scriptProperties.TARGET_SPREADSHEET_ID = 'isolated-staging-sheet-id-4455';
+    scriptProperties.ROOT_DOCUMENTS_FOLDER_ID = 'root-folder-id';
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'create',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-STAGING-ISOLATED-001',
+          childName: 'Isolated Child',
+          submittedBy: 'Staging Worker'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.uniqueId).toBe('BEN-STAGING-ISOLATED-001');
+  });
+
+  // ==========================================================================
+  // SCENARIO 19: Production environment targeting operational spreadsheet ID is permitted
+  // ==========================================================================
+  it('Scenario 19: Production environment targeting operational spreadsheet ID is not rejected by destination guard', () => {
+    scriptProperties.APP_ENV = 'production';
+    scriptProperties.TARGET_SPREADSHEET_ID = '1tg1ROn5TbOumuCvpSlxG7OxhayYodnmoiA7qMPkbXfA';
+    scriptProperties.ROOT_DOCUMENTS_FOLDER_ID = 'root-folder-id';
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'create',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-PROD-OPERATIONAL-001',
+          childName: 'Production Child',
+          submittedBy: 'Prod Worker'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.uniqueId).toBe('BEN-PROD-OPERATIONAL-001');
+  });
+
+  // ==========================================================================
+  // SCENARIO 20: No spreadsheet or folder-discovery fallback occurs when explicit properties are unset
+  // ==========================================================================
+  it('Scenario 20: Resolver functions throw immediately without fallback when properties are unset', () => {
+    delete scriptProperties.TARGET_SPREADSHEET_ID;
+    delete scriptProperties.ROOT_DOCUMENTS_FOLDER_ID;
+
+    // Direct getTargetSpreadsheet_ must throw immediately without falling back to getActiveSpreadsheet
+    expect(() => {
+      sandbox.getTargetSpreadsheet_();
+    }).toThrow(/TARGET_SPREADSHEET_ID must be configured in Script Properties/);
+
+    // Direct getOrCreateRootDocumentsFolder_ returns null without candidate folder scanning
+    const folder = sandbox.getOrCreateRootDocumentsFolder_();
+    expect(folder).toBeNull();
+  });
+
+  // ==========================================================================
+  // SCENARIO 21: Exact-ID cleanup removes row, metadata, and trashes Drive asset container
+  // ==========================================================================
+  it('Scenario 21: Exact-ID deletion removes linelist row, metadata registry row, and trashes Drive container', () => {
+    expect(mockSheetData.length).toBe(4);
+    expect(mockRegistryData.length).toBe(2);
+    expect((mockDriveFolders['folder-ast-e2e-001'] as any).trashed).toBe(false);
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'delete',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.acknowledged).toBe(true);
+    expect(data.deletedId).toBe('BEN-SYN-001');
+    expect(data.assetContainerId).toBe('ast-e2e-001');
+    expect(data.driveTrashed).toBe(true);
+
+    // Linelist row removed
+    expect(mockSheetData.length).toBe(3);
+    const remainingLinelistIds = mockSheetData.slice(3).map(r => r[0]);
+    expect(remainingLinelistIds).not.toContain('BEN-SYN-001');
+
+    // Registry row removed
+    expect(mockRegistryData.length).toBe(1);
+    const remainingRegIds = mockRegistryData.slice(1).map(r => r[0]);
+    expect(remainingRegIds).not.toContain('BEN-SYN-001');
+
+    // Drive container folder trashed
+    expect((mockDriveFolders['folder-ast-e2e-001'] as any).trashed).toBe(true);
+
+    // Subsequent delete for the same ID fails closed with 404
+    const resRepeat = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'delete',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001'
+        })
+      }
+    });
+    const repeatData = JSON.parse(resRepeat.getContent());
+    expect(repeatData.status).toBe('error');
+    expect(repeatData.statusCode).toBe(404);
   });
 });
