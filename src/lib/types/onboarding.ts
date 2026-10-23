@@ -2,7 +2,7 @@
  * Domain types for State Team Registration, Team Invitations, and Field User Onboarding
  */
 
-export type StateTeamRegistrationStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type StateTeamRegistrationStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
 export interface StateTeamRegistration {
   id: string;

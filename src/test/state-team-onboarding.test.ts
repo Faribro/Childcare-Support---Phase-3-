@@ -164,6 +164,7 @@ describe('State Team Onboarding & Invitation Engine', () => {
         organization: 'Alliance India',
         autoApprove: true,
       });
+      await store.verifyStateTeamEmail(reg.workEmail);
 
       const issue = await issueStateTeamInvitation({
         stateTeamId: reg.id,
@@ -196,6 +197,7 @@ describe('State Team Onboarding & Invitation Engine', () => {
         organization: 'Alliance India',
         autoApprove: true,
       });
+      await store.verifyStateTeamEmail(reg.workEmail);
 
       const first = await issueStateTeamInvitation({ stateTeamId: reg.id });
       expect(first.success).toBe(true);

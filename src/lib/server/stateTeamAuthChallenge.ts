@@ -18,6 +18,9 @@ import { createSessionToken } from './sessionService';
 import {
   generatePlaintextInvitationCode,
   createInvitationVerifierPair,
+  verifyInvitationCode,
+  encryptInvitationEnvelope,
+  decryptInvitationEnvelope,
   DEFAULT_MAX_REDEMPTIONS,
   DEFAULT_INVITATION_EXPIRY_MS,
   DEFAULT_INVITATION_EXPIRY_DAYS,
@@ -37,6 +40,7 @@ export interface StateTeamOtpChallenge {
   failedAttempts: number;
   isUsed: boolean;
   isLocked: boolean;
+  encryptedInvitation?: string;
 }
 
 // In-memory challenge store (keyed by lowercase normalized workEmail)
@@ -149,6 +153,33 @@ export async function requestStateTeamOtp(params: {
     autoApprove,
   });
 
+  // Check if an active invitation already exists for this coordinator registration
+  const existingInv = await store.getActiveInvitationForCoordinator(registration.id);
+  const existingChallenge = (await store.getStateTeamChallenge(normEmail)) || activeChallenges.get(normEmail);
+
+  let plainInvitationCode = '';
+  if (existingInv && existingChallenge?.encryptedInvitation) {
+    const decrypted = decryptInvitationEnvelope(existingChallenge.encryptedInvitation);
+    if (decrypted && verifyInvitationCode(decrypted, existingInv.codeSalt, existingInv.codeVerifier)) {
+      plainInvitationCode = decrypted;
+    }
+  }
+
+  if (!plainInvitationCode) {
+    plainInvitationCode = generatePlaintextInvitationCode(registration.requestedState);
+    const { salt: invSalt, verifier: invVerifier } = createInvitationVerifierPair(plainInvitationCode);
+    await store.createInvitation({
+      stateTeamId: registration.id,
+      state: registration.requestedState,
+      salt: invSalt,
+      verifier: invVerifier,
+      maxRedemptions: DEFAULT_MAX_REDEMPTIONS,
+      expiresAt: now + DEFAULT_INVITATION_EXPIRY_MS,
+    });
+  }
+
+  const encryptedInvitation = encryptInvitationEnvelope(plainInvitationCode);
+
   // Generate 6-digit numeric OTP
   const rawOtp = crypto.randomInt(100000, 1000000).toString();
   const salt = crypto.randomBytes(16).toString('hex');
@@ -165,18 +196,23 @@ export async function requestStateTeamOtp(params: {
     failedAttempts: 0,
     isUsed: false,
     isLocked: false,
+    encryptedInvitation,
   };
 
   await store.saveStateTeamChallenge(challenge);
   activeChallenges.set(normEmail, challenge);
 
-  // Dispatch OTP email
+  // Dispatch combined email with Section A (OTP) and Section B (Invitation Code)
   const emailResult = await sendStateTeamOtpEmail({
     to: normEmail,
     name: challenge.name,
     state: challenge.state,
     code: rawOtp,
     expiryMinutes: 10,
+    invitationCode: plainInvitationCode,
+    invitationExpiryDays: DEFAULT_INVITATION_EXPIRY_DAYS,
+    maxRedemptions: DEFAULT_MAX_REDEMPTIONS,
+    isPreApproved: autoApprove,
   });
 
   if (!emailResult.success) {

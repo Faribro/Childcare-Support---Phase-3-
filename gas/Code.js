@@ -548,6 +548,22 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'WEBHOOK_SECRET locked successfully.' })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Authorized rotation of WEBHOOK_SECRET & DISPATCH_SECRET
+    if (action === 'rotateSecret') {
+      var currentSecret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
+      var callerCurrentSecret = payload && (payload.currentSecret || payload.secret);
+      if (!currentSecret || String(callerCurrentSecret) !== String(currentSecret)) {
+        return errorResponse_('Unauthorized: Current secret mismatch.', 'UNAUTHORIZED', 401, requestId);
+      }
+      var newSecret = payload.newSecret;
+      if (!newSecret || typeof newSecret !== 'string' || newSecret.length < 32) {
+        return errorResponse_('New secret must be at least 32 characters.', 'VALIDATION_ERROR', 400, requestId);
+      }
+      PropertiesService.getScriptProperties().setProperty('WEBHOOK_SECRET', newSecret);
+      PropertiesService.getScriptProperties().setProperty('DISPATCH_SECRET', newSecret);
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Secrets rotated successfully.' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Enforce fail-closed webhook secret verification on all protected actions
     var auth = requireWebhookSecret_(payload, action, requestId);
     if (!auth.authorized) {
@@ -3630,7 +3646,7 @@ function handleSendLeadershipOtp_(payload) {
 
     // 4. Recipient verification & domain policy
     var recipient = (payload && payload.recipient) ? String(payload.recipient).trim().toLowerCase() : '';
-    var isValidEmailFormat = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipient);
+    var isValidEmailFormat = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient);
     if (!recipient || !isValidEmailFormat) {
       return ContentService.createTextOutput(JSON.stringify({
         success: false,

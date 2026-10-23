@@ -129,3 +129,48 @@ export function verifyInvitationCode(
   if (candidateBuf.length !== storedBuf.length) return false;
   return crypto.timingSafeEqual(candidateBuf, storedBuf);
 }
+
+function getEnvelopeKey(): Buffer {
+  const secret =
+    process.env.SESSION_SECRET ||
+    process.env.LEADERSHIP_SESSION_SECRET ||
+    process.env.WEBHOOK_SECRET ||
+    'alliance-invitation-envelope-salt-key';
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+/**
+ * Encrypts plaintext invitation code using authenticated AES-256-GCM.
+ * Used exclusively for ephemeral OTP challenge retry delivery without storing plaintext in ordinary database tables.
+ */
+export function encryptInvitationEnvelope(plainCode: string): string {
+  const key = getEnvelopeKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plainCode.trim(), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+/**
+ * Decrypts authenticated AES-256-GCM invitation envelope.
+ * Returns null if authentication fails or envelope is malformed.
+ */
+export function decryptInvitationEnvelope(envelope: string): string | null {
+  if (!envelope || typeof envelope !== 'string') return null;
+  const parts = envelope.split(':');
+  if (parts.length !== 3) return null;
+  try {
+    const [ivHex, tagHex, dataHex] = parts;
+    const key = getEnvelopeKey();
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const data = Buffer.from(dataHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    return null;
+  }
+}

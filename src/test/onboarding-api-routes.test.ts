@@ -185,6 +185,7 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
         organization: 'Alliance India',
         autoApprove: true,
       });
+      await store.verifyStateTeamEmail(reg.workEmail);
 
       const { issueStateTeamInvitation } = await import('@/lib/server/stateTeamAuthChallenge');
       const inv = await issueStateTeamInvitation({ stateTeamId: reg.id });

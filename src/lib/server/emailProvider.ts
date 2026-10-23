@@ -486,21 +486,79 @@ export async function sendStateTeamOtpEmail({
   state,
   code,
   expiryMinutes = 10,
+  invitationCode,
+  invitationExpiryDays = 30,
+  maxRedemptions = 50,
+  isPreApproved = false,
 }: {
   to: string;
   name: string;
   state: string;
   code: string;
   expiryMinutes?: number;
+  invitationCode?: string;
+  invitationExpiryDays?: number;
+  maxRedemptions?: number;
+  isPreApproved?: boolean;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
-  const subject = `Your State Team Verification Code — ${state}`;
+  const subject = invitationCode
+    ? `Your State Team Verification & Field Invitation Code — ${state}`
+    : `Your State Team Verification Code — ${state}`;
+
+  const invitationSectionHtml = invitationCode
+    ? `
+      <div style="margin-top: 28px; padding-top: 24px; border-top: 2px dashed #cbd5e1;">
+        <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">SECTION B</span>
+        <h2 style="color: #0f172a; font-size: 17px; font-weight: 700; margin: 0 0 8px 0;">Your field-team invitation code</h2>
+        <p style="color: #475569; font-size: 14px; line-height: 1.5; margin-bottom: 14px;">
+          Share this invitation code privately with authorized field caseworkers conducting surveys in <strong>${state}</strong>.
+        </p>
+
+        <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 14px;">
+          <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 4px;">Field Team Invitation Code</span>
+          <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 22px; font-weight: 800; letter-spacing: 0.12em; color: #064e3b; word-break: break-all; display: block;">
+            ${invitationCode}
+          </code>
+        </div>
+
+        <div style="background-color: ${isPreApproved ? '#f0fdf4' : '#fffbeb'}; border: 1px solid ${isPreApproved ? '#bbf7d0' : '#fde68a'}; border-radius: 10px; padding: 12px; margin-bottom: 16px;">
+          <strong style="color: ${isPreApproved ? '#166534' : '#92400e'}; font-size: 12px; display: block; margin-bottom: 3px;">Activation Status:</strong>
+          <p style="color: ${isPreApproved ? '#166534' : '#92400e'}; font-size: 12px; line-height: 1.5; margin: 0;">
+            ${isPreApproved
+              ? 'Pre-approved applicant: This invitation code activates immediately once you verify your email with the personal code above.'
+              : 'Your invitation code has been generated. It becomes usable after email verification and programme approval.'}
+          </p>
+        </div>
+
+        <div style="font-size: 13px; color: #334155; line-height: 1.6; margin-bottom: 16px;">
+          <p style="margin: 0 0 4px 0;"><strong>State Scope:</strong> ${state}</p>
+          <p style="margin: 0 0 4px 0;"><strong>Validity:</strong> ${invitationExpiryDays} days</p>
+          <p style="margin: 0 0 4px 0;"><strong>Maximum Capacity:</strong> Up to ${maxRedemptions} authorized caseworkers</p>
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 14px;">
+          <strong style="color: #0f172a; font-size: 13px; display: block; margin-bottom: 8px;">Instructions for authorized caseworkers:</strong>
+          <ol style="margin: 0; padding-left: 20px; font-size: 12px; color: #475569; line-height: 1.6;">
+            <li>Open the Childcare Support App and tap <strong>Start New Survey</strong>.</li>
+            <li>Sign in using their authorized Google account.</li>
+            <li>Complete their field caseworker profile.</li>
+            <li>Enter this invitation code to activate field survey access for <strong>${state}</strong>.</li>
+          </ol>
+        </div>
+
+        <p style="color: #047857; font-size: 12px; font-weight: 600; margin: 0;">
+          🔒 Share PRIVATELY with authorized field caseworkers only. Do not publish publicly.
+        </p>
+      </div>
+    `
+    : '';
 
   const html = `
     <!DOCTYPE html>
     <html>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
-        <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
           <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
             <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
             <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — State Team Access (${state})</p>
@@ -508,23 +566,33 @@ export async function sendStateTeamOtpEmail({
 
           <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello <strong>${name}</strong>,</p>
 
-          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
-            Your verification code for state-team staff registration (${state}) is:
-          </p>
+          <div style="margin-bottom: 24px;">
+            <span style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">SECTION A</span>
+            <h2 style="color: #0f172a; font-size: 17px; font-weight: 700; margin: 0 0 8px 0;">Your personal email verification code</h2>
+            <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 14px;">
+              Your one-time verification code for state-team staff registration (${state}) is:
+            </p>
 
-          <div style="background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
-            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 20px; font-weight: bold; letter-spacing: 0.15em; color: #0f172a; word-break: break-all; display: block;">
-              ${code}
-            </code>
-          </div>
+            <div style="background-color: #f1f5f9; border: 1.5px solid #cbd5e1; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 14px;">
+              <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 26px; font-weight: bold; letter-spacing: 0.2em; color: #0f172a; word-break: break-all; display: block;">
+                ${code}
+              </code>
+            </div>
 
-          <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px; margin-bottom: 24px;">
-            <p style="color: #92400e; font-size: 12px; line-height: 1.5; margin: 0;">
-              This verification code expires in <strong>${expiryMinutes} minutes</strong>. Verifying your email confirms ownership of your work address. State-level administrative authority is granted upon programme approval.
+            <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px;">
+              <p style="color: #b91c1c; font-size: 12px; font-weight: 600; line-height: 1.5; margin: 0;">
+                ⚠️ For your email verification only. Do NOT share this code with field users or caseworkers.
+              </p>
+            </div>
+
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
+              This code expires in <strong>${expiryMinutes} minutes</strong>. Verifying your email confirms ownership of your address. State-level administrative authority is granted upon programme approval.
             </p>
           </div>
 
-          <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
+          ${invitationSectionHtml}
+
+          <p style="color: #94a3b8; font-size: 11px; line-height: 1.5; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
             If you did not register for State Team access, please disregard this notice.
           </p>
         </div>
@@ -532,11 +600,39 @@ export async function sendStateTeamOtpEmail({
     </html>
   `;
 
-  const text = `
-Your State Team verification code for ${state} is: ${code}
+  const text = invitationCode
+    ? `India HIV/AIDS Alliance — Childcare Support Programme
+State Team Access (${state})
+
+SECTION A: Your personal email verification code
+------------------------------------------------
+Your verification code is: ${code}
+Expires in: ${expiryMinutes} minutes
+IMPORTANT: For your email verification only. Do not share with field users or caseworkers.
+
+SECTION B: Your field-team invitation code
+-----------------------------------------
+Field Team Invitation Code: ${invitationCode}
+State Scope: ${state}
+Validity: ${invitationExpiryDays} days
+Maximum Capacity: Up to ${maxRedemptions} authorized caseworkers
+Activation Status: ${
+        isPreApproved
+          ? 'Pre-approved applicant (activates immediately upon email verification)'
+          : 'Your invitation code has been generated. It becomes usable after email verification and programme approval.'
+      }
+
+Instructions for authorized caseworkers:
+1. Open Childcare Support App -> tap Start New Survey
+2. Sign in with authorized Google account
+3. Complete field caseworker profile
+4. Enter invitation code (${invitationCode}) to activate access for ${state}
+
+Share privately with authorized field caseworkers only.`.trim()
+    : `Your State Team verification code for ${state} is: ${code}
 
 This code expires in ${expiryMinutes} minutes.
-  `.trim();
+For your email verification only. Do not share.`.trim();
 
   return provider.sendEmail({
     to,
@@ -547,10 +643,6 @@ This code expires in ${expiryMinutes} minutes.
   });
 }
 
-/**
- * Dispatches an approved State-Team Invitation Code privately to the state coordinator.
- * Guarantees zero plaintext code in subject line.
- */
 export async function sendStateTeamInvitationEmail({
   to,
   name,

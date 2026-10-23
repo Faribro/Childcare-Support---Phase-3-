@@ -64,6 +64,7 @@ export interface OnboardingStore {
   }): Promise<StateTeamInvitation>;
   getInvitationById(id: string): Promise<StateTeamInvitation | null>;
   getActiveInvitationForState(state: string): Promise<StateTeamInvitation | null>;
+  getActiveInvitationForCoordinator(stateTeamId: string): Promise<StateTeamInvitation | null>;
   listInvitationsForState(state: string): Promise<StateTeamInvitation[]>;
   rotateInvitation(currentInvitationId: string, newSalt: string, newVerifier: string): Promise<StateTeamInvitation>;
   revokeInvitation(invitationId: string): Promise<boolean>;
@@ -251,6 +252,20 @@ export class MemoryOnboardingStore implements OnboardingStore {
     return this.invitations.get(id) || null;
   }
 
+  async getActiveInvitationForCoordinator(stateTeamId: string): Promise<StateTeamInvitation | null> {
+    const now = Date.now();
+    for (const inv of this.invitations.values()) {
+      if (
+        inv.stateTeamId === stateTeamId &&
+        inv.status === 'ACTIVE' &&
+        inv.expiresAt > now
+      ) {
+        return { ...inv };
+      }
+    }
+    return null;
+  }
+
   async getActiveInvitationForState(state: string): Promise<StateTeamInvitation | null> {
     const norm = state.trim().toLowerCase();
     const now = Date.now();
@@ -370,6 +385,38 @@ export class MemoryOnboardingStore implements OnboardingStore {
         error: 'This invitation code has reached its maximum authorized redemption limit.',
         statusCode: 429,
       };
+    }
+
+    const coordinator = await this.getStateTeamRegistrationById(matchingCandidate.stateTeamId);
+    if (coordinator) {
+      if (!coordinator.emailVerified) {
+        return {
+          valid: false,
+          error: 'This invitation code is not yet active. State coordinator email verification is pending.',
+          statusCode: 403,
+        };
+      }
+      if (coordinator.status === 'PENDING_APPROVAL') {
+        return {
+          valid: false,
+          error: 'This invitation code is pending programme approval of the state coordinator.',
+          statusCode: 403,
+        };
+      }
+      if (coordinator.status === 'REJECTED' || coordinator.status === 'SUSPENDED') {
+        return {
+          valid: false,
+          error: 'This invitation code is associated with a suspended or rejected coordinator.',
+          statusCode: 403,
+        };
+      }
+      if (coordinator.status !== 'APPROVED') {
+        return {
+          valid: false,
+          error: 'This invitation code is not active.',
+          statusCode: 403,
+        };
+      }
     }
 
     return {
@@ -538,6 +585,7 @@ export class UnavailableOnboardingStore implements OnboardingStore {
   async createInvitation(): Promise<StateTeamInvitation> { throw new Error(this.reason); }
   async getInvitationById(): Promise<StateTeamInvitation | null> { throw new Error(this.reason); }
   async getActiveInvitationForState(): Promise<StateTeamInvitation | null> { throw new Error(this.reason); }
+  async getActiveInvitationForCoordinator(): Promise<StateTeamInvitation | null> { throw new Error(this.reason); }
   async listInvitationsForState(): Promise<StateTeamInvitation[]> { throw new Error(this.reason); }
   async rotateInvitation(): Promise<StateTeamInvitation> { throw new Error(this.reason); }
   async revokeInvitation(): Promise<boolean> { throw new Error(this.reason); }
@@ -889,6 +937,29 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     };
   }
 
+  async getActiveInvitationForCoordinator(stateTeamId: string): Promise<StateTeamInvitation | null> {
+    const norm = encodeURIComponent(stateTeamId.trim());
+    const nowIso = new Date().toISOString();
+    const url = `${this.baseUrl}/rest/v1/state_team_invitations?state_team_id=eq.${norm}&status=eq.ACTIVE&expires_at=gt.${nowIso}&select=*&order=created_at.desc&limit=1`;
+    const res = await fetch(url, { headers: this.headers });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      id: row.id,
+      stateTeamId: row.state_team_id,
+      state: row.state,
+      codeVerifier: row.verifier,
+      codeSalt: row.salt,
+      status: row.status,
+      maxRedemptions: Number(row.max_redemptions),
+      redemptionCount: Number(row.redemption_count),
+      expiresAt: new Date(row.expires_at).getTime(),
+      createdAt: new Date(row.created_at).getTime(),
+    };
+  }
+
   async getActiveInvitationForState(state: string): Promise<StateTeamInvitation | null> {
     const norm = encodeURIComponent(state.trim());
     const nowIso = new Date().toISOString();
@@ -992,6 +1063,23 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     if (match.redemptionCount >= match.maxRedemptions) {
       return { valid: false, error: 'This invitation code has reached its maximum authorized redemption limit.', statusCode: 429 };
     }
+
+    const coordinator = await this.getStateTeamRegistrationById(match.stateTeamId);
+    if (coordinator) {
+      if (!coordinator.emailVerified) {
+        return { valid: false, error: 'This invitation code is not yet active. State coordinator email verification is pending.', statusCode: 403 };
+      }
+      if (coordinator.status === 'PENDING_APPROVAL') {
+        return { valid: false, error: 'This invitation code is pending programme approval of the state coordinator.', statusCode: 403 };
+      }
+      if (coordinator.status === 'REJECTED' || coordinator.status === 'SUSPENDED') {
+        return { valid: false, error: 'This invitation code is associated with a suspended or rejected coordinator.', statusCode: 403 };
+      }
+      if (coordinator.status !== 'APPROVED') {
+        return { valid: false, error: 'This invitation code is not active.', statusCode: 403 };
+      }
+    }
+
     return { valid: true, statusCode: 200, invitation: match };
   }
 
