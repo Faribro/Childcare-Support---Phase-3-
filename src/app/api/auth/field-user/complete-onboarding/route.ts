@@ -136,6 +136,13 @@ export async function POST(req: NextRequest) {
         assignedState: profile.assignedState,
         assignedDistrict: profile.assignedDistrict,
       },
+      data: {
+        profile,
+        session: {
+          role: 'FIELD_USER',
+          token: sessionToken,
+        },
+      },
     },
     { status: 200 }
   );

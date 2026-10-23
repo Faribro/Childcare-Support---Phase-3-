@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { workEmail, code } = body || {};
+  const workEmail = body?.workEmail || body?.email;
+  const code = body?.code || body?.otp;
 
   if (!workEmail || !code) {
     return NextResponse.json(
@@ -46,6 +47,10 @@ export async function POST(req: NextRequest) {
         registrationStatus: 'APPROVED',
         message: 'Authentication successful. State Evaluation unlocked.',
         registration: result.registration,
+        data: {
+          session: result.session,
+          registration: result.registration,
+        },
       },
       { status: 200 }
     );
