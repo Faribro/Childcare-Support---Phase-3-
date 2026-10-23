@@ -76,6 +76,10 @@ export async function POST(req: NextRequest) {
       message:
         'Email verified successfully. Your registration has been submitted for programme administrator review.',
       registration: result.registration,
+      data: {
+        registration: result.registration,
+        session: null,
+      },
     },
     { status: 200 }
   );

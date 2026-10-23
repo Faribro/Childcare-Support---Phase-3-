@@ -141,14 +141,16 @@ export function StateTeamAuthFlow({
         return;
       }
 
-      setTeamRegistration(data.data.registration);
+      const reg = data.data?.registration || data.registration;
+      setTeamRegistration(reg);
 
-      if (data.data.session) {
+      const session = data.data?.session || data.session;
+      if (session) {
         const authedUser: EvaluationUser = {
-          userId: data.data.session.userId,
-          name: data.data.session.name,
+          userId: session.userId,
+          name: session.name,
           role: 'STATE_REVIEWER',
-          allowedStates: data.data.session.allowedStates || [requestedState],
+          allowedStates: session.allowedStates || [requestedState],
           allowedDistricts: [],
           isVerified: true,
         };
@@ -156,7 +158,7 @@ export function StateTeamAuthFlow({
         setStep('ready');
         setSuccessMessage('Email verified successfully! State Team portal unlocked.');
       } else {
-        setSuccessMessage('Email verified! Your registration is pending administrator approval.');
+        setSuccessMessage(data.message || 'Email verified! Your registration is pending administrator approval.');
         setStep('ready');
       }
     } catch {
