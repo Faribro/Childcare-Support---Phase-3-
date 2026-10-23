@@ -18,10 +18,10 @@
 
 import crypto from 'crypto';
 
-export type MirrorJobStatus = 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER' | 'SUPERSEDED';
+export type MirrorJobStatus = 'QUEUED' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER' | 'SUPERSEDED';
 
 export interface SheetsMirrorJob {
-  id: number;
+  id: string | number;
   job_type: 'UPSERT_ROW' | 'DELETE_ROW';
   target_sheet_name: string;
   idempotency_key: string;
@@ -39,11 +39,11 @@ export interface SheetsMirrorJob {
 
 export interface SheetsMirrorRepository {
   claimJobs(batchSize: number, workerId: string, leaseDurationMs: number): Promise<SheetsMirrorJob[]>;
-  completeJob(jobId: number, sheetRow?: number): Promise<void>;
-  failJob(jobId: number, error: string, retryable: boolean): Promise<void>;
-  supersedeJob(jobId: number, reason: string): Promise<void>;
+  completeJob(jobId: string | number, sheetRow?: number): Promise<void>;
+  failJob(jobId: string | number, error: string, retryable: boolean): Promise<void>;
+  supersedeJob(jobId: string | number, reason: string): Promise<void>;
   enqueueJob(job: Omit<SheetsMirrorJob, 'id' | 'status' | 'attempt_count' | 'locked_at' | 'locked_by' | 'sheet_row' | 'last_error' | 'created_at' | 'updated_at'>): Promise<SheetsMirrorJob>;
-  getJobById(jobId: number): Promise<SheetsMirrorJob | null>;
+  getJobById(jobId: string | number): Promise<SheetsMirrorJob | null>;
   getPendingCount(): Promise<number>;
   getDeadLetterCount(): Promise<number>;
 }
@@ -111,8 +111,8 @@ export class InMemorySheetsMirrorRepository implements SheetsMirrorRepository {
     return claimed;
   }
 
-  public async completeJob(jobId: number, sheetRow?: number): Promise<void> {
-    const job = this.jobs.find((j) => j.id === jobId);
+  public async completeJob(jobId: string | number, sheetRow?: number): Promise<void> {
+    const job = this.jobs.find((j) => String(j.id) === String(jobId));
     if (!job) return;
     job.status = 'COMPLETED';
     job.locked_at = null;
@@ -121,8 +121,8 @@ export class InMemorySheetsMirrorRepository implements SheetsMirrorRepository {
     job.updated_at = new Date().toISOString();
   }
 
-  public async failJob(jobId: number, error: string, retryable: boolean): Promise<void> {
-    const job = this.jobs.find((j) => j.id === jobId);
+  public async failJob(jobId: string | number, error: string, retryable: boolean): Promise<void> {
+    const job = this.jobs.find((j) => String(j.id) === String(jobId));
     if (!job) return;
     job.last_error = error;
     job.locked_at = null;
@@ -136,8 +136,8 @@ export class InMemorySheetsMirrorRepository implements SheetsMirrorRepository {
     }
   }
 
-  public async supersedeJob(jobId: number, reason: string): Promise<void> {
-    const job = this.jobs.find((j) => j.id === jobId);
+  public async supersedeJob(jobId: string | number, reason: string): Promise<void> {
+    const job = this.jobs.find((j) => String(j.id) === String(jobId));
     if (!job) return;
     job.status = 'SUPERSEDED';
     job.last_error = `Superseded: ${reason}`;
@@ -146,17 +146,253 @@ export class InMemorySheetsMirrorRepository implements SheetsMirrorRepository {
     job.updated_at = new Date().toISOString();
   }
 
-  public async getJobById(jobId: number): Promise<SheetsMirrorJob | null> {
-    const job = this.jobs.find((j) => j.id === jobId);
+  public async getJobById(jobId: string | number): Promise<SheetsMirrorJob | null> {
+    const job = this.jobs.find((j) => String(j.id) === String(jobId));
     return job ? { ...job } : null;
   }
 
   public async getPendingCount(): Promise<number> {
-    return this.jobs.filter((j) => j.status === 'QUEUED' || j.status === 'FAILED').length;
+    return this.jobs.filter((j) => j.status === 'QUEUED' || j.status === 'FAILED' || j.status === 'PENDING').length;
   }
 
   public async getDeadLetterCount(): Promise<number> {
     return this.jobs.filter((j) => j.status === 'DEAD_LETTER').length;
+  }
+}
+
+/**
+ * Production-grade Supabase / PostgreSQL Sheets Mirror Repository.
+ * Dispatches atomic lease claims, job completion, and failure handling via PostgreSQL RPCs.
+ * Falls back to InMemorySheetsMirrorRepository when database credentials are not configured.
+ */
+export class SupabaseSheetsMirrorRepository implements SheetsMirrorRepository {
+  private baseUrl: string;
+  private serviceKey: string;
+  private inMemoryFallback: InMemorySheetsMirrorRepository;
+
+  constructor(supabaseUrl?: string, serviceRoleKey?: string) {
+    this.baseUrl = (supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+    this.serviceKey = serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    this.inMemoryFallback = new InMemorySheetsMirrorRepository();
+  }
+
+  public isConfigured(): boolean {
+    return Boolean(this.baseUrl && this.serviceKey);
+  }
+
+  private get headers(): Record<string, string> {
+    return {
+      apikey: this.serviceKey,
+      Authorization: `Bearer ${this.serviceKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    };
+  }
+
+  public async claimJobs(batchSize: number, workerId: string, leaseDurationMs: number): Promise<SheetsMirrorJob[]> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.claimJobs(batchSize, workerId, leaseDurationMs);
+    }
+    const leaseSeconds = Math.max(10, Math.floor(leaseDurationMs / 1000));
+    const res = await fetch(`${this.baseUrl}/rest/v1/rpc/claim_sheets_mirror_jobs_atomic`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_worker_id: workerId,
+        p_batch_size: batchSize,
+        p_lease_seconds: leaseSeconds,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`claim_sheets_mirror_jobs_atomic failed (${res.status}): ${err}`);
+    }
+    const rawJobs = await res.json();
+    if (!Array.isArray(rawJobs)) return [];
+    return rawJobs.map((j: any) => ({
+      id: j.id,
+      job_type: j.operation || 'UPSERT_ROW',
+      target_sheet_name: j.target_sheet_name || 'Child_Nutrition',
+      idempotency_key: j.idempotency_key,
+      payload_snapshot: j.payload_snapshot || {},
+      status: j.status,
+      attempt_count: j.attempt_count || 0,
+      max_attempts: j.max_attempts || 5,
+      locked_at: j.locked_at,
+      locked_by: j.locked_by,
+      sheet_row: j.sheet_row,
+      last_error: j.last_error,
+      created_at: j.created_at,
+      updated_at: j.updated_at,
+    }));
+  }
+
+  public async completeJob(jobId: string | number, sheetRow?: number): Promise<void> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.completeJob(jobId, sheetRow);
+    }
+    const res = await fetch(`${this.baseUrl}/rest/v1/rpc/complete_sheets_mirror_job_atomic`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_job_id: String(jobId),
+        p_sheet_row: sheetRow ?? null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`complete_sheets_mirror_job_atomic failed (${res.status}): ${err}`);
+    }
+  }
+
+  public async failJob(jobId: string | number, error: string, retryable: boolean): Promise<void> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.failJob(jobId, error, retryable);
+    }
+    const res = await fetch(`${this.baseUrl}/rest/v1/rpc/fail_sheets_mirror_job_atomic`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_job_id: String(jobId),
+        p_error: error,
+        p_retryable: retryable,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`fail_sheets_mirror_job_atomic failed (${res.status}): ${err}`);
+    }
+  }
+
+  public async supersedeJob(jobId: string | number, reason: string): Promise<void> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.supersedeJob(jobId, reason);
+    }
+    const res = await fetch(`${this.baseUrl}/rest/v1/rpc/supersede_sheets_mirror_job_atomic`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_job_id: String(jobId),
+        p_reason: reason,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`supersede_sheets_mirror_job_atomic failed (${res.status}): ${err}`);
+    }
+  }
+
+  public async enqueueJob(
+    job: Omit<SheetsMirrorJob, 'id' | 'status' | 'attempt_count' | 'locked_at' | 'locked_by' | 'sheet_row' | 'last_error' | 'created_at' | 'updated_at'>
+  ): Promise<SheetsMirrorJob> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.enqueueJob(job);
+    }
+    const now = new Date().toISOString();
+    const res = await fetch(`${this.baseUrl}/rest/v1/sheets_mirror_jobs`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        idempotency_key: job.idempotency_key,
+        operation: job.job_type,
+        target_sheet_name: job.target_sheet_name,
+        payload_snapshot: job.payload_snapshot,
+        status: 'QUEUED',
+        attempt_count: 0,
+        max_attempts: job.max_attempts || 5,
+        created_at: now,
+        updated_at: now,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to enqueue sheets_mirror_job (${res.status}): ${err}`);
+    }
+    const createdArr = await res.json();
+    const c = Array.isArray(createdArr) ? createdArr[0] : createdArr;
+    return {
+      id: c.id,
+      job_type: c.operation || job.job_type,
+      target_sheet_name: c.target_sheet_name || job.target_sheet_name,
+      idempotency_key: c.idempotency_key || job.idempotency_key,
+      payload_snapshot: c.payload_snapshot || job.payload_snapshot,
+      status: c.status || 'QUEUED',
+      attempt_count: c.attempt_count || 0,
+      max_attempts: c.max_attempts || 5,
+      locked_at: c.locked_at || null,
+      locked_by: c.locked_by || null,
+      sheet_row: c.sheet_row || null,
+      last_error: c.last_error || null,
+      created_at: c.created_at || now,
+      updated_at: c.updated_at || now,
+    };
+  }
+
+  public async getJobById(jobId: string | number): Promise<SheetsMirrorJob | null> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.getJobById(jobId);
+    }
+    const res = await fetch(`${this.baseUrl}/rest/v1/sheets_mirror_jobs?id=eq.${encodeURIComponent(String(jobId))}&limit=1`, {
+      method: 'GET',
+      headers: this.headers,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const c = data[0];
+    return {
+      id: c.id,
+      job_type: c.operation,
+      target_sheet_name: c.target_sheet_name,
+      idempotency_key: c.idempotency_key,
+      payload_snapshot: c.payload_snapshot,
+      status: c.status,
+      attempt_count: c.attempt_count,
+      max_attempts: c.max_attempts,
+      locked_at: c.locked_at,
+      locked_by: c.locked_by,
+      sheet_row: c.sheet_row,
+      last_error: c.last_error,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    };
+  }
+
+  public async getPendingCount(): Promise<number> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.getPendingCount();
+    }
+    const res = await fetch(`${this.baseUrl}/rest/v1/sheets_mirror_jobs?status=in.(QUEUED,PENDING,FAILED)&select=id`, {
+      method: 'GET',
+      headers: { ...this.headers, Prefer: 'count=exact' },
+    });
+    if (!res.ok) return 0;
+    const range = res.headers.get('content-range');
+    if (range) {
+      const match = range.match(/\/(\d+)$/);
+      if (match) return parseInt(match[1], 10);
+    }
+    const data = await res.json().catch(() => []);
+    return Array.isArray(data) ? data.length : 0;
+  }
+
+  public async getDeadLetterCount(): Promise<number> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.getDeadLetterCount();
+    }
+    const res = await fetch(`${this.baseUrl}/rest/v1/sheets_mirror_jobs?status=eq.DEAD_LETTER&select=id`, {
+      method: 'GET',
+      headers: { ...this.headers, Prefer: 'count=exact' },
+    });
+    if (!res.ok) return 0;
+    const range = res.headers.get('content-range');
+    if (range) {
+      const match = range.match(/\/(\d+)$/);
+      if (match) return parseInt(match[1], 10);
+    }
+    const data = await res.json().catch(() => []);
+    return Array.isArray(data) ? data.length : 0;
   }
 }
 
