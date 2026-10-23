@@ -10,6 +10,7 @@ import {
   HbCategory,
   VLCategory,
 } from '@/types/domain';
+import { classifyVLCategoryPolicy, VLCategoryPolicyResult } from './viralLoadPolicy';
 
 export { INDIAN_STATES_AND_UTS, type IndianStateOrUT } from '@/lib/constants/indianStates';
 
@@ -266,28 +267,13 @@ export function classifyHbCategory(haemoglobinGdl?: number | string, ageYears: n
 }
 
 /**
- * Classifies HIV Viral Load (VL) suppression status based on NACO / WHO guidelines
+ * Classifies HIV Viral Load (VL) suppression status based on NACO / WHO guidelines.
+ * Delegates to canonical, versioned classifyVLCategoryPolicy.
  */
-export function classifyVLCategory(viralLoad?: number | string): VLCategory {
-  if (viralLoad === undefined || viralLoad === null || String(viralLoad).trim() === '') {
-    return 'Unknown / Pending';
-  }
-
-  const str = String(viralLoad).trim().toLowerCase();
-  if (
-    str === '< 50' ||
-    str === '<50' ||
-    str === 'tnd' ||
-    str.includes('not detect') ||
-    str.includes('undetect')
-  ) {
-    return 'Undetectable (<50 copies/mL)';
-  }
-
-  const num = parseFloat(str.replace(/[^0-9.]/g, ''));
-  if (isNaN(num)) return 'Unknown / Pending';
-
-  if (num < 50) return 'Undetectable (<50 copies/mL)';
-  if (num < 1000) return 'Suppressed (<1000 copies/mL)';
-  return 'Unsuppressed (≥1000 copies/mL)';
+export function classifyVLCategory(viralLoad?: number | string, vlStatus?: string): VLCategory {
+  const res = classifyVLCategoryPolicy({ viralLoad, vlStatus });
+  return res.vlCategory;
 }
+
+export { classifyVLCategoryPolicy };
+export type { VLCategoryPolicyResult };

@@ -574,18 +574,31 @@ export default function RecordDetailPage() {
                   {record["Orphan Status"] || record.orphan_status || record.demographics?.orphanStatus || 'Both parents alive'}
                 </dd>
               </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">SR / SSR Name:</dt>
-                <dd className="font-semibold text-slate-800">
-                  {record["74\nSR Name"] || record["SR Name"] || record.srName || record.raw_payload?.demographics?.srName || '—'} / {record["75\nSSR Name"] || record["SSR Name"] || record.ssrName || record.raw_payload?.demographics?.ssrName || '—'}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Guardian / Parent Status:</dt>
-                <dd className="font-semibold text-slate-800">
-                  {record["76\nStatus of Guardian/Parent"] || record["Status of Guardian/Parent"] || record.guardianStatus || record.raw_payload?.demographics?.guardianStatus || '—'}
-                </dd>
-              </div>
+              {(() => {
+                const srVal = record["74\nSR Name"] || record["SR Name"] || record.srName || record.raw_payload?.demographics?.srName;
+                const ssrVal = record["75\nSSR Name"] || record["SSR Name"] || record.ssrName || record.raw_payload?.demographics?.ssrName;
+                const gsVal = record["76\nStatus of Guardian/Parent"] || record["Status of Guardian/Parent"] || record.guardianStatus || record.raw_payload?.demographics?.guardianStatus;
+
+                const hasSrSsr = (srVal && srVal !== '—' && srVal !== 'N/A') || (ssrVal && ssrVal !== '—' && ssrVal !== 'N/A');
+                const hasGs = gsVal && gsVal !== '—' && gsVal !== 'N/A';
+
+                return (
+                  <>
+                    {hasSrSsr && (
+                      <div className="flex justify-between text-xs text-slate-500 italic bg-slate-50 p-1.5 rounded-lg">
+                        <dt>SR / SSR Name (Historical Archive):</dt>
+                        <dd className="font-mono text-slate-700">{srVal || '—'} / {ssrVal || '—'}</dd>
+                      </div>
+                    )}
+                    {hasGs && (
+                      <div className="flex justify-between text-xs text-slate-500 italic bg-slate-50 p-1.5 rounded-lg">
+                        <dt>Guardian Status (Historical Archive):</dt>
+                        <dd className="font-mono text-slate-700">{gsVal}</dd>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               <div className="flex justify-between border-t border-slate-100 pt-2">
                 <dt className="text-slate-500">Primary Caregiver:</dt>
                 <dd className="font-semibold text-slate-800">

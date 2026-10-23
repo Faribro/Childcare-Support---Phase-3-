@@ -173,6 +173,7 @@ export const healthSchema = z.object({
   artInitiationDate: z.string().optional(),
   artIdNumber: z.string().optional(),
   artMedicineType: z.string().max(200).optional(),
+  currentlyOnArt: z.union([z.boolean(), z.string()]).optional(),
   cd4Count: z.union([z.number(), z.string()]).optional(),
   vlStatus: z.string().optional(),
   vlDate: z.string().optional(),
@@ -358,6 +359,7 @@ export function flattenPatchBody(body: any): any {
     if (flat.artInitiationDate === undefined) flat.artInitiationDate = hl.artInitiationDate;
     if (flat.artIdNumber === undefined) flat.artIdNumber = hl.artIdNumber;
     if (flat.artMedicineType === undefined) flat.artMedicineType = hl.artMedicineType;
+    if (flat.currentlyOnArt === undefined && hl.currentlyOnArt !== undefined) flat.currentlyOnArt = hl.currentlyOnArt;
     if (flat.cd4Count === undefined) flat.cd4Count = hl.cd4Count;
     if (flat.vlStatus === undefined) flat.vlStatus = hl.vlStatus;
     if (flat.vlDate === undefined) flat.vlDate = hl.vlDate;
@@ -471,6 +473,7 @@ export const allowlistedPatchChangesSchema = z.object({
   artInitiationDate: z.string().optional(),
   artIdNumber: z.string().optional(),
   artMedicineType: z.string().optional(),
+  currentlyOnArt: z.union([z.boolean(), z.string()]).optional(),
   cd4Count: z.union([optionalNumber, z.string()]).optional(),
   vlStatus: z.string().optional(),
   vlDate: z.string().optional(),

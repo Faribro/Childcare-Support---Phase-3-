@@ -516,6 +516,13 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     defaultMessage: 'Haemoglobin must be between 0 and 25 g/dL.',
     order: 72,
   },
+  'health.currentlyOnArt': {
+    sectionKey: 'health',
+    elementId: 'health-currentlyOnArt',
+    label: 'Currently on ART',
+    defaultMessage: 'Please confirm whether the child is currently taking ART.',
+    order: 73.5,
+  },
   'health.artStatus': {
     sectionKey: 'health',
     elementId: 'health-artStatus',

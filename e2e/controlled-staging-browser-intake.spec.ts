@@ -139,10 +139,10 @@ test.describe('Forms Tab Layout Simplification & Survey Workflow', () => {
     await page.waitForTimeout(300);
     await page.locator('#demographics-district').fill('Pune');
 
-    // 26-row fields: SR Name, SSR Name, Guardian Status
-    await page.locator('#child-srName').fill('Maharashtra SR Alliance');
-    await page.locator('#child-ssrName').fill('Pune Urban SSR Team');
-    await page.locator('#child-guardianStatus').fill('Alive - Working Mother');
+    // Deprecated fields (SR Name, SSR Name, Status of Guardian/Parent) must not appear in active intake UI
+    await expect(page.locator('#child-srName')).toHaveCount(0);
+    await expect(page.locator('#child-ssrName')).toHaveCount(0);
+    await expect(page.locator('#child-guardianStatus')).toHaveCount(0);
 
     // --- SECTION 3: Banking & Identity & Document Attachment ---
     await page.locator('#q-bank-holder input').fill('Sunita Devi');
@@ -185,7 +185,15 @@ test.describe('Forms Tab Layout Simplification & Survey Workflow', () => {
     await page.waitForTimeout(200);
     await page.locator('#health-artIdNumber').fill('MH-PUN-ART-4421');
     await page.locator('#health-artInitiationDate').fill('2021-09-01');
-    await page.locator('#health-artMedicineType').fill('Pediatric Syrup Formulation');
+    // ART Regimen selection via accessible catalogue combobox
+    await page.locator('#health-artMedicineType').fill('TLD');
+    await page.waitForTimeout(200);
+    const tldOption = page.locator('#health-artMedicineType-opt-0, [role="option"]:has-text("TLD")').first();
+    if (await tldOption.count() > 0) {
+      await tldOption.click();
+    } else {
+      await page.keyboard.press('Enter');
+    }
     await page.locator('#health-cd4Count').fill('780');
 
     // Disability Details
@@ -228,9 +236,10 @@ test.describe('Forms Tab Layout Simplification & Survey Workflow', () => {
 
     // Verify fields hydrated in draft
     await expect(page.locator('#demographics-childName')).toHaveValue(uniqueChildName);
-    await expect(page.locator('#child-srName')).toHaveValue('Maharashtra SR Alliance');
-    await expect(page.locator('#child-ssrName')).toHaveValue('Pune Urban SSR Team');
-    await expect(page.locator('#child-guardianStatus')).toHaveValue('Alive - Working Mother');
+    // Deprecated fields must remain absent from resumed draft UI
+    await expect(page.locator('#child-srName')).toHaveCount(0);
+    await expect(page.locator('#child-ssrName')).toHaveCount(0);
+    await expect(page.locator('#child-guardianStatus')).toHaveCount(0);
     await expect(page.locator('#health-artIdNumber')).toHaveValue('MH-PUN-ART-4421');
     await expect(page.locator('#health-cd4Count')).toHaveValue('780');
 
