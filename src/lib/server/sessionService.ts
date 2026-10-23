@@ -287,6 +287,8 @@ export function createSessionToken(
   });
 }
 
+export const issueSessionToken = createSessionToken;
+
 /**
  * Verifies and parses a signed session token. Returns null if invalid, expired, unconfigured secret, or revoked credential version.
  */

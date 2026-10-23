@@ -23,6 +23,7 @@ interface MobileKoboHomeScreenProps {
   onRetrySubmitted?: () => void;
   onDeleteDraft?: (id: number) => Promise<void>;
   onResumeDraft?: (id: string | number) => void;
+  onStartSurvey?: (e: React.MouseEvent) => void;
 }
 
 export function MobileKoboHomeScreen({
@@ -39,6 +40,7 @@ export function MobileKoboHomeScreen({
   isSubmittedLoading,
   submittedStatus = 'success',
   onRetrySubmitted,
+  onStartSurvey,
 }: MobileKoboHomeScreenProps) {
   const draftsLoading = isDraftsLoading ?? isLoading;
   const submittedLoading = isSubmittedLoading ?? isLoading;
@@ -51,6 +53,17 @@ export function MobileKoboHomeScreen({
     }
   };
 
+  const handleStartSurvey = (e: React.MouseEvent) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      e.preventDefault();
+      window.location.assign('/assessment/new');
+      return;
+    }
+    if (onStartSurvey) {
+      onStartSurvey(e);
+    }
+  };
+
   return (
     <div className="md:hidden w-full max-w-md mx-auto px-4 py-3 sm:py-4 space-y-3 animate-in fade-in duration-150">
       {/* Action 1: Start New Survey (Prominent Full-Width Primary Touch Action) */}
@@ -58,11 +71,11 @@ export function MobileKoboHomeScreen({
         href="/assessment/new"
         prefetch={true}
         className="block"
-        onClick={(e) => handleOfflineNav(e, '/assessment/new')}
+        onClick={handleStartSurvey}
       >
         <button
           type="button"
-          onClick={(e) => handleOfflineNav(e, '/assessment/new')}
+          onClick={handleStartSurvey}
           className="w-full min-h-[56px] bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-800 hover:to-emerald-700 active:scale-[0.99] text-white rounded-2xl p-4 shadow-sm border border-teal-800 flex items-center justify-between transition-all cursor-pointer"
         >
           <div className="flex items-center gap-3">

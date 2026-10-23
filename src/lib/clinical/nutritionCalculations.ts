@@ -11,6 +11,8 @@ import {
   VLCategory,
 } from '@/types/domain';
 
+export { INDIAN_STATES_AND_UTS, type IndianStateOrUT } from '@/lib/constants/indianStates';
+
 export interface AgeResult {
   years: number;
   months: number;

@@ -442,3 +442,155 @@ This code expires in ${expiryMinutes} minutes. Do not share it.
   });
 }
 
+
+
+/**
+ * Dispatches a State Team OTP email for email verification.
+ * Zero OTP plaintext in email subject.
+ */
+export async function sendStateTeamOtpEmail({
+  to,
+  name,
+  state,
+  code,
+  expiryMinutes = 10,
+}: {
+  to: string;
+  name: string;
+  state: string;
+  code: string;
+  expiryMinutes?: number;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const subject = `Your State Team Verification Code — ${state}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
+            <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
+            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — State Team Access (${state})</p>
+          </div>
+
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello <strong>${name}</strong>,</p>
+
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
+            Your verification code for state-team staff registration (${state}) is:
+          </p>
+
+          <div style="background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 20px; font-weight: bold; letter-spacing: 0.15em; color: #0f172a; word-break: break-all; display: block;">
+              ${code}
+            </code>
+          </div>
+
+          <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px; margin-bottom: 24px;">
+            <p style="color: #92400e; font-size: 12px; line-height: 1.5; margin: 0;">
+              This verification code expires in <strong>${expiryMinutes} minutes</strong>. Verifying your email confirms ownership of your work address. State-level administrative authority is granted upon programme approval.
+            </p>
+          </div>
+
+          <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
+            If you did not register for State Team access, please disregard this notice.
+          </p>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+Your State Team verification code for ${state} is: ${code}
+
+This code expires in ${expiryMinutes} minutes.
+  `.trim();
+
+  return provider.sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    otp: code,
+  });
+}
+
+/**
+ * Dispatches an approved State-Team Invitation Code privately to the state coordinator.
+ * Guarantees zero plaintext code in subject line.
+ */
+export async function sendStateTeamInvitationEmail({
+  to,
+  name,
+  state,
+  plainCode,
+  maxRedemptions,
+  expiryDays = 30,
+}: {
+  to: string;
+  name: string;
+  state: string;
+  plainCode: string;
+  maxRedemptions: number;
+  expiryDays?: number;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const subject = `Your Field Team Invitation Code — ${state} Programme`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
+            <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
+            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — Field Team Invitation (${state})</p>
+          </div>
+
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Dear <strong>${name}</strong>,</p>
+
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+            An approved invitation code has been generated for your field team in <strong>${state}</strong>. Share this code privately with authorized caseworkers participating in field assessments.
+          </p>
+
+          <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">Field Team Invitation Code</span>
+            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 22px; font-weight: 800; letter-spacing: 0.12em; color: #064e3b; word-break: break-all; display: block;">
+              ${plainCode}
+            </code>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.6;">
+            <ul style="margin: 0; padding-left: 18px;">
+              <li><strong>Authorized Scope:</strong> Valid only for field users registering under <strong>${state}</strong>.</li>
+              <li><strong>Validity:</strong> Expires in <strong>${expiryDays} days</strong>.</li>
+              <li><strong>Redemption Capacity:</strong> Up to <strong>${maxRedemptions} field caseworkers</strong>.</li>
+              <li><strong>Security Note:</strong> Distribute this code directly to your caseworkers via private channels. Do not publish it publicly.</li>
+            </ul>
+          </div>
+
+          <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
+            If you need to rotate or revoke this code at any time, log in to the State Evaluation portal.
+          </p>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+Field Team Invitation Code for ${state}:
+Code: ${plainCode}
+
+Valid for ${state} caseworkers.
+Expires in ${expiryDays} days (maximum ${maxRedemptions} redemptions).
+Distribute privately.
+  `.trim();
+
+  return provider.sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    otp: plainCode,
+  });
+}

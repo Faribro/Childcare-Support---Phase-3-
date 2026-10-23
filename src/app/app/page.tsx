@@ -15,9 +15,13 @@ import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPl
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
 import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel';
 import { submissionEvents } from '@/features/submission/submissionEvents';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import { WelcomeKiteOnboardingModal } from '@/components/auth/WelcomeKiteOnboardingModal';
 
 export default function FieldWorkspacePage() {
   const router = useRouter();
+  const { user } = useEvaluationAccess();
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   // Decoupled state for Drafts
   const [draftCount, setDraftCount] = useState<number | null>(null);
@@ -266,6 +270,41 @@ export default function FieldWorkspacePage() {
     }
   }, [router]);
 
+  // Check for onboarding query flag on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('onboarding') === 'open' || params.get('onboarding') === '1') {
+        setIsOnboardingOpen(true);
+      }
+    }
+  }, []);
+
+  const handleStartNewSurvey = useCallback(
+    (e: React.MouseEvent) => {
+      // 1. Offline caseworker workflow must NEVER be blocked
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return;
+      }
+
+      // 2. Only intercept if field onboarding gate is explicitly enabled
+      const isOnboardingEnabled = process.env.NEXT_PUBLIC_FIELD_ONBOARDING_ENABLED === 'true';
+      if (!isOnboardingEnabled) {
+        return;
+      }
+
+      // 3. Returning user with valid verified session proceeds directly
+      if (user?.isVerified) {
+        return;
+      }
+
+      // 4. First-time unverified online user: open Welcome Kite onboarding
+      e.preventDefault();
+      setIsOnboardingOpen(true);
+    },
+    [user]
+  );
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -387,6 +426,7 @@ export default function FieldWorkspacePage() {
         onRetrySubmitted={handleRetrySubmitted}
         onDeleteDraft={handleDeleteDraft}
         onResumeDraft={handleResumeDraft}
+        onStartSurvey={handleStartNewSurvey}
       />
 
       {/* Desktop Workspace View (>=768px) */}
@@ -415,22 +455,12 @@ export default function FieldWorkspacePage() {
                   href="/assessment/new"
                   prefetch={true}
                   className="block"
-                  onClick={(e) => {
-                    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-                      e.preventDefault();
-                      window.location.assign('/assessment/new');
-                    }
-                  }}
+                  onClick={handleStartNewSurvey}
                 >
                   <Button
                     variant="primary"
                     size="lg"
-                    onClick={(e) => {
-                      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-                        e.preventDefault();
-                        window.location.assign('/assessment/new');
-                      }
-                    }}
+                    onClick={handleStartNewSurvey}
                     className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
                   >
                     <Plus className="w-5 h-5 stroke-[2.5]" />
@@ -521,6 +551,16 @@ export default function FieldWorkspacePage() {
           </p>
         </footer>
       </div>
+
+      {/* Welcome Kite First-Time Field User Onboarding Modal */}
+      <WelcomeKiteOnboardingModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        onSuccess={() => {
+          setIsOnboardingOpen(false);
+          router.push('/assessment/new');
+        }}
+      />
     </AppShell>
   );
 }
