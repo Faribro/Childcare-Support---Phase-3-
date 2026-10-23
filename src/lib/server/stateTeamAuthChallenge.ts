@@ -13,7 +13,7 @@
 
 import crypto from 'crypto';
 import { getOnboardingStore } from './onboardingStore';
-import { sendStateTeamOtpEmail, sendStateTeamInvitationEmail } from './emailProvider';
+import { sendStateTeamOtpEmail, sendStateTeamInvitationEmail, sendAdminPendingRegistrationEmail } from './emailProvider';
 import { createSessionToken } from './sessionService';
 import {
   generatePlaintextInvitationCode,
@@ -352,6 +352,41 @@ export async function verifyStateTeamOtp(params: {
       session,
       registration,
     };
+  }
+
+  // Notify designated administrator if not already notified (deduplicated)
+  let notesObj: any = {};
+  try {
+    if (registration.notes) notesObj = JSON.parse(registration.notes);
+  } catch {
+    notesObj = { text: registration.notes };
+  }
+
+  if (!notesObj.adminNotifiedAt) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://childcare-support-phase-3.vercel.app';
+    const reviewUrl = `${appUrl}/supervisor/registrations`;
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'fsayyed@allianceindia.org';
+
+    try {
+      const notifyRes = await sendAdminPendingRegistrationEmail({
+        adminEmail,
+        applicantName: `${registration.firstName} ${registration.lastName}`.trim(),
+        applicantEmail: registration.workEmail,
+        organization: registration.organization,
+        requestedState: registration.requestedState,
+        verifiedAtIso: new Date().toISOString(),
+        reviewUrl,
+      });
+
+      if (notifyRes.success) {
+        notesObj.adminNotifiedAt = new Date().toISOString();
+        notesObj.adminNotificationRecipient = adminEmail;
+        await store.updateRegistrationNotes(registration.id, JSON.stringify(notesObj));
+        registration.notes = JSON.stringify(notesObj);
+      }
+    } catch (err: any) {
+      console.error('[ADMIN_NOTIFY:ERROR] Failed to dispatch admin pending notification:', err?.message);
+    }
   }
 
   return {

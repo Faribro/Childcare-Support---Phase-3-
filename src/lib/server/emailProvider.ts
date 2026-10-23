@@ -718,3 +718,185 @@ Distribute privately.
     otp: plainCode,
   });
 }
+
+
+/**
+ * Dispatches an internal notification to the designated administrator when a
+ * state team applicant completes email verification and requires review.
+ * 
+ * Strict Privacy & Security Guarantees:
+ * - Zero OTP codes included.
+ * - Zero invitation codes included.
+ * - Zero beneficiary PII included.
+ */
+export async function sendAdminPendingRegistrationEmail({
+  adminEmail,
+  applicantName,
+  applicantEmail,
+  organization,
+  requestedState,
+  verifiedAtIso,
+  reviewUrl,
+}: {
+  adminEmail: string;
+  applicantName: string;
+  applicantEmail: string;
+  organization: string;
+  requestedState: string;
+  verifiedAtIso: string;
+  reviewUrl: string;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const subject = `[Action Required] New State Coordinator Registration Pending Review — ${requestedState}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
+            <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
+            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — Administrator Review Required</p>
+          </div>
+
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Dear Programme Administrator,</p>
+
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+            A new state-team coordinator applicant has completed email verification and is pending administrative approval before their field-team invitation can be activated:
+          </p>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600; width: 140px; color: #64748b;">Applicant Name:</td>
+                <td style="padding: 6px 0; font-weight: 600; color: #0f172a;">${applicantName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600; color: #64748b;">Work Email:</td>
+                <td style="padding: 6px 0;">${applicantEmail}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600; color: #64748b;">Organisation:</td>
+                <td style="padding: 6px 0;">${organization}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600; color: #64748b;">Requested State:</td>
+                <td style="padding: 6px 0; font-weight: 600; color: #0d9488;">${requestedState}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600; color: #64748b;">Verified Timestamp:</td>
+                <td style="padding: 6px 0; color: #64748b;">${verifiedAtIso}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${reviewUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+              Open Administrator Review Screen
+            </a>
+          </div>
+
+          <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+            Security Notice: Review and approval actions require an authenticated Administrator or Leadership session. This email does not grant automatic access.
+          </p>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+[Action Required] New State Coordinator Registration Pending Review:
+
+Applicant Name: ${applicantName}
+Work Email: ${applicantEmail}
+Organisation: ${organization}
+Requested State: ${requestedState}
+Verified Timestamp: ${verifiedAtIso}
+
+Review URL: ${reviewUrl}
+
+Security Notice: Approvals require an authenticated Administrator or Leadership session.
+  `.trim();
+
+  return provider.sendEmail({
+    to: adminEmail,
+    subject,
+    html,
+    text,
+    otp: `tx-${Date.now()}`,
+    action: 'send_transactional_email',
+  });
+}
+
+/**
+ * Notifies a state-team coordinator when their registration has been approved.
+ */
+export async function sendCoordinatorApprovalNotificationEmail({
+  coordinatorEmail,
+  coordinatorName,
+  state,
+  portalUrl,
+}: {
+  coordinatorEmail: string;
+  coordinatorName: string;
+  state: string;
+  portalUrl: string;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const subject = `State Team Coordinator Registration Approved — ${state}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
+            <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
+            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — Registration Approved</p>
+          </div>
+
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Dear <strong>${coordinatorName}</strong>,</p>
+
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+            Your registration as State Coordinator for <strong>${state}</strong> has been approved by the Programme Administrator.
+          </p>
+
+          <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 18px; margin-bottom: 24px; font-size: 13px; color: #064e3b; line-height: 1.6;">
+            <strong>Your Field Team Invitation Code is Now Active:</strong><br/>
+            The field-team invitation code provided in your original registration email is now fully active and authorized for caseworker onboarding in ${state}.
+          </div>
+
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${portalUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+              Sign In to State Evaluation Portal
+            </a>
+          </div>
+
+          <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
+            To log in, simply enter your registered email at the portal to receive a 6-digit sign-in code.
+          </p>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+State Team Coordinator Registration Approved:
+
+Dear ${coordinatorName},
+
+Your registration for ${state} has been approved. Your field-team invitation code is now active.
+
+You may sign in to the State Evaluation portal:
+${portalUrl}
+  `.trim();
+
+  return provider.sendEmail({
+    to: coordinatorEmail,
+    subject,
+    html,
+    text,
+    otp: `tx-${Date.now()}`,
+    action: 'send_transactional_email',
+  });
+}

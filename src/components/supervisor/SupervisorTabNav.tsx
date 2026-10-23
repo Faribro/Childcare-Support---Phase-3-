@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, TableProperties, BarChart3 } from 'lucide-react';
+import { Activity, TableProperties, BarChart3, Users } from 'lucide-react';
 
 interface SupervisorTabNavProps {
   rightAction?: React.ReactNode;
@@ -35,6 +35,12 @@ const SUPERVISOR_TABS: NavTabItem[] = [
     icon: BarChart3,
     exact: false,
   },
+  {
+    href: '/supervisor/registrations',
+    label: 'Registrations Review',
+    icon: Users,
+    exact: false,
+  },
 ];
 
 export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
@@ -60,6 +66,7 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
       return '/supervisor/assessments';
     }
     if (pathname?.startsWith('/supervisor/analytics')) return '/supervisor/analytics';
+    if (pathname?.startsWith('/supervisor/registrations')) return '/supervisor/registrations';
     return '/supervisor';
   };
 

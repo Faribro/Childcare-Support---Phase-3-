@@ -51,6 +51,8 @@ export interface OnboardingStore {
   getStateTeamRegistrationByEmail(email: string): Promise<StateTeamRegistration | null>;
   verifyStateTeamEmail(email: string): Promise<boolean>;
   approveStateTeamRegistration(id: string, approvedBy: string): Promise<boolean>;
+  rejectStateTeamRegistration(id: string, rejectedBy: string, reason?: string): Promise<boolean>;
+  updateRegistrationNotes(id: string, notes: string): Promise<boolean>;
   listStateTeamRegistrations(): Promise<StateTeamRegistration[]>;
 
   // State Team Invitations
@@ -214,6 +216,32 @@ export class MemoryOnboardingStore implements OnboardingStore {
     reg.status = 'APPROVED';
     reg.approvedBy = approvedBy;
     reg.approvedAt = Date.now();
+    reg.updatedAt = Date.now();
+    this.registrations.set(reg.id, reg);
+    return true;
+  }
+
+  async rejectStateTeamRegistration(id: string, rejectedBy: string, reason?: string): Promise<boolean> {
+    const reg = this.registrations.get(id);
+    if (!reg) return false;
+    reg.status = 'REJECTED';
+    let notesObj: any = {};
+    try {
+      if (reg.notes) notesObj = JSON.parse(reg.notes);
+    } catch {
+      notesObj = { text: reg.notes };
+    }
+    notesObj.rejection = { rejectedBy, reason: reason || 'Registration rejected by administrator', rejectedAt: Date.now() };
+    reg.notes = JSON.stringify(notesObj);
+    reg.updatedAt = Date.now();
+    this.registrations.set(reg.id, reg);
+    return true;
+  }
+
+  async updateRegistrationNotes(id: string, notes: string): Promise<boolean> {
+    const reg = this.registrations.get(id);
+    if (!reg) return false;
+    reg.notes = notes;
     reg.updatedAt = Date.now();
     this.registrations.set(reg.id, reg);
     return true;
@@ -581,6 +609,8 @@ export class UnavailableOnboardingStore implements OnboardingStore {
   async getStateTeamRegistrationByEmail(): Promise<StateTeamRegistration | null> { throw new Error(this.reason); }
   async verifyStateTeamEmail(): Promise<boolean> { throw new Error(this.reason); }
   async approveStateTeamRegistration(): Promise<boolean> { throw new Error(this.reason); }
+  async rejectStateTeamRegistration(): Promise<boolean> { throw new Error(this.reason); }
+  async updateRegistrationNotes(): Promise<boolean> { throw new Error(this.reason); }
   async listStateTeamRegistrations(): Promise<StateTeamRegistration[]> { throw new Error(this.reason); }
   async createInvitation(): Promise<StateTeamInvitation> { throw new Error(this.reason); }
   async getInvitationById(): Promise<StateTeamInvitation | null> { throw new Error(this.reason); }
@@ -845,6 +875,40 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         status: 'APPROVED',
         approved_by: approvedBy,
         approved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    return res.ok;
+  }
+
+  async rejectStateTeamRegistration(id: string, rejectedBy: string, reason?: string): Promise<boolean> {
+    const existing = await this.getStateTeamRegistrationById(id);
+    let notesObj: any = {};
+    if (existing?.notes) {
+      try { notesObj = JSON.parse(existing.notes); } catch { notesObj = { text: existing.notes }; }
+    }
+    notesObj.rejection = { rejectedBy, reason: reason || 'Registration rejected by administrator', rejectedAt: new Date().toISOString() };
+    const url = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${encodeURIComponent(id)}`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify({
+        status: 'REJECTED',
+        notes: JSON.stringify(notesObj),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    return res.ok;
+  }
+
+  async updateRegistrationNotes(id: string, notes: string): Promise<boolean> {
+    const url = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${encodeURIComponent(id)}`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify({
+        notes,
+        updated_at: new Date().toISOString(),
       }),
     });
     return res.ok;
