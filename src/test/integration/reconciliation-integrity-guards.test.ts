@@ -190,4 +190,36 @@ describe('Reconciliation Integrity & Strict Safety Guards (Item G)', () => {
     expect(fetchRes.buffer!.length).toBe(rawPayload.length);
     expect(Buffer.compare(rawPayload, fetchRes.buffer!)).toBe(0);
   });
+
+  it('6. Proves --source-dir validates local file provenance against Google Drive authoritative MD5', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+
+    const tempDir = path.join(os.tmpdir(), `test-reconcile-src-${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    try {
+      // Create caregiver-signature.png with wrong MD5
+      const invalidBuf = Buffer.alloc(23427, 0x99);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(invalidBuf, 0);
+      fs.writeFileSync(path.join(tempDir, 'caregiver-signature.png'), invalidBuf);
+
+      const manifest = await runReconciliation({
+        isDryRun: true,
+        sourceDir: tempDir,
+        overrideSpreadsheetData: validRecordData,
+      });
+
+      const sigDoc = manifest.documents.find((d) => d.docType === 'caregiverSignature');
+      expect(sigDoc).toBeDefined();
+      expect(sigDoc?.sourceOrigin).toBe('LOCAL_DIRECTORY');
+      expect(sigDoc?.provenanceVerified).toBe(false);
+      expect(sigDoc?.status).toBe('PROVENANCE_FAILED');
+      expect(manifest.summary.readyForExecution).toBe(false);
+      expect(manifest.summary.blockers.some((b) => b.includes('MD5 provenance mismatch'))).toBe(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

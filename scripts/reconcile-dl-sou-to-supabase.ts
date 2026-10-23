@@ -10,14 +10,17 @@
  * 4. AUTHORITATIVE IDENTITY RESOLUTION: Files are resolved strictly from the
  *    record's verified asset container and column references. Global date/filename
  *    fallbacks or selection across other records is strictly prohibited.
- * 5. PRESERVE ORIGINAL RECORD VALUES: State, district, consent, revision must be
+ * 5. PROVENANCE VERIFICATION: Compares local file MD5 against Google Drive authoritative
+ *    md5Checksum from Drive API v3 metadata. Distinguishes source provenance from
+ *    destination SHA-256 integrity.
+ * 6. PRESERVE ORIGINAL RECORD VALUES: State, district, consent, revision must be
  *    faithfully extracted from raw sheet columns. Never default missing fields to
  *    guessed geographic values or hardcoded true consent.
- * 6. SOURCE DRIFT GUARD: Drift hash computed from sheet row state and Drive file IDs/sizes;
+ * 7. SOURCE DRIFT GUARD: Drift hash computed from sheet row state and Drive file IDs/sizes;
  *    --execute refuses execution if source drifted between manifest and apply.
- * 7. RETURNED KEY RECONCILIATION: Committed Supabase metadata uses the exact storage
+ * 8. RETURNED KEY RECONCILIATION: Committed Supabase metadata uses the exact storage
  *    key and checksum returned by TigrisStorageService.uploadAttachment.
- * 8. RESUME & IDEMPOTENCY: Already uploaded objects with verified checksums are reused.
+ * 9. RESUME & IDEMPOTENCY: Already uploaded objects with verified checksums are reused.
  */
 
 import fs from 'fs';
@@ -44,6 +47,66 @@ if (fs.existsSync(envPath)) {
   }
 }
 
+export interface AuthoritativeSlotDefinition {
+  docType: string;
+  slotColumn: string;
+  driveFileName: string;
+  driveFileId: string;
+  expectedSizeBytes: number;
+  authoritativeDriveMd5: string;
+}
+
+export const AUTHORITATIVE_SLOTS: AuthoritativeSlotDefinition[] = [
+  {
+    docType: 'caregiverSignature',
+    slotColumn: '6\nSignature /\nThumb Impression',
+    driveFileName: 'caregiver-signature.png',
+    driveFileId: '1J4x8T9MyPnviC1rObyzQ9aGuKXA_3Aal',
+    expectedSizeBytes: 23427,
+    authoritativeDriveMd5: 'c21ee22fac16fb20e7c8530a3f7c614e',
+  },
+  {
+    docType: 'passbookPhoto',
+    slotColumn: '25\nPassbook Front Page Link',
+    driveFileName: 'passbook.jpg',
+    driveFileId: '1EHZHLwGaCNMn-wbx2CE9moy8o4hzHRDa',
+    expectedSizeBytes: 2157206,
+    authoritativeDriveMd5: '057a2b23b99e2de8754c338db7faca5f',
+  },
+  {
+    docType: 'aadhaarCardPhoto',
+    slotColumn: '26\nAadhaar Card Link',
+    driveFileName: 'identity-document.jpg',
+    driveFileId: '17R8wimbiOgu1rOnJ2I0xx1AsiopxATh3',
+    expectedSizeBytes: 149780,
+    authoritativeDriveMd5: 'cb776078b3954a26488a256094345762',
+  },
+  {
+    docType: 'childPhoto',
+    slotColumn: '27\nPassport Size Photo Link',
+    driveFileName: 'child-photo.jpg',
+    driveFileId: '1VkMSnT7kKnEHUkf-ih12p0p5JDy-pr0z',
+    expectedSizeBytes: 82686,
+    authoritativeDriveMd5: 'eb6e984e7b3539343c5674001f5fc2cc',
+  },
+  {
+    docType: 'feeReceiptPhoto',
+    slotColumn: '64\nSchool Fee Receipt Link',
+    driveFileName: 'school-fee-receipt.pdf',
+    driveFileId: '1vYjH1u4Mbg6E9N8cmpmbFf-rlMQf8InT',
+    expectedSizeBytes: 169440,
+    authoritativeDriveMd5: '5d794621983a3dbefe87c8a8d0b2c077',
+  },
+  {
+    docType: 'marksheetPhoto',
+    slotColumn: '65\nMarksheet Photo Link',
+    driveFileName: 'marksheet.pdf',
+    driveFileId: '1_Zjxaudtvjv5wJbREZgfu-YT6tNlhxQA',
+    expectedSizeBytes: 169440,
+    authoritativeDriveMd5: '5d794621983a3dbefe87c8a8d0b2c077',
+  },
+];
+
 export interface ReconciledDocMetadata {
   docType: string;
   slotColumn: string;
@@ -54,10 +117,14 @@ export interface ReconciledDocMetadata {
   actualSizeBytes: number;
   detectedMimeType: string;
   detectedExtension: string;
+  authoritativeDriveMd5: string;
+  computedLocalMd5: string | null;
+  provenanceVerified: boolean;
   sha256Checksum: string | null;
   tigrisStorageKey: string | null;
   sourceBytesAvailable: boolean;
-  status: 'VERIFIED_READY' | 'BYTES_UNAVAILABLE' | 'UPLOADED' | 'FAILED';
+  sourceOrigin: 'LOCAL_DIRECTORY' | 'DRIVE_API' | 'MOCK_BUFFER' | 'UNAVAILABLE';
+  status: 'VERIFIED_READY' | 'BYTES_UNAVAILABLE' | 'PROVENANCE_FAILED' | 'UPLOADED' | 'FAILED';
   errorDetail?: string;
   buffer?: Buffer;
 }
@@ -77,6 +144,7 @@ export interface ReconciliationManifest {
   sourceContainerId: string;
   sourceContainerFolderId: string;
   mode: 'DRY_RUN' | 'EXECUTE';
+  sourceMode: string;
   timestamp: string;
   driftHash: string;
   authoritativeRecord: AuthoritativeRecordData;
@@ -85,6 +153,7 @@ export interface ReconciliationManifest {
     totalSlots: number;
     totalBytes: number;
     allBytesAvailable: boolean;
+    allProvenanceVerified: boolean;
     allHashesVerified: boolean;
     readyForExecution: boolean;
     blockers: string[];
@@ -93,6 +162,7 @@ export interface ReconciliationManifest {
 
 export interface ReconciliationOptions {
   isDryRun: boolean;
+  sourceDir?: string; // Path to directory containing local files
   mockSourceBuffers?: Record<string, Buffer>; // Used by regression test suite
   overrideSpreadsheetData?: Record<string, any>; // Used by regression test suite
 }
@@ -152,6 +222,44 @@ export function detectMagicMime(buffer: Buffer): { mimeType: string; extension: 
   }
 
   return { mimeType: 'application/octet-stream', extension: 'bin', valid: false };
+}
+
+/**
+ * Load source file from local source directory if provided.
+ */
+function loadLocalSourceBytes(sourceDir: string, slot: AuthoritativeSlotDefinition): { buffer: Buffer | null; error?: string } {
+  try {
+    if (!fs.existsSync(sourceDir)) {
+      return { buffer: null, error: `Source directory does not exist: ${sourceDir}` };
+    }
+
+    // Try finding by exact filename or by Drive file ID
+    const candidatePaths = [
+      path.join(sourceDir, slot.driveFileName),
+      path.join(sourceDir, `${slot.docType}.png`),
+      path.join(sourceDir, `${slot.docType}.jpg`),
+      path.join(sourceDir, `${slot.docType}.pdf`),
+      path.join(sourceDir, `${slot.driveFileId}.bin`),
+      path.join(sourceDir, slot.driveFileId),
+    ];
+
+    let foundPath: string | null = null;
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        foundPath = p;
+        break;
+      }
+    }
+
+    if (!foundPath) {
+      return { buffer: null, error: `File not found in source dir for slot ${slot.docType} (expected ${slot.driveFileName} or ID ${slot.driveFileId})` };
+    }
+
+    const buf = fs.readFileSync(foundPath);
+    return { buffer: buf };
+  } catch (err: any) {
+    return { buffer: null, error: `Local file read error: ${err?.message || err}` };
+  }
 }
 
 /**
@@ -215,6 +323,9 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
   console.log(`\n================================================================`);
   console.log(`RECONCILIATION AUDIT: ${targetId} -> Supabase / Tigris`);
   console.log(`Mode: ${options.isDryRun ? 'DRY-RUN (Read-Only Verification)' : 'LIVE EXECUTE'}`);
+  if (options.sourceDir) {
+    console.log(`Source Directory: ${options.sourceDir}`);
+  }
   console.log(`================================================================\n`);
 
   // 1. Authoritative record read
@@ -294,76 +405,36 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
   console.log(`✔ Authoritative record confirmed: ${uniqueId} (Rev: ${revisionNumber}, State: '${rawState}', District: '${rawDistrict}', Consent: ${consentObtained ? 'Yes' : 'No'})`);
 
   // 3. Exact Authoritative Container & Asset Slots
-  // Verified from Google Sheets _Asset_Containers registry & Drive structure:
-  // Container: ast-22398c52-80a8-4a8c-a7b1-376f04e56471
-  // Folder: current (1E1fhG-L6dKm6s2TNrLPuriM0cMIdN0pU)
   const sourceContainerId = 'ast-22398c52-80a8-4a8c-a7b1-376f04e56471';
   const sourceContainerFolderId = '1E1fhG-L6dKm6s2TNrLPuriM0cMIdN0pU';
 
-  const slotDefinitions = [
-    {
-      docType: 'caregiverSignature',
-      slotColumn: '6\nSignature /\nThumb Impression',
-      driveFileName: 'caregiver-signature.png',
-      driveFileId: '1J4x8T9MyPnviC1rObyzQ9aGuKXA_3Aal',
-      expectedSizeBytes: 23427,
-    },
-    {
-      docType: 'passbookPhoto',
-      slotColumn: '25\nPassbook Front Page Link',
-      driveFileName: 'passbook.jpg',
-      driveFileId: '1EHZHLwGaCNMn-wbx2CE9moy8o4hzHRDa',
-      expectedSizeBytes: 2157206,
-    },
-    {
-      docType: 'aadhaarCardPhoto',
-      slotColumn: '26\nAadhaar Card Link',
-      driveFileName: 'identity-document.jpg',
-      driveFileId: '17R8wimbiOgu1rOnJ2I0xx1AsiopxATh3',
-      expectedSizeBytes: 149780,
-    },
-    {
-      docType: 'childPhoto',
-      slotColumn: '27\nPassport Size Photo Link',
-      driveFileName: 'child-photo.jpg',
-      driveFileId: '1VkMSnT7kKnEHUkf-ih12p0p5JDy-pr0z',
-      expectedSizeBytes: 82686,
-    },
-    {
-      docType: 'feeReceiptPhoto',
-      slotColumn: '64\nSchool Fee Receipt Link',
-      driveFileName: 'school-fee-receipt.pdf',
-      driveFileId: '1vYjH1u4Mbg6E9N8cmpmbFf-rlMQf8InT',
-      expectedSizeBytes: 169440,
-    },
-    {
-      docType: 'marksheetPhoto',
-      slotColumn: '65\nMarksheet Photo Link',
-      driveFileName: 'marksheet.pdf',
-      driveFileId: '1_Zjxaudtvjv5wJbREZgfu-YT6tNlhxQA',
-      expectedSizeBytes: 169440,
-    },
-  ];
-
-  // 4. Download source bytes and compute real SHA-256
   const documents: ReconciledDocMetadata[] = [];
   const blockers: string[] = [];
   let totalBytes = 0;
 
   const tigrisService = new TigrisStorageService();
 
-  for (const slot of slotDefinitions) {
+  for (const slot of AUTHORITATIVE_SLOTS) {
     let sourceBuffer: Buffer | null = null;
     let downloadError: string | undefined;
+    let sourceOrigin: ReconciledDocMetadata['sourceOrigin'] = 'UNAVAILABLE';
 
-    // Check mock buffers first (for regression tests)
+    // 1. Check mock buffers first (for regression tests)
     if (options.mockSourceBuffers && options.mockSourceBuffers[slot.docType]) {
       sourceBuffer = options.mockSourceBuffers[slot.docType];
+      sourceOrigin = 'MOCK_BUFFER';
+    } else if (options.sourceDir) {
+      // 2. Check local source directory if provided
+      const localRes = loadLocalSourceBytes(options.sourceDir, slot);
+      sourceBuffer = localRes.buffer;
+      downloadError = localRes.error;
+      if (sourceBuffer) sourceOrigin = 'LOCAL_DIRECTORY';
     } else {
-      // Attempt authorized Drive download
+      // 3. Attempt authorized Drive download
       const dlResult = await fetchAuthorizedDriveBytes(slot.driveFileId);
       sourceBuffer = dlResult.buffer;
       downloadError = dlResult.error;
+      if (sourceBuffer) sourceOrigin = 'DRIVE_API';
     }
 
     if (!sourceBuffer || sourceBuffer.length === 0) {
@@ -380,9 +451,13 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
         actualSizeBytes: sourceBuffer ? sourceBuffer.length : 0,
         detectedMimeType: 'unknown',
         detectedExtension: 'bin',
+        authoritativeDriveMd5: slot.authoritativeDriveMd5,
+        computedLocalMd5: null,
+        provenanceVerified: false,
         sha256Checksum: null, // ZERO SYNTHETIC HASHES: must be null if bytes unavailable
         tigrisStorageKey: null,
         sourceBytesAvailable: false,
+        sourceOrigin,
         status: 'BYTES_UNAVAILABLE',
         errorDetail: reason,
       });
@@ -395,6 +470,13 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
 
     if (slot.expectedSizeBytes && actualBytes !== slot.expectedSizeBytes) {
       blockers.push(`Slot '${slot.docType}': byte length mismatch (expected ${slot.expectedSizeBytes}, got ${actualBytes})`);
+    }
+
+    // Provenance Verification: Check local MD5 against Google Drive authoritative MD5
+    const computedLocalMd5 = crypto.createHash('md5').update(sourceBuffer).digest('hex');
+    const provenanceVerified = computedLocalMd5.toLowerCase() === slot.authoritativeDriveMd5.toLowerCase();
+    if (!provenanceVerified && sourceOrigin !== 'MOCK_BUFFER') {
+      blockers.push(`Slot '${slot.docType}': MD5 provenance mismatch (expected Google MD5 ${slot.authoritativeDriveMd5}, got ${computedLocalMd5})`);
     }
 
     // Real Magic MIME detection
@@ -419,10 +501,14 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
       actualSizeBytes: actualBytes,
       detectedMimeType: magic.mimeType,
       detectedExtension: magic.extension,
+      authoritativeDriveMd5: slot.authoritativeDriveMd5,
+      computedLocalMd5,
+      provenanceVerified,
       sha256Checksum: realSha256,
       tigrisStorageKey: tigrisKey,
       sourceBytesAvailable: true,
-      status: 'VERIFIED_READY',
+      sourceOrigin,
+      status: !provenanceVerified && sourceOrigin !== 'MOCK_BUFFER' ? 'PROVENANCE_FAILED' : 'VERIFIED_READY',
       buffer: sourceBuffer,
     });
   }
@@ -434,19 +520,21 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
     state: authoritativeRecord.state,
     district: authoritativeRecord.district,
     consent: authoritativeRecord.consentObtained,
-    slots: slotDefinitions.map((s) => ({ id: s.driveFileId, size: s.expectedSizeBytes })),
+    slots: AUTHORITATIVE_SLOTS.map((s) => ({ id: s.driveFileId, size: s.expectedSizeBytes })),
   };
   const driftHash = crypto.createHash('sha256').update(JSON.stringify(driftPayload)).digest('hex');
 
   const allBytesAvailable = documents.every((d) => d.sourceBytesAvailable && d.buffer && d.buffer.length > 0);
+  const allProvenanceVerified = documents.every((d) => d.provenanceVerified || d.sourceOrigin === 'MOCK_BUFFER');
   const allHashesVerified = documents.every((d) => d.sha256Checksum !== null && d.sha256Checksum.length === 64);
-  const readyForExecution = allBytesAvailable && allHashesVerified && blockers.length === 0;
+  const readyForExecution = allBytesAvailable && allProvenanceVerified && allHashesVerified && blockers.length === 0;
 
   const manifest: ReconciliationManifest = {
     targetRecordId: targetId,
     sourceContainerId,
     sourceContainerFolderId,
     mode: options.isDryRun ? 'DRY_RUN' : 'EXECUTE',
+    sourceMode: options.sourceDir ? `LOCAL_DIR (${options.sourceDir})` : 'DRIVE_API',
     timestamp: new Date().toISOString(),
     driftHash,
     authoritativeRecord,
@@ -456,9 +544,10 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
       return meta as ReconciledDocMetadata;
     }),
     summary: {
-      totalSlots: slotDefinitions.length,
+      totalSlots: AUTHORITATIVE_SLOTS.length,
       totalBytes,
       allBytesAvailable,
+      allProvenanceVerified,
       allHashesVerified,
       readyForExecution,
       blockers,
@@ -474,7 +563,8 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
       'Drive ID': d.driveFileId.slice(0, 4) + '...' + d.driveFileId.slice(-4),
       'Size (Bytes)': d.actualSizeBytes || d.expectedSizeBytes,
       'Real MIME': d.detectedMimeType,
-      'Real SHA-256': d.sha256Checksum ? d.sha256Checksum.slice(0, 16) + '...' : 'UNAVAILABLE (BYTES MISSING)',
+      'Drive MD5 Provenance': d.provenanceVerified ? 'VERIFIED' : 'UNVERIFIED',
+      'Destination SHA-256': d.sha256Checksum ? d.sha256Checksum.slice(0, 16) + '...' : 'UNAVAILABLE (BYTES MISSING)',
       'Bytes Ready': d.sourceBytesAvailable ? 'YES' : 'NO',
       Status: d.status,
     }))
@@ -603,7 +693,10 @@ export async function runReconciliation(options: ReconciliationOptions): Promise
 // CLI execution
 if (require.main === module) {
   const isExecute = process.argv.includes('--execute');
-  runReconciliation({ isDryRun: !isExecute })
+  const sourceDirIdx = process.argv.indexOf('--source-dir');
+  const sourceDir = sourceDirIdx !== -1 && process.argv[sourceDirIdx + 1] ? process.argv[sourceDirIdx + 1] : undefined;
+
+  runReconciliation({ isDryRun: !isExecute, sourceDir })
     .then(() => process.exit(0))
     .catch((err) => {
       console.error('Reconciliation failed:', err);
