@@ -6,3 +6,4 @@ export * from './tigris-storage-adapter';
 export * from './inbound-event-adapter';
 export * from './persistence';
 export * from './whatsapp-document-loop-service';
+export * from './reminder-scheduler';
