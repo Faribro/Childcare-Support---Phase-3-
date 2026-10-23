@@ -364,7 +364,7 @@ export async function verifyStateTeamOtp(params: {
 
   if (!notesObj.adminNotifiedAt) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://childcare-support-phase-3.vercel.app';
-    const reviewUrl = `${appUrl}/supervisor/registrations`;
+    const reviewUrl = `${appUrl}/supervisor/registrations?id=${registration.id}`;
     const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'fsayyed@allianceindia.org';
 
     try {
@@ -381,11 +381,28 @@ export async function verifyStateTeamOtp(params: {
       if (notifyRes.success) {
         notesObj.adminNotifiedAt = new Date().toISOString();
         notesObj.adminNotificationRecipient = adminEmail;
+        notesObj.adminNotificationProvider = notifyRes.provider;
+        notesObj.adminNotificationMessageId = notifyRes.messageId || null;
+        notesObj.adminNotificationStatus = 'ACCEPTED';
+        delete notesObj.adminNotificationError;
+        await store.updateRegistrationNotes(registration.id, JSON.stringify(notesObj));
+        registration.notes = JSON.stringify(notesObj);
+      } else {
+        notesObj.adminNotificationError = notifyRes.error || 'Provider rejected notification dispatch';
+        notesObj.adminNotificationLastAttemptAt = new Date().toISOString();
+        notesObj.adminNotificationStatus = 'FAILED';
         await store.updateRegistrationNotes(registration.id, JSON.stringify(notesObj));
         registration.notes = JSON.stringify(notesObj);
       }
     } catch (err: any) {
       console.error('[ADMIN_NOTIFY:ERROR] Failed to dispatch admin pending notification:', err?.message);
+      notesObj.adminNotificationError = err?.message || 'Unexpected notification dispatch error';
+      notesObj.adminNotificationLastAttemptAt = new Date().toISOString();
+      notesObj.adminNotificationStatus = 'FAILED';
+      try {
+        await store.updateRegistrationNotes(registration.id, JSON.stringify(notesObj));
+        registration.notes = JSON.stringify(notesObj);
+      } catch (_) {}
     }
   }
 

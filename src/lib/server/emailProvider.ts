@@ -737,6 +737,7 @@ export async function sendAdminPendingRegistrationEmail({
   requestedState,
   verifiedAtIso,
   reviewUrl,
+  registrationId,
 }: {
   adminEmail: string;
   applicantName: string;
@@ -745,6 +746,7 @@ export async function sendAdminPendingRegistrationEmail({
   requestedState: string;
   verifiedAtIso: string;
   reviewUrl: string;
+  registrationId?: string;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
   const subject = `[Action Required] New State Coordinator Registration Pending Review — ${requestedState}`;
@@ -792,7 +794,7 @@ export async function sendAdminPendingRegistrationEmail({
 
           <div style="text-align: center; margin: 32px 0;">
             <a href="${reviewUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
-              Open Administrator Review Screen
+              Review application
             </a>
           </div>
 

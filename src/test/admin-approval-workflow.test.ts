@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { GET as getRegistrationsRoute } from '@/app/api/admin/registrations/route';
 import { POST as approveRegistrationRoute } from '@/app/api/admin/registrations/[id]/approve/route';
 import { POST as rejectRegistrationRoute } from '@/app/api/admin/registrations/[id]/reject/route';
+import { POST as notifyRegistrationRoute } from '@/app/api/admin/registrations/[id]/notify/route';
 import { MemoryOnboardingStore, setOnboardingStoreForTesting } from '@/lib/server/onboardingStore';
 import { requestStateTeamOtp, verifyStateTeamOtp } from '@/lib/server/stateTeamAuthChallenge';
 import { createSessionToken } from '@/lib/server/sessionService';
@@ -288,5 +289,42 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
     const updated = await store.getStateTeamRegistrationById(reg.id);
     expect(updated!.status).toBe('REJECTED');
     expect(updated!.notes).toContain('Unverified organizational affiliation');
+  });
+
+  it('9. Explicit POST /api/admin/registrations/[id]/notify dispatches approval-request email and links to exact id', async () => {
+    const reg = await store.createStateTeamRegistration({
+      firstName: 'Farid',
+      lastName: 'Sayyed',
+      workEmail: 'faridsayyed1010@gmail.com',
+      requestedState: 'Maharashtra',
+      organization: 'CSC Sagar',
+      autoApprove: false,
+    });
+    await store.verifyStateTeamEmail('faridsayyed1010@gmail.com');
+
+    MockEmailStore.clear();
+
+    const notifyReq = new NextRequest(`http://localhost:3000/api/admin/registrations/${reg.id}/notify`, {
+      method: 'POST',
+      headers: {
+        cookie: `evaluation_session_token=${adminSessionToken}`,
+        origin: 'http://localhost:3000',
+      },
+    });
+
+    const notifyRes = await notifyRegistrationRoute(notifyReq, { params: { id: reg.id } });
+    expect(notifyRes.status).toBe(200);
+
+    const resJson = await notifyRes.json();
+    expect(resJson.status).toBe('success');
+    expect(resJson.data.providerAccepted).toBe(true);
+    expect(resJson.data.recipient).toBe('fsayyed@allianceindia.org');
+    expect(resJson.data.reviewUrl).toBe(`https://childcare-support-phase-3.vercel.app/supervisor/registrations?id=${reg.id}`);
+
+    const emails = MockEmailStore.getAll().filter((e) => e.to === 'fsayyed@allianceindia.org');
+    expect(emails.length).toBe(1);
+    expect(emails[0].html).toContain('Review application');
+    expect(emails[0].html).toContain(`id=${reg.id}`);
+    expect(emails[0].text).toContain(`id=${reg.id}`);
   });
 });
