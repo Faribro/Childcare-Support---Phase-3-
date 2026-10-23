@@ -31,6 +31,12 @@ export interface OnboardingStore {
   // Rate Limiting
   checkRateLimit(key: string, now: number, maxAttempts: number, windowMs: number): Promise<RateLimitStatus>;
 
+  // Durable OTP Challenges
+  saveStateTeamChallenge(challenge: any): Promise<void>;
+  getStateTeamChallenge(workEmail: string): Promise<any | null>;
+  recordStateTeamChallengeAttempt(workEmail: string, failedAttempts: number, isLocked: boolean): Promise<void>;
+  deleteStateTeamChallenge(workEmail: string): Promise<void>;
+
   // State Team Registrations
   createStateTeamRegistration(data: {
     firstName: string;
@@ -107,6 +113,29 @@ export class MemoryOnboardingStore implements OnboardingStore {
   private invitations: Map<string, StateTeamInvitation> = new Map();
   private fieldProfiles: Map<string, FieldUserProfile> = new Map();
   private rateLimitEvents: Map<string, number[]> = new Map();
+
+  private stateTeamChallenges = new Map<string, any>();
+
+  async saveStateTeamChallenge(challenge: any): Promise<void> {
+    this.stateTeamChallenges.set(challenge.workEmail.toLowerCase().trim(), { ...challenge });
+  }
+
+  async getStateTeamChallenge(workEmail: string): Promise<any | null> {
+    const c = this.stateTeamChallenges.get(workEmail.toLowerCase().trim());
+    return c ? { ...c } : null;
+  }
+
+  async recordStateTeamChallengeAttempt(workEmail: string, failedAttempts: number, isLocked: boolean): Promise<void> {
+    const c = this.stateTeamChallenges.get(workEmail.toLowerCase().trim());
+    if (c) {
+      c.failedAttempts = failedAttempts;
+      c.isLocked = isLocked;
+    }
+  }
+
+  async deleteStateTeamChallenge(workEmail: string): Promise<void> {
+    this.stateTeamChallenges.delete(workEmail.toLowerCase().trim());
+  }
 
   async checkRateLimit(key: string, now: number, maxAttempts: number, windowMs: number): Promise<RateLimitStatus> {
     const timestamps = (this.rateLimitEvents.get(key) || []).filter((t) => now - t < windowMs);
@@ -483,6 +512,22 @@ export class UnavailableOnboardingStore implements OnboardingStore {
     this.reason = reason;
   }
 
+  async saveStateTeamChallenge(): Promise<void> {
+    throw new Error('Onboarding store is currently unavailable.');
+  }
+
+  async getStateTeamChallenge(): Promise<any | null> {
+    throw new Error('Onboarding store is currently unavailable.');
+  }
+
+  async recordStateTeamChallengeAttempt(): Promise<void> {
+    throw new Error('Onboarding store is currently unavailable.');
+  }
+
+  async deleteStateTeamChallenge(): Promise<void> {
+    throw new Error('Onboarding store is currently unavailable.');
+  }
+
   async checkRateLimit(): Promise<RateLimitStatus> { throw new Error(this.reason); }
   async createStateTeamRegistration(): Promise<StateTeamRegistration> { throw new Error(this.reason); }
   async getStateTeamRegistrationById(): Promise<StateTeamRegistration | null> { throw new Error(this.reason); }
@@ -535,6 +580,73 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     return this.memoryFallback.checkRateLimit(key, now, maxAttempts, windowMs);
   }
 
+  async saveStateTeamChallenge(challenge: any): Promise<void> {
+    const normEmail = challenge.workEmail.toLowerCase().trim();
+    const existing = await this.getStateTeamRegistrationByEmail(normEmail);
+    if (!existing) return;
+
+    let parsedNotes: any = {};
+    try {
+      if (existing.notes) parsedNotes = JSON.parse(existing.notes);
+    } catch (_) {
+      parsedNotes = { textNotes: existing.notes };
+    }
+
+    parsedNotes.otpChallenge = { ...challenge };
+
+    const updateUrl = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${existing.id}`;
+    await fetch(updateUrl, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify({
+        notes: JSON.stringify(parsedNotes),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  }
+
+  async getStateTeamChallenge(workEmail: string): Promise<any | null> {
+    const normEmail = workEmail.toLowerCase().trim();
+    const existing = await this.getStateTeamRegistrationByEmail(normEmail);
+    if (!existing || !existing.notes) return null;
+
+    try {
+      const parsedNotes = JSON.parse(existing.notes);
+      return parsedNotes?.otpChallenge || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async recordStateTeamChallengeAttempt(workEmail: string, failedAttempts: number, isLocked: boolean): Promise<void> {
+    const challenge = await this.getStateTeamChallenge(workEmail);
+    if (challenge) {
+      challenge.failedAttempts = failedAttempts;
+      challenge.isLocked = isLocked;
+      await this.saveStateTeamChallenge(challenge);
+    }
+  }
+
+  async deleteStateTeamChallenge(workEmail: string): Promise<void> {
+    const normEmail = workEmail.toLowerCase().trim();
+    const existing = await this.getStateTeamRegistrationByEmail(normEmail);
+    if (!existing || !existing.notes) return;
+
+    try {
+      const parsedNotes = JSON.parse(existing.notes);
+      delete parsedNotes.otpChallenge;
+      const updateUrl = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${existing.id}`;
+      await fetch(updateUrl, {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify({
+          notes: Object.keys(parsedNotes).length > 0 ? JSON.stringify(parsedNotes) : null,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+    } catch (_) {}
+  }
+
   async createStateTeamRegistration(data: {
     firstName: string;
     lastName: string;
@@ -544,6 +656,39 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     autoApprove?: boolean;
     notes?: string;
   }): Promise<StateTeamRegistration> {
+    // Prevent 409 duplicate key errors: return and update existing registration
+    const existing = await this.getStateTeamRegistrationByEmail(data.workEmail);
+    if (existing) {
+      const updateUrl = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${existing.id}`;
+      const updateBody: any = {
+        first_name: data.firstName.trim(),
+        last_name: (data.lastName || '').trim(),
+        requested_state: data.requestedState.trim(),
+        organization: data.organization.trim(),
+        updated_at: new Date().toISOString(),
+      };
+      if (data.notes !== undefined) {
+        updateBody.notes = data.notes;
+      }
+      if (data.autoApprove && existing.status === 'PENDING_APPROVAL') {
+        updateBody.status = 'APPROVED';
+      }
+      await fetch(updateUrl, {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify(updateBody),
+      });
+      return {
+        ...existing,
+        firstName: data.firstName.trim(),
+        lastName: (data.lastName || '').trim(),
+        requestedState: data.requestedState.trim(),
+        organization: data.organization.trim(),
+        notes: data.notes !== undefined ? data.notes : existing.notes,
+        status: data.autoApprove && existing.status === 'PENDING_APPROVAL' ? 'APPROVED' : existing.status,
+      };
+    }
+
     const url = `${this.baseUrl}/rest/v1/state_team_registrations`;
     const res = await fetch(url, {
       method: 'POST',

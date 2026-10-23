@@ -172,7 +172,7 @@ export function ArtRegimenCombobox({
   }
 
   return (
-    <div className="flex flex-col space-y-1.5 relative" ref={containerRef}>
+    <div className={`flex flex-col space-y-1.5 relative ${isOpen ? 'z-50' : 'z-20'}`} ref={containerRef}>
       <label htmlFor={comboboxId} className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-700 block">
         {label} {required && <span className="text-rose-500 ml-0.5">*</span>}
       </label>
@@ -256,7 +256,7 @@ export function ArtRegimenCombobox({
           ref={listRef}
           role="listbox"
           tabIndex={-1}
-          className="absolute z-50 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto bg-white border border-slate-300 rounded-xl shadow-xl py-1 divide-y divide-slate-100 focus:outline-none"
+          className="absolute z-50 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto bg-white border border-slate-300 rounded-xl shadow-2xl py-1 divide-y divide-slate-100 focus:outline-none ring-1 ring-black/5"
         >
           {filteredRegimens.length === 0 ? (
             <li className="p-3 text-xs text-slate-500 text-center">

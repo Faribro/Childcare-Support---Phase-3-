@@ -113,6 +113,26 @@ export default function FieldWorkspacePage() {
       abortControllerRef.current.abort();
     }
 
+    // Gate on session readiness: do not query protected endpoint if signed out
+    if (!user?.isVerified) {
+      try {
+        const localCount = await getLocalSyncedCount();
+        if (isMountedRef.current) {
+          setSubmittedCount(localCount);
+          setSubmittedStatus('success');
+          setIsSubmittedLoading(false);
+          setServerScopeLabel('Sign in for server sync');
+        }
+      } catch (_) {
+        if (isMountedRef.current) {
+          setSubmittedCount(0);
+          setSubmittedStatus('success');
+          setIsSubmittedLoading(false);
+        }
+      }
+      return;
+    }
+
     if (isMountedRef.current) {
       setIsSubmittedLoading(true);
       setSubmittedStatus('loading');
@@ -251,7 +271,7 @@ export default function FieldWorkspacePage() {
         }
       }
     }
-  }, []);
+  }, [user]);
 
   const handleRetrySubmitted = useCallback(() => {
     setIsSubmittedLoading(true);
@@ -269,6 +289,13 @@ export default function FieldWorkspacePage() {
       // Safe fallback if router prefetch fails
     }
   }, [router]);
+
+  // Reactive sync when user session unlocks
+  useEffect(() => {
+    if (user?.isVerified) {
+      refreshSubmitted();
+    }
+  }, [user?.isVerified, refreshSubmitted]);
 
   // Check for onboarding query flag on mount
   useEffect(() => {
@@ -311,7 +338,17 @@ export default function FieldWorkspacePage() {
     // Independent concurrent initialization
     refreshDrafts();
     refreshWaiting();
-    refreshSubmitted();
+    if (user?.isVerified) {
+      refreshSubmitted();
+    } else {
+      getLocalSyncedCount().then((localCount) => {
+        if (isMountedRef.current) {
+          setSubmittedCount(localCount);
+          setSubmittedStatus('success');
+          setIsSubmittedLoading(false);
+        }
+      });
+    }
 
     const handleDraftUpdated = () => {
       refreshDrafts();

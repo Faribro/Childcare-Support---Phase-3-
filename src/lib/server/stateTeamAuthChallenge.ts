@@ -167,6 +167,7 @@ export async function requestStateTeamOtp(params: {
     isLocked: false,
   };
 
+  await store.saveStateTeamChallenge(challenge);
   activeChallenges.set(normEmail, challenge);
 
   // Dispatch OTP email
@@ -179,6 +180,7 @@ export async function requestStateTeamOtp(params: {
   });
 
   if (!emailResult.success) {
+    await store.deleteStateTeamChallenge(normEmail);
     activeChallenges.delete(normEmail);
     return {
       success: false,
@@ -216,7 +218,8 @@ export async function verifyStateTeamOtp(params: {
   const emailInput = params.email || params.workEmail;
   const codeInput = params.otp || params.code || '';
   const normEmail = normalizeEmail(emailInput);
-  const challenge = activeChallenges.get(normEmail);
+  const store = getOnboardingStore();
+  const challenge = (await store.getStateTeamChallenge(normEmail)) || activeChallenges.get(normEmail);
   const now = Date.now();
 
   if (!challenge || challenge.isUsed) {
@@ -255,8 +258,10 @@ export async function verifyStateTeamOtp(params: {
 
   if (!matches) {
     challenge.failedAttempts += 1;
-    if (challenge.failedAttempts >= STATE_TEAM_MAX_VERIFY_ATTEMPTS) {
-      challenge.isLocked = true;
+    const isLocked = challenge.failedAttempts >= STATE_TEAM_MAX_VERIFY_ATTEMPTS;
+    challenge.isLocked = isLocked;
+    await store.recordStateTeamChallengeAttempt(normEmail, challenge.failedAttempts, isLocked);
+    if (isLocked) {
       activeChallenges.delete(normEmail);
       return {
         success: false,
@@ -274,8 +279,7 @@ export async function verifyStateTeamOtp(params: {
   // Mark challenge used
   challenge.isUsed = true;
   activeChallenges.delete(normEmail);
-
-  const store = getOnboardingStore();
+  await store.deleteStateTeamChallenge(normEmail);
   await store.verifyStateTeamEmail(normEmail);
   const registration = await store.getStateTeamRegistrationByEmail(normEmail);
 

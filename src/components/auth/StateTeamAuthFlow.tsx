@@ -65,7 +65,7 @@ export function StateTeamAuthFlow({
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!workEmail.trim()) {
-      setErrorMessage('Please enter your work email.');
+      setErrorMessage('Please enter your email address.');
       return;
     }
     if (!firstName.trim()) {
@@ -102,7 +102,7 @@ export function StateTeamAuthFlow({
         return;
       }
 
-      setSuccessMessage(data.message || 'Verification code sent to your work email.');
+      setSuccessMessage(data.message || 'Verification code sent to your email.');
       setStep('otp');
     } catch {
       setErrorMessage('Network or server error sending code. Please try again.');
@@ -190,7 +190,7 @@ export function StateTeamAuthFlow({
         return;
       }
 
-      setInvitationStatusMessage('State invitation code generated and dispatched privately to your work email!');
+      setInvitationStatusMessage('State invitation code generated and dispatched privately to your email!');
     } catch {
       setInvitationStatusMessage('Error communicating with invitation service.');
     } finally {
@@ -229,7 +229,7 @@ export function StateTeamAuthFlow({
 
           <div>
             <label htmlFor="st-email" className="block text-xs font-semibold text-slate-700 mb-1">
-              Work Email Address
+              Email address (organisation, Gmail, Outlook, etc.)
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
@@ -241,7 +241,7 @@ export function StateTeamAuthFlow({
                 required
                 value={workEmail}
                 onChange={(e) => setWorkEmail(e.target.value)}
-                placeholder="coordinator@allianceindia.org"
+                placeholder="coordinator@allianceindia.org or yourname@gmail.com"
                 className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
               />
             </div>
