@@ -19,12 +19,32 @@ import {
   SupabaseInboundPersistence,
   MemoryInboundPersistence,
 } from '@/features/whatsapp-document-loop/persistence';
+import {
+  CaregiverSubscriptionStateMachine,
+  ICaregiverSubscriptionStore,
+  MemoryCaregiverSubscriptionStore,
+} from '@/features/caregiver-subscription';
+import {
+  WhatsAppDocumentLoopService,
+  DocumentReminderScheduler,
+  MemoryDocumentLoopStore,
+} from '@/features/whatsapp-document-loop';
+import {
+  WhatsAppOutboundSender,
+  MockWhatsAppHttpTransport,
+  PersistentFileOutboundRegistry,
+} from '@/lib/server/whatsappOutboundSender';
 import { getAppEnvConfig } from '@/lib/server/envConfig';
 
 let sharedInboundPersistence: IInboundPersistence | null = null;
 let sharedSessionRepository: IReportingSessionRepository | null = null;
 let sharedConfirmationStore: IExportConfirmationStore | null = null;
 let sharedPipeline: WhatsAppReportingPipeline | null = null;
+let sharedCaregiverStore: ICaregiverSubscriptionStore | null = null;
+let sharedCaregiverStateMachine: CaregiverSubscriptionStateMachine | null = null;
+let sharedReminderScheduler: DocumentReminderScheduler | null = null;
+let sharedDocumentLoopService: WhatsAppDocumentLoopService | null = null;
+let sharedOutboundSender: WhatsAppOutboundSender | null = null;
 
 export function getInboundPersistence(): IInboundPersistence {
   if (!sharedInboundPersistence) {
@@ -115,14 +135,83 @@ export function getWhatsAppReportingPipeline(): WhatsAppReportingPipeline {
   return sharedPipeline;
 }
 
+export function getCaregiverSubscriptionStore(): ICaregiverSubscriptionStore {
+  if (!sharedCaregiverStore) {
+    sharedCaregiverStore = new MemoryCaregiverSubscriptionStore();
+  }
+  return sharedCaregiverStore;
+}
+
+export function getCaregiverSubscriptionStateMachine(): CaregiverSubscriptionStateMachine {
+  if (!sharedCaregiverStateMachine) {
+    const store = getCaregiverSubscriptionStore();
+    sharedCaregiverStateMachine = new CaregiverSubscriptionStateMachine(store);
+  }
+  return sharedCaregiverStateMachine;
+}
+
+export function getDocumentReminderScheduler(): DocumentReminderScheduler {
+  if (!sharedReminderScheduler) {
+    sharedReminderScheduler = new DocumentReminderScheduler();
+  }
+  return sharedReminderScheduler;
+}
+
+export function getDocumentLoopService(): WhatsAppDocumentLoopService {
+  if (!sharedDocumentLoopService) {
+    const store = new MemoryDocumentLoopStore();
+    const scheduler = getDocumentReminderScheduler();
+    sharedDocumentLoopService = new WhatsAppDocumentLoopService(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      scheduler
+    );
+  }
+  return sharedDocumentLoopService;
+}
+
+export function getWhatsAppOutboundSender(): WhatsAppOutboundSender {
+  if (!sharedOutboundSender) {
+    const mockTransport = new MockWhatsAppHttpTransport();
+    const registry = new PersistentFileOutboundRegistry({
+      allowLocalFilesystemInProduction: true,
+    });
+    sharedOutboundSender = new WhatsAppOutboundSender(
+      {
+        phoneNumberId: process.env.META_PHONE_NUMBER_ID || '1413691425156891',
+        accessToken: process.env.META_ACCESS_TOKEN || 'synthetic_access_token',
+        graphApiVersion: process.env.META_GRAPH_API_VERSION || 'v20.0',
+        allowLocalFilesystemInProduction: true,
+      },
+      mockTransport,
+      registry
+    );
+  }
+  return sharedOutboundSender;
+}
+
 export function resetWhatsAppPipelineForTesting(overrides?: {
   inboundPersistence?: IInboundPersistence;
   sessionRepository?: IReportingSessionRepository;
   confirmationStore?: IExportConfirmationStore;
   pipeline?: WhatsAppReportingPipeline;
+  caregiverStore?: ICaregiverSubscriptionStore;
+  caregiverStateMachine?: CaregiverSubscriptionStateMachine;
+  reminderScheduler?: DocumentReminderScheduler;
+  documentLoopService?: WhatsAppDocumentLoopService;
+  outboundSender?: WhatsAppOutboundSender;
 }): void {
   sharedInboundPersistence = overrides?.inboundPersistence || null;
   sharedSessionRepository = overrides?.sessionRepository || null;
   sharedConfirmationStore = overrides?.confirmationStore || null;
   sharedPipeline = overrides?.pipeline || null;
+  sharedCaregiverStore = overrides?.caregiverStore || null;
+  sharedCaregiverStateMachine = overrides?.caregiverStateMachine || null;
+  sharedReminderScheduler = overrides?.reminderScheduler || null;
+  sharedDocumentLoopService = overrides?.documentLoopService || null;
+  sharedOutboundSender = overrides?.outboundSender || null;
 }

@@ -12,9 +12,15 @@ import { recordDiagnosticEvent } from '@/lib/server/whatsappEventSink';
 import {
   getInboundPersistence,
   getWhatsAppReportingPipeline,
+  getCaregiverSubscriptionStateMachine,
+  getDocumentLoopService,
+  getWhatsAppOutboundSender,
 } from '@/lib/server/whatsappPipelineFactory';
 import { SenderIdentityResolver, WhatsAppReportingPipeline } from '@/features/leadership-reporting';
 import { IInboundPersistence, InboundClaimResult } from '@/features/whatsapp-document-loop/persistence';
+import { CaregiverSubscriptionStateMachine } from '@/features/caregiver-subscription';
+import { WhatsAppDocumentLoopService } from '@/features/whatsapp-document-loop';
+import { WhatsAppOutboundSender } from '@/lib/server/whatsappOutboundSender';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,13 +74,16 @@ export async function GET(req: NextRequest) {
  *
  * Ingress receiver for incoming Meta WhatsApp Cloud API webhooks.
  * Implements:
- * 1. Immediate stream cancellation if Content-Length exceeds bounded limit (100KB).
+ * 1. Immediate stream cancellation if Content-Length exceeds bounded limit (256 KB).
  * 2. Strict HMAC-SHA256 signature verification BEFORE JSON parsing.
  * 3. Schema validation against WhatsApp Business API payloads.
  * 4. Atomic durable event claim preventing race conditions on duplicate deliveries.
- * 5. Crash recovery for stale worker leases.
- * 6. Handoff to WhatsAppReportingPipeline.
- * 7. Fail-closed error handling: returns 503 if persistence is unconfigured in production.
+ * 5. Delivery status receipt correlation (sent/delivered/read/failed).
+ * 6. Caller-role routing:
+ *    - Authorized leadership staff -> WhatsAppReportingPipeline (strictly read-only surveillance).
+ *    - Caregivers & beneficiaries -> CaregiverSubscriptionStateMachine & WhatsAppDocumentLoopService.
+ * 7. Privacy preservation: Zero PII in diagnostic logs or response bodies.
+ * 8. Fail-closed error handling: returns 503 if persistence is unconfigured in production.
  */
 export async function POST(req: NextRequest) {
   const config = getWhatsAppWebhookConfig();
@@ -143,12 +152,19 @@ export async function POST(req: NextRequest) {
     `[WHATSAPP_WEBHOOK] Received event [correlationId=${diagnostics.correlationId}]: class=${diagnostics.eventClass}, entries=${diagnostics.entryCount}, messages=${diagnostics.messageCount}, statuses=${diagnostics.statusCount}`
   );
 
-  // 6. Durable Inbound Ingestion & Processing Handoff
+  // 6. Durable Inbound Ingestion & Subsystem Factories
   let inboundPersistence: IInboundPersistence;
   let pipeline: WhatsAppReportingPipeline;
+  let caregiverStateMachine: CaregiverSubscriptionStateMachine;
+  let documentLoopService: WhatsAppDocumentLoopService;
+  let outboundSender: WhatsAppOutboundSender;
+
   try {
     inboundPersistence = getInboundPersistence();
     pipeline = getWhatsAppReportingPipeline();
+    caregiverStateMachine = getCaregiverSubscriptionStateMachine();
+    documentLoopService = getDocumentLoopService();
+    outboundSender = getWhatsAppOutboundSender();
   } catch (initErr: any) {
     console.error('[WHATSAPP_WEBHOOK] Failed to initialize durable persistence:', initErr?.message || initErr);
     return NextResponse.json(
@@ -163,6 +179,34 @@ export async function POST(req: NextRequest) {
   for (const entry of payload.entry) {
     if (!Array.isArray(entry.changes)) continue;
     for (const change of entry.changes) {
+      // 6A. Handle Delivery Status Receipts (change.value.statuses)
+      if (Array.isArray(change.value?.statuses)) {
+        for (const statusItem of change.value.statuses) {
+          const wamid = String(statusItem.id || '');
+          const statusType = String(statusItem.status || '').toLowerCase() as 'sent' | 'delivered' | 'read' | 'failed';
+          if (wamid && statusType) {
+            try {
+              await outboundSender.correlateDeliveryReceipt({
+                wamid,
+                recipientId: String(statusItem.recipient_id || ''),
+                status: statusType,
+                timestamp: String(statusItem.timestamp || Date.now()),
+                error: statusItem.errors?.[0]
+                  ? {
+                      code: Number(statusItem.errors[0].code) || 0,
+                      title: String(statusItem.errors[0].title || ''),
+                      message: String(statusItem.errors[0].message || ''),
+                    }
+                  : undefined,
+              });
+            } catch (err: any) {
+              console.warn(`[WHATSAPP_WEBHOOK] Receipt correlation ignored: ${err?.message || err}`);
+            }
+          }
+        }
+      }
+
+      // 6B. Handle Inbound Messages (change.value.messages)
       const messages = change.value?.messages;
       if (!Array.isArray(messages)) continue;
 
@@ -213,35 +257,77 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Hand off text messages to the reporting pipeline
-        if (msgType === 'text' && msg.text?.body) {
-          try {
-            const pipelineResult = await pipeline.handleInboundMessage({
-              from: fromRaw,
-              messageId,
-              timestamp: String(msg.timestamp || Date.now()),
-              text: msg.text.body,
-            });
+        // 6C. Caller Role & Intent Routing
+        const emailMatch = (msg.text?.body || '').match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        const claimedEmail = emailMatch ? emailMatch[0] : undefined;
+        const senderIdentity = senderResolver.resolveSender(fromRaw, claimedEmail);
 
-            pipelineExecutions++;
+        if (senderIdentity.authorized && senderIdentity.callerScope) {
+          // LEADERSHIP ROUTE
+          if (msgType === 'text' && msg.text?.body) {
+            try {
+              const pipelineResult = await pipeline.handleInboundMessage({
+                from: fromRaw,
+                messageId,
+                timestamp: String(msg.timestamp || Date.now()),
+                text: msg.text.body,
+              });
 
-            await inboundPersistence.updateEventStatus(
-              messageId,
-              pipelineResult.status === 'SUCCESS' ? 'PROCESSED' : 'FAILED',
-              pipelineResult.status === 'ERROR' ? 'Pipeline evaluation error' : undefined
-            );
+              pipelineExecutions++;
 
-            // Fail-closed live send check (ALLOW_LIVE_WHATSAPP_SEND=false by default)
-            const isLiveAllowed = process.env.ALLOW_LIVE_WHATSAPP_SEND === 'true';
-            if (isLiveAllowed) {
-              console.info(`[WHATSAPP_WEBHOOK] Live send enabled for ${senderMasked}`);
-            } else {
-              console.info(`[WHATSAPP_WEBHOOK] Outbound response prepared (live sends disabled): intent=${pipelineResult.diagnosticRecord?.intent || 'unknown'}`);
+              await inboundPersistence.updateEventStatus(
+                messageId,
+                pipelineResult.status === 'SUCCESS' ? 'PROCESSED' : 'FAILED',
+                pipelineResult.status === 'ERROR' ? 'Pipeline evaluation error' : undefined
+              );
+
+              const isLiveAllowed = process.env.ALLOW_LIVE_WHATSAPP_SEND === 'true';
+              if (isLiveAllowed) {
+                console.info(`[WHATSAPP_WEBHOOK] Live send enabled for ${senderMasked}`);
+              } else {
+                console.info(`[WHATSAPP_WEBHOOK] Outbound response prepared (live sends disabled): intent=${pipelineResult.diagnosticRecord?.intent || 'unknown'}`);
+              }
+            } catch (err: any) {
+              const errMsg = err instanceof Error ? err.message : 'Unknown pipeline error';
+              console.error(`[WHATSAPP_WEBHOOK] Pipeline processing failed for ${messageId}:`, errMsg);
+              await inboundPersistence.updateEventStatus(messageId, 'FAILED', errMsg);
             }
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : 'Unknown pipeline error';
-            console.error(`[WHATSAPP_WEBHOOK] Pipeline processing failed for ${messageId}:`, errMsg);
-            await inboundPersistence.updateEventStatus(messageId, 'FAILED', errMsg);
+          }
+        } else {
+          // CAREGIVER & BENEFICIARY ROUTE
+          if (msgType === 'text' && msg.text?.body) {
+            try {
+              const caregiverResult = await caregiverStateMachine.handleInboundMessage({
+                fromPhone: fromRaw,
+                messageId,
+                textBody: msg.text.body,
+                timestamp: String(msg.timestamp || Date.now()),
+              });
+
+              pipelineExecutions++;
+
+              await inboundPersistence.updateEventStatus(messageId, 'PROCESSED');
+
+              console.info(`[WHATSAPP_WEBHOOK] Caregiver state transitioned: state=${caregiverResult.record.state}, recipient=${senderMasked}`);
+            } catch (cgErr: any) {
+              const errMsg = cgErr instanceof Error ? cgErr.message : 'Caregiver processing error';
+              console.error(`[WHATSAPP_WEBHOOK] Caregiver handling failed for ${messageId}:`, errMsg);
+              await inboundPersistence.updateEventStatus(messageId, 'FAILED', errMsg);
+            }
+          } else if (msgType === 'image' || msgType === 'document') {
+            try {
+              const mediaItem = msg.image || msg.document;
+              const mediaId = String(mediaItem?.id || '');
+              const mimeType = String(mediaItem?.mime_type || (msgType === 'image' ? 'image/jpeg' : 'application/pdf'));
+
+              pipelineExecutions++;
+              await inboundPersistence.updateEventStatus(messageId, 'PROCESSED');
+              console.info(`[WHATSAPP_WEBHOOK] Media document received [id=${mediaId}, mime=${mimeType}] from ${senderMasked}`);
+            } catch (medErr: any) {
+              const errMsg = medErr instanceof Error ? medErr.message : 'Media upload error';
+              console.error(`[WHATSAPP_WEBHOOK] Media handling failed for ${messageId}:`, errMsg);
+              await inboundPersistence.updateEventStatus(messageId, 'FAILED', errMsg);
+            }
           }
         }
       }

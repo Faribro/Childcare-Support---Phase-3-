@@ -14,6 +14,7 @@ import { MediaValidator } from './media-validator';
 import { TigrisStorageAdapter } from './tigris-storage-adapter';
 import { InboundEventAdapter } from './inbound-event-adapter';
 import { IDurableDocumentLoopStore, MemoryDocumentLoopStore } from './persistence';
+import { DocumentReminderScheduler } from './reminder-scheduler';
 
 /**
  * Service orchestrating the narrow live-ready WhatsApp document loop.
@@ -33,6 +34,7 @@ export class WhatsAppDocumentLoopService {
   private readonly mediaValidator: MediaValidator;
   private readonly storageAdapter: TigrisStorageAdapter;
   private readonly inboundAdapter: InboundEventAdapter;
+  private readonly reminderScheduler?: DocumentReminderScheduler;
 
   constructor(
     store: IDurableDocumentLoopStore = new MemoryDocumentLoopStore(),
@@ -40,7 +42,8 @@ export class WhatsAppDocumentLoopService {
     requestBuilder: WhatsAppRequestBuilder = new WhatsAppRequestBuilder(detector),
     mediaValidator: MediaValidator = new MediaValidator(),
     storageAdapter: TigrisStorageAdapter = new TigrisStorageAdapter(),
-    inboundAdapter?: InboundEventAdapter
+    inboundAdapter?: InboundEventAdapter,
+    reminderScheduler?: DocumentReminderScheduler
   ) {
     this.store = store;
     this.detector = detector;
@@ -48,6 +51,7 @@ export class WhatsAppDocumentLoopService {
     this.mediaValidator = mediaValidator;
     this.storageAdapter = storageAdapter;
     this.inboundAdapter = inboundAdapter || new InboundEventAdapter(undefined, store);
+    this.reminderScheduler = reminderScheduler;
   }
 
   public registerSubmission(submission: SubmissionEntity): void {
@@ -302,6 +306,7 @@ export class WhatsAppDocumentLoopService {
 
       // Mark event processed for deduplication
       this.inboundAdapter.markProcessed(event.eventId, idempotencyKey);
+      this.reminderScheduler?.cancelRemindersForSubmission(submission.id, `Received ${event.docType}`);
 
       // 8. Confirm Receipt to beneficiary
       const docLabel = this.detector.getDocumentLabel(event.docType);
