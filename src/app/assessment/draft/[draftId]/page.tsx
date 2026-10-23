@@ -1781,7 +1781,7 @@ export default function ResumeDraftSinglePage() {
             </div>
 
             {/* Sub-Card 2: Antiretroviral Therapy (ART) Care */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-indigo-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-indigo-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-20">
               <div className="flex items-center justify-between border-b border-indigo-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
                   <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
@@ -1858,7 +1858,7 @@ export default function ResumeDraftSinglePage() {
                   error={errorsByField['health-artInitiationDate']?.message}
                 />
 
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-2 relative z-30">
                   <ArtRegimenCombobox
                     id="health-artMedicineType"
                     label={regimenUIConfig.label}
@@ -1884,7 +1884,7 @@ export default function ResumeDraftSinglePage() {
             </div>
 
             {/* Sub-Card 3: Diagnostics Lab Monitoring (Hb & Viral Load) */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-purple-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-purple-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-10">
               <div className="flex items-center justify-between border-b border-purple-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
                   <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">

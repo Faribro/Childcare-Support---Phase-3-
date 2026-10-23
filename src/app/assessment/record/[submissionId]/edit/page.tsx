@@ -2314,7 +2314,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               </div>
 
               {/* Sub-Card 2: ART Care */}
-              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
+              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-20">
                 <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
                   <div className="flex items-center space-x-2.5">
                     <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center">
@@ -2385,7 +2385,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                     }
                   />
 
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-span-2 relative z-30">
                     <ArtRegimenCombobox
                       id="health-artMedicineType"
                       label={regimenUIConfig.label}
