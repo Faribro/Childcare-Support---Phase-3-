@@ -52,41 +52,67 @@ export function getAppEnvConfig(): AppEnvConfig {
   }
   const supabaseServiceRoleKey = canonicalSbKey || aliasSbKey || undefined;
 
-  // 3. Google Apps Script Webapp URL: Reject conflicting URLs
-  const appsScriptUrlRaw = [
+  // 3. Google Apps Script Webapp URL: Separate Intake and Email Dispatch services
+  // Intake URLs (Google Sheets intake submission pipeline)
+  const intakeUrls = [
     process.env.APPS_SCRIPT_URL,
-    process.env.APPS_SCRIPT_WEBAPP_URL,
-    process.env.APPS_SCRIPT_DISPATCHER_URL,
     process.env.APPS_SCRIPT_WEBHOOK_URL,
     process.env.STAGING_APPS_SCRIPT_URL,
   ]
     .map((u) => (u || '').trim())
     .filter(Boolean);
-  const distinctAppsScriptUrls = Array.from(new Set(appsScriptUrlRaw));
-  if (distinctAppsScriptUrls.length > 1) {
+  const distinctIntakeUrls = Array.from(new Set(intakeUrls));
+  if (distinctIntakeUrls.length > 1) {
     throw new Error(
-      `CONFIGURATION_CONFLICT: Multiple conflicting Apps Script URLs configured (${distinctAppsScriptUrls.join(', ')}). Rejecting ambiguous configuration.`
+      `CONFIGURATION_CONFLICT: Multiple conflicting Apps Script intake URLs configured (${distinctIntakeUrls.join(', ')}). Rejecting ambiguous configuration.`
     );
   }
-  const appsScriptUrl = distinctAppsScriptUrls[0] || undefined;
 
-  // 4. Google Apps Script Secret: Reject conflicting secrets
-  const appsScriptSecretRaw = [
-    process.env.APPS_SCRIPT_SECRET,
-    process.env.APPS_SCRIPT_DISPATCH_SECRET,
-    process.env.APPS_SCRIPT_WEBHOOK_SECRET,
-    process.env.APPS_SCRIPT_API_KEY,
+  // Email Dispatch Gateway URLs (Transactional authentication email gateway)
+  const dispatchUrls = [
+    process.env.APPS_SCRIPT_WEBAPP_URL,
+    process.env.APPS_SCRIPT_DISPATCHER_URL,
+  ]
+    .map((u) => (u || '').trim())
+    .filter(Boolean);
+  const distinctDispatchUrls = Array.from(new Set(dispatchUrls));
+  if (distinctDispatchUrls.length > 1) {
+    throw new Error(
+      `CONFIGURATION_CONFLICT: Multiple conflicting Apps Script dispatch URLs configured (${distinctDispatchUrls.join(', ')}). Rejecting ambiguous configuration.`
+    );
+  }
+
+  const appsScriptUrl = distinctIntakeUrls[0] || distinctDispatchUrls[0] || undefined;
+
+  // 4. Google Apps Script Secrets: Separate Intake Webhook Secret from Email Dispatch Secret
+  const intakeSecrets = [
     process.env.WEBHOOK_SECRET,
+    process.env.APPS_SCRIPT_SECRET,
+    process.env.APPS_SCRIPT_WEBHOOK_SECRET,
   ]
     .map((s) => (s || '').trim())
     .filter(Boolean);
-  const distinctAppsScriptSecrets = Array.from(new Set(appsScriptSecretRaw));
-  if (distinctAppsScriptSecrets.length > 1) {
+  const distinctIntakeSecrets = Array.from(new Set(intakeSecrets));
+  if (distinctIntakeSecrets.length > 1) {
     throw new Error(
-      `CONFIGURATION_CONFLICT: Multiple conflicting Apps Script secrets configured. Rejecting ambiguous configuration.`
+      `CONFIGURATION_CONFLICT: Multiple conflicting Apps Script intake secrets configured. Rejecting ambiguous configuration.`
     );
   }
-  const appsScriptSecret = distinctAppsScriptSecrets[0] || undefined;
+
+  const dispatchSecrets = [
+    process.env.APPS_SCRIPT_DISPATCH_SECRET,
+    process.env.APPS_SCRIPT_API_KEY,
+  ]
+    .map((s) => (s || '').trim())
+    .filter(Boolean);
+  const distinctDispatchSecrets = Array.from(new Set(dispatchSecrets));
+  if (distinctDispatchSecrets.length > 1) {
+    throw new Error(
+      `CONFIGURATION_CONFLICT: Multiple conflicting Apps Script dispatch secrets configured. Rejecting ambiguous configuration.`
+    );
+  }
+
+  const appsScriptSecret = distinctIntakeSecrets[0] || distinctDispatchSecrets[0] || undefined;
 
   // 5. Meta WhatsApp Secrets: Strict Separation & Alias Resolution
   // META_APP_SECRET is used ONLY for Meta payload HMAC signature verification.

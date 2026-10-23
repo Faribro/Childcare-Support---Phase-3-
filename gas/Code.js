@@ -527,7 +527,10 @@ function doPost(e) {
       return handleSendLinelistEmail_(payload);
     }
 
-    if (action === 'send_leadership_otp') {
+    if (action === 'send_leadership_otp' ||
+        action === 'send_state_team_otp' ||
+        action === 'send_state_team_invitation' ||
+        action === 'send_transactional_email') {
       return handleSendLeadershipOtp_(payload);
     }
 
@@ -3612,14 +3615,20 @@ function handleSendLeadershipOtp_(payload) {
     }
 
     // 3. Action parameter check
-    if (payload.action !== 'send_leadership_otp') {
+    var validActions = [
+      'send_leadership_otp',
+      'send_state_team_otp',
+      'send_state_team_invitation',
+      'send_transactional_email'
+    ];
+    if (validActions.indexOf(payload.action) === -1) {
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
         error: 'AUTH_INVALID_ACTION'
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 4. Strict allowlist verification
+    // 4. Strict allowlist verification (explicit ALLOWED_EMAILS or official ALLOWED_DOMAINS)
     var rawAllowed = scriptProps.getProperty('ALLOWED_EMAILS') || '';
     var allowedList = rawAllowed.split(',').map(function(item) {
       return item.trim().toLowerCase();
@@ -3627,8 +3636,22 @@ function handleSendLeadershipOtp_(payload) {
       return item.length > 0;
     });
 
+    var rawAllowedDomains = scriptProps.getProperty('ALLOWED_DOMAINS') || 'allianceindia.org';
+    var allowedDomains = rawAllowedDomains.split(',').map(function(item) {
+      return item.trim().toLowerCase();
+    }).filter(function(item) {
+      return item.length > 0;
+    });
+
     var recipient = (payload.recipient) ? String(payload.recipient).trim().toLowerCase() : '';
-    if (!recipient || allowedList.indexOf(recipient) === -1) {
+    var recipientDomain = (recipient.indexOf('@') !== -1) ? recipient.split('@')[1] : '';
+
+    var isAllowedRecipient = recipient && (
+      allowedList.indexOf(recipient) !== -1 ||
+      allowedDomains.indexOf(recipientDomain) !== -1
+    );
+
+    if (!isAllowedRecipient) {
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
         error: 'AUTH_RECIPIENT_REJECTED'
@@ -3654,10 +3677,10 @@ function handleSendLeadershipOtp_(payload) {
     }
 
     // 7. Render professional templates & dispatch email
-    var subject = 'Alliance Childcare Support Portal - Verification Code';
-    var textBody = 'Your verification code is: ' + otp + '\n\n' +
+    var subject = payload.subject || 'Alliance Childcare Support Portal - Verification Code';
+    var textBody = payload.text || payload.textBody || ('Your verification code is: ' + otp + '\n\n' +
       'This code will expire in 10 minutes.\n' +
-      'If you did not request this code, please disregard this email.';
+      'If you did not request this code, please disregard this email.');
 
     var htmlBody = '<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; padding: 28px; background-color: #f8fafc; color: #1e293b;">' +
       '<div style="max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">' +

@@ -5,7 +5,8 @@
  * and Tigris private object storage.
  *
  * Safety & Invariants:
- * 1. ACID Guarantees: Structured assessments are stored in public.submissions with OCC versioning.
+ * 1. ACID Guarantees: Structured assessments, document metadata, idempotency outcome,
+ *    and mirror outbox creation are committed in ONE atomic transaction/RPC.
  * 2. Cross-Store Failure Handling:
  *    - Binary uploads to Tigris are performed with SHA-256 integrity checks.
  *    - If binary succeeds but DB metadata fails, the object is retained for reconciliation (no silent deletion).
@@ -14,6 +15,8 @@
  *    - Explicitly checks and enforces state, district, and programme scope matching the verified session.
  * 4. Transactional Outbox Integration:
  *    - Submissions automatically enqueue a mirror job for asynchronous Google Sheets replication.
+ * 5. Offline & Test Resilience:
+ *    - Automatically falls back to isolated in-memory stores when database credentials are not configured.
  */
 
 import crypto from 'crypto';
@@ -27,7 +30,14 @@ import type {
 } from './canonicalSubmissionAdapter';
 import { filterAuthorisedRecord, normalizeSubmissionData } from './canonicalSubmissionAdapter';
 import { TigrisStorageService, UploadAttachmentResult } from './tigrisStorageService';
-import { SheetsMirrorRepository, InMemorySheetsMirrorRepository, SheetsMirrorWorker, GatewayClient, DrainSummary } from './sheetsMirrorWorker';
+import {
+  SheetsMirrorRepository,
+  InMemorySheetsMirrorRepository,
+  SupabaseSheetsMirrorRepository,
+  SheetsMirrorWorker,
+  GatewayClient,
+  DrainSummary,
+} from './sheetsMirrorWorker';
 
 export interface StoredSubmissionRecord {
   id: string;
@@ -88,16 +98,44 @@ export interface SessionContext {
 export class SupabaseSubmissionAdapter {
   private tigrisService: TigrisStorageService;
   private mirrorRepo: SheetsMirrorRepository;
+  private supabaseUrl: string;
+  private serviceRoleKey: string;
   private records: Map<string, StoredSubmissionRecord> = new Map();
   private files: Map<string, StoredFileRecord[]> = new Map();
   private orphanLog: Array<{ storageKey: string; bucket: string; submissionId: string; reason: string }> = [];
 
   constructor(
     tigrisService?: TigrisStorageService,
-    mirrorRepo?: SheetsMirrorRepository
+    mirrorRepo?: SheetsMirrorRepository,
+    options?: { supabaseUrl?: string; serviceRoleKey?: string }
   ) {
     this.tigrisService = tigrisService || new TigrisStorageService();
-    this.mirrorRepo = mirrorRepo || new InMemorySheetsMirrorRepository();
+    const url = options?.supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+    const key = options?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    this.supabaseUrl = url.replace(/\/+$/, '');
+    this.serviceRoleKey = key;
+
+    if (mirrorRepo) {
+      this.mirrorRepo = mirrorRepo;
+    } else if (this.isDatabaseConfigured()) {
+      this.mirrorRepo = new SupabaseSheetsMirrorRepository(this.supabaseUrl, this.serviceRoleKey);
+    } else {
+      this.mirrorRepo = new InMemorySheetsMirrorRepository();
+    }
+  }
+
+  public isDatabaseConfigured(): boolean {
+    return Boolean(this.supabaseUrl && this.serviceRoleKey);
+  }
+
+  private get headers(): Record<string, string> {
+    return {
+      apikey: this.serviceRoleKey,
+      Authorization: `Bearer ${this.serviceRoleKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    };
   }
 
   public getOrphanLog() {
@@ -147,6 +185,7 @@ export class SupabaseSubmissionAdapter {
 
   /**
    * CREATE: Persists a validated submission, uploads attachments to Tigris, and enqueues Sheets mirror job.
+   * Committed in ONE atomic database RPC when configured.
    */
   public async createSubmission(
     input: CanonicalCreateInput,
@@ -171,6 +210,7 @@ export class SupabaseSubmissionAdapter {
         statusCode: 403,
         code: 'FORBIDDEN_SCOPE',
         message: `Session not authorized for state: '${state}', district: '${district}'.`,
+        requestId: input.requestId,
       };
     }
 
@@ -182,6 +222,7 @@ export class SupabaseSubmissionAdapter {
         statusCode: 422,
         code: 'CONSENT_REQUIRED',
         message: 'Explicit caregiver consent is mandatory and must be recorded as true.',
+        requestId: input.requestId,
       };
     }
 
@@ -241,15 +282,152 @@ export class SupabaseSubmissionAdapter {
             assetSummary[slot.docType] = 'FAILED_RETRYABLE';
           }
         } else {
-          // Tigris unconfigured - acknowledge pending/retryable
           allAssetsSucceeded = false;
           assetSummary[slot.docType] = 'FAILED_RETRYABLE';
         }
       }
     }
 
-    // 2. Persist to public.submissions
     const now = new Date().toISOString();
+
+    // Prepare sanitized mirror payload snapshot
+    const sanitizedSnapshot: Record<string, any> = {
+      ...payload,
+      uniqueId: submissionId,
+      version: 1,
+      remoteSubmissionId: submissionId,
+      state,
+      district,
+    };
+    for (const file of fileRecordsToSave) {
+      sanitizedSnapshot[`${file.doc_type}_url`] = `Restricted Doc [${file.doc_type}]`;
+    }
+
+    // 2. Durable Persistence Branch (Supabase PostgREST RPC)
+    if (this.isDatabaseConfigured()) {
+      const submissionData = {
+        unique_id: submissionId,
+        client_submission_id: submissionId,
+        programme_id: programmeId,
+        state,
+        district,
+        block: p.location?.block || p.block || '',
+        village: p.location?.village || p.village || '',
+        child_name: p.demographics?.childName || p.childName || '',
+        dob: p.demographics?.dob || p.dob || '',
+        age_years: p.demographics?.ageYears || p.calculated_age || 0,
+        age_months: p.demographics?.ageMonths || 0,
+        gender: p.demographics?.gender || p.gender || '',
+        aadhaar_last4: p.demographics?.aadhaarNumber ? String(p.demographics.aadhaarNumber).slice(-4) : (p.aadhaar_last4 || null),
+        orphan_status: p.demographics?.orphanStatus || p.orphan_status || 'None',
+        caregiver_name: p.household?.caregiverName || p.caregiverName || '',
+        caregiver_relationship: p.household?.relationshipToChild || p.caregiver_relationship || '',
+        caregiver_phone: p.household?.caregiverContact || p.caregiverPhone || '',
+        monthly_income: p.household?.monthlyIncomeRs || p.monthlyIncome || 0,
+        weight_kg: p.healthAndNutrition?.weightKg || p.weightKg || 0,
+        height_cm: p.healthAndNutrition?.heightCm || p.heightCm || 0,
+        muac_cm: p.healthAndNutrition?.muacCm || p.muacCm || 0,
+        bmi: p.healthAndNutrition?.bmi || p.bmi || 0,
+        nutritional_status: p.healthAndNutrition?.nutritionStatus || p.nutritional_status || '',
+        consent_provided: true,
+        status: 'Submitted',
+        form_payload: p,
+      };
+
+      const filesData = fileRecordsToSave.map((f) => ({
+        doc_type: f.doc_type,
+        bucket_name: f.bucket_name,
+        storage_key: f.storage_key,
+        mime_type: f.mime_type,
+        size_bytes: f.size_bytes,
+        sha256_checksum: f.sha256_checksum,
+        cell_state_hash: f.cell_state_hash,
+        original_filename: f.doc_type,
+      }));
+
+      try {
+        const res = await fetch(`${this.supabaseUrl}/rest/v1/rpc/create_submission_atomic`, {
+          method: 'POST',
+          headers: this.headers,
+          body: JSON.stringify({
+            p_submission: submissionData,
+            p_files: filesData,
+            p_idempotency_key: input.idempotencyKey || `create-${submissionId}`,
+            p_mirror_payload: sanitizedSnapshot,
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          for (const f of fileRecordsToSave) {
+            this.orphanLog.push({
+              storageKey: f.storage_key,
+              bucket: f.bucket_name,
+              submissionId,
+              reason: `Database commit failed (${res.status}): ${errText}`,
+            });
+          }
+          return {
+            status: 'error',
+            statusCode: 500,
+            code: 'DATABASE_COMMIT_FAILED',
+            message: `Failed to commit submission to database: ${errText}`,
+            requestId: input.requestId,
+          };
+        }
+
+        const rpcRes = await res.json();
+        if (!rpcRes.success) {
+          return {
+            status: 'error',
+            statusCode: rpcRes.status === 'CONSENT_REQUIRED' ? 422 : 400,
+            code: rpcRes.status || 'SUBMISSION_FAILED',
+            message: rpcRes.message || 'Database rejected submission',
+            requestId: input.requestId,
+          };
+        }
+
+        const assetStatus = !anyAssetsUploaded
+          ? 'NOT_REQUIRED'
+          : allAssetsSucceeded
+          ? 'UPLOADED'
+          : 'FAILED_RETRYABLE';
+
+        return {
+          status: 'success',
+          statusCode: rpcRes.isDuplicate ? 200 : 201,
+          acknowledged: true,
+          uniqueId: submissionId,
+          remoteSubmissionId: rpcRes.id || submissionId,
+          version: rpcRes.version || 1,
+          revisionNumber: rpcRes.version || 1,
+          submissionStatus: rpcRes.status || 'Submitted',
+          assetStatus,
+          assetOperationSummary: assetSummary,
+          requestId: input.requestId,
+          updatedAt: now,
+          isDuplicate: !!rpcRes.isDuplicate,
+        };
+      } catch (err: any) {
+        for (const f of fileRecordsToSave) {
+          this.orphanLog.push({
+            storageKey: f.storage_key,
+            bucket: f.bucket_name,
+            submissionId,
+            reason: `Network/RPC exception: ${err?.message || err}`,
+          });
+        }
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'DATABASE_TIMEOUT',
+          message: `Timeout or network error communicating with database: ${err?.message || err}`,
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // 3. In-Memory Persistence Fallback (Testing / Offline development)
     const storedRecord: StoredSubmissionRecord = {
       id: crypto.randomUUID(),
       unique_id: submissionId,
@@ -287,21 +465,6 @@ export class SupabaseSubmissionAdapter {
     this.records.set(submissionId, storedRecord);
     this.files.set(submissionId, fileRecordsToSave);
 
-    // 3. Atomically enqueue Sheets mirror job
-    const sanitizedSnapshot: Record<string, any> = {
-      ...payload,
-      uniqueId: submissionId,
-      version: 1,
-      remoteSubmissionId: submissionId,
-      state,
-      district,
-    };
-
-    // Mask storage keys in mirror payload
-    for (const file of fileRecordsToSave) {
-      sanitizedSnapshot[`${file.doc_type}_url`] = `Restricted Doc [${file.doc_type}]`;
-    }
-
     await this.mirrorRepo.enqueueJob({
       job_type: 'UPSERT_ROW',
       target_sheet_name: 'Child_Nutrition',
@@ -334,11 +497,99 @@ export class SupabaseSubmissionAdapter {
 
   /**
    * UPDATE: Applies OCC patch to an existing submission.
+   * Dispatches atomic RPC when database is configured.
    */
   public async updateSubmission(
     input: CanonicalUpdateInput,
     session?: SessionContext
   ): Promise<CanonicalSubmissionResult> {
+    const now = new Date().toISOString();
+
+    if (this.isDatabaseConfigured()) {
+      try {
+        const res = await fetch(`${this.supabaseUrl}/rest/v1/rpc/update_submission_atomic`, {
+          method: 'POST',
+          headers: this.headers,
+          body: JSON.stringify({
+            p_unique_id: input.submissionId,
+            p_expected_version: input.expectedVersion ?? null,
+            p_patch: input.patch,
+            p_idempotency_key: input.idempotencyKey || `update-${input.submissionId}-v${(input.expectedVersion || 1) + 1}`,
+            p_mirror_payload: {
+              uniqueId: input.submissionId,
+              remoteSubmissionId: input.submissionId,
+              version: (input.expectedVersion || 1) + 1,
+              patch: input.patch,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          return {
+            status: 'error',
+            statusCode: 500,
+            code: 'DATABASE_UPDATE_FAILED',
+            message: `Database update failed: ${errText}`,
+            requestId: input.requestId,
+          };
+        }
+
+        const rpcRes = await res.json();
+        if (!rpcRes.success) {
+          if (rpcRes.status === 'NOT_FOUND') {
+            return {
+              status: 'error',
+              statusCode: 404,
+              code: 'NOT_FOUND',
+              message: `Submission '${input.submissionId}' not found.`,
+              requestId: input.requestId,
+            };
+          }
+          if (rpcRes.status === 'OCC_CONFLICT') {
+            return {
+              status: 'conflict',
+              statusCode: 409,
+              code: 'CONCURRENCY_CONFLICT',
+              message: `Version conflict: expected version ${input.expectedVersion}, but current version is ${rpcRes.currentVersion}.`,
+              currentVersion: rpcRes.currentVersion,
+              expectedVersion: input.expectedVersion,
+              requestId: input.requestId,
+            };
+          }
+          return {
+            status: 'error',
+            statusCode: 400,
+            code: rpcRes.status || 'UPDATE_FAILED',
+            message: rpcRes.message || 'Database rejected update',
+            requestId: input.requestId,
+          };
+        }
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          acknowledged: true,
+          uniqueId: rpcRes.uniqueId || input.submissionId,
+          remoteSubmissionId: rpcRes.id || input.submissionId,
+          version: rpcRes.version,
+          revisionNumber: rpcRes.version,
+          submissionStatus: 'Updated',
+          requestId: input.requestId,
+          updatedAt: now,
+        };
+      } catch (err: any) {
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'DATABASE_TIMEOUT',
+          message: `Database connection error: ${err?.message || err}`,
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // In-Memory Fallback
     const existing = this.records.get(input.submissionId);
     if (!existing) {
       return {
@@ -358,7 +609,6 @@ export class SupabaseSubmissionAdapter {
       };
     }
 
-    // Optimistic Concurrency Control (OCC)
     if (input.expectedVersion !== undefined && input.expectedVersion !== existing.version) {
       return {
         status: 'conflict',
@@ -371,8 +621,6 @@ export class SupabaseSubmissionAdapter {
     }
 
     const nextVersion = existing.version + 1;
-    const now = new Date().toISOString();
-
     existing.version = nextVersion;
     existing.updated_at = now;
     const patch = input.patch as any;
@@ -384,7 +632,6 @@ export class SupabaseSubmissionAdapter {
 
     this.records.set(input.submissionId, existing);
 
-    // Enqueue mirror job for update
     await this.mirrorRepo.enqueueJob({
       job_type: 'UPSERT_ROW',
       target_sheet_name: 'Child_Nutrition',
@@ -422,6 +669,97 @@ export class SupabaseSubmissionAdapter {
     role: UserRole = 'caseworker',
     session?: SessionContext
   ): Promise<CanonicalSubmissionResult> {
+    if (this.isDatabaseConfigured()) {
+      try {
+        const encId = encodeURIComponent(submissionId);
+        const res = await fetch(`${this.supabaseUrl}/rest/v1/submissions?unique_id=eq.${encId}&limit=1`, {
+          method: 'GET',
+          headers: this.headers,
+        });
+
+        if (!res.ok) {
+          return {
+            status: 'error',
+            statusCode: res.status === 404 ? 404 : 502,
+            code: res.status === 404 ? 'NOT_FOUND' : 'DATABASE_ERROR',
+            message: `Database query failed (${res.status})`,
+          };
+        }
+
+        let data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          const res2 = await fetch(`${this.supabaseUrl}/rest/v1/submissions?client_submission_id=eq.${encId}&limit=1`, {
+            method: 'GET',
+            headers: this.headers,
+          });
+          if (res2.ok) {
+            data = await res2.json();
+          }
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          return {
+            status: 'error',
+            statusCode: 404,
+            code: 'NOT_FOUND',
+            message: `Record '${submissionId}' not found in Supabase.`,
+          };
+        }
+
+        const record = data[0];
+        if (session && !this.isAuthorizedForScope(session, record.state, record.district, record.programme_id)) {
+          return {
+            status: 'error',
+            statusCode: 403,
+            code: 'FORBIDDEN_SCOPE',
+            message: `Session not authorized for state: '${record.state}'.`,
+          };
+        }
+
+        let filesList: any[] = [];
+        const filesRes = await fetch(`${this.supabaseUrl}/rest/v1/submission_files?submission_id=eq.${record.id}`, {
+          method: 'GET',
+          headers: this.headers,
+        });
+        if (filesRes.ok) {
+          filesList = await filesRes.json().catch(() => []);
+        }
+
+        const raw = record.form_payload && Object.keys(record.form_payload).length > 0 ? record.form_payload : record;
+        const normalized = normalizeSubmissionData(raw, submissionId, record.version);
+
+        for (const f of filesList) {
+          const dt = (f.doc_type || '').toLowerCase();
+          if (dt.includes('passbook')) normalized.hasPassbook = true;
+          if (dt.includes('aadhaar')) normalized.hasAadhaar = true;
+          if (dt.includes('child') || dt.includes('photo')) normalized.hasChildPhoto = true;
+          if (dt.includes('fee')) normalized.hasFeeReceipt = true;
+          if (dt.includes('mark')) normalized.hasMarksheet = true;
+          if (dt.includes('sign')) normalized.hasSignature = true;
+        }
+
+        const filtered = filterAuthorisedRecord(normalized, role);
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          uniqueId: record.unique_id,
+          remoteSubmissionId: record.id,
+          version: record.version,
+          revisionNumber: record.version,
+          data: filtered,
+        };
+      } catch (err: any) {
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'DATABASE_TIMEOUT',
+          message: `Database get error: ${err?.message || err}`,
+        };
+      }
+    }
+
+    // In-Memory Fallback
     const record = this.records.get(submissionId);
     if (!record) {
       return {
@@ -463,9 +801,69 @@ export class SupabaseSubmissionAdapter {
     role: UserRole = 'supervisor',
     session?: SessionContext
   ): Promise<CanonicalSubmissionResult> {
+    if (this.isDatabaseConfigured()) {
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.set('select', '*');
+        queryParams.set('order', 'created_at.desc');
+        if (params.limit) queryParams.set('limit', String(params.limit));
+
+        if (session) {
+          if (!session.allowedStates.includes('*')) {
+            queryParams.set('state', `in.(${session.allowedStates.join(',')})`);
+          }
+          if (session.allowedDistricts && !session.allowedDistricts.includes('*')) {
+            queryParams.set('district', `in.(${session.allowedDistricts.join(',')})`);
+          }
+        }
+        if (params.state) queryParams.set('state', `eq.${params.state}`);
+        if (params.district) queryParams.set('district', `eq.${params.district}`);
+        if (params.status) queryParams.set('status', `eq.${params.status}`);
+
+        const res = await fetch(`${this.supabaseUrl}/rest/v1/submissions?${queryParams.toString()}`, {
+          method: 'GET',
+          headers: this.headers,
+        });
+
+        if (!res.ok) {
+          return {
+            status: 'error',
+            statusCode: 502,
+            code: 'DATABASE_ERROR',
+            message: `Failed to query submissions list (${res.status})`,
+          };
+        }
+
+        const records = await res.json();
+        const filtered = (Array.isArray(records) ? records : []).map((r: any) => {
+          const raw = r.form_payload && Object.keys(r.form_payload).length > 0 ? r.form_payload : r;
+          const normalized = normalizeSubmissionData(raw, r.unique_id, r.version);
+          return filterAuthorisedRecord(normalized, role);
+        });
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          data: filtered,
+          pagination: {
+            nextCursor: null,
+            hasMore: false,
+            totalCount: filtered.length,
+          },
+        };
+      } catch (err: any) {
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'DATABASE_TIMEOUT',
+          message: `Failed to fetch submissions: ${err?.message || err}`,
+        };
+      }
+    }
+
+    // In-Memory Fallback
     let all = Array.from(this.records.values());
 
-    // Apply session-level state/district filters
     if (session) {
       if (!session.allowedStates.includes('*')) {
         const allowedLower = session.allowedStates.map((s) => s.toLowerCase());
@@ -477,7 +875,6 @@ export class SupabaseSubmissionAdapter {
       }
     }
 
-    // Apply explicit query params
     if (params.state) {
       all = all.filter((r) => r.state.toLowerCase() === params.state!.toLowerCase());
     }
@@ -504,6 +901,62 @@ export class SupabaseSubmissionAdapter {
       },
     };
   }
+
+  /**
+   * DELETE: Soft deletes submission and enqueues outbox mirror job.
+   */
+  public async deleteSubmission(
+    submissionId: string,
+    session?: SessionContext,
+    idempotencyKey?: string
+  ): Promise<{ success: boolean; message: string; statusCode: number }> {
+    if (this.isDatabaseConfigured()) {
+      try {
+        const res = await fetch(`${this.supabaseUrl}/rest/v1/rpc/delete_submission_atomic`, {
+          method: 'POST',
+          headers: this.headers,
+          body: JSON.stringify({
+            p_unique_id: submissionId,
+            p_idempotency_key: idempotencyKey || `delete-${submissionId}`,
+          }),
+        });
+
+        if (!res.ok) {
+          return { success: false, message: `Database delete failed: ${await res.text()}`, statusCode: 500 };
+        }
+
+        const rpcRes = await res.json();
+        if (!rpcRes.success) {
+          return {
+            success: false,
+            message: rpcRes.status === 'NOT_FOUND' ? `Record '${submissionId}' not found.` : (rpcRes.message || 'Delete rejected'),
+            statusCode: rpcRes.status === 'NOT_FOUND' ? 404 : 400,
+          };
+        }
+
+        return { success: true, message: `Record ${submissionId} deleted`, statusCode: 200 };
+      } catch (err: any) {
+        return { success: false, message: `Database error: ${err?.message || err}`, statusCode: 504 };
+      }
+    }
+
+    // In-memory fallback
+    const existing = this.records.get(submissionId);
+    if (!existing) {
+      return { success: false, message: `Record ${submissionId} not found`, statusCode: 404 };
+    }
+    this.records.delete(submissionId);
+    this.files.delete(submissionId);
+    await this.mirrorRepo.enqueueJob({
+      job_type: 'DELETE_ROW',
+      target_sheet_name: 'Child_Nutrition',
+      idempotency_key: idempotencyKey || `delete-${submissionId}`,
+      payload_snapshot: { uniqueId: submissionId, remoteSubmissionId: existing.id },
+      max_attempts: 5,
+    });
+    return { success: true, message: `Record ${submissionId} deleted`, statusCode: 200 };
+  }
+
   public getRecords(): Map<string, StoredSubmissionRecord> {
     return this.records;
   }
@@ -552,57 +1005,7 @@ export class SupabaseSubmissionAdapter {
     session?: SessionContext,
     gatewayClient?: GatewayClient
   ): Promise<CanonicalSubmissionResult> {
-    const existing = this.records.get(input.submissionId);
-    if (!existing) {
-      return {
-        status: 'error',
-        statusCode: 404,
-        code: 'NOT_FOUND',
-        message: `Record not found with ID: ${input.submissionId}`,
-        requestId: input.requestId,
-      };
-    }
-
-    if (session && !this.isAuthorizedForScope(session, existing.state, existing.district, existing.programme_id)) {
-      return {
-        status: 'error',
-        statusCode: 403,
-        code: 'FORBIDDEN_SCOPE',
-        message: `Session not authorized for state: '${existing.state}'.`,
-        requestId: input.requestId,
-      };
-    }
-
-    // 1. OCC Version Verification
-    if (input.expectedVersion !== undefined && input.expectedVersion !== null && input.expectedVersion !== existing.version) {
-      return {
-        status: 'conflict',
-        statusCode: 409,
-        code: 'OCC_CONFLICT',
-        message: `Version mismatch: expected ${input.expectedVersion} but current version is ${existing.version}`,
-        currentVersion: existing.version,
-        expectedVersion: input.expectedVersion,
-        requestId: input.requestId,
-      };
-    }
-
-    // 2. OCC Cell State Hash Verification
-    const existingFiles = this.files.get(input.submissionId) || [];
-    const currentFile = existingFiles.find((f) => f.doc_type.toLowerCase() === input.docType.toLowerCase());
-
-    if (input.expectedCurrentCellStateHash && currentFile) {
-      if (currentFile.cell_state_hash.toLowerCase() !== input.expectedCurrentCellStateHash.toLowerCase()) {
-        return {
-          status: 'conflict',
-          statusCode: 409,
-          code: 'OCC_CONFLICT',
-          message: 'Optimistic concurrency failed: current cell state hash changed after dry-run.',
-          requestId: input.requestId,
-        };
-      }
-    }
-
-    // 3. Parse & Validate Base64 Payload
+    // 1. Parse & Validate Base64 Payload
     const rawVal = String(input.fileData).trim();
     const match = rawVal.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) {
@@ -628,7 +1031,7 @@ export class SupabaseSubmissionAdapter {
       };
     }
 
-    // 4. Upload to Tigris Object Storage
+    // 2. Upload to Tigris Object Storage
     let storageKey = '';
     let bucketName = 'childcare-assets';
     let calculatedSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
@@ -659,8 +1062,182 @@ export class SupabaseSubmissionAdapter {
     }
 
     const nextCellStateHash = crypto.createHash('sha256').update(calculatedSha256 + input.submissionId).digest('hex');
+    const now = new Date().toISOString();
 
-    // 5. Update public.submission_files (Replace or Append)
+    // 3. Durable Database Persistence Branch
+    if (this.isDatabaseConfigured()) {
+      try {
+        const res = await fetch(`${this.supabaseUrl}/rest/v1/rpc/update_submission_asset_atomic`, {
+          method: 'POST',
+          headers: this.headers,
+          body: JSON.stringify({
+            p_unique_id: input.submissionId,
+            p_doc_type: input.docType,
+            p_file_record: {
+              bucket_name: bucketName,
+              storage_key: storageKey,
+              mime_type: mimeType,
+              size_bytes: buffer.length,
+              sha256_checksum: calculatedSha256,
+              cell_state_hash: nextCellStateHash,
+              original_filename: input.docType,
+            },
+            p_expected_version: input.expectedVersion ?? null,
+            p_expected_cell_state_hash: input.expectedCurrentCellStateHash ?? null,
+            p_idempotency_key: input.documentOperationId || `asset-update-${input.submissionId}-${input.docType}`,
+            p_mirror_payload: {
+              action: 'updateAsset',
+              submissionId: input.submissionId,
+              uniqueId: input.submissionId,
+              docType: input.docType,
+              fileData: input.fileData,
+              expectedVersion: input.expectedVersion,
+              expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          return {
+            status: 'error',
+            statusCode: 500,
+            code: 'DATABASE_UPDATE_FAILED',
+            message: `Database asset update failed: ${errText}`,
+            requestId: input.requestId,
+          };
+        }
+
+        const rpcRes = await res.json();
+        if (!rpcRes.success) {
+          if (rpcRes.status === 'NOT_FOUND') {
+            return {
+              status: 'error',
+              statusCode: 404,
+              code: 'NOT_FOUND',
+              message: `Record not found with ID: ${input.submissionId}`,
+              requestId: input.requestId,
+            };
+          }
+          if (rpcRes.status === 'OCC_CONFLICT') {
+            return {
+              status: 'conflict',
+              statusCode: 409,
+              code: 'OCC_CONFLICT',
+              message: rpcRes.message || `Version mismatch: expected ${input.expectedVersion} but current version is ${rpcRes.currentVersion}`,
+              currentVersion: rpcRes.currentVersion,
+              expectedVersion: input.expectedVersion,
+              requestId: input.requestId,
+            };
+          }
+          return {
+            status: 'error',
+            statusCode: 400,
+            code: rpcRes.status || 'ASSET_UPDATE_FAILED',
+            message: rpcRes.message || 'Database rejected asset update',
+            requestId: input.requestId,
+          };
+        }
+
+        // Direct propagation to gateway if client provided
+        let cellFormula = `=HYPERLINK("https://drive.google.com/file/d/drive-${input.submissionId}-${input.docType}/view", "Restricted Doc [${input.docType}]")`;
+        let resolvedRow = 4;
+
+        if (gatewayClient) {
+          try {
+            const gwRes = await gatewayClient.callGateway({
+              action: 'updateAsset',
+              submissionId: input.submissionId,
+              uniqueId: rpcRes.uniqueId || input.submissionId,
+              docType: input.docType,
+              fileData: input.fileData,
+              expectedVersion: input.expectedVersion,
+              expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+              requestId: input.requestId,
+            });
+            if (gwRes.status === 'success' && gwRes.resolvedRow) {
+              resolvedRow = gwRes.resolvedRow;
+            }
+          } catch {
+            // Already enqueued to outbox
+          }
+        }
+
+        return {
+          status: 'success',
+          statusCode: 200,
+          acknowledged: true,
+          uniqueId: rpcRes.uniqueId || input.submissionId,
+          remoteSubmissionId: rpcRes.id || input.submissionId,
+          docType: input.docType,
+          version: rpcRes.version,
+          revisionNumber: rpcRes.version,
+          cellFormula,
+          resolvedRow,
+          assetStatus: 'UPLOADED',
+          requestId: input.requestId,
+          updatedAt: now,
+        };
+      } catch (err: any) {
+        return {
+          status: 'error',
+          statusCode: 504,
+          code: 'DATABASE_TIMEOUT',
+          message: `Database connection error: ${err?.message || err}`,
+          requestId: input.requestId,
+        };
+      }
+    }
+
+    // 4. In-Memory Fallback
+    const existing = this.records.get(input.submissionId);
+    if (!existing) {
+      return {
+        status: 'error',
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        message: `Record not found with ID: ${input.submissionId}`,
+        requestId: input.requestId,
+      };
+    }
+
+    if (session && !this.isAuthorizedForScope(session, existing.state, existing.district, existing.programme_id)) {
+      return {
+        status: 'error',
+        statusCode: 403,
+        code: 'FORBIDDEN_SCOPE',
+        message: `Session not authorized for state: '${existing.state}'.`,
+        requestId: input.requestId,
+      };
+    }
+
+    if (input.expectedVersion !== undefined && input.expectedVersion !== null && input.expectedVersion !== existing.version) {
+      return {
+        status: 'conflict',
+        statusCode: 409,
+        code: 'OCC_CONFLICT',
+        message: `Version mismatch: expected ${input.expectedVersion} but current version is ${existing.version}`,
+        currentVersion: existing.version,
+        expectedVersion: input.expectedVersion,
+        requestId: input.requestId,
+      };
+    }
+
+    const existingFiles = this.files.get(input.submissionId) || [];
+    const currentFile = existingFiles.find((f) => f.doc_type.toLowerCase() === input.docType.toLowerCase());
+
+    if (input.expectedCurrentCellStateHash && currentFile) {
+      if (currentFile.cell_state_hash.toLowerCase() !== input.expectedCurrentCellStateHash.toLowerCase()) {
+        return {
+          status: 'conflict',
+          statusCode: 409,
+          code: 'OCC_CONFLICT',
+          message: 'Optimistic concurrency failed: current cell state hash changed after dry-run.',
+          requestId: input.requestId,
+        };
+      }
+    }
+
     const updatedFiles = existingFiles.filter((f) => f.doc_type.toLowerCase() !== input.docType.toLowerCase());
     updatedFiles.push({
       id: crypto.randomUUID(),
@@ -673,18 +1250,15 @@ export class SupabaseSubmissionAdapter {
       sha256_checksum: calculatedSha256,
       cell_state_hash: nextCellStateHash,
       is_restricted_doc: true,
-      created_at: new Date().toISOString(),
+      created_at: now,
     });
     this.files.set(input.submissionId, updatedFiles);
 
-    // 6. Increment OCC Version in public.submissions
     const nextVersion = existing.version + 1;
-    const now = new Date().toISOString();
     existing.version = nextVersion;
     existing.updated_at = now;
     this.records.set(input.submissionId, existing);
 
-    // 7. Propagate to Google Drive & Google Sheets
     let cellFormula = `=HYPERLINK("https://drive.google.com/file/d/drive-${input.submissionId}-${input.docType}/view", "Restricted Doc [${input.docType}]")`;
     let resolvedRow = 4;
 
@@ -715,8 +1289,7 @@ export class SupabaseSubmissionAdapter {
         if (gwRes.status === 'success' && gwRes.resolvedRow) {
           resolvedRow = gwRes.resolvedRow;
         }
-      } catch (err: any) {
-        // Enqueue to mirror outbox for retry if gateway is unavailable
+      } catch {
         await this.mirrorRepo.enqueueJob({
           job_type: 'UPSERT_ROW',
           target_sheet_name: 'Child_Nutrition',
@@ -736,7 +1309,6 @@ export class SupabaseSubmissionAdapter {
         });
       }
     } else {
-      // Enqueue to mirror outbox
       await this.mirrorRepo.enqueueJob({
         job_type: 'UPSERT_ROW',
         target_sheet_name: 'Child_Nutrition',

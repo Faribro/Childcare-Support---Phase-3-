@@ -18,6 +18,7 @@ export interface SendEmailParams {
   html: string;
   text: string;
   otp?: string;
+  action?: string;
 }
 
 export interface SendEmailResult {
@@ -269,19 +270,48 @@ export class AppsScriptEmailProvider implements EmailProvider {
       };
     }
 
+    const recipient = params.to.trim().toLowerCase();
+    const action = params.action || (
+      params.subject?.includes('State Team')
+        ? 'send_state_team_otp'
+        : params.subject?.includes('Invitation')
+          ? 'send_state_team_invitation'
+          : 'send_leadership_otp'
+    );
+
     try {
-      const res = await fetch(this.webappUrl, {
+      let res = await fetch(this.webappUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'send_leadership_otp',
+          action,
           secret: this.dispatchSecret,
-          recipient: params.to.trim().toLowerCase(),
+          recipient,
           otp,
+          subject: params.subject,
+          html: params.html,
+          text: params.text,
         }),
       });
+
+      let data = await res.json().catch(() => null);
+
+      // If remote deployment is an older version that only recognizes 'send_leadership_otp', retry with legacy action
+      if ((!res.ok || data?.error === 'AUTH_INVALID_ACTION') && action !== 'send_leadership_otp') {
+        res = await fetch(this.webappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send_leadership_otp',
+            secret: this.dispatchSecret,
+            recipient,
+            otp,
+          }),
+        });
+        data = await res.json().catch(() => null);
+      }
 
       if (!res.ok) {
         console.error('[EMAIL_DISPATCH:APPS_SCRIPT_HTTP_ERROR]', `HTTP status ${res.status}`);
@@ -292,7 +322,7 @@ export class AppsScriptEmailProvider implements EmailProvider {
         };
       }
 
-      const data = await res.json().catch(() => null);
+      // data was already parsed above
       if (!data || data.success !== true) {
         const errorReason = data?.error ? String(data.error) : 'Gateway rejected dispatch request';
         console.error('[EMAIL_DISPATCH:APPS_SCRIPT_GATEWAY_ERROR]', errorReason);
