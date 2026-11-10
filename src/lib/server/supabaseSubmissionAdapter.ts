@@ -110,7 +110,7 @@ export class SupabaseSubmissionAdapter {
     options?: { supabaseUrl?: string; serviceRoleKey?: string }
   ) {
     this.tigrisService = tigrisService || new TigrisStorageService();
-    const url = options?.supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+    const url = options?.supabaseUrl || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const key = options?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
     this.supabaseUrl = url.replace(/\/+$/, '');
     this.serviceRoleKey = key;

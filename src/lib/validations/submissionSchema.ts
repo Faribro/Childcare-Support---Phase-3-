@@ -247,6 +247,13 @@ export const educationSupportRequiredSchema = z.object({
   totalRequiredSupport: z.number().min(0).default(0),
 });
 
+export const permissiveOrganizationEmail = z.preprocess((val) => {
+  if (typeof val !== 'string') return undefined;
+  const trimmed = val.trim();
+  if (trimmed === '') return '';
+  return trimmed;
+}, z.string().email('Please enter a valid organization email address (e.g. worker@allianceindia.org) or leave empty').optional().or(z.literal('')));
+
 // Step 9: Final Review & Attestation
 export const finalReviewSchema = z.object({
   allInfoCorrect: z.literal(true, {
@@ -254,7 +261,7 @@ export const finalReviewSchema = z.object({
   }),
   organizationName: z.string().default('India HIV/AIDS Alliance'),
   formSubmittedBy: z.string().trim().min(2, 'Please enter your name using at least 2 characters.').default('Caseworker'),
-  organizationEmail: z.string().email().optional().or(z.literal('')),
+  organizationEmail: permissiveOrganizationEmail,
   submissionDate: z.string().optional(),
   approvedAllianceIndia: z.string().optional(),
   reviewConfirmed: z.boolean().optional(),

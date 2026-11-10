@@ -2562,6 +2562,8 @@ export default function ResumeDraftSinglePage() {
               </div>
 
               <Input
+                id="review-organizationName"
+                name="organizationName"
                 label={t('org_name', currentLanguage)}
                 value={formData.organizationName}
                 onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
@@ -2569,10 +2571,17 @@ export default function ResumeDraftSinglePage() {
               />
 
               <Input
+                id="review-organizationEmail"
+                name="organizationEmail"
                 label={t('org_email', currentLanguage)}
                 type="email"
                 value={formData.organizationEmail}
-                onChange={(e) => setFormData({ ...formData, organizationEmail: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({ ...formData, organizationEmail: val });
+                  clearFieldError('review-organizationEmail', 'organizationEmail');
+                }}
+                error={errorsByField['review-organizationEmail']?.message || errorsByField['organizationEmail']?.message}
                 placeholder="fieldworker@allianceindia.org"
               />
             </div>
@@ -2582,7 +2591,34 @@ export default function ResumeDraftSinglePage() {
 
         {/* Sticky Floating Bottom Action Bar (Mobile & Desktop) */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
-          <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="max-w-5xl mx-auto flex flex-col gap-2">
+            {/* Direct visible error banner near Submit Survey button */}
+            {validationErrors.length > 0 && (
+              <div
+                role="alert"
+                className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-800 text-xs font-semibold shadow-xs"
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                  <span className="truncate">
+                    Please correct {validationErrors.length} {validationErrors.length === 1 ? 'issue' : 'issues'}:{' '}
+                    <strong className="underline decoration-rose-400">
+                      {validationErrors[0]?.label}
+                    </strong>{' '}
+                    ({validationErrors[0]?.message})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateToValidationError(validationErrors[0])}
+                  className="shrink-0 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] cursor-pointer"
+                >
+                  Review Error
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs w-full sm:w-auto justify-between sm:justify-start">
               <span className="font-mono font-bold text-purple-950 truncate max-w-[130px]" title={formData.artNumber}>
                 {formData.artNumber || 'ID Pending'}
@@ -2627,6 +2663,7 @@ export default function ResumeDraftSinglePage() {
                 <span>{t('submit_survey', currentLanguage)}</span>
               </Button>
             </div>
+          </div>
           </div>
         </div>
       </div>

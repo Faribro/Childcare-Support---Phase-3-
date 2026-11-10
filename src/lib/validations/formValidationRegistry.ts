@@ -885,12 +885,21 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     sectionKey: 'review',
     elementId: 'review-organizationEmail',
     label: 'Organization email',
+    defaultMessage: 'Please enter a valid organization email address or leave empty.',
     order: 123,
   },
   'review.organizationEmail': {
     sectionKey: 'review',
     elementId: 'review-organizationEmail',
     label: 'Organization email',
+    defaultMessage: 'Please enter a valid organization email address or leave empty.',
+    order: 123,
+  },
+  organizationEmail: {
+    sectionKey: 'review',
+    elementId: 'review-organizationEmail',
+    label: 'Organization email',
+    defaultMessage: 'Please enter a valid organization email address or leave empty.',
     order: 123,
   },
   allInfoCorrect: {

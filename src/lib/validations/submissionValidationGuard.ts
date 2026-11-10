@@ -37,6 +37,10 @@ const PATH_MESSAGES: Record<string, string> = {
     'Please enter the interviewer name (at least 2 characters) before submitting.',
   formSubmittedBy:
     'Please enter the interviewer name (at least 2 characters) before submitting.',
+  'finalReview.organizationEmail':
+    'Please enter a valid organization email address or leave empty.',
+  organizationEmail:
+    'Please enter a valid organization email address or leave empty.',
   'caregiverConsent.consentProvided':
     'Caregiver consent must be confirmed before this assessment can be submitted.',
   'caregiverConsent.signature':
@@ -140,6 +144,17 @@ export function handleSchemaValidationFailure(params: {
 
   const count = normalized.length;
   const message = `Please correct ${count} ${count === 1 ? 'field' : 'fields'} before submitting.`;
+
+  console.error('[Submit Survey] Validation failed:', {
+    count,
+    errors: normalized.map((e) => ({
+      field: e.fieldKey,
+      label: e.label,
+      message: e.message,
+      elementId: e.elementId,
+      section: e.sectionKey,
+    })),
+  });
 
   setSubmitting(false);
   setError(message);
