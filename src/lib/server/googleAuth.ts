@@ -164,10 +164,67 @@ export function buildGoogleAuthUrl(req: NextRequest, returnTo: string = '/assess
 }
 
 /**
+ * Feature flag check for temporary auth bypass on form routes.
+ * Strictly defaults to false.
+ */
+export function isAuthBypassFormEnabled(): boolean {
+  return process.env.AUTH_BYPASS_FORM === 'true' || process.env.NEXT_PUBLIC_AUTH_BYPASS_FORM === 'true';
+}
+
+// In-flight and recent code exchange cache to prevent invalid_grant on duplicate/retry callback invocations
+const codeInFlight = new Map<string, Promise<{ success: boolean; user?: GoogleUserInfo; error?: string }>>();
+const codeRecentResults = new Map<string, { timestamp: number; result: { success: boolean; user?: GoogleUserInfo; error?: string } }>();
+
+function cleanExpiredCodeResults() {
+  const now = Date.now();
+  for (const [key, val] of codeRecentResults.entries()) {
+    if (now - val.timestamp > 120000) {
+      codeRecentResults.delete(key);
+    }
+  }
+}
+
+/**
  * Exchanges Google authorization code for user info.
  * In test/synthetic mode, accepts mock tokens if configured.
  */
 export async function exchangeGoogleCodeForUser(
+  code: string,
+  req: NextRequest
+): Promise<{ success: boolean; user?: GoogleUserInfo; error?: string }> {
+  cleanExpiredCodeResults();
+
+  // Deduplicate: If this code was already exchanged in the last 2 minutes, return cached profile
+  const cached = codeRecentResults.get(code);
+  if (cached && Date.now() - cached.timestamp < 120000) {
+    return cached.result;
+  }
+
+  // Deduplicate: If an exchange for this code is already in flight, await it
+  const inFlight = codeInFlight.get(code);
+  if (inFlight) {
+    return await inFlight;
+  }
+
+  const exchangePromise = (async () => {
+    try {
+      return await performGoogleCodeExchange(code, req);
+    } finally {
+      codeInFlight.delete(code);
+    }
+  })();
+
+  codeInFlight.set(code, exchangePromise);
+  const result = await exchangePromise;
+
+  if (result.success) {
+    codeRecentResults.set(code, { timestamp: Date.now(), result });
+  }
+
+  return result;
+}
+
+async function performGoogleCodeExchange(
   code: string,
   req: NextRequest
 ): Promise<{ success: boolean; user?: GoogleUserInfo; error?: string }> {

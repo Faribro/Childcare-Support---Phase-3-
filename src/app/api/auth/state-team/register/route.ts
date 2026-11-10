@@ -20,26 +20,34 @@ export async function POST(req: NextRequest) {
 
   const { firstName, lastName, workEmail, requestedState, organization } = body || {};
 
-  const result = await requestStateTeamOtp({
-    firstName,
-    lastName,
-    workEmail,
-    requestedState,
-    organization,
-  });
+  try {
+    const result = await requestStateTeamOtp({
+      firstName,
+      lastName,
+      workEmail,
+      requestedState,
+      organization,
+    });
 
-  if (!result.success) {
+    if (!result.success) {
+      return NextResponse.json(
+        { status: 'error', error: result.error },
+        { status: result.statusCode }
+      );
+    }
+
     return NextResponse.json(
-      { status: 'error', error: result.error },
-      { status: result.statusCode }
+      {
+        status: 'success',
+        message: result.message,
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error('[State Team Register:DB_ERROR]', err?.message);
+    return NextResponse.json(
+      { status: 'error', error: 'Database service is temporarily unavailable. Please retry in a moment.' },
+      { status: 503 }
     );
   }
-
-  return NextResponse.json(
-    {
-      status: 'success',
-      message: result.message,
-    },
-    { status: 200 }
-  );
 }

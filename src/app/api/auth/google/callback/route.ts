@@ -68,8 +68,13 @@ export async function GET(req: NextRequest) {
   const googleUser = userResult.user;
   const store = getOnboardingStore();
 
-  // 4. Check for existing persistent field profile
-  const existingProfile = await store.getFieldUserProfileByGoogleSub(googleUser.sub);
+  // 4. Check for existing persistent field profile (with resilient error guard)
+  let existingProfile = null;
+  try {
+    existingProfile = await store.getFieldUserProfileByGoogleSub(googleUser.sub);
+  } catch (dbErr: any) {
+    console.error('[Google Callback:DB_WARNING] Failed to query existing field profile from Supabase:', dbErr?.message);
+  }
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (existingProfile && existingProfile.status === 'ACTIVE') {
