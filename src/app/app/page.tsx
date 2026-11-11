@@ -271,7 +271,7 @@ export default function FieldWorkspacePage() {
         }
       }
     }
-  }, [user]);
+  }, [user?.isVerified]);
 
   const handleRetrySubmitted = useCallback(() => {
     setIsSubmittedLoading(true);

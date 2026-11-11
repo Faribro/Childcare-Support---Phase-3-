@@ -1021,12 +1021,12 @@ export class SupabaseSubmissionAdapter {
     const mimeType = match[1];
     const buffer = Buffer.from(match[2], 'base64');
 
-    if (buffer.length > 10 * 1024 * 1024) {
+    if (buffer.length > 3 * 1024 * 1024) {
       return {
         status: 'error',
         statusCode: 413,
         code: 'REJECTED_OVERSIZE',
-        message: 'Attachment exceeds maximum 10MB limit.',
+        message: 'Attachment exceeds maximum 3MB limit.',
         requestId: input.requestId,
       };
     }

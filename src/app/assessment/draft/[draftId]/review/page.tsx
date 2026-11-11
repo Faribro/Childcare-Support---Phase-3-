@@ -178,6 +178,20 @@ export default function DraftReviewPage() {
         return;
       }
 
+      // Enforce 3 MB total submission platform budget
+      const payloadBytes =
+        typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(JSON.stringify(finalPayload), 'utf8')
+          : new Blob([JSON.stringify(finalPayload)]).size;
+
+      if (payloadBytes > 3 * 1024 * 1024) {
+        setError(
+          `Assessment submission size (${(payloadBytes / (1024 * 1024)).toFixed(2)} MB) exceeds the 3 MB platform budget. Please re-take or compress attached documents before queuing.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       await enqueueCreate({
         clientSubmissionId: canonicalUuid,
         createIdempotencyKey: `create-${canonicalUuid}`,

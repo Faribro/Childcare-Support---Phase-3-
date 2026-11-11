@@ -42,6 +42,28 @@ interface CaregiverSignaturePadProps {
   isSaved?: boolean;
 }
 
+function getOptimizedSignatureDataUrl(canvas: HTMLCanvasElement): string {
+  try {
+    if (typeof document === 'undefined') return canvas.toDataURL('image/png');
+    const maxWidth = 480;
+    if (canvas.width <= maxWidth) {
+      return canvas.toDataURL('image/png');
+    }
+    const scale = maxWidth / canvas.width;
+    const targetW = maxWidth;
+    const targetH = Math.max(1, Math.round(canvas.height * scale));
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetW;
+    offscreen.height = targetH;
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) return canvas.toDataURL('image/png');
+    ctx.drawImage(canvas, 0, 0, targetW, targetH);
+    return offscreen.toDataURL('image/png');
+  } catch {
+    return canvas.toDataURL('image/png');
+  }
+}
+
 export function CaregiverSignaturePad({
   submissionUuid,
   caregiverName,
@@ -322,7 +344,7 @@ export function CaregiverSignaturePad({
           setStatusMessage('Signature captured & saved securely to offline database.');
         }
         if (onSignatureSaved) onSignatureSaved(blob);
-        if (onSignatureChange) onSignatureChange(canvas.toDataURL('image/png'));
+        if (onSignatureChange) onSignatureChange(getOptimizedSignatureDataUrl(canvas));
       } catch (err) {
         console.error('Error saving signature Blob:', err);
         if (!silent) setStatusMessage('Error saving signature to local storage.');
@@ -343,7 +365,7 @@ export function CaregiverSignaturePad({
       const canvas = canvasRef.current;
       if (canvas && onSignatureChange) {
         try {
-          const dataUrl = canvas.toDataURL('image/png');
+          const dataUrl = getOptimizedSignatureDataUrl(canvas);
           onSignatureChange(dataUrl);
         } catch (_) {}
       }

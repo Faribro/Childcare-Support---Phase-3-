@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { Camera, RefreshCw, X, CheckCircle2, AlertCircle, Eye } from 'lucide-react';
+import { compressImageClientSide } from '@/lib/utils/imageCompression';
 
 export function isValidImageUrl(val: unknown): val is string {
   if (typeof val !== 'string') return false;
@@ -44,7 +45,7 @@ export function PhotoUpload({
   onChange,
   onReplace,
   isReplacing: externalIsReplacing = false,
-  maxSizeMb = 10,
+  maxSizeMb = 2.5,
   error: externalError,
   disabled = false,
 }: PhotoUploadProps) {
@@ -95,12 +96,23 @@ export function PhotoUpload({
     setInternalError(null);
 
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
+    reader.onload = async () => {
+      let finalDataUrl = reader.result as string;
+      if (isImage) {
+        try {
+          const compressed = await compressImageClientSide(finalDataUrl, {
+            maxDimension: 1280,
+            quality: 0.7,
+          });
+          finalDataUrl = compressed.dataUrl;
+        } catch {
+          // Keep reader.result
+        }
+      }
       if (value && onReplace) {
-        setPendingReplacement({ file, dataUrl: result });
+        setPendingReplacement({ file, dataUrl: finalDataUrl });
       } else {
-        if (onChange) onChange(result);
+        if (onChange) onChange(finalDataUrl);
       }
     };
     reader.onerror = () => {

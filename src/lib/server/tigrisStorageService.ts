@@ -22,7 +22,7 @@ import {
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 
-export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
+export const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024; // 3MB (aligned with platform payload budget)
 
 export const ALLOWED_ATTACHMENT_MIMES = [
   'image/jpeg',

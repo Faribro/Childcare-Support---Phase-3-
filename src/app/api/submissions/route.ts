@@ -411,6 +411,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Enforce 3 MB request payload budget before parsing large payloads
+    const contentLengthHeader = req.headers.get('content-length');
+    if (contentLengthHeader) {
+      const contentLength = parseInt(contentLengthHeader, 10);
+      if (!isNaN(contentLength) && contentLength > 3 * 1024 * 1024) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'PAYLOAD_TOO_LARGE',
+            message: `Submission payload size (${(contentLength / (1024 * 1024)).toFixed(2)} MB) exceeds the 3 MB platform budget.`,
+            limitBytes: 3 * 1024 * 1024,
+            receivedBytes: contentLength,
+            requestId,
+          },
+          { status: 413 }
+        );
+      }
+    }
+
     let rawBody;
     try {
       rawBody = await req.json();

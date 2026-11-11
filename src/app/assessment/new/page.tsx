@@ -1040,6 +1040,20 @@ export default function NewSinglePageAssessment() {
       setValidationErrors([]);
       setFormError(null);
 
+      // Enforce 3 MB total submission platform budget
+      const payloadBytes =
+        typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(JSON.stringify(finalRecord), 'utf8')
+          : new Blob([JSON.stringify(finalRecord)]).size;
+
+      if (payloadBytes > 3 * 1024 * 1024) {
+        setFormError(
+          `Assessment submission size (${(payloadBytes / (1024 * 1024)).toFixed(2)} MB) exceeds the 3 MB platform budget. Attached documents or photos are too large. Please re-take or compress attachments before submitting.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       await enqueueCreate({
         clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
         createIdempotencyKey: `create-${finalRecord.clientSubmissionId || finalRecord.uuid}`,

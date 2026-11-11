@@ -62,9 +62,62 @@ vi.mock('@/components/garden/MiniatureGardenPlayground', () => ({
   MiniatureGardenPlayground: () => <div data-testid="garden-playground" />,
 }));
 
+// Mock dexieDb to prevent MissingAPIError in JSDOM
+vi.mock('@/lib/db/dexieDb', () => ({
+  db: {
+    drafts: {
+      count: vi.fn().mockResolvedValue(3),
+      toArray: vi.fn().mockResolvedValue([]),
+      delete: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(null),
+        }),
+      }),
+    },
+    syncQueue: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          count: vi.fn().mockResolvedValue(0),
+        }),
+        anyOf: vi.fn().mockReturnValue({
+          count: vi.fn().mockResolvedValue(0),
+        }),
+      }),
+    },
+  },
+}));
+
 // Mock AnimatedHeartUnlock
 vi.mock('@/components/ui/AnimatedHeartUnlock', () => ({
   AnimatedHeartUnlock: () => <div data-testid="animated-heart" />,
+}));
+
+// Mock ThreeStatusOrb for clean jsdom runs
+vi.mock('@/components/dashboard/ThreeStatusOrb', () => ({
+  ThreeStatusOrb: () => <div data-testid="three-status-orb" />,
+}));
+
+const mockUser = {
+  userId: 'test-user',
+  name: 'Test Caseworker',
+  role: 'FIELD_USER',
+  allowedStates: ['*'],
+  allowedDistricts: ['*'],
+  isVerified: true,
+};
+
+const mockEvaluationAccess = {
+  isUnlocked: true,
+  isLoaded: true,
+  user: mockUser,
+};
+
+// Mock evaluationAccess to return verified user so remote sync queries run
+vi.mock('@/lib/auth/evaluationAccess', () => ({
+  useEvaluationAccess: () => mockEvaluationAccess,
+  isEvaluationUnlocked: () => true,
+  setEvaluationUnlocked: vi.fn(),
 }));
 
 describe('Dashboard Count Loading Performance (/app)', () => {
@@ -112,7 +165,7 @@ describe('Dashboard Count Loading Performance (/app)', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -192,6 +245,7 @@ describe('Dashboard Count Loading Performance (/app)', () => {
           status: 200,
           json: async () => ({ pagination: { totalCount: 88 } }),
         });
+        await new Promise((r) => setTimeout(r, 50));
       });
 
       await waitFor(() => {
@@ -258,7 +312,8 @@ describe('Dashboard Count Loading Performance (/app)', () => {
       global.fetch = vi
         .fn()
         .mockRejectedValueOnce(new Error('Network error 500'))
-        .mockResolvedValueOnce({
+        .mockRejectedValueOnce(new Error('Network error 500'))
+        .mockResolvedValue({
           ok: true,
           status: 200,
           json: async () => ({ pagination: { totalCount: 99 } }),

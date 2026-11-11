@@ -137,6 +137,22 @@ export function buildCreateRequest(item: SyncQueueItem): CreateRequest {
 
   const idempotencyKey = item.idempotencyKey || `create-${clientUuid}`;
 
+  // Enforce total 3 MB platform submission budget
+  const serializedBody = JSON.stringify(validation.data);
+  const payloadSizeBytes =
+    typeof Buffer !== 'undefined'
+      ? Buffer.byteLength(serializedBody, 'utf8')
+      : new Blob([serializedBody]).size;
+
+  if (payloadSizeBytes > 3 * 1024 * 1024) {
+    throw new RequestBuilderError(
+      `Assessment submission payload size (${(payloadSizeBytes / (1024 * 1024)).toFixed(2)} MB) exceeds the 3 MB platform budget. Please re-capture or reduce attachment photos before syncing.`,
+      'PAYLOAD_TOO_LARGE',
+      false,
+      [{ path: 'attachments', code: 'payload_too_large' }]
+    );
+  }
+
   return {
     url: '/api/submissions',
     method: 'POST',
