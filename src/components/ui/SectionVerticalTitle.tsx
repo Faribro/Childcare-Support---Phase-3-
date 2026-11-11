@@ -34,7 +34,7 @@ export function SectionVerticalTitle({ number, title, colorScheme }: SectionVert
     <aside
       aria-label={`Section ${number}: ${title}`}
       style={{ animationDelay: delaySec }}
-      className={`spider-descend absolute top-0 right-0 z-10 flex flex-col items-center ${bg} border-l border-b ${border} rounded-bl-xl px-1.5 sm:px-2 pt-2 sm:pt-2.5 pb-3 sm:pb-3.5 select-none pointer-events-none transition-all shadow-2xs max-h-[85%] overflow-visible`}
+      className={`hidden sm:flex spider-descend absolute top-0 right-0 z-10 flex-col items-center ${bg} border-l border-b ${border} rounded-bl-xl px-1.5 sm:px-2 pt-2 sm:pt-2.5 pb-3 sm:pb-3.5 select-none pointer-events-none transition-all shadow-2xs max-h-[85%] overflow-visible`}
     >
       {/* Spider silk thread dropping from the ceiling */}
       <div className="spider-silk-thread" />

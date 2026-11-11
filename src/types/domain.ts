@@ -369,6 +369,7 @@ export interface AssessmentRecord {
   finalReview: FinalReviewData;
   bankingAndKyc?: BankingAndKycData;
   koboId?: string;
+  schemaVersion?: number;
   approvedAllianceIndia?: string;
   reviewConfirmed?: boolean;
   syncNeeded?: 'YES' | 'NO';

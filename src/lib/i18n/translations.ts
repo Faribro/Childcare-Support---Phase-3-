@@ -1047,6 +1047,15 @@ export const TRANSLATIONS: Record<string, Record<string, string>> = {
   },
 };
 /**
+ * Helper to strip trailing asterisks and whitespace from translation strings
+ * to prevent double-asterisk rendering when JSX adds red <span className="text-rose-500">*</span>.
+ */
+export function cleanLabel(text: string): string {
+  if (!text) return '';
+  return text.replace(/[\s*]+$/, '').trim();
+}
+
+/**
  * Translate a translation key into the target language, falling back to English.
  */
 export function t(key: string, lang: string = 'en'): string {
@@ -1057,4 +1066,11 @@ export function t(key: string, lang: string = 'en'): string {
     return TRANSLATIONS['en'][key];
   }
   return key;
+}
+
+/**
+ * Translate and clean a field label, guaranteed to have no trailing asterisk.
+ */
+export function tLabel(key: string, lang: string = 'en'): string {
+  return cleanLabel(t(key, lang));
 }

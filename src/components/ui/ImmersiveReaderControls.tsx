@@ -495,33 +495,7 @@ export function ImmersiveReaderControls({
         )}
       </button>
 
-      <div className="flex items-center space-x-1">
-        {!isPlaying ? (
-          <button type="button" onClick={startReading}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 shadow-2xs transition-all cursor-pointer group"
-            title="Read all form questions aloud">
-            <Volume2 className="w-3.5 h-3.5 text-slate-500 group-hover:scale-110 transition-transform" />
-            <span>{t('listen_btn', currentLanguage)}</span>
-          </button>
-        ) : (
-          <div className="flex items-center space-x-1 bg-amber-50 border border-amber-200 rounded-xl p-0.5 shadow-2xs">
-            {isPaused ? (
-              <button type="button" onClick={resumeReading} className="p-1.5 rounded-lg hover:bg-amber-100 text-amber-900 transition-colors" title="Resume">
-                <Play className="w-3.5 h-3.5 fill-amber-800 text-amber-800" />
-              </button>
-            ) : (
-              <button type="button" onClick={pauseReading} className="p-1.5 rounded-lg hover:bg-amber-100 text-amber-900 transition-colors" title="Pause">
-                <Pause className="w-3.5 h-3.5 fill-amber-800 text-amber-800" />
-              </button>
-            )}
-            <button type="button" onClick={stopReading}
-              className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 text-[11px] font-bold transition-colors" title="Stop">
-              <VolumeX className="w-3 h-3 text-rose-700" />
-              <span>{t('stop_btn', currentLanguage)}</span>
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Listen button removed per mobile-first user requirement */}
       <style>{`@keyframes lgsw{from{transform:scaleY(.35);opacity:.6}to{transform:scaleY(1);opacity:1}}`}</style>
     </div>
   );

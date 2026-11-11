@@ -1,6 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  validateField,
+  validateSection,
+  validateEntireForm,
+  sanitizeSubmissionPayload,
+  CURRENT_SCHEMA_VERSION,
+} from '@/lib/validations/formRules';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -15,13 +22,14 @@ import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
-import { t } from '@/lib/i18n/translations';
+import { t, cleanLabel } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
 import {
   type FormValidationError,
+  FIELD_REGISTRY,
   normalizeValidationErrors,
   navigateToValidationError,
   normalizeNativeValidationError,
@@ -103,6 +111,9 @@ export default function NewSinglePageAssessment() {
     }
     return map;
   }, [validationErrors]);
+
+  
+  
 
   const errorsBySection = useMemo(() => {
     return getResolvableSectionErrors(validationErrors);
@@ -266,6 +277,67 @@ export default function NewSinglePageAssessment() {
     formSubmittedBy: '',
     organizationEmail: '',
   });
+
+  // ── Real-Time Field Blur & Scroll-Past Section Validation ──────────────
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+
+  const handleFieldBlur = useCallback((fieldKey: string) => {
+    setTouchedFields((prev) => {
+      const next = new Set(prev);
+      next.add(fieldKey);
+      return next;
+    });
+    const err = validateField(fieldKey, formData as any, hasSavedSignature);
+    setValidationErrors((prev) => {
+      const reg = FIELD_REGISTRY[fieldKey];
+      const elemId = reg?.elementId || fieldKey;
+      const filtered = prev.filter((e) => e.fieldKey !== fieldKey && e.elementId !== elemId);
+      return err ? [...filtered, err] : filtered;
+    });
+  }, [formData, hasSavedSignature]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const sections = document.querySelectorAll<HTMLElement>('section[id^="sec-"]');
+    if (!sections || sections.length === 0) return;
+
+    let timer: ReturnType<typeof setTimeout>;
+    const observedExited = new Set<string>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const targetId = entry.target.id;
+          const secKey = targetId.replace('sec-', '');
+          const bounding = entry.boundingClientRect;
+          if (!entry.isIntersecting && bounding.top < 0 && !observedExited.has(secKey)) {
+            observedExited.add(secKey);
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+              const secErrors = validateSection(secKey, formData as any, hasSavedSignature);
+              if (secErrors.length > 0) {
+                setValidationErrors((prev) => {
+                  const prevFieldKeys = new Set(prev.map((e) => e.fieldKey));
+                  const newErrors = secErrors.filter((e) => !prevFieldKeys.has(e.fieldKey));
+                  return [...prev, ...newErrors];
+                });
+              }
+            }, 200);
+          }
+        });
+      },
+      {
+        rootMargin: '-10% 0px -10% 0px',
+        threshold: [0, 0.1],
+      }
+    );
+
+    sections.forEach((sec) => observer.observe(sec));
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [formData, hasSavedSignature]);
 
   // Self-healing real-time error clearance: as user populates valid fields,
   // stale validation errors are immediately purged and badge counts decrement.
@@ -1003,38 +1075,31 @@ export default function NewSinglePageAssessment() {
         });
       }
 
-      const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
-      const isInvalid = !schemaValidation.success || customErrors.length > 0;
+      
+      // Single Source of Truth Form Rules & Clinical Skip Logic Validation
+      const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
+        finalRecord as any,
+        hasSavedSignature || !!signatureDataUrl
+      );
 
-      if (isInvalid) {
+      const allValidationIssues = [...fullFormErrors, ...customErrors];
+      if (!isFormValid || allValidationIssues.length > 0) {
         const normalized = normalizeValidationErrors({
-          zodIssues: schemaValidation.success ? [] : schemaValidation.error.issues,
-          customErrors,
+          customErrors: allValidationIssues,
         });
-
-        console.error('[Submit Survey] Validation blocked submit:', {
-          count: normalized.length,
-          errors: normalized.map((e) => ({
-            field: e.fieldKey,
-            label: e.label,
-            message: e.message,
-            elementId: e.elementId,
-            section: e.sectionKey,
-          })),
-        });
-
         setValidationErrors(normalized);
-        const count = normalized.length;
-        const countMessage = `Please correct ${count} ${count === 1 ? 'field' : 'fields'} before submitting: ${normalized.map((e) => `${e.label} (${e.message})`).join(', ')}`;
-        setFormError(countMessage);
-        setIsSubmitting(false);
-
         if (normalized.length > 0) {
-          const firstError = normalized[0];
-          navigateToValidationError(firstError);
+          navigateToValidationError(normalized[0]);
+          setFormError(`${normalized.length} required fields need attention. Starting with ${normalized[0].label || 'first error'}.`);
         }
+        setIsSubmitting(false);
         return;
       }
+
+      // Sanitize payload: strip hidden skip-logic fields & set schemaVersion
+      finalRecord.schemaVersion = CURRENT_SCHEMA_VERSION;
+      const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
+
 
       // Valid: clear previous errors
       setValidationErrors([]);
@@ -1098,7 +1163,7 @@ export default function NewSinglePageAssessment() {
           <div className="flex items-center space-x-2.5">
             <Link
               href="/app"
-              className="touch-target-44 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer"
+              className="touch-target-44 min-h-[44px] min-w-[44px] hidden md:inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer"
               title="Return to Dashboard"
               aria-label="Return to Dashboard"
             >
@@ -1141,7 +1206,7 @@ export default function NewSinglePageAssessment() {
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="flex flex-col gap-3">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
-        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
+        <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
           
           <ConsentAudioNotice
@@ -1255,7 +1320,7 @@ export default function NewSinglePageAssessment() {
                 className={`flex flex-col space-y-1.5 ${getHighlightClass('q-caregiver-rel')}`}
               >
                 <label htmlFor="caregiver-relationship" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                  {t('caregiver_relationship', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                  {cleanLabel(t('caregiver_relationship', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
                 </label>
                 <select
                   id="caregiver-relationship"
@@ -1351,7 +1416,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 2: Child Demographics */}
-        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
+        <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
           <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" errorCount={errorsBySection['demographics']?.length || 0} />
 
@@ -1421,9 +1486,9 @@ export default function NewSinglePageAssessment() {
                 </p>
               )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {t('gender', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                {cleanLabel(t('gender', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
                   { value: 'M' as Gender, label: 'Male (M)', alt: 'Male' },
                   { value: 'F' as Gender, label: 'Female (F)', alt: 'Female' },
@@ -1472,7 +1537,7 @@ export default function NewSinglePageAssessment() {
                 </p>
               )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {t('orphan_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                {cleanLabel(t('orphan_status', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {ORPHAN_OPTIONS.map((opt) => (
@@ -1536,7 +1601,7 @@ export default function NewSinglePageAssessment() {
 
             <div className="flex flex-col space-y-1.5">
               <label htmlFor="demographics-state" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {t('state', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                {cleanLabel(t('state', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
                 id="demographics-state"
@@ -1585,7 +1650,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
-        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
+        <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
           <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" errorCount={errorsBySection['banking']?.length || 0} />
 
@@ -1654,7 +1719,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 4: Household & Financial Details */}
-        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
+        <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
           <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
 
@@ -1719,7 +1784,7 @@ export default function NewSinglePageAssessment() {
 
             <div id="q-hh-source" className={`flex flex-col space-y-1.5 ${getHighlightClass('q-hh-source')}`}>
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {t('hh_income_source', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                {cleanLabel(t('hh_income_source', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
                 value={formData.mainSourceOfIncome}
@@ -1745,7 +1810,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
-        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
+        <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" errorCount={errorsBySection['health']?.length || 0} />
 
@@ -2262,7 +2327,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 6: Nutrition Habits */}
-        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
+        <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
           <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" errorCount={errorsBySection['nutrition']?.length || 0} />
 
@@ -2294,7 +2359,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 7: Education Status */}
-        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
+        <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
           <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" errorCount={errorsBySection['education']?.length || 0} />
 
@@ -2306,7 +2371,7 @@ export default function NewSinglePageAssessment() {
                 </p>
               )}
               <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {t('edu_status', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                {cleanLabel(t('edu_status', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
@@ -2558,7 +2623,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 8: Expenses & Programme Support */}
-        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
+        <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
           <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" errorCount={errorsBySection['expenses']?.length || 0} />
 
@@ -2597,7 +2662,7 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 9: Programme Approval & Final Review */}
-        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-4 sm:px-6 pb-5 sm:pb-6 pr-11 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
+        <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
           <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" errorCount={errorsBySection['review']?.length || 0} />
 
@@ -2626,13 +2691,13 @@ export default function NewSinglePageAssessment() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <label className="text-xs font-black uppercase tracking-[0.14em] text-slate-800 block">
-                    {t('review_confirmed', currentLanguage)} <span className="text-rose-500 ml-0.5">*</span>
+                    {cleanLabel(t('review_confirmed', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
                   </label>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     I confirm that all entered details and documents have been checked and verified for accuracy.
                   </p>
                 </div>
-                <div className="flex items-center space-x-3 shrink-0">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
                   <label
                     className={`flex items-center space-x-2.5 min-h-[44px] py-2 px-4 rounded-xl border cursor-pointer transition-all shadow-2xs ${
                       formData.allInfoCorrect === true
@@ -2728,6 +2793,32 @@ export default function NewSinglePageAssessment() {
         </div>
 
         {/* Sticky Floating Bottom Action Bar (Mobile & Desktop) */}
+        
+        {/* Sticky Validation Summary Indicator */}
+        {validationErrors.length > 0 && (
+          <aside
+            aria-live="polite"
+            role="status"
+            className="fixed bottom-24 sm:bottom-20 left-3 right-3 max-w-4xl mx-auto z-40 bg-amber-500/95 backdrop-blur-md text-amber-950 border border-amber-600/30 px-3.5 py-2 rounded-full shadow-lg flex items-center justify-between gap-2.5 animate-in slide-in-from-bottom-2"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-white font-bold text-xs">
+                {validationErrors.length}
+              </span>
+              <p className="text-xs font-bold truncate">
+                {Object.keys(errorsBySection).length} sections need attention
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigateToValidationError(validationErrors[0])}
+              className="shrink-0 px-3 py-1 rounded-full bg-amber-950 text-white text-[11px] font-bold hover:bg-black transition-colors cursor-pointer"
+            >
+              Jump to error &rarr;
+            </button>
+          </aside>
+        )}
+
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col gap-2">
             {/* Direct visible error banner near Submit Survey button */}

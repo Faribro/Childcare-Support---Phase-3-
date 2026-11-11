@@ -56,8 +56,8 @@ export function MobileKoboHomeScreen({
   const submittedLoading = isSubmittedLoading ?? isLoading;
   const count = draftsCount ?? drafts?.length ?? 0;
 
-  // Consistent with Web: Pendings is the exact sum of Waiting to send + Bank details needed
-  const pendingsTotal = waitingCount + approvedBankPendingCount;
+  // Pendings consolidates Missing Documents + Bank Details Needed per user correction
+  const pendingsTotal = submittedMissingDocsCount + approvedBankPendingCount;
   const [isPendingsExpanded, setIsPendingsExpanded] = useState(true);
 
   const handleOfflineNav = (e: React.MouseEvent, url: string) => {
@@ -255,47 +255,9 @@ export function MobileKoboHomeScreen({
           </Link>
         </div>
 
-        {/* Menu Item 2: Missing Documents (Intake Docs Incomplete - Dedicated Mobile Item) */}
+        {/* Menu Item 2: Pendings (Consolidates Missing Documents + Bank Details Needed) */}
         <div role="listitem">
-          <Link
-            href="/supervisor/assessments"
-            prefetch={true}
-            className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-600 rounded-2xl"
-          >
-            <div className="w-full min-h-[52px] bg-white border border-rose-200 hover:border-rose-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-rose-50/40 active:bg-rose-50 transition-colors cursor-pointer">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 flex items-center justify-center shrink-0">
-                  <FileWarning className="w-4 h-4 text-rose-600" aria-hidden="true" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-bold text-slate-900">{DASHBOARD_COPY.cards.missingDocs.title}</h4>
-                    <span
-                      data-testid="mobile-missing-docs-badge"
-                      className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 tabular-nums inline-flex items-center justify-center min-w-[28px] min-h-[20px]"
-                    >
-                      {submittedLoading ? (
-                        <span
-                          className="inline-block w-3.5 h-2.5 bg-rose-200 animate-pulse rounded"
-                          role="status"
-                          aria-label="Loading missing docs count"
-                        />
-                      ) : (
-                        submittedMissingDocsCount
-                      )}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 truncate">{DASHBOARD_COPY.cards.missingDocs.description}</p>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 ml-2" aria-hidden="true" />
-            </div>
-          </Link>
-        </div>
-
-        {/* Menu Item 3: Pendings (Consistent with Web: Waiting to send + Bank details needed) */}
-        <div role="listitem">
-          <div className="w-full bg-white border border-amber-200 hover:border-amber-300 rounded-2xl p-3.5 shadow-2xs transition-colors">
+          <div className="w-full bg-white border border-amber-200 hover:border-amber-300 rounded-[24px] p-3.5 shadow-2xs transition-colors">
             {/* Header / Trigger */}
             <div
               onClick={() => setIsPendingsExpanded(!isPendingsExpanded)}
@@ -345,64 +307,80 @@ export function MobileKoboHomeScreen({
               </div>
             </div>
 
-            {/* Sub-lists: Waiting to send & Bank details needed */}
+            {/* Sub-lists: Encircled Concentric Pill Rows (Missing Documents + Bank Details Needed) */}
             {isPendingsExpanded && (
-              <div className="mt-3 pt-3 border-t border-amber-100 space-y-2 animate-in fade-in duration-150">
-                {/* Sub-item 1: Waiting to send */}
+              <div className="mt-3 pt-3 border-t border-amber-100 flex flex-col gap-2 animate-in fade-in duration-150">
+                {/* Row 1: Missing Documents (Replaces waiting to send inside Pendings) */}
                 <Link
-                  href="/assessment/sync?tab=outbox"
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/50 hover:bg-amber-50 border border-amber-200/60 transition-colors min-h-[44px] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600"
+                  href="/supervisor/assessments"
+                  className="group relative flex min-h-[52px] items-center justify-between rounded-full border border-rose-200/80 bg-gradient-to-r from-rose-50/70 via-white/95 to-amber-50/50 p-1.5 pr-3 shadow-[0_2px_8px_-2px_rgba(244,63,94,0.12),inset_0_1px_0_0_rgba(255,255,255,0.9)] transition-all duration-300 hover:border-rose-300 hover:bg-white active:scale-[0.99] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Clock className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate">
-                        {DASHBOARD_COPY.cards.pendings.rows.waitingToSend.label}
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-gradient-to-br from-rose-100 to-amber-50 text-rose-800 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] transition-transform duration-300 group-hover:scale-105">
+                      <FileWarning className="h-4 w-4 text-rose-600 transition-transform duration-300 group-hover:rotate-[-4deg]" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 text-left">
+                      <p className="truncate text-xs font-bold tracking-tight text-slate-900 group-hover:text-black">
+                        {DASHBOARD_COPY.cards.missingDocs.title}
                       </p>
-                      <p className="text-[10px] text-slate-500 truncate">
-                        {DASHBOARD_COPY.cards.pendings.rows.waitingToSend.hint}
+                      <p className="truncate text-[10.5px] font-medium text-slate-500">
+                        {DASHBOARD_COPY.cards.missingDocs.description}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+
+                  <div className="ml-2 flex shrink-0 items-center gap-1.5">
                     <span
-                      data-testid="sublist-waiting-send-count"
-                      className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 min-w-[24px] text-center"
+                      data-testid="sublist-missing-docs-count"
+                      aria-live="polite"
+                      className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full border border-rose-200 bg-rose-100/90 px-2 font-mono text-xs font-bold tabular-nums text-rose-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
                     >
-                      {waitingCount}
+                      {submittedLoading ? (
+                        <span className="inline-block w-3 h-2 bg-rose-200 animate-pulse rounded" role="status" aria-label="Loading missing docs count" />
+                      ) : (
+                        submittedMissingDocsCount
+                      )}
                     </span>
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-100/0 transition-colors duration-300 group-hover:bg-rose-100/60">
+                      <ChevronRight className="h-3.5 w-3.5 text-rose-600 transition-transform duration-300 group-hover:translate-x-0.5" />
+                    </div>
                   </div>
                 </Link>
 
-                {/* Sub-item 2: Bank details needed */}
+                {/* Row 2: Bank details needed */}
                 <Link
                   href="/assessment/sync?tab=bank_pending"
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/50 hover:bg-amber-50 border border-amber-200/60 transition-colors min-h-[44px] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600"
+                  className="group relative flex min-h-[52px] items-center justify-between rounded-full border border-amber-200/80 bg-gradient-to-r from-amber-50/80 via-white/95 to-amber-50/50 p-1.5 pr-3 shadow-[0_2px_8px_-2px_rgba(217,119,6,0.12),inset_0_1px_0_0_rgba(255,255,255,0.9)] transition-all duration-300 hover:border-amber-300 hover:bg-white active:scale-[0.99] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Landmark className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-gradient-to-br from-amber-100 to-amber-50 text-amber-800 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] transition-transform duration-300 group-hover:scale-105">
+                      <Landmark className="h-4 w-4 text-amber-700 transition-transform duration-300 group-hover:rotate-[-4deg]" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 text-left">
+                      <p className="truncate text-xs font-bold tracking-tight text-slate-900 group-hover:text-black">
                         {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}
                       </p>
-                      <p className="text-[10px] text-slate-500 truncate">
+                      <p className="truncate text-[10.5px] font-medium text-amber-800/80">
                         {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.hint}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+
+                  <div className="ml-2 flex shrink-0 items-center gap-1.5">
                     <span
                       data-testid="sublist-bank-details-count"
-                      className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 min-w-[24px] text-center"
+                      aria-live="polite"
+                      className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full border border-amber-300 bg-amber-100/90 px-2 font-mono text-xs font-bold tabular-nums text-amber-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
                     >
                       {submittedLoading ? (
-                        <span className="inline-block w-3.5 h-2.5 bg-amber-200 animate-pulse rounded" />
+                        <span className="inline-block w-3 h-2 bg-amber-200 animate-pulse rounded" role="status" aria-label="Loading bank count" />
                       ) : (
                         approvedBankPendingCount
                       )}
                     </span>
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100/0 transition-colors duration-300 group-hover:bg-amber-100/60">
+                      <ChevronRight className="h-3.5 w-3.5 text-amber-700 transition-transform duration-300 group-hover:translate-x-0.5" />
+                    </div>
                   </div>
                 </Link>
               </div>
@@ -410,7 +388,7 @@ export function MobileKoboHomeScreen({
           </div>
         </div>
 
-        {/* Menu Item 4: Submitted Surveys */}
+        {/* Menu Item 3: Submitted Surveys */}
         <div role="listitem">
           <div className="w-full min-h-[52px] bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-slate-50 active:bg-slate-100 transition-colors">
             <Link
