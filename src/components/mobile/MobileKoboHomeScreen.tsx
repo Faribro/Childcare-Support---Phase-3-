@@ -15,6 +15,7 @@ import {
 import type { AssessmentRecord } from '@/types/domain';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
+import { ThreeStatusOrb } from '@/components/dashboard/ThreeStatusOrb';
 
 interface MobileKoboHomeScreenProps {
   drafts?: AssessmentRecord[];
@@ -105,6 +106,116 @@ export function MobileKoboHomeScreen({
           <ChevronRight className="w-5 h-5 text-white/80 shrink-0" aria-hidden="true" />
         </button>
       </Link>
+
+      {/* Awwwards 3D Circular Status Dial Trio (Forms to finish, Missing Docs, Pendings) */}
+      <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 p-3 shadow-2xs space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            {DASHBOARD_COPY.sectionHeading}
+          </span>
+          <span
+            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+              pendingsTotal + count + submittedMissingDocsCount === 0
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}
+          >
+            {pendingsTotal + count + submittedMissingDocsCount === 0
+              ? DASHBOARD_COPY.badgeZero
+              : `${pendingsTotal + count + submittedMissingDocsCount} Actionable`}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {/* Circular Dial 1: Forms to finish */}
+          <Link
+            href="/assessment/drafts"
+            className="flex flex-col items-center justify-center p-2 rounded-2xl bg-gradient-to-b from-teal-50/50 to-white border border-teal-100 hover:border-teal-300 transition-all active:scale-95 cursor-pointer"
+            aria-label="View drafts"
+            onClick={(e) => handleOfflineNav(e, '/assessment/drafts')}
+          >
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-teal-400/20 blur-xs" />
+              <div className="absolute inset-0 rounded-full bg-white/70 backdrop-blur-sm border border-teal-200/60 overflow-hidden flex items-center justify-center">
+                <ThreeStatusOrb
+                  variant="teal"
+                  count={count}
+                  isAllClear={count === 0}
+                  className="w-full h-full absolute inset-0"
+                />
+                <span className="relative z-10 text-lg font-black text-slate-900 tracking-tight">
+                  {draftsLoading ? (
+                    <span className="inline-block w-4 h-4 bg-slate-300 animate-pulse rounded-full" />
+                  ) : (
+                    count
+                  )}
+                </span>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-teal-800 mt-1.5 text-center truncate w-full">
+              Forms
+            </span>
+          </Link>
+
+          {/* Circular Dial 2: Missing Docs */}
+          <Link
+            href="/supervisor/assessments"
+            className="flex flex-col items-center justify-center p-2 rounded-2xl bg-gradient-to-b from-rose-50/50 to-white border border-rose-100 hover:border-rose-300 transition-all active:scale-95 cursor-pointer"
+            aria-label="View missing documents"
+          >
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-rose-400/20 blur-xs" />
+              <div className="absolute inset-0 rounded-full bg-white/70 backdrop-blur-sm border border-rose-200/60 overflow-hidden flex items-center justify-center">
+                <ThreeStatusOrb
+                  variant="rose"
+                  count={submittedMissingDocsCount}
+                  isAllClear={submittedMissingDocsCount === 0}
+                  className="w-full h-full absolute inset-0"
+                />
+                <span className="relative z-10 text-lg font-black text-rose-950 tracking-tight">
+                  {submittedLoading ? (
+                    <span className="inline-block w-4 h-4 bg-rose-200 animate-pulse rounded-full" />
+                  ) : (
+                    submittedMissingDocsCount
+                  )}
+                </span>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-rose-800 mt-1.5 text-center truncate w-full">
+              Docs
+            </span>
+          </Link>
+
+          {/* Circular Dial 3: Pendings */}
+          <Link
+            href="/assessment/sync?tab=outbox"
+            className="flex flex-col items-center justify-center p-2 rounded-2xl bg-gradient-to-b from-amber-50/50 to-white border border-amber-100 hover:border-amber-300 transition-all active:scale-95 cursor-pointer"
+            aria-label="View pendings"
+          >
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-amber-400/20 blur-xs" />
+              <div className="absolute inset-0 rounded-full bg-white/70 backdrop-blur-sm border border-amber-200/60 overflow-hidden flex items-center justify-center">
+                <ThreeStatusOrb
+                  variant="amber"
+                  count={pendingsTotal}
+                  isAllClear={pendingsTotal === 0}
+                  className="w-full h-full absolute inset-0"
+                />
+                <span className="relative z-10 text-lg font-black text-amber-950 tracking-tight">
+                  {submittedLoading ? (
+                    <span className="inline-block w-4 h-4 bg-amber-200 animate-pulse rounded-full" />
+                  ) : (
+                    pendingsTotal
+                  )}
+                </span>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-amber-800 mt-1.5 text-center truncate w-full">
+              Pendings
+            </span>
+          </Link>
+        </div>
+      </div>
 
       {/* Navigation Menu List: Unified styling across Drafts, Missing Documents, Pendings, and Submitted Surveys */}
       <div className="space-y-2.5" role="list">

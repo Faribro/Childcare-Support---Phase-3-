@@ -48,7 +48,7 @@ export function ThreeStatusOrb({
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
 
-    // Detect reduced motion safely (works in browser, SSR, and JSDOM)
+    // Detect reduced motion safely
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
       typeof window.matchMedia === 'function' &&
@@ -64,45 +64,59 @@ export function ThreeStatusOrb({
         powerPreference: 'high-performance',
       });
     } catch {
-      // Fallback to CSS representation if WebGL is unavailable
       return;
     }
 
-    const { clientWidth, clientHeight } = container;
-    const width = clientWidth || 220;
-    const height = clientHeight || 220;
+    const updateSize = () => {
+      if (!container || !renderer) return;
+      const width = container.clientWidth || 240;
+      const height = container.clientHeight || 240;
+      renderer.setSize(width, height, false);
+      if (camera) {
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+    };
+
+    const width = container.clientWidth || 240;
+    const height = container.clientHeight || 240;
 
     renderer.setSize(width, height, false);
     renderer.setPixelRatio(Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 2));
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.z = 4.2;
+    camera.position.z = 4.0;
 
     const colors = COLOR_MAP[variant] || COLOR_MAP.teal;
 
-    // 1. Central Translucent Wireframe / Holographic Sphere
-    const sphereGeometry = new THREE.SphereGeometry(1.25, 32, 32);
-    const sphereMaterial = new THREE.MeshPhysicalMaterial({
-      color: isAllClear ? 0x10b981 : colors.primary,
-      emissive: isAllClear ? 0x059669 : colors.secondary,
-      emissiveIntensity: 0.22,
-      roughness: 0.2,
-      metalness: 0.1,
-      transmission: 0.7,
+    // 1. Central Translucent Wireframe / Holographic Icosahedron
+    const sphereGeometry = new THREE.IcosahedronGeometry(1.2, 2);
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      color: colors.secondary,
+      wireframe: true,
       transparent: true,
-      opacity: 0.45,
-      wireframe: false,
+      opacity: isAllClear ? 0.22 : 0.35,
     });
     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
     scene.add(sphere);
 
-    // 2. Glowing Outer Orbit Rings
-    const ringGeometry = new THREE.TorusGeometry(1.5, 0.02, 16, 64);
-    const ringMaterial = new THREE.MeshBasicMaterial({
-      color: isAllClear ? 0x34d399 : colors.accent,
+    // 2. Inner Glowing Core
+    const coreGeometry = new THREE.SphereGeometry(0.7, 16, 16);
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: isAllClear ? 0x10b981 : colors.primary,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.12,
+    });
+    const core = new THREE.Mesh(coreGeometry, coreMaterial);
+    scene.add(core);
+
+    // 3. Glowing Outer Orbit Rings
+    const ringGeometry = new THREE.TorusGeometry(1.5, 0.018, 16, 64);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: colors.accent,
+      transparent: true,
+      opacity: isAllClear ? 0.4 : 0.65,
     });
     const ring1 = new THREE.Mesh(ringGeometry, ringMaterial);
     ring1.rotation.x = Math.PI / 3;
@@ -112,14 +126,14 @@ export function ThreeStatusOrb({
     const ring2 = new THREE.Mesh(ringGeometry, ringMaterial);
     ring2.rotation.x = -Math.PI / 4;
     ring2.rotation.y = -Math.PI / 5;
-    ring2.scale.set(1.12, 1.12, 1.12);
+    ring2.scale.set(1.15, 1.15, 1.15);
     scene.add(ring2);
 
-    // 3. Floating Sparkle Particles
-    const particleCount = 140;
+    // 4. Floating Sparkle Particles
+    const particleCount = 80;
     const particlePositions = new Float32Array(particleCount * 3);
     for (let i = 0; i < particleCount * 3; i += 3) {
-      const radius = 1.35 + Math.random() * 0.7;
+      const radius = 1.3 + Math.random() * 0.6;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       particlePositions[i] = radius * Math.sin(phi) * Math.cos(theta);
@@ -129,70 +143,54 @@ export function ThreeStatusOrb({
     const particlesGeometry = new THREE.BufferGeometry();
     particlesGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
     const particlesMaterial = new THREE.PointsMaterial({
-      size: 0.045,
-      color: isAllClear ? 0x6ee7b7 : colors.particles,
+      size: 0.04,
+      color: colors.particles,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.75,
       blending: THREE.AdditiveBlending,
     });
     const particles = new THREE.Points(particlesGeometry, particlesMaterial);
     scene.add(particles);
 
-    // 4. Lights
+    // 5. Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(ambientLight);
 
-    const pointLight = new THREE.PointLight(colors.light, 2.5, 12);
-    pointLight.position.set(3, 3, 3);
+    const pointLight = new THREE.PointLight(colors.light, 2, 10);
+    pointLight.position.set(2, 2, 2);
     scene.add(pointLight);
 
-    const backLight = new THREE.PointLight(0xffffff, 1.2, 10);
-    backLight.position.set(-3, -2, -2);
-    scene.add(backLight);
-
-    // Mouse Parallax
-    let targetRotationX = 0;
-    let targetRotationY = 0;
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-      targetRotationY = x * 0.45;
-      targetRotationX = -y * 0.45;
-    };
-
-    container.addEventListener('mousemove', handleMouseMove);
-
-    // Resize handling
+    // Dynamic resize observer
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          const { width: newW, height: newH } = entry.contentRect;
-          if (newW > 0 && newH > 0 && renderer) {
-            camera.aspect = newW / newH;
-            camera.updateProjectionMatrix();
-            renderer.setSize(newW, newH, false);
-          }
-        }
-      });
+      resizeObserver = new ResizeObserver(updateSize);
       resizeObserver.observe(container);
     }
 
-    // Animation Loop
     let animationId: number;
+    let targetRotationX = 0;
+    let targetRotationY = 0;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      targetRotationY = x * 0.3;
+      targetRotationX = y * 0.3;
+    };
+
+    container.addEventListener('mousemove', handleMouseMove, { passive: true });
+
+    // Animation loop
     const animate = () => {
       if (!prefersReducedMotion) {
-        sphere.rotation.y += 0.007;
+        sphere.rotation.y += 0.006;
         sphere.rotation.x += 0.003;
+        core.rotation.y -= 0.004;
+        ring1.rotation.z += 0.008;
+        ring2.rotation.z -= 0.006;
+        particles.rotation.y += 0.002;
 
-        ring1.rotation.z += 0.006;
-        ring2.rotation.z -= 0.005;
-
-        particles.rotation.y += 0.003;
-        particles.rotation.x -= 0.002;
-
-        // Smooth mouse damping
         sphere.rotation.x += (targetRotationX - sphere.rotation.x) * 0.05;
         sphere.rotation.y += (targetRotationY - sphere.rotation.y) * 0.05;
       }
@@ -208,9 +206,10 @@ export function ThreeStatusOrb({
       container.removeEventListener('mousemove', handleMouseMove);
       resizeObserver?.disconnect();
 
-      // Clean disposal
       sphereGeometry.dispose();
       sphereMaterial.dispose();
+      coreGeometry.dispose();
+      coreMaterial.dispose();
       ringGeometry.dispose();
       ringMaterial.dispose();
       particlesGeometry.dispose();
@@ -222,10 +221,11 @@ export function ThreeStatusOrb({
   return (
     <div
       ref={containerRef}
-      className={`relative flex items-center justify-center select-none pointer-events-none ${className}`}
+      className={`absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden ${className}`}
+      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
       aria-hidden="true"
     >
-      <canvas ref={canvasRef} className="w-full h-full block" />
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
     </div>
   );
 }
