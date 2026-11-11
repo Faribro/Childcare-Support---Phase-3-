@@ -248,7 +248,7 @@ describe('Combined Signup Email, Activation Gating & Persistent Sessions', () =>
       expect(parsed).not.toBeNull();
       expect(parsed?.role).toBe('FIELD_USER');
       expect(parsed?.allowedStates).toEqual(['Maharashtra']);
-      expect(parsed?.expiresAt - parsed?.createdAt).toBe(8 * 60 * 60 * 1000); // 8 hours
+      expect((parsed?.expiresAt ?? 0) - (parsed?.createdAt ?? 0)).toBe(8 * 60 * 60 * 1000); // 8 hours
     });
 
     it('returning field user does not consume additional invitation redemption', async () => {

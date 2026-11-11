@@ -376,9 +376,12 @@ export class MemoryOnboardingStore implements OnboardingStore {
     }
 
     if (!matchingCandidate) {
+      const matchPrefix = plainCode.toUpperCase().match(/^ALN-([A-Z]{2})-/);
       return {
         valid: false,
-        error: 'Invalid invitation code or state mismatch. Please verify code.',
+        error: matchPrefix
+          ? `This invitation code prefix (${matchPrefix[1]}) does not match the selected state (${state}). Please select the correct state.`
+          : 'Invalid invitation code or state mismatch. Please verify code.',
         statusCode: 400,
       };
     }
@@ -424,17 +427,24 @@ export class MemoryOnboardingStore implements OnboardingStore {
           statusCode: 403,
         };
       }
-      if (coordinator.status === 'PENDING_APPROVAL') {
+      if (coordinator.status === 'PENDING_APPROVAL' || coordinator.status === 'PENDING') {
         return {
           valid: false,
           error: 'This invitation code is pending programme approval of the state coordinator.',
           statusCode: 403,
         };
       }
-      if (coordinator.status === 'REJECTED' || coordinator.status === 'SUSPENDED') {
+      if (coordinator.status === 'REJECTED') {
         return {
           valid: false,
-          error: 'This invitation code is associated with a suspended or rejected coordinator.',
+          error: 'This invitation code is associated with a rejected coordinator registration.',
+          statusCode: 403,
+        };
+      }
+      if (coordinator.status === 'SUSPENDED') {
+        return {
+          valid: false,
+          error: 'This invitation code is associated with a suspended coordinator account.',
           statusCode: 403,
         };
       }
@@ -748,7 +758,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       if (data.notes !== undefined) {
         updateBody.notes = data.notes;
       }
-      if (data.autoApprove && existing.status === 'PENDING_APPROVAL') {
+      if (data.autoApprove && (existing.status === 'PENDING_APPROVAL' || existing.status === 'PENDING')) {
         updateBody.status = 'APPROVED';
       }
       await fetch(updateUrl, {
@@ -763,7 +773,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         requestedState: data.requestedState.trim(),
         organization: data.organization.trim(),
         notes: data.notes !== undefined ? data.notes : existing.notes,
-        status: data.autoApprove && existing.status === 'PENDING_APPROVAL' ? 'APPROVED' : existing.status,
+        status: data.autoApprove && (existing.status === 'PENDING_APPROVAL' || existing.status === 'PENDING') ? 'APPROVED' : existing.status,
       };
     }
 
@@ -777,7 +787,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         work_email: data.workEmail.trim().toLowerCase(),
         requested_state: data.requestedState.trim(),
         organization: data.organization.trim(),
-        status: data.autoApprove ? 'APPROVED' : 'PENDING',
+        status: data.autoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
         notes: data.notes,
       }),
     });
@@ -796,7 +806,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       workEmail: row.work_email,
       requestedState: row.requested_state,
       organization: row.organization,
-      status: row.status,
+      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
       emailVerified: Boolean(row.email_verified_at),
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -820,7 +830,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       workEmail: row.work_email,
       requestedState: row.requested_state,
       organization: row.organization,
-      status: row.status,
+      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
       emailVerified: Boolean(row.email_verified_at),
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -845,7 +855,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       workEmail: row.work_email,
       requestedState: row.requested_state,
       organization: row.organization,
-      status: row.status,
+      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
       emailVerified: Boolean(row.email_verified_at),
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -926,7 +936,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       workEmail: row.work_email,
       requestedState: row.requested_state,
       organization: row.organization,
-      status: row.status,
+      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
       emailVerified: Boolean(row.email_verified_at),
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -1113,33 +1123,53 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     }
 
     if (!match) {
-      return { valid: false, error: 'Invalid invitation code or state mismatch. Please verify code.', statusCode: 400 };
+      const matchPrefix = plainCode.toUpperCase().match(/^ALN-([A-Z]{2})-/);
+      console.warn(`[AUTH_INVITATION:NOT_FOUND] Invitation code ${plainCode.substring(0, 7)}*** not found for state: ${state}`);
+      return {
+        valid: false,
+        error: matchPrefix
+          ? `This invitation code prefix (${matchPrefix[1]}) does not match the selected state (${state}). Please select the correct state.`
+          : 'Invalid invitation code or state mismatch. Please verify code.',
+        statusCode: 400,
+      };
     }
     if (match.status === 'REVOKED') {
+      console.warn(`[AUTH_INVITATION:REVOKED] Invitation ${match.id} is revoked.`);
       return { valid: false, error: 'This invitation code has been revoked by the state administrator.', statusCode: 403 };
     }
     if (match.status === 'ROTATED') {
+      console.warn(`[AUTH_INVITATION:ROTATED] Invitation ${match.id} is rotated.`);
       return { valid: false, error: 'This invitation code has been rotated. Please obtain the new code from your state coordinator.', statusCode: 403 };
     }
     if (match.status === 'EXPIRED' || match.expiresAt <= now) {
-      return { valid: false, error: 'This invitation code has expired. Please request a new code from your state coordinator.', statusCode: 403 };
+      console.warn(`[AUTH_INVITATION:EXPIRED] Invitation ${match.id} is expired.`);
+      return { valid: false, error: 'This invitation code has expired. Please request a new code from your state coordinator.', statusCode: 410 };
     }
     if (match.redemptionCount >= match.maxRedemptions) {
+      console.warn(`[AUTH_INVITATION:EXHAUSTED] Invitation ${match.id} reached maximum redemptions.`);
       return { valid: false, error: 'This invitation code has reached its maximum authorized redemption limit.', statusCode: 429 };
     }
 
     const coordinator = await this.getStateTeamRegistrationById(match.stateTeamId);
     if (coordinator) {
       if (!coordinator.emailVerified) {
+        console.warn(`[AUTH_INVITATION:COORDINATOR_PENDING_EMAIL] Coordinator ${coordinator.id} email verification pending.`);
         return { valid: false, error: 'This invitation code is not yet active. State coordinator email verification is pending.', statusCode: 403 };
       }
-      if (coordinator.status === 'PENDING_APPROVAL') {
+      if (coordinator.status === 'PENDING_APPROVAL' || coordinator.status === 'PENDING') {
+        console.warn(`[AUTH_INVITATION:COORDINATOR_PENDING_APPROVAL] Coordinator ${coordinator.id} approval pending.`);
         return { valid: false, error: 'This invitation code is pending programme approval of the state coordinator.', statusCode: 403 };
       }
-      if (coordinator.status === 'REJECTED' || coordinator.status === 'SUSPENDED') {
-        return { valid: false, error: 'This invitation code is associated with a suspended or rejected coordinator.', statusCode: 403 };
+      if (coordinator.status === 'REJECTED') {
+        console.warn(`[AUTH_INVITATION:COORDINATOR_REJECTED] Coordinator ${coordinator.id} rejected.`);
+        return { valid: false, error: 'This invitation code is associated with a rejected coordinator registration.', statusCode: 403 };
+      }
+      if (coordinator.status === 'SUSPENDED') {
+        console.warn(`[AUTH_INVITATION:COORDINATOR_SUSPENDED] Coordinator ${coordinator.id} suspended.`);
+        return { valid: false, error: 'This invitation code is associated with a suspended coordinator account.', statusCode: 403 };
       }
       if (coordinator.status !== 'APPROVED') {
+        console.warn(`[AUTH_INVITATION:INACTIVE] Coordinator ${coordinator.id} inactive status: ${coordinator.status}`);
         return { valid: false, error: 'This invitation code is not active.', statusCode: 403 };
       }
     }

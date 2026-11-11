@@ -164,7 +164,7 @@ describe('Forms Tab Layout Simplification (/app)', () => {
     expect(surveyLink?.getAttribute('href')).toBe('/assessment/new');
   });
 
-  it('3. Renders all 4 Needs Attention tiles with accurate counts and destinations', async () => {
+  it('3. Renders all 3 Needs Attention cards with accurate counts and destinations', async () => {
     const { container } = render(<FieldWorkspacePage />);
     const desktopView = container.querySelector('.max-w-4xl') as HTMLElement;
     expect(desktopView).not.toBeNull();
@@ -175,28 +175,25 @@ describe('Forms Tab Layout Simplification (/app)', () => {
     expect(needsAttentionSection).not.toBeNull();
 
     await waitFor(() => {
-      // 1. Unfinished Forms
-      expect(within(needsAttentionSection).getByText(/Unfinished Forms/i)).toBeDefined();
+      // 1. Forms to finish (shortcut to drafts)
+      expect(within(needsAttentionSection).getByText(/Forms to finish/i)).toBeDefined();
       expect(
-        within(needsAttentionSection).getByRole('link', { name: /Resume drafts/i }).getAttribute('href')
+        within(needsAttentionSection).getByRole('link', { name: /Continue forms/i }).getAttribute('href')
       ).toBe('/assessment/drafts');
 
-      // 2. Intake Docs Incomplete
-      expect(within(needsAttentionSection).getByText(/Intake Docs Incomplete/i)).toBeDefined();
+      // 2. Missing documents (Intake gaps)
+      expect(within(needsAttentionSection).getByText(/Missing documents/i)).toBeDefined();
       expect(
-        within(needsAttentionSection).getByRole('link', { name: /Review intake gaps/i }).getAttribute('href')
+        within(needsAttentionSection).getByRole('link', { name: /Add documents/i }).getAttribute('href')
       ).toBe('/supervisor/assessments');
 
-      // 3. Queued / Retryable Sync
-      expect(within(needsAttentionSection).getByText(/Queued \/ Retryable Sync/i)).toBeDefined();
+      // 3. Pendings Card (Combined Waiting to send + Bank details)
+      expect(within(needsAttentionSection).getByText(/^Pendings$/i)).toBeDefined();
       expect(
-        within(needsAttentionSection).getByRole('link', { name: /View local outbox/i }).getAttribute('href')
+        within(needsAttentionSection).getByRole('link', { name: /Waiting to send/i }).getAttribute('href')
       ).toBe('/assessment/sync?tab=outbox');
-
-      // 4. Bank Details Pending
-      expect(within(needsAttentionSection).getByText(/Bank Details Pending/i)).toBeDefined();
       expect(
-        within(needsAttentionSection).getByRole('link', { name: /Open bank queue/i }).getAttribute('href')
+        within(needsAttentionSection).getByRole('link', { name: /Bank details needed/i }).getAttribute('href')
       ).toBe('/assessment/sync?tab=bank_pending');
     });
   });
