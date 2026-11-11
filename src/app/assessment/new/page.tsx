@@ -27,6 +27,7 @@ import { saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
+import { EDUCATION_SCHEME_CATEGORIES, isSchemeSpecifyRequired } from '@/lib/constants/educationSchemes';
 import {
   type FormValidationError,
   FIELD_REGISTRY,
@@ -248,6 +249,8 @@ export default function NewSinglePageAssessment() {
     currentClassSpecify: '',
     attendance: '' as AttendanceType,
     receivingEducationSchemeBenefit: '',
+    educationSchemeName: '',
+    educationSchemeNameSpecify: '',
 
     // Section 8: Current Expenses & Documents
     schoolFees: 0,
@@ -347,216 +350,21 @@ export default function NewSinglePageAssessment() {
     setValidationErrors((prev) => {
       let changed = false;
       const next = prev.filter((err) => {
-        // Section 7: Education
-        if (err.elementId === 'education-schoolName' || err.fieldKey === 'schoolName') {
-          if (formData.schoolName && formData.schoolName.trim().length > 0) {
-            changed = true;
-            return false;
-          }
+        const stillInvalid = validateField(
+          err.fieldKey,
+          formData as any,
+          hasSavedSignature
+        );
+        if (!stillInvalid) {
+          changed = true;
+          return false;
         }
-        if (err.elementId === 'education-currentClass' || err.fieldKey === 'currentClass') {
-          if (formData.currentClass && formData.currentClass.trim().length > 0) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'education-currentClassSpecify' || err.fieldKey === 'currentClassSpecify') {
-          if (formData.currentClass !== OTHER_SPECIFY_CLASS || (formData.currentClassSpecify && formData.currentClassSpecify.trim().length > 0)) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'education-educationStatus' || err.fieldKey === 'educationStatus') {
-          if (formData.educationStatus) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'education-schoolType' || err.fieldKey === 'schoolType') {
-          if (formData.schoolType) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'education-attendance' || err.fieldKey === 'attendance') {
-          if (formData.attendance) {
-            changed = true;
-            return false;
-          }
-        }
-
-        // Section 9: Review
-        if (err.elementId === 'review-allInfoCorrect' || err.fieldKey === 'allInfoCorrect') {
-          if (formData.allInfoCorrect === true) {
-            changed = true;
-            return false;
-          }
-        }
-        if (
-          err.elementId === 'review-formSubmittedBy' ||
-          err.elementId === 'formSubmittedBy' ||
-          err.fieldKey === 'formSubmittedBy'
-        ) {
-          if (formData.formSubmittedBy && formData.formSubmittedBy.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-
-        // Section 1: Consent & Caregiver
-        if (
-          err.elementId === 'caregiver-consent' ||
-          err.fieldKey === 'agreeToParticipate' ||
-          err.fieldKey === 'caregiverConsent.consentProvided'
-        ) {
-          if (formData.agreeToParticipate === true) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'caregiver-signature' || err.fieldKey === 'signature') {
-          if (hasSavedSignature) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'caregiver-name' || err.fieldKey === 'caregiverName') {
-          if (formData.caregiverName && formData.caregiverName.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'caregiver-relationship' || err.fieldKey === 'caregiverRelationship') {
-          if (formData.caregiverRelationship && formData.caregiverRelationship.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-contactNumber' || err.fieldKey === 'contactNumber') {
-          if (!formData.contactNumber || /^[6-9]\d{9}$/.test(formData.contactNumber)) {
-            changed = true;
-            return false;
-          }
-        }
-
-        // Section 2: Demographics
-        if (err.elementId === 'demographics-childName' || err.fieldKey === 'childName') {
-          if (formData.childName && formData.childName.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-dob' || err.fieldKey === 'dob') {
-          if (formData.dob && new Date(formData.dob) <= new Date()) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-gender' || err.fieldKey === 'gender') {
-          if (formData.gender) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-orphanStatus' || err.fieldKey === 'orphanStatus') {
-          if (formData.orphanStatus) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-state' || err.fieldKey === 'state') {
-          if (formData.state && formData.state.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-district' || err.fieldKey === 'district') {
-          if (formData.district && formData.district.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'demographics-fullAddress' || err.fieldKey === 'fullAddress') {
-          if (!formData.fullAddress || formData.fullAddress.trim().length >= 2) {
-            changed = true;
-            return false;
-          }
-        }
-
-        // Section 4: Household
-        if (err.elementId === 'household-totalFamilyMembers' || err.fieldKey === 'totalFamilyMembers') {
-          if (Number(formData.totalFamilyMembers) >= 1) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'household-numberOfChildrenUnder18' || err.fieldKey === 'numberOfChildrenUnder18') {
-          if (formData.numberOfChildrenUnder18 === '' || Number(formData.numberOfChildrenUnder18) >= 0) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'household-monthlyIncomeRs' || err.fieldKey === 'monthlyIncomeRs') {
-          if (formData.monthlyIncomeRs === '' || Number(formData.monthlyIncomeRs) >= 0) {
-            changed = true;
-            return false;
-          }
-        }
-
-        // Section 5: Clinical / Health
-        if (err.elementId === 'health-weightKg' || err.fieldKey === 'weightKg') {
-          if (formData.weightKg === '' || (Number(formData.weightKg) >= 0 && Number(formData.weightKg) <= 150)) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'health-heightCm' || err.fieldKey === 'heightCm') {
-          if (formData.heightCm === '' || (Number(formData.heightCm) >= 0 && Number(formData.heightCm) <= 220)) {
-            changed = true;
-            return false;
-          }
-        }
-        if (err.elementId === 'health-haemoglobinGdl' || err.fieldKey === 'haemoglobinGdl') {
-          if (!formData.haemoglobinGdl || (Number(formData.haemoglobinGdl) >= 0 && Number(formData.haemoglobinGdl) <= 25)) {
-            changed = true;
-            return false;
-          }
-        }
-
         return true;
       });
 
       return changed ? next : prev;
     });
-  }, [
-    validationErrors.length,
-    formData.schoolName,
-    formData.currentClass,
-    formData.currentClassSpecify,
-    formData.educationStatus,
-    formData.schoolType,
-    formData.attendance,
-    formData.allInfoCorrect,
-    formData.formSubmittedBy,
-    formData.agreeToParticipate,
-    formData.caregiverName,
-    formData.caregiverRelationship,
-    formData.contactNumber,
-    formData.childName,
-    formData.dob,
-    formData.gender,
-    formData.orphanStatus,
-    formData.state,
-    formData.district,
-    formData.fullAddress,
-    formData.totalFamilyMembers,
-    formData.numberOfChildrenUnder18,
-    formData.monthlyIncomeRs,
-    formData.weightKg,
-    formData.heightCm,
-    formData.haemoglobinGdl,
-    hasSavedSignature,
-  ]);
+  }, [formData, hasSavedSignature, validationErrors.length]);
 
   // Clear global form error when all validation errors have resolved
   useEffect(() => {
@@ -781,6 +589,8 @@ export default function NewSinglePageAssessment() {
         currentClassSpecify: formData.currentClass === OTHER_SPECIFY_CLASS ? formData.currentClassSpecify : undefined,
         attendance: formData.attendance,
         receivingEducationSchemeBenefit: formData.receivingEducationSchemeBenefit,
+        educationSchemeName: formData.educationSchemeName,
+        educationSchemeNameSpecify: formData.educationSchemeNameSpecify,
       },
       educationExpenses: {
         schoolFees: Number(formData.schoolFees) || 0,
@@ -989,6 +799,8 @@ export default function NewSinglePageAssessment() {
           currentClassSpecify: formData.currentClass === OTHER_SPECIFY_CLASS ? formData.currentClassSpecify : undefined,
           attendance: formData.attendance,
           receivingEducationSchemeBenefit: formData.receivingEducationSchemeBenefit,
+          educationSchemeName: formData.educationSchemeName,
+          educationSchemeNameSpecify: formData.educationSchemeNameSpecify,
         },
         educationExpenses: {
           schoolFees: Number(formData.schoolFees) || 0,
@@ -1028,64 +840,16 @@ export default function NewSinglePageAssessment() {
         updatedAt: new Date().toISOString(),
       };
 
-      // Custom business validations
-      const customErrors: FormValidationError[] = [];
-
-      if (formData.agreeToParticipate !== true) {
-        customErrors.push({
-          path: ['caregiverConsent', 'consentProvided'],
-          fieldKey: 'caregiverConsent.consentProvided',
-          sectionKey: 'consent',
-          message: 'Caregiver consent must be confirmed before this assessment can be submitted.',
-          label: 'Caregiver consent',
-          elementId: 'caregiver-consent',
-        });
-      }
-
-      if (!hasSavedSignature && !signatureDataUrl) {
-        customErrors.push({
-          path: ['caregiverConsent', 'signature'],
-          fieldKey: 'caregiverConsent.signature',
-          sectionKey: 'consent',
-          message: 'Please save the caregiver signature before submitting.',
-          label: 'Caregiver signature',
-          elementId: 'caregiver-signature',
-        });
-      }
-
-      if (!trimmedInterviewer || trimmedInterviewer.length < 2) {
-        customErrors.push({
-          path: ['finalReview', 'formSubmittedBy'],
-          fieldKey: 'finalReview.formSubmittedBy',
-          sectionKey: 'review',
-          message: 'Please enter your name using at least 2 characters.',
-          label: 'Interviewer / Caseworker name',
-          elementId: 'review-formSubmittedBy',
-        });
-      }
-
-      if (formData.allInfoCorrect !== true) {
-        customErrors.push({
-          path: ['finalReview', 'allInfoCorrect'],
-          fieldKey: 'finalReview.allInfoCorrect',
-          sectionKey: 'review',
-          message: 'You must confirm that all information is correct before submitting.',
-          label: 'Confirmation of information correctness',
-          elementId: 'review-allInfoCorrect',
-        });
-      }
-
-      
       // Single Source of Truth Form Rules & Clinical Skip Logic Validation
+      const validationPayload = { ...formData, ...finalRecord };
       const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
-        finalRecord as any,
+        validationPayload,
         hasSavedSignature || !!signatureDataUrl
       );
 
-      const allValidationIssues = [...fullFormErrors, ...customErrors];
-      if (!isFormValid || allValidationIssues.length > 0) {
+      if (!isFormValid || fullFormErrors.length > 0) {
         const normalized = normalizeValidationErrors({
-          customErrors: allValidationIssues,
+          customErrors: fullFormErrors,
         });
         setValidationErrors(normalized);
         if (normalized.length > 0) {
@@ -1754,12 +1518,17 @@ export default function NewSinglePageAssessment() {
                     ? formData.numberOfChildrenUnder18
                     : ''
                 }
-                onChange={(e) =>
+                onChange={(e) => {
+                  const val = e.target.value === '' ? ('' as any) : Number(e.target.value);
                   setFormData({
                     ...formData,
-                    numberOfChildrenUnder18: e.target.value === '' ? ('' as any) : Number(e.target.value),
-                  })
-                }
+                    numberOfChildrenUnder18: val,
+                  });
+                  if (val !== '' && !isNaN(val) && val >= 0) {
+                    clearFieldError('household-numberOfChildrenUnder18', 'numberOfChildrenUnder18', 'householdFinancial.numberOfChildrenUnder18');
+                  }
+                }}
+                onBlur={() => handleFieldBlur('householdFinancial.numberOfChildrenUnder18')}
                 error={errorsByField['household-numberOfChildrenUnder18']?.message}
                 placeholder="e.g. 2"
               />
@@ -1773,9 +1542,14 @@ export default function NewSinglePageAssessment() {
                 min="0"
                 required
                 value={formData.monthlyIncomeRs || ''}
-                onChange={(e) =>
-                  setFormData({ ...formData, monthlyIncomeRs: e.target.value === '' ? ('' as any) : Number(e.target.value) })
-                }
+                onChange={(e) => {
+                  const val = e.target.value === '' ? ('' as any) : Number(e.target.value);
+                  setFormData({ ...formData, monthlyIncomeRs: val });
+                  if (val !== '' && !isNaN(val) && val >= 0) {
+                    clearFieldError('household-monthlyIncomeRs', 'monthlyIncomeRs', 'householdFinancial.monthlyIncomeRs');
+                  }
+                }}
+                onBlur={() => handleFieldBlur('householdFinancial.monthlyIncomeRs')}
                 error={errorsByField['household-monthlyIncomeRs']?.message}
                 placeholder="e.g. 12000"
                 unit="₹"
@@ -1783,14 +1557,20 @@ export default function NewSinglePageAssessment() {
             </div>
 
             <div id="q-hh-source" className={`flex flex-col space-y-1.5 ${getHighlightClass('q-hh-source')}`}>
-              <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+              <label htmlFor="household-mainSourceOfIncome" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
                 {cleanLabel(t('hh_income_source', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
+                id="household-mainSourceOfIncome"
                 value={formData.mainSourceOfIncome}
-                onChange={(e) =>
-                  setFormData({ ...formData, mainSourceOfIncome: e.target.value as MainSourceOfIncome })
-                }
+                onChange={(e) => {
+                  const val = e.target.value as MainSourceOfIncome;
+                  setFormData({ ...formData, mainSourceOfIncome: val });
+                  if (val) {
+                    clearFieldError('household-mainSourceOfIncome', 'mainSourceOfIncome', 'householdFinancial.mainSourceOfIncome');
+                  }
+                }}
+                onBlur={() => handleFieldBlur('householdFinancial.mainSourceOfIncome')}
                 className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
                 {[
@@ -1958,7 +1738,12 @@ export default function NewSinglePageAssessment() {
                   <select
                     id="health-artStatus"
                     value={formData.artStatus}
-                    onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
+                    onChange={(e) => {
+                      const val = e.target.value as ARTStatus;
+                      setFormData({ ...formData, artStatus: val });
+                      clearFieldError('health-artStatus', 'artStatus', 'health.artStatus');
+                    }}
+                    onBlur={() => handleFieldBlur('health.artStatus')}
                     className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                   >
                     {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
@@ -1977,7 +1762,12 @@ export default function NewSinglePageAssessment() {
                     <select
                       id="health-currentlyOnArt"
                       value={formData.currentlyOnArt}
-                      onChange={(e) => setFormData({ ...formData, currentlyOnArt: e.target.value as any })}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setFormData({ ...formData, currentlyOnArt: val });
+                        clearFieldError('health-currentlyOnArt', 'currentlyOnArt', 'health.currentlyOnArt');
+                      }}
+                      onBlur={() => handleFieldBlur('health.currentlyOnArt')}
                       className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-purple-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
                     >
                       <option value="">Select Confirmation...</option>
@@ -1993,7 +1783,14 @@ export default function NewSinglePageAssessment() {
                     label={artIdConfig.label}
                     required={formData.artStatus === 'On ART'}
                     value={formData.artIdNumber}
-                    onChange={(e) => setFormData({ ...formData, artIdNumber: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, artIdNumber: val });
+                      if (val.trim().length >= 2) {
+                        clearFieldError('health-artIdNumber', 'artIdNumber', 'health.artIdNumber');
+                      }
+                    }}
+                    onBlur={() => handleFieldBlur('health.artIdNumber')}
                     error={errorsByField['health-artIdNumber']?.message}
                     placeholder="e.g. MH-PUN-00123"
                   />
@@ -2004,12 +1801,17 @@ export default function NewSinglePageAssessment() {
                   label={artInitiationConfig.label}
                   type="date"
                   value={formData.artInitiationDate}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const val = e.target.value;
                     setFormData({
                       ...formData,
-                      artInitiationDate: e.target.value,
-                    })
-                  }
+                      artInitiationDate: val,
+                    });
+                    if (val) {
+                      clearFieldError('health-artInitiationDate', 'artInitiationDate', 'health.artInitiationDate');
+                    }
+                  }}
+                  onBlur={() => handleFieldBlur('health.artInitiationDate')}
                   error={errorsByField['health-artInitiationDate']?.message}
                 />
 
@@ -2018,7 +1820,12 @@ export default function NewSinglePageAssessment() {
                     id="health-artMedicineType"
                     label={regimenUIConfig.label}
                     value={formData.artMedicineType}
-                    onChange={(val: string) => setFormData({ ...formData, artMedicineType: val })}
+                    onChange={(val: string) => {
+                      setFormData({ ...formData, artMedicineType: val });
+                      if (val) {
+                        clearFieldError('health-artMedicineType', 'artMedicineType', 'health.artMedicineType');
+                      }
+                    }}
                     disabled={!regimenUIConfig.isApplicable}
                     disabledExplanation={regimenUIConfig.disabledExplanation}
                     required={formData.artStatus === 'On ART'}
@@ -2604,13 +2411,32 @@ export default function NewSinglePageAssessment() {
 
             <div id="education-receivingEducationSchemeBenefit" className="space-y-1.5 pt-2">
               <label htmlFor="education-scheme-benefit" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                Is the child receiving any education-scheme benefit?
+                Is the child receiving any education-scheme benefit? <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
                 id="education-scheme-benefit"
                 value={formData.receivingEducationSchemeBenefit}
-                onChange={(e) => setFormData({ ...formData, receivingEducationSchemeBenefit: e.target.value })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const isSchemeActive = val === 'Yes' || val === 'Applied / Under Review';
+                  setFormData({
+                    ...formData,
+                    receivingEducationSchemeBenefit: val,
+                    educationSchemeName: isSchemeActive ? formData.educationSchemeName : '',
+                    educationSchemeNameSpecify: isSchemeActive ? formData.educationSchemeNameSpecify : '',
+                  });
+                  clearFieldError('education-scheme-benefit', 'receivingEducationSchemeBenefit', 'educationStatus.receivingEducationSchemeBenefit');
+                  if (!isSchemeActive) {
+                    clearFieldError('education-scheme-name', 'educationSchemeName', 'educationStatus.educationSchemeName');
+                    clearFieldError('education-scheme-name-specify', 'educationSchemeNameSpecify', 'educationStatus.educationSchemeNameSpecify');
+                  }
+                }}
+                onBlur={() => handleFieldBlur('educationStatus.receivingEducationSchemeBenefit')}
+                className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                  errorsByField['education-scheme-benefit']
+                    ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                    : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40'
+                }`}
               >
                 <option value="">Select Status</option>
                 <option value="Yes">Yes</option>
@@ -2618,7 +2444,82 @@ export default function NewSinglePageAssessment() {
                 <option value="Applied / Under Review">Applied / Under Review</option>
                 <option value="Not Applicable">Not Applicable</option>
               </select>
+              {errorsByField['education-scheme-benefit'] && (
+                <p id="education-scheme-benefit-error" role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['education-scheme-benefit'].message}
+                </p>
+              )}
             </div>
+
+            {(formData.receivingEducationSchemeBenefit === 'Yes' || formData.receivingEducationSchemeBenefit === 'Applied / Under Review') && (
+              <div className="space-y-4 pt-1 animate-fadeIn">
+                <div id="education-scheme-name-container" className="space-y-1.5">
+                  <label htmlFor="education-scheme-name" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                    WHICH EDUCATION SCHEME? <span className="text-rose-500 ml-0.5">*</span>
+                  </label>
+                  <select
+                    id="education-scheme-name"
+                    value={formData.educationSchemeName || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const needsSpecify = isSchemeSpecifyRequired(val);
+                      setFormData({
+                        ...formData,
+                        educationSchemeName: val,
+                        educationSchemeNameSpecify: needsSpecify ? formData.educationSchemeNameSpecify : '',
+                      });
+                      clearFieldError('education-scheme-name', 'educationSchemeName', 'educationStatus.educationSchemeName');
+                      if (!needsSpecify) {
+                        clearFieldError('education-scheme-name-specify', 'educationSchemeNameSpecify', 'educationStatus.educationSchemeNameSpecify');
+                      }
+                    }}
+                    onBlur={() => handleFieldBlur('educationStatus.educationSchemeName')}
+                    className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                      errorsByField['education-scheme-name']
+                        ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                        : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40'
+                    }`}
+                  >
+                    <option value="">Select Education Scheme...</option>
+                    {EDUCATION_SCHEME_CATEGORIES.map((cat) => (
+                      <optgroup key={cat.category} label={cat.category}>
+                        {cat.schemes.map((s) => (
+                          <option key={s.value} value={s.value}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {errorsByField['education-scheme-name'] && (
+                    <p id="education-scheme-name-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-scheme-name'].message}
+                    </p>
+                  )}
+                </div>
+
+                {isSchemeSpecifyRequired(formData.educationSchemeName) && (
+                  <div id="education-scheme-specify-container" className="space-y-1.5 animate-fadeIn">
+                    <Input
+                      id="education-scheme-name-specify"
+                      label="SPECIFY SCHEME NAME"
+                      required
+                      value={formData.educationSchemeNameSpecify || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, educationSchemeNameSpecify: val });
+                        if (val.trim().length >= 2) {
+                          clearFieldError('education-scheme-name-specify', 'educationSchemeNameSpecify', 'educationStatus.educationSchemeNameSpecify');
+                        }
+                      }}
+                      onBlur={() => handleFieldBlur('educationStatus.educationSchemeNameSpecify')}
+                      error={errorsByField['education-scheme-name-specify']?.message}
+                      placeholder="e.g. Savitribai Phule Scholarship, Free Bicycle Scheme, etc."
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
 

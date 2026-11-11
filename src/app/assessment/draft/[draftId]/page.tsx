@@ -27,7 +27,8 @@ import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure, type FormValidationError } from '@/lib/validations/submissionValidationGuard';
 import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
-import { getResolvableSectionErrors, navigateToValidationError, FIELD_REGISTRY } from '@/lib/validations/formValidationRegistry';
+import { EDUCATION_SCHEME_CATEGORIES, isSchemeSpecifyRequired } from '@/lib/constants/educationSchemes';
+import { getResolvableSectionErrors, navigateToValidationError, FIELD_REGISTRY, normalizeValidationErrors } from '@/lib/validations/formValidationRegistry';
 import { enqueueCreate } from '@/features/submission/submissionQueueRepository';
 import { processQueue } from '@/features/submission/submissionWorker';
 import { waitForSubmissionOutcome } from '@/features/submission/submissionEvents';
@@ -228,6 +229,8 @@ export default function ResumeDraftSinglePage() {
     currentClassSpecify: '',
     attendance: '' as AttendanceType,
     receivingEducationSchemeBenefit: '',
+    educationSchemeName: '',
+    educationSchemeNameSpecify: '',
 
     // Section 8: Current Expenses & Documents
     schoolFees: 0,
@@ -318,6 +321,37 @@ export default function ResumeDraftSinglePage() {
       observer.disconnect();
     };
   }, [formData, hasSavedSignature]);
+
+  // Self-healing real-time error clearance: as user populates valid fields,
+  // stale validation errors are immediately purged and badge counts decrement.
+  useEffect(() => {
+    if (validationErrors.length === 0) return;
+
+    setValidationErrors((prev) => {
+      let changed = false;
+      const next = prev.filter((err) => {
+        const stillInvalid = validateField(
+          err.fieldKey,
+          formData as any,
+          hasSavedSignature
+        );
+        if (!stillInvalid) {
+          changed = true;
+          return false;
+        }
+        return true;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [formData, hasSavedSignature, validationErrors.length]);
+
+  // Clear global form error when all validation errors have resolved
+  useEffect(() => {
+    if (validationErrors.length === 0 && formError) {
+      setFormError(null);
+    }
+  }, [validationErrors.length, formError]);
 
   // Load draft from Dexie
   useEffect(() => {
@@ -419,6 +453,8 @@ export default function ResumeDraftSinglePage() {
             currentClassSpecify: ed.currentClassSpecify || '',
             attendance: (ed.attendance as AttendanceType) || 'Regular',
             receivingEducationSchemeBenefit: ed.receivingEducationSchemeBenefit || '',
+            educationSchemeName: ed.educationSchemeName || '',
+            educationSchemeNameSpecify: ed.educationSchemeNameSpecify || '',
 
             schoolFees: Number(exp.schoolFees) || 0,
             tuitionFees: Number(exp.tuitionFees) || 0,
@@ -659,6 +695,8 @@ export default function ResumeDraftSinglePage() {
         currentClassSpecify: formData.currentClassSpecify,
         attendance: formData.attendance,
         receivingEducationSchemeBenefit: formData.receivingEducationSchemeBenefit,
+        educationSchemeName: formData.educationSchemeName,
+        educationSchemeNameSpecify: formData.educationSchemeNameSpecify,
       },
       educationExpenses: {
         schoolFees: Number(formData.schoolFees) || 0,
@@ -774,38 +812,6 @@ export default function ResumeDraftSinglePage() {
   };
 
   const handleSubmit = async () => {
-    const err = validateForm();
-    if (err) {
-      setFormError(err);
-      const targetMap: Record<string, string[]> = {
-        'child\'s full name': ['childName', 'q-demo-name', 'demographics-childName'],
-        'date of birth': ['child-dob', 'q-demo-dob', 'dob'],
-        'caregiver\'s full name': ['caregiverName', 'q-consent-name', 'consent-caregiverName'],
-        'contact number': ['caregiverContact', 'q-demo-phone', 'contactNumber'],
-        'Consent was not granted': ['consent-agreeToParticipate', 'consent-checkbox', 'agreeToParticipate'],
-        'signature': ['consent-signature-pad', 'signature-pad'],
-        'verify that all information': ['attestation-agreeDeclaration', 'allInfoCorrect', 'q-rev-verify'],
-        'name using at least 2 characters': ['formSubmittedBy', 'q-rev-interviewer'],
-      };
-      for (const [key, ids] of Object.entries(targetMap)) {
-        if (err.includes(key)) {
-          for (const id of ids) {
-            const el = document.getElementById(id);
-            if (el) {
-              const details = el.closest('details');
-              if (details && !details.open) {
-                details.open = true;
-                details.dispatchEvent(new Event('toggle'));
-              }
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              (el as HTMLElement).focus?.();
-              return;
-            }
-          }
-        }
-      }
-      return;
-    }
     setFormError(null);
     setIsSubmitting(true);
 
@@ -937,6 +943,8 @@ export default function ResumeDraftSinglePage() {
           currentClassSpecify: formData.currentClassSpecify,
           attendance: formData.attendance,
           receivingEducationSchemeBenefit: formData.receivingEducationSchemeBenefit,
+          educationSchemeName: formData.educationSchemeName,
+          educationSchemeNameSpecify: formData.educationSchemeNameSpecify,
         },
         educationExpenses: {
           schoolFees: Number(formData.schoolFees) || 0,
@@ -977,63 +985,64 @@ export default function ResumeDraftSinglePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      const schemaValidation = completeSubmissionSchema.safeParse(finalRecord);
-      if (!schemaValidation.success) {
-        // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
-        handleSchemaValidationFailure({
-          issues: schemaValidation.error.issues,
-          setError: setFormError,
-          setSubmitting: (v) => setIsSubmitting(v),
-          onErrorsNormalized: (errors) => {
-            setValidationErrors(errors);
-            if (errors.length > 0) {
-              const first = errors[0];
-              navigateToValidationError(first);
-            }
-          },
+      // Single Source of Truth Form Rules & Clinical Skip Logic Validation
+      const validationPayload = { ...formData, ...finalRecord };
+      const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
+        validationPayload,
+        hasSavedSignature || !!signatureDataUrl
+      );
+
+      if (!isFormValid || fullFormErrors.length > 0) {
+        const normalized = normalizeValidationErrors({
+          customErrors: fullFormErrors,
         });
+        setValidationErrors(normalized);
+        if (normalized.length > 0) {
+          navigateToValidationError(normalized[0]);
+          setFormError(`${normalized.length} required fields need attention. Starting with ${normalized[0].label || 'first error'}.`);
+        }
+        setIsSubmitting(false);
         return;
       }
 
+      // Sanitize payload: strip hidden skip-logic fields & set schemaVersion
+      finalRecord.schemaVersion = CURRENT_SCHEMA_VERSION;
+      const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
+
+      // Valid: clear previous errors
       setValidationErrors([]);
       setFormError(null);
 
+      // Enforce 3 MB total submission platform budget
+      const payloadBytes =
+        typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(JSON.stringify(sanitizedFinalRecord), 'utf8')
+          : new Blob([JSON.stringify(sanitizedFinalRecord)]).size;
+
+      if (payloadBytes > 3 * 1024 * 1024) {
+        setFormError(
+          `Assessment submission size (${(payloadBytes / (1024 * 1024)).toFixed(2)} MB) exceeds the 3 MB platform budget. Attached documents or photos are too large. Please re-take or compress attachments before submitting.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       await enqueueCreate({
-        clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
-        createIdempotencyKey: `create-${finalRecord.clientSubmissionId || finalRecord.uuid}`,
-        snapshot: finalRecord,
+        clientSubmissionId: sanitizedFinalRecord.clientSubmissionId || sanitizedFinalRecord.uuid,
+        createIdempotencyKey: `create-${sanitizedFinalRecord.clientSubmissionId || sanitizedFinalRecord.uuid}`,
+        snapshot: sanitizedFinalRecord,
       });
 
       // Immediate Autosync Trigger via canonical worker
-      const refId = finalRecord.demographics.artNumber || finalRecord.uuid;
-      const targetClientId = finalRecord.clientSubmissionId || finalRecord.uuid;
+      const refId = sanitizedFinalRecord.demographics.artNumber || sanitizedFinalRecord.uuid;
+      const targetClientId = sanitizedFinalRecord.clientSubmissionId || sanitizedFinalRecord.uuid;
 
-      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
-      setSubmitStatus('saving');
+      // ── NON-BLOCKING LOCAL PERSISTENCE ──
+      setSubmitStatus('success');
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        setSubmitStatus('sending');
-
-        const outcomePromise = waitForSubmissionOutcome(targetClientId, {
-          timeoutMs: 90_000, // 90s: covers Apps Script cold-start (may take 25–60s) + 45s gateway abort
-          onSending: () => setSubmitStatus('sending'),
-          onRetrying: () => setSubmitStatus('retrying'),
-        });
-
-        // Start worker AFTER listeners are registered synchronously
-        processQueue('form_submit').catch(() => {/* worker handles its own errors */});
-
-        const outcome = await outcomePromise;
-        if (outcome.status === 'success') {
-          setSubmitStatus('success');
-          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-        } else if (outcome.status === 'failed') {
-          setSubmitStatus('failed');
-          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
-        } else {
-          // Timeout -> non-success tracking state
-          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
-        }
+        processQueue('form_submit').catch(() => {/* worker manages its own retries */});
+        router.push(`/assessment/sync?status=saved_queued&ref=${encodeURIComponent(refId)}`);
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }
@@ -2488,13 +2497,32 @@ export default function ResumeDraftSinglePage() {
 
             <div id="education-receivingEducationSchemeBenefit" className="space-y-1.5 pt-2">
               <label htmlFor="education-scheme-benefit" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                Is the child receiving any education-scheme benefit?
+                Is the child receiving any education-scheme benefit? <span className="text-rose-500 ml-0.5">*</span>
               </label>
               <select
                 id="education-scheme-benefit"
                 value={formData.receivingEducationSchemeBenefit}
-                onChange={(e) => setFormData({ ...formData, receivingEducationSchemeBenefit: e.target.value })}
-                className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const isSchemeActive = val === 'Yes' || val === 'Applied / Under Review';
+                  setFormData({
+                    ...formData,
+                    receivingEducationSchemeBenefit: val,
+                    educationSchemeName: isSchemeActive ? formData.educationSchemeName : '',
+                    educationSchemeNameSpecify: isSchemeActive ? formData.educationSchemeNameSpecify : '',
+                  });
+                  clearFieldError('education-scheme-benefit', 'receivingEducationSchemeBenefit');
+                  if (!isSchemeActive) {
+                    clearFieldError('education-scheme-name', 'educationSchemeName');
+                    clearFieldError('education-scheme-name-specify', 'educationSchemeNameSpecify');
+                  }
+                }}
+                onBlur={() => handleFieldBlur('educationStatus.receivingEducationSchemeBenefit')}
+                className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                  errorsByField['education-scheme-benefit']
+                    ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                    : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40'
+                }`}
               >
                 <option value="">Select Status</option>
                 <option value="Yes">Yes</option>
@@ -2502,7 +2530,82 @@ export default function ResumeDraftSinglePage() {
                 <option value="Applied / Under Review">Applied / Under Review</option>
                 <option value="Not Applicable">Not Applicable</option>
               </select>
+              {errorsByField['education-scheme-benefit'] && (
+                <p id="education-scheme-benefit-error" role="alert" className="text-xs font-semibold text-rose-600">
+                  {errorsByField['education-scheme-benefit'].message}
+                </p>
+              )}
             </div>
+
+            {(formData.receivingEducationSchemeBenefit === 'Yes' || formData.receivingEducationSchemeBenefit === 'Applied / Under Review') && (
+              <div className="space-y-4 pt-1 animate-fadeIn">
+                <div id="education-scheme-name-container" className="space-y-1.5">
+                  <label htmlFor="education-scheme-name" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
+                    WHICH EDUCATION SCHEME? <span className="text-rose-500 ml-0.5">*</span>
+                  </label>
+                  <select
+                    id="education-scheme-name"
+                    value={formData.educationSchemeName || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const needsSpecify = isSchemeSpecifyRequired(val);
+                      setFormData({
+                        ...formData,
+                        educationSchemeName: val,
+                        educationSchemeNameSpecify: needsSpecify ? formData.educationSchemeNameSpecify : '',
+                      });
+                      clearFieldError('education-scheme-name', 'educationSchemeName');
+                      if (!needsSpecify) {
+                        clearFieldError('education-scheme-name-specify', 'educationSchemeNameSpecify');
+                      }
+                    }}
+                    onBlur={() => handleFieldBlur('educationStatus.educationSchemeName')}
+                    className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
+                      errorsByField['education-scheme-name']
+                        ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                        : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40'
+                    }`}
+                  >
+                    <option value="">Select Education Scheme...</option>
+                    {EDUCATION_SCHEME_CATEGORIES.map((cat) => (
+                      <optgroup key={cat.category} label={cat.category}>
+                        {cat.schemes.map((s) => (
+                          <option key={s.value} value={s.value}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {errorsByField['education-scheme-name'] && (
+                    <p id="education-scheme-name-error" role="alert" className="text-xs font-semibold text-rose-600">
+                      {errorsByField['education-scheme-name'].message}
+                    </p>
+                  )}
+                </div>
+
+                {isSchemeSpecifyRequired(formData.educationSchemeName) && (
+                  <div id="education-scheme-specify-container" className="space-y-1.5 animate-fadeIn">
+                    <Input
+                      id="education-scheme-name-specify"
+                      label="SPECIFY SCHEME NAME"
+                      required
+                      value={formData.educationSchemeNameSpecify || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, educationSchemeNameSpecify: val });
+                        if (val.trim().length >= 2) {
+                          clearFieldError('education-scheme-name-specify', 'educationSchemeNameSpecify');
+                        }
+                      }}
+                      onBlur={() => handleFieldBlur('educationStatus.educationSchemeNameSpecify')}
+                      error={errorsByField['education-scheme-name-specify']?.message}
+                      placeholder="e.g. Savitribai Phule Scholarship, Free Bicycle Scheme, etc."
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
 

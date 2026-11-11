@@ -274,6 +274,8 @@ export interface EducationStatusData {
   currentClassSpecify?: string;
   attendance?: AttendanceType;
   receivingEducationSchemeBenefit?: 'Yes' | 'No' | 'Unknown' | string; // Question 24: Education scheme benefit
+  educationSchemeName?: string;
+  educationSchemeNameSpecify?: string;
   // Backward compatibility
   schoolEnrolled?: boolean;
   attendancePercentage?: number;
@@ -472,6 +474,8 @@ export interface AllowlistedEditableFields {
   disabilityType?: string;
   disabilityCertificateStatus?: string;
   receivingEducationSchemeBenefit?: string;
+  educationSchemeName?: string;
+  educationSchemeNameSpecify?: string;
   malnutritionSymptoms?: string;
   contactNumber?: string;
   caregiverPhone?: string;

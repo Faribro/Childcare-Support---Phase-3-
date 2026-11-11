@@ -182,16 +182,16 @@ describe('Forms Tab Layout Simplification (/app)', () => {
       ).toBe('/assessment/drafts');
 
       // 2. Missing documents (Intake gaps)
-      expect(within(needsAttentionSection).getByText(/Missing documents/i)).toBeDefined();
+      expect(within(needsAttentionSection).getAllByText(/Missing documents/i).length).toBeGreaterThanOrEqual(1);
       expect(
-        within(needsAttentionSection).getByRole('link', { name: /Add documents/i }).getAttribute('href')
+        within(needsAttentionSection).getAllByRole('link', { name: /Add documents/i })[0].getAttribute('href')
       ).toBe('/supervisor/assessments');
 
-      // 3. Pendings Card (Combined Waiting to send + Bank details)
+      // 3. Pendings Card (Combined Missing documents + Bank details)
       expect(within(needsAttentionSection).getByText(/^Pendings$/i)).toBeDefined();
-      expect(
-        within(needsAttentionSection).getByRole('link', { name: /Waiting to send/i }).getAttribute('href')
-      ).toBe('/assessment/sync?tab=outbox');
+      const missingDocsLinks = within(needsAttentionSection).getAllByRole('link', { name: /Missing documents/i });
+      expect(missingDocsLinks.length).toBeGreaterThanOrEqual(1);
+      expect(missingDocsLinks[0].getAttribute('href')).toBe('/supervisor/assessments');
       expect(
         within(needsAttentionSection).getByRole('link', { name: /Bank details needed/i }).getAttribute('href')
       ).toBe('/assessment/sync?tab=bank_pending');

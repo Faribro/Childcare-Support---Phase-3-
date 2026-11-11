@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CURRENT_SCHEMA_VERSION,
   isFieldApplicable,
@@ -8,6 +8,22 @@ import {
   validateEntireForm,
 } from '@/lib/validations/formRules';
 import { cleanLabel } from '@/lib/i18n/translations';
+
+vi.mock('@/lib/db/dexieDb', () => ({
+  db: {
+    drafts: {
+      update: vi.fn().mockResolvedValue(1),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(null),
+        }),
+      }),
+      add: vi.fn().mockResolvedValue(1),
+    },
+  },
+}));
+
+import { saveDraft, getDraftByAnyId } from '@/lib/db/draftRepository';
 
 describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => {
   // ── 1. Schema Versioning & Single Source of Truth ──────────────────────────
@@ -203,6 +219,48 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
       };
       expect(isFieldApplicable('educationStatus.currentClassSpecify', otherClassData)).toBe(true);
     });
+
+    it('manages education scheme benefit skip logic and specify requirement', () => {
+      // 1. Not applicable when benefit is No or Not Applicable
+      const noBenefit = { receivingEducationSchemeBenefit: 'No' };
+      expect(isFieldApplicable('educationStatus.educationSchemeName', noBenefit)).toBe(false);
+      expect(isFieldApplicable('educationStatus.educationSchemeNameSpecify', noBenefit)).toBe(false);
+      expect(validateField('educationStatus.educationSchemeName', noBenefit)).toBeNull();
+
+      // 2. Applicable and required when benefit is Yes
+      const yesBenefitEmpty = { receivingEducationSchemeBenefit: 'Yes', educationSchemeName: '' };
+      expect(isFieldApplicable('educationStatus.educationSchemeName', yesBenefitEmpty)).toBe(true);
+      const schemeErr = validateField('educationStatus.educationSchemeName', yesBenefitEmpty);
+      expect(schemeErr).not.toBeNull();
+      expect(schemeErr?.message).toContain('select the education scheme name');
+
+      // 3. Standard scheme does NOT require specify
+      const standardScheme = {
+        receivingEducationSchemeBenefit: 'Yes',
+        educationSchemeName: 'Samagra Shiksha Abhiyan',
+      };
+      expect(isFieldApplicable('educationStatus.educationSchemeNameSpecify', standardScheme)).toBe(false);
+      expect(validateField('educationStatus.educationSchemeName', standardScheme)).toBeNull();
+
+      // 4. Other Scheme (specify) requires educationSchemeNameSpecify
+      const otherSchemeEmpty = {
+        receivingEducationSchemeBenefit: 'Applied / Under Review',
+        educationSchemeName: 'Other Scheme (specify)',
+        educationSchemeNameSpecify: '',
+      };
+      expect(isFieldApplicable('educationStatus.educationSchemeNameSpecify', otherSchemeEmpty)).toBe(true);
+      const specifyErr = validateField('educationStatus.educationSchemeNameSpecify', otherSchemeEmpty);
+      expect(specifyErr).not.toBeNull();
+      expect(specifyErr?.message).toContain('specify the scheme name');
+
+      // 5. Valid specify passes validation
+      const otherSchemeFilled = {
+        receivingEducationSchemeBenefit: 'Applied / Under Review',
+        educationSchemeName: 'Other Scheme (specify)',
+        educationSchemeNameSpecify: 'Local NGO Bicycle Scheme',
+      };
+      expect(validateField('educationStatus.educationSchemeNameSpecify', otherSchemeFilled)).toBeNull();
+    });
   });
 
   // ── 6. Payload Sanitization Strips Stale Hidden Fields ──────────────────────
@@ -233,6 +291,220 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
       expect(clean.disabilityType).toBeUndefined();
       expect(clean.schoolName).toBeUndefined();
       expect(clean.currentClass).toBeUndefined();
+    });
+
+    it('strips educationSchemeName and specify when benefit is No, or specify when not needed', () => {
+      const payloadNoBenefit = {
+        receivingEducationSchemeBenefit: 'No',
+        educationSchemeName: 'Samagra Shiksha Abhiyan',
+        educationSchemeNameSpecify: 'Some text',
+      };
+      const clean1 = sanitizeSubmissionPayload(payloadNoBenefit);
+      expect(clean1.educationSchemeName).toBeUndefined();
+      expect(clean1.educationSchemeNameSpecify).toBeUndefined();
+
+      const payloadStandardScheme = {
+        educationStatus: 'Currently going to school',
+        receivingEducationSchemeBenefit: 'Yes',
+        educationSchemeName: 'Samagra Shiksha Abhiyan',
+        educationSchemeNameSpecify: 'Unneeded text',
+      };
+      const clean2 = sanitizeSubmissionPayload(payloadStandardScheme);
+      expect(clean2.educationSchemeName).toBe('Samagra Shiksha Abhiyan');
+      expect(clean2.educationSchemeNameSpecify).toBeUndefined();
+    });
+  });
+
+  // ── 7. Save Draft Incomplete & Offline Resilience ──────────────────────────
+  describe('7. Save Draft Incomplete Data & Offline Invariant', () => {
+    it('always saves partial, incomplete drafts without validation blocking', async () => {
+      const incompleteDraft = {
+        uuid: 'test-draft-incomplete-001',
+        clientSubmissionId: 'test-draft-incomplete-001',
+        uniqueId: 'MH-PUN-INC',
+        version: 1,
+        interviewerName: '',
+        stepIndex: 1,
+        demographics: {
+          artNumber: 'MH-PUN-INC',
+          dateOfFilling: '2026-11-11',
+          childName: '', // Incomplete
+          dob: '',       // Incomplete
+          calculatedAgeYears: 0,
+          calculatedAgeMonths: 0,
+          gender: '' as any,
+          orphanStatus: '' as any,
+          caregiverName: '',
+          caregiverRelationship: '' as any,
+          contactNumber: '',
+          fullAddress: '',
+          state: 'Maharashtra',
+          district: '',
+        },
+        consent: {
+          agreeToParticipate: false,
+        },
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+      };
+
+      // saveDraft must resolve successfully without throwing
+      await expect(saveDraft(incompleteDraft as any)).resolves.not.toThrow();
+    });
+  });
+
+  // ── 8. Real-time OnBlur & Scroll-Past Section Validation ───────────────────
+  describe('8. Real-time OnBlur and Scroll-Past Section Triggers', () => {
+    it('validates only touched field on blur', () => {
+      const formData = {
+        childName: 'A', // Too short
+        artNumber: 'MH-PUN-100', // Valid
+      };
+
+      const blurChildNameErr = validateField('demographics.childName', formData);
+      expect(blurChildNameErr).not.toBeNull();
+      expect(blurChildNameErr?.message).toContain('at least 2 characters');
+
+      const blurArtErr = validateField('demographics.artNumber', formData);
+      expect(blurArtErr).toBeNull();
+    });
+
+    it('validates applicable fields in a section when scrolled past', () => {
+      const partiallyFilledData = {
+        totalFamilyMembers: 3,
+        numberOfChildrenUnder18: 1,
+        monthlyIncomeRs: '', // Missing
+        mainSourceOfIncome: '', // Missing
+      };
+
+      const sectionErrors = validateSection('household', partiallyFilledData);
+      expect(sectionErrors.length).toBeGreaterThan(0);
+      const fieldKeys = sectionErrors.map((e) => e.fieldKey);
+      expect(fieldKeys).toContain('householdFinancial.monthlyIncomeRs');
+      expect(fieldKeys).toContain('householdFinancial.mainSourceOfIncome');
+    });
+  });
+
+  // ── 9. Full Submit Validation Gate ─────────────────────────────────────────
+  describe('9. Full Submit Validation Gate', () => {
+    it('blocks submission and returns errors when required fields are missing', () => {
+      const incompleteData = {
+        artNumber: 'MH-PUN-001',
+        agreeToParticipate: true,
+        // Missing childName, gender, orphanStatus, household, etc.
+      };
+
+      const result = validateEntireForm(incompleteData, false);
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0]).toHaveProperty('elementId');
+      expect(result.errors[0]).toHaveProperty('message');
+    });
+
+    it('passes full form validation when flat formData is complete with On ART', () => {
+      const completeFlatData = {
+        agreeToParticipate: true,
+        caregiverName: 'Sunita Sharma',
+        caregiverRelationship: 'Mother',
+        artNumber: 'MH-PUN-111439-01',
+        childName: 'Aarav Sharma',
+        dob: '2016-05-15',
+        gender: 'Male',
+        orphanStatus: 'Single orphan',
+        contactNumber: '9876543210',
+        fullAddress: '123 Main Street, Pune',
+        state: 'Maharashtra',
+        district: 'Pune',
+        totalFamilyMembers: 4,
+        numberOfChildrenUnder18: 2,
+        monthlyIncomeRs: 12000,
+        mainSourceOfIncome: 'Daily wage labour',
+        weightKg: 28,
+        heightCm: 125,
+        haemoglobinGdl: 11.5,
+        artStatus: 'On ART',
+        artIdNumber: 'MH_PUN_78278268',
+        artInitiationDate: '2026-11-02',
+        artMedicineType: 'TLD (Tenofovir 300mg + Lamivudine 300mg + Dolutegravir 50mg)',
+        vlStatus: 'Suppressed (< 1000 copies/mL)',
+        vlDate: '2026-08-10',
+        viralLoad: 50,
+        hasDisability: 'No',
+        appetite: 'Good',
+        mealsPerDay: 3,
+        educationStatus: 'Currently going to school',
+        schoolName: 'Govt High School',
+        schoolType: 'Government',
+        currentClass: 'Class 5',
+        attendance: 'Regular (> 80%)',
+        formSubmittedBy: 'Ramesh Fieldworker',
+        allInfoCorrect: true,
+      };
+
+      const result = validateEntireForm(completeFlatData, true);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('passes full form validation when canonical nested finalRecord is complete', () => {
+      const completeNestedRecord = {
+        consent: {
+          agreeToParticipate: true,
+        },
+        caregiverConsent: {
+          consentProvided: true,
+          caregiverName: 'Sunita Sharma',
+          caregiverRelationship: 'Mother',
+        },
+        demographics: {
+          artNumber: 'MH-PUN-111439-01',
+          childName: 'Aarav Sharma',
+          dob: '2016-05-15',
+          gender: 'Male',
+          orphanStatus: 'Single orphan',
+          contactNumber: '9876543210',
+          fullAddress: '123 Main Street, Pune',
+          state: 'Maharashtra',
+          district: 'Pune',
+        },
+        householdFinancial: {
+          totalFamilyMembers: 4,
+          numberOfChildrenUnder18: 2,
+          monthlyIncomeRs: 12000,
+          mainSourceOfIncome: 'Daily wage labour',
+        },
+        health: {
+          weightKg: 28,
+          heightCm: 125,
+          haemoglobinGdl: 11.5,
+          artStatus: 'On ART',
+          artIdNumber: 'MH_PUN_78278268',
+          artInitiationDate: '2026-11-02',
+          artMedicineType: 'TLD (Tenofovir 300mg + Lamivudine 300mg + Dolutegravir 50mg)',
+          vlStatus: 'Suppressed (< 1000 copies/mL)',
+          vlDate: '2026-08-10',
+          viralLoad: 50,
+          hasDisability: 'No',
+        },
+        nutrition: {
+          appetite: 'Good',
+          mealsPerDay: 3,
+        },
+        educationStatus: {
+          educationStatus: 'Currently going to school',
+          schoolName: 'Govt High School',
+          schoolType: 'Government',
+          currentClass: 'Class 5',
+          attendance: 'Regular (> 80%)',
+        },
+        finalReview: {
+          formSubmittedBy: 'Ramesh Fieldworker',
+          allInfoCorrect: true,
+        },
+      };
+
+      const result = validateEntireForm(completeNestedRecord, true);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
   });
 });
