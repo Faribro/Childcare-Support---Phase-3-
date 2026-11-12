@@ -20,6 +20,9 @@ import { SectionVerticalTitle, type SectionColorScheme } from '@/components/ui/S
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
+import { BilingualAddressBlock } from '@/components/forms/BilingualAddressBlock';
+import { ProfileSrCompletionModal } from '@/components/auth/ProfileSrCompletionModal';
+import { Fingerprint, Users } from 'lucide-react';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t, cleanLabel } from '@/lib/i18n/translations';
@@ -103,6 +106,7 @@ export default function NewSinglePageAssessment() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+  const [isSrModalOpen, setIsSrModalOpen] = useState(false);
 
   const errorsByField = useMemo(() => {
     const map: Record<string, FormValidationError> = {};
@@ -188,13 +192,22 @@ export default function NewSinglePageAssessment() {
     caregiverName: '',
     caregiverRelationship: 'Mother' as CaregiverRelationship,
     contactNumber: '',
+    noPhoneAvailable: false,
+    alternateContactNumber: '',
+    residenceType: '' as 'Owned' | 'Rented' | 'Others' | '',
+    doorAndColony: '',
+    street: '',
+    villageCity: '',
+    talukMandalBlock: '',
+    landmark: '',
     fullAddress: '',
-    state: 'Maharashtra',
+    state: '',
     district: '',
+    pinCode: '',
     childAadhaarNumber: '',
     srName: '',
     ssrName: '',
-    guardianStatus: '',
+    guardianStatus: '' as 'Alive' | 'Deceased' | 'Ill' | 'Migrated' | 'Unknown' | '',
 
     // Section 2: Consent
     agreeToParticipate: null as boolean | null,
@@ -212,7 +225,7 @@ export default function NewSinglePageAssessment() {
     totalFamilyMembers: '' as any,
     numberOfChildrenUnder18: '' as any,
     monthlyIncomeRs: '' as any,
-    mainSourceOfIncome: 'Daily wage labour' as MainSourceOfIncome,
+    mainSourceOfIncome: '' as any,
 
     // Section 5: Health, Clinical, ART & Viral Load
     weightKg: '' as any,
@@ -220,17 +233,17 @@ export default function NewSinglePageAssessment() {
     haemoglobinGdl: '',
     otherHealthConditions: [] as string[],
     otherHealthConditionSpecify: '',
-    artStatus: 'On ART' as ARTStatus,
+    artStatus: '' as any,
     artRegistrationDate: '',
     artInitiationDate: '',
     artIdNumber: '',
     artMedicineType: '',
     currentlyOnArt: '' as 'Yes' | 'No' | '',
     cd4Count: '',
-    vlStatus: 'Tested in last 6 months' as VLStatus,
+    vlStatus: '' as any,
     vlDate: '',
     viralLoad: '',
-    hasDisability: 'No',
+    hasDisability: '',
     disabilityType: '',
     disabilityCertificateStatus: '',
 
@@ -244,7 +257,7 @@ export default function NewSinglePageAssessment() {
     educationStatusSpecify: '',
     schoolName: '',
     schoolSessionStartDate: '',
-    schoolType: 'Government school' as SchoolType,
+    schoolType: '' as any,
     currentClass: '',
     currentClassSpecify: '',
     attendance: '' as AttendanceType,
@@ -512,6 +525,15 @@ export default function NewSinglePageAssessment() {
         caregiverRelationship: formData.caregiverRelationship,
         contactNumber: formData.contactNumber,
         caregiverPhone: formData.contactNumber,
+        noPhoneAvailable: formData.noPhoneAvailable,
+        alternateContactNumber: formData.alternateContactNumber,
+        residenceType: formData.residenceType,
+        doorAndColony: formData.doorAndColony,
+        street: formData.street,
+        villageCity: formData.villageCity,
+        talukMandalBlock: formData.talukMandalBlock,
+        landmark: formData.landmark,
+        pinCode: formData.pinCode,
         fullAddress: formData.fullAddress,
         state: formData.state,
         district: formData.district,
@@ -681,6 +703,27 @@ export default function NewSinglePageAssessment() {
     setFormError(null);
     setIsSubmitting(true);
 
+    // One-time check: user must have an SR assigned before submitting
+    let effectiveSrName = formData.srName;
+    if (!effectiveSrName && typeof window !== 'undefined') {
+      try {
+        const cachedSr = localStorage.getItem('field_user_sr');
+        if (cachedSr) {
+          const parsed = JSON.parse(cachedSr);
+          if (parsed?.srName) {
+            effectiveSrName = parsed.srName;
+            setFormData((prev) => ({ ...prev, srName: parsed.srName }));
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!effectiveSrName) {
+      setIsSubmitting(false);
+      setIsSrModalOpen(true);
+      return;
+    }
+
     try {
       // Convert locally stored signature blob to base64 Data URL
       let signatureDataUrl: string | undefined = undefined;
@@ -721,6 +764,15 @@ export default function NewSinglePageAssessment() {
           caregiverRelationship: formData.caregiverRelationship || ('' as any),
           contactNumber: formData.contactNumber ? formData.contactNumber.replace(/\s+/g, '') : '',
           caregiverPhone: formData.contactNumber ? formData.contactNumber.replace(/\s+/g, '') : '',
+          noPhoneAvailable: formData.noPhoneAvailable,
+          alternateContactNumber: formData.alternateContactNumber,
+          residenceType: formData.residenceType,
+          doorAndColony: formData.doorAndColony,
+          street: formData.street,
+          villageCity: formData.villageCity,
+          talukMandalBlock: formData.talukMandalBlock,
+          landmark: formData.landmark,
+          pinCode: formData.pinCode,
           fullAddress: formData.fullAddress,
           state: formData.state,
           district: formData.district,
@@ -1341,74 +1393,115 @@ export default function NewSinglePageAssessment() {
               </div>
             </div>
 
-            <Input
-              label="Child Aadhaar Number"
-              type="text"
-              maxLength={12}
-              value={formData.childAadhaarNumber}
-              onChange={(e) =>
-                setFormData({ ...formData, childAadhaarNumber: e.target.value.replace(/\D/g, '') })
-              }
-              placeholder="e.g. 123456789012"
-            />
+          </div>
 
-            <div id="q-child-address" className={`sm:col-span-2 ${getHighlightClass('q-child-address')}`}>
+          {/* Bilingual Paper Form A12 Address Block */}
+          <div className="mt-6 pt-5 border-t border-purple-100" id="demographics-fullAddress">
+            <BilingualAddressBlock
+              data={{
+                residenceType: formData.residenceType,
+                doorAndColony: formData.doorAndColony,
+                street: formData.street,
+                villageCity: formData.villageCity,
+                talukMandalBlock: formData.talukMandalBlock,
+                landmark: formData.landmark,
+                state: formData.state,
+                district: formData.district,
+                pinCode: formData.pinCode,
+                contactNumber: formData.contactNumber,
+                noPhoneAvailable: formData.noPhoneAvailable,
+                alternateContactNumber: formData.alternateContactNumber,
+              }}
+              onChange={(updates) => {
+                setFormData((prev) => {
+                  const merged = { ...prev, ...updates };
+                  // Synthesize single fullAddress for backwards compatibility
+                  const fullAddress = [
+                    merged.doorAndColony,
+                    merged.street,
+                    merged.landmark,
+                    merged.villageCity,
+                    merged.talukMandalBlock,
+                    merged.district,
+                    merged.state ? `${merged.state}${merged.pinCode ? ` - ${merged.pinCode}` : ''}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(', ');
+                  return { ...merged, fullAddress };
+                });
+              }}
+              errors={{
+                'demographics-residenceType': errorsByField['demographics-residenceType']?.message,
+                'demographics-doorAndColony': errorsByField['demographics-doorAndColony']?.message,
+                'demographics-street': errorsByField['demographics-street']?.message,
+                'demographics-villageCity': errorsByField['demographics-villageCity']?.message,
+                'demographics-talukMandalBlock': errorsByField['demographics-talukMandalBlock']?.message,
+                'demographics-state': errorsByField['demographics-state']?.message,
+                'demographics-district': errorsByField['demographics-district']?.message,
+                'demographics-pinCode': errorsByField['demographics-pinCode']?.message,
+                'demographics-contactNumber': errorsByField['demographics-contactNumber']?.message,
+              }}
+            />
+          </div>
+
+          {/* Dedicated Sub-Cards: Child Aadhaar & Status of Guardian / Parent */}
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Standalone Card: Child Identification (Aadhaar) */}
+            <div className="p-4 sm:p-5 bg-white border border-slate-200/90 rounded-2xl shadow-2xs space-y-3" id="sec-child-aadhaar">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 rounded-xl text-purple-700">
+                  <Fingerprint className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                    Child Identification (Aadhaar) / बच्चे की पहचान (आधार)
+                  </h4>
+                  <p className="text-[11px] text-slate-500">12-digit Indian UID number</p>
+                </div>
+              </div>
               <Input
-                id="demographics-fullAddress"
-                label={t('address', currentLanguage)}
-                value={formData.fullAddress}
-                onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                error={errorsByField['demographics-fullAddress']?.message}
-                placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
+                label="Child Aadhaar Number"
+                type="text"
+                maxLength={12}
+                value={formData.childAadhaarNumber}
+                onChange={(e) =>
+                  setFormData({ ...formData, childAadhaarNumber: e.target.value.replace(/\D/g, '') })
+                }
+                placeholder="e.g. 123456789012"
               />
             </div>
 
-            <div className="flex flex-col space-y-1.5">
-              <label htmlFor="demographics-state" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500 block">
-                {cleanLabel(t('state', currentLanguage))} <span className="text-rose-500 ml-0.5">*</span>
-              </label>
-              <select
-                id="demographics-state"
-                value={formData.state}
-                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                aria-invalid={!!errorsByField['demographics-state']}
-                className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
-                  errorsByField['demographics-state']
-                    ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
-                    : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
-                }`}
-              >
-                {INDIAN_STATES_AND_UTS.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
-              {errorsByField['demographics-state'] && (
-                <p role="alert" className="text-xs font-semibold text-rose-600">
-                  {errorsByField['demographics-state'].message}
-                </p>
-              )}
-            </div>
-
-            <Input
-              id="demographics-district"
-              label={t('district', currentLanguage)}
-              value={formData.district}
-              onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-              error={errorsByField['demographics-district']?.message}
-              placeholder="e.g. Pune"
-            />
-
-            <div className="flex flex-col justify-end">
-              <LocationFetchButton
-                onLocationFetched={(loc) => setFormData((prev) => ({
-                  ...prev,
-                  fullAddress: loc.fullAddress || prev.fullAddress,
-                  state: loc.state || prev.state,
-                  district: loc.district || prev.district,
-                }))}
-              />
+            {/* Standalone Card: Status of Guardian / Parent */}
+            <div className="p-4 sm:p-5 bg-white border border-slate-200/90 rounded-2xl shadow-2xs space-y-3" id="sec-guardian-status">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 rounded-xl text-purple-700">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                    Status of Guardian or Parent / अभिभावक या माता-पिता की स्थिति
+                  </h4>
+                  <p className="text-[11px] text-slate-500">Select parent/guardian vitality status</p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="guardian-status-select" className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
+                  Status / स्थिति
+                </label>
+                <select
+                  id="guardian-status-select"
+                  value={formData.guardianStatus}
+                  onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value as any })}
+                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl transition-all shadow-2xs focus:outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-200 cursor-pointer"
+                >
+                  <option value="">-- Select Status / स्थिति चुनें --</option>
+                  <option value="Alive">Alive / जीवित</option>
+                  <option value="Deceased">Deceased / दिवंगत</option>
+                  <option value="Ill">Ill / बीमार</option>
+                  <option value="Migrated">Migrated / पलायित</option>
+                  <option value="Unknown">Unknown / अज्ञात</option>
+                </select>
+              </div>
             </div>
           </div>
         </section>
@@ -1573,6 +1666,7 @@ export default function NewSinglePageAssessment() {
                 onBlur={() => handleFieldBlur('householdFinancial.mainSourceOfIncome')}
                 className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
               >
+                <option value="">Select income source...</option>
                 {[
                   'Daily wage labour',
                   'Salaried employment',
@@ -1746,6 +1840,7 @@ export default function NewSinglePageAssessment() {
                     onBlur={() => handleFieldBlur('health.artStatus')}
                     className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                   >
+                    <option value="">Select ART status...</option>
                     {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
                       <option key={st} value={st}>
                         {st}
@@ -1945,6 +2040,7 @@ export default function NewSinglePageAssessment() {
                         onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
                         className="w-full h-11 px-2.5 text-xs font-medium text-slate-900 bg-white border border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
                       >
+                        <option value="">Select VL testing status...</option>
                         {[
                           'Tested in last 6 months',
                           'Tested > 6 months ago',
@@ -2284,6 +2380,7 @@ export default function NewSinglePageAssessment() {
                         : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                     }`}
                   >
+                    <option value="">Select school type...</option>
                     {['Government school', 'Private school', 'Aided school'].map((st) => (
                       <option key={st} value={st}>
                         {st}
@@ -2796,6 +2893,15 @@ export default function NewSinglePageAssessment() {
           </div>
           </div>
         </div>
+        <ProfileSrCompletionModal
+          isOpen={isSrModalOpen}
+          onClose={() => setIsSrModalOpen(false)}
+          currentState={formData.state}
+          onSave={({ name }) => {
+            setFormData((prev) => ({ ...prev, srName: name }));
+            setIsSrModalOpen(false);
+          }}
+        />
       </div>
     </AppShell>
   );
