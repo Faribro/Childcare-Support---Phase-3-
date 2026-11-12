@@ -1123,4 +1123,58 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     // No extra row added to Revisions
     expect(mockRevisionsData.length).toBe(revCountAfterFirst);
   });
+
+  it('Scenario 25: handleCreate_ deduplicates retries by idempotencyKey and clientSubmissionId without appending duplicate rows', () => {
+    const basePayload = {
+      action: 'create',
+      secret: 'TEST_SECRET_KEY_888999',
+      idempotencyKey: 'idem-create-unique-1',
+      clientSubmissionId: 'csid-create-unique-1',
+      uniqueId: 'MH-PUN-777001-01',
+      demographics: {
+        childName: 'Meera Test',
+        state: 'Maharashtra',
+        district: 'Pune',
+      },
+    };
+
+    const res1 = sandbox.doPost({
+      postData: { contents: JSON.stringify(basePayload) },
+    });
+    const data1 = JSON.parse(res1.getContent());
+    expect(data1.status).toBe('success');
+    expect(data1.isDuplicate).toBe(false);
+    const rowsAfterFirst = mockSheetData.length;
+
+    // Retry with the same idempotencyKey & clientSubmissionId even if uniqueId differs
+    const res2 = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          ...basePayload,
+          uniqueId: 'MH-PUN-777001-RETRY',
+        }),
+      },
+    });
+    const data2 = JSON.parse(res2.getContent());
+    expect(data2.status).toBe('success');
+    expect(data2.isDuplicate).toBe(true);
+    expect(data2.uniqueId).toBe('MH-PUN-777001-01');
+    expect(mockSheetData.length).toBe(rowsAfterFirst);
+
+    // Retry with a different idempotencyKey but the same clientSubmissionId
+    const res3 = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          ...basePayload,
+          idempotencyKey: 'idem-create-unique-2',
+          uniqueId: 'MH-PUN-777001-RETRY2',
+        }),
+      },
+    });
+    const data3 = JSON.parse(res3.getContent());
+    expect(data3.status).toBe('success');
+    expect(data3.isDuplicate).toBe(true);
+    expect(data3.uniqueId).toBe('MH-PUN-777001-01');
+    expect(mockSheetData.length).toBe(rowsAfterFirst);
+  });
 });

@@ -1189,6 +1189,72 @@ function getSheetAndColMap_() {
 // CREATE & OCC UPDATE HANDLERS
 // ============================================================================
 
+function lookupCreateIdempotency_(idempotencyKey, clientSubmissionId) {
+  var keys = [];
+  if (idempotencyKey) keys.push('create_idem_' + idempotencyKey);
+  if (clientSubmissionId) keys.push('create_csid_' + clientSubmissionId);
+  if (keys.length === 0) return null;
+
+  var cache = (typeof CacheService !== 'undefined' && CacheService.getScriptCache)
+    ? CacheService.getScriptCache()
+    : null;
+  var props = (typeof PropertiesService !== 'undefined' && PropertiesService.getScriptProperties)
+    ? PropertiesService.getScriptProperties()
+    : null;
+
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var raw = null;
+    try {
+      if (cache) raw = cache.get(k);
+    } catch (e) {}
+    if (!raw && props) {
+      try {
+        raw = props.getProperty(k);
+      } catch (e2) {}
+    }
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.uniqueId) {
+          return parsed;
+        }
+      } catch (e3) {}
+    }
+  }
+  return null;
+}
+
+function recordCreateIdempotency_(idempotencyKey, clientSubmissionId, record) {
+  var serialized;
+  try {
+    serialized = JSON.stringify(record);
+  } catch (e) {
+    return;
+  }
+  var keys = [];
+  if (idempotencyKey) keys.push('create_idem_' + idempotencyKey);
+  if (clientSubmissionId) keys.push('create_csid_' + clientSubmissionId);
+  if (keys.length === 0) return;
+
+  var cache = (typeof CacheService !== 'undefined' && CacheService.getScriptCache)
+    ? CacheService.getScriptCache()
+    : null;
+  var props = (typeof PropertiesService !== 'undefined' && PropertiesService.getScriptProperties)
+    ? PropertiesService.getScriptProperties()
+    : null;
+
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    try {
+      if (cache) cache.put(k, serialized, 21600);
+    } catch (e1) {}
+    try {
+      if (props) props.setProperty(k, serialized);
+    } catch (e2) {}
+  }
+}
+
 function handleCreate_(payload) {
   if (payload.data && typeof payload.data === 'object') {
     for (var k in payload.data) {
@@ -1211,23 +1277,59 @@ function handleCreate_(payload) {
   if (!uniqueId) {
     return errorResponse_('Missing required field: uniqueId or uuid.', 422);
   }
+  var cleanUniqueId = String(uniqueId).trim();
+  var idempotencyKey = payload.idempotencyKey ? String(payload.idempotencyKey).trim() : '';
+  var clientSubmissionId = payload.clientSubmissionId ? String(payload.clientSubmissionId).trim() : '';
+
+  // Primary Idempotency check by Idempotency-Key and clientSubmissionId (under ScriptLock)
+  var recordedDuplicate = lookupCreateIdempotency_(idempotencyKey, clientSubmissionId);
+  if (recordedDuplicate) {
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        status: 'success',
+        acknowledged: true,
+        submissionStatus: 'ACCEPTED',
+        assetStatus: recordedDuplicate.assetStatus || 'PENDING',
+        remoteSubmissionId: recordedDuplicate.remoteSubmissionId,
+        clientSubmissionId: clientSubmissionId || cleanUniqueId,
+        uniqueId: recordedDuplicate.uniqueId,
+        revisionNumber: recordedDuplicate.revisionNumber || 1,
+        version: recordedDuplicate.version || 1,
+        rowNumber: recordedDuplicate.rowNumber,
+        isDuplicate: true,
+        idempotencyNote: 'Duplicate recognized by Idempotency-Key / clientSubmissionId.',
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
 
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
 
-  // Idempotency check: Column 1 is Unique ID, data starts at row 4
+  // Secondary Idempotency check: Column 1 is Unique ID, data starts at row 4
   if (lastRow >= 4) {
     var existingIds = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
     for (var r = 0; r < existingIds.length; r++) {
       var rowId = String(existingIds[r][0]).trim();
-      if (rowId === String(uniqueId).trim() || (payload.uuid && rowId === String(payload.uuid).trim())) {
+      if (
+        rowId === cleanUniqueId ||
+        (payload.uuid && rowId === String(payload.uuid).trim()) ||
+        (clientSubmissionId && rowId === clientSubmissionId)
+      ) {
         var rowIndex = 4 + r;
         var existingRow = sheet.getRange(rowIndex, 1, 1, COLUMN_HEADERS.length).getValues()[0];
         var currentRev = parseInt(existingRow[1], 10) || 1;
         var existingSig = String(existingRow[5] || '');
         var existingAssetStatus = (existingSig.indexOf('=HYPERLINK') !== -1) ? 'UPLOADED' :
                                   (existingSig === '[Document Pending Drive Upload]' ? 'FAILED_RETRYABLE' : 'PENDING');
+        recordCreateIdempotency_(idempotencyKey, clientSubmissionId, {
+          remoteSubmissionId: String(existingRow[0]),
+          uniqueId: String(existingRow[0]),
+          revisionNumber: currentRev,
+          version: currentRev,
+          rowNumber: rowIndex,
+          assetStatus: existingAssetStatus,
+        });
         return ContentService.createTextOutput(
           JSON.stringify({
             status: 'success',
@@ -1235,10 +1337,11 @@ function handleCreate_(payload) {
             submissionStatus: 'ACCEPTED',
             assetStatus: existingAssetStatus,
             remoteSubmissionId: String(existingRow[0]),
-            clientSubmissionId: uniqueId,
+            clientSubmissionId: clientSubmissionId || cleanUniqueId,
             uniqueId: String(existingRow[0]),
             revisionNumber: currentRev,
             version: currentRev,
+            rowNumber: rowIndex,
             isDuplicate: true,
             idempotencyNote: 'Duplicate recognized. Existing row confirmed in Sheet.',
           })
@@ -1390,6 +1493,15 @@ function handleCreate_(payload) {
   sheet.appendRow(row);
   var newRowIndex = sheet.getLastRow();
   formatDataRow_(sheet, newRowIndex);
+
+  recordCreateIdempotency_(idempotencyKey, clientSubmissionId, {
+    remoteSubmissionId: uniqueId,
+    uniqueId: uniqueId,
+    revisionNumber: 1,
+    version: 1,
+    rowNumber: newRowIndex,
+    assetStatus: assetStatus,
+  });
 
   return ContentService.createTextOutput(
     JSON.stringify({

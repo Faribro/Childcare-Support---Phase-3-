@@ -9,6 +9,7 @@ import {
 } from '@/app/api/workers/sheets-mirror/route';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
 import { SupabaseSubmissionAdapter } from '@/lib/server/supabaseSubmissionAdapter';
+import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { sanitizeLogContext, logServerError } from '@/lib/server/errorLogger';
 import { checkUserAwareRateLimit, _resetRateLimitsForTest } from '@/lib/server/rateLimit';
 import {
@@ -382,5 +383,83 @@ describe('Phase 3 Hardening: Idempotency, Rate Limits, Health, Error Logging', (
     expect(postRes.status).toBe(200);
     const body = await postRes.json();
     expect(body.status).toMatch(/ok|success/);
+  });
+
+  it('STORAGE_ENGINE=sheets forwards Idempotency-Key and clientSubmissionId to Apps Script and maps isDuplicate=true to HTTP 200', async () => {
+    const prevEnv = {
+      STORAGE_ENGINE: process.env.STORAGE_ENGINE,
+      APPS_SCRIPT_URL: process.env.APPS_SCRIPT_URL,
+      WEBHOOK_SECRET: process.env.WEBHOOK_SECRET,
+      E2E_STAGING_ENABLED: process.env.E2E_STAGING_ENABLED,
+      NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+      APP_ENV: process.env.APP_ENV,
+    };
+
+    const uuid = crypto.randomUUID();
+    const idempKey = `sheets-idem-${uuid}`;
+    const seenKeys = new Set<string>();
+    const originalFetch = globalThis.fetch;
+
+    try {
+      process.env.STORAGE_ENGINE = 'sheets';
+      process.env.APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx_sheets_idem_test/exec';
+      process.env.WEBHOOK_SECRET = 'test-webhook-secret-minimum-32-characters-long';
+      process.env.E2E_STAGING_ENABLED = 'true';
+      process.env.APP_ENV = 'staging';
+      process.env.NEXT_PUBLIC_APP_ENV = 'staging';
+
+      const fetchSpy = vi.fn(async (_url: any, init?: RequestInit) => {
+        const parsed = JSON.parse(String(init?.body || '{}'));
+        expect(parsed.action).toBe('create');
+        expect(parsed.idempotencyKey).toBe(idempKey);
+        expect(parsed.clientSubmissionId).toBe(uuid);
+        expect((init?.headers as Record<string, string>)['X-Idempotency-Key']).toBe(idempKey);
+
+        const isDuplicate = seenKeys.has(parsed.idempotencyKey) || seenKeys.has(parsed.clientSubmissionId);
+        seenKeys.add(parsed.idempotencyKey);
+        seenKeys.add(parsed.clientSubmissionId);
+
+        return new Response(
+          JSON.stringify({
+            status: 'success',
+            acknowledged: true,
+            remoteSubmissionId: 'MH-PUN-123456-01',
+            uniqueId: 'MH-PUN-123456-01',
+            revisionNumber: 1,
+            version: 1,
+            isDuplicate,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      });
+      globalThis.fetch = fetchSpy as any;
+
+      const payload = makeValidPayload(uuid) as any;
+      const first = await canonicalSubmissionAdapter.createSubmission({
+        payload,
+        idempotencyKey: idempKey,
+        requestId: 'req-sheets-1',
+      });
+      expect(first.status).toBe('success');
+      expect(first.statusCode).toBe(201);
+      expect(first.isDuplicate).toBe(false);
+
+      const retry = await canonicalSubmissionAdapter.createSubmission({
+        payload,
+        idempotencyKey: idempKey,
+        requestId: 'req-sheets-2',
+      });
+      expect(retry.status).toBe('success');
+      expect(retry.statusCode).toBe(200);
+      expect(retry.isDuplicate).toBe(true);
+      expect(retry.remoteSubmissionId).toBe('MH-PUN-123456-01');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [k, v] of Object.entries(prevEnv)) {
+        if (v === undefined) delete (process.env as any)[k];
+        else (process.env as any)[k] = v;
+      }
+    }
   });
 });
