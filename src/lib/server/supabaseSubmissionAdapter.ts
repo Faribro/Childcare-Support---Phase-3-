@@ -102,6 +102,7 @@ export class SupabaseSubmissionAdapter {
   private serviceRoleKey: string;
   private records: Map<string, StoredSubmissionRecord> = new Map();
   private files: Map<string, StoredFileRecord[]> = new Map();
+  private idempotencyStore: Map<string, CanonicalSubmissionResult> = new Map();
   private orphanLog: Array<{ storageKey: string; bucket: string; submissionId: string; reason: string }> = [];
 
   constructor(
@@ -195,13 +196,44 @@ export class SupabaseSubmissionAdapter {
     const p = payload as any;
     const submissionId =
       p.uniqueId ||
+      p.clientSubmissionId ||
+      p.uuid ||
       p._uuid ||
       p.client_submission_id ||
       `MH-PUN-${Date.now()}`;
 
-    const state = p.location?.state || p.state || 'Maharashtra';
-    const district = p.location?.district || p.district || 'Pune';
+    const state = p.demographics?.state || p.location?.state || p.state || 'Maharashtra';
+    const district = p.demographics?.district || p.location?.district || p.district || 'Pune';
     const programmeId = 'alliance-childcare-phase3';
+
+    if (!this.isDatabaseConfigured() && input.idempotencyKey) {
+      const cached = this.idempotencyStore.get(input.idempotencyKey);
+      if (cached) {
+        return {
+          ...cached,
+          statusCode: 200,
+          isDuplicate: true,
+          requestId: input.requestId,
+        };
+      }
+      const existingById = this.records.get(submissionId);
+      if (existingById) {
+        return {
+          status: 'success',
+          statusCode: 200,
+          acknowledged: true,
+          uniqueId: existingById.unique_id,
+          remoteSubmissionId: existingById.unique_id,
+          version: existingById.version,
+          revisionNumber: existingById.version,
+          submissionStatus: existingById.status,
+          assetStatus: 'NOT_REQUIRED',
+          isDuplicate: true,
+          requestId: input.requestId,
+          updatedAt: existingById.updated_at,
+        };
+      }
+    }
 
     // Authorization Scope Check
     if (session && !this.isAuthorizedForScope(session, state, district, programmeId)) {
@@ -479,7 +511,7 @@ export class SupabaseSubmissionAdapter {
       ? 'UPLOADED'
       : 'FAILED_RETRYABLE';
 
-    return {
+    const result: CanonicalSubmissionResult = {
       status: 'success',
       statusCode: 201,
       acknowledged: true,
@@ -493,6 +525,12 @@ export class SupabaseSubmissionAdapter {
       requestId: input.requestId,
       updatedAt: now,
     };
+
+    if (input.idempotencyKey) {
+      this.idempotencyStore.set(input.idempotencyKey, result);
+    }
+
+    return result;
   }
 
   /**

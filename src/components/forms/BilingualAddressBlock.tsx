@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { INDIAN_STATES_AND_UTS } from '@/lib/constants/indianStates';
 import { getDistrictsForState, validatePinCodeMatch } from '@/lib/constants/indianDistricts';
-import { lookupPincode } from '@/lib/constants/pincodeDirectory';
+import { lookupPincodeAsync, preloadPincodeDirectory } from '@/lib/constants/pincodeDirectory';
 import { LocationFetchButton, type LocationResult } from '@/components/ui/LocationFetchButton';
 import { Phone, Building2, AlertCircle } from 'lucide-react';
 
@@ -35,9 +35,20 @@ export function BilingualAddressBlock({
 }: BilingualAddressBlockProps) {
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
   const [pinCodeWarning, setPinCodeWarning] = useState<string | null>(null);
+  const latestPinRef = useRef<string>(data.pinCode || '');
+  const latestDataRef = useRef<AddressFormData>(data);
+  latestDataRef.current = data;
+
+  useEffect(() => {
+    preloadPincodeDirectory();
+  }, []);
 
   // Available districts for the currently selected state
-  const availableDistricts = data.state ? getDistrictsForState(data.state) : [];
+  const rawAvailableDistricts = data.state ? getDistrictsForState(data.state) : [];
+  const availableDistricts =
+    data.district && rawAvailableDistricts.length > 0 && !rawAvailableDistricts.includes(data.district)
+      ? [data.district, ...rawAvailableDistricts]
+      : rawAvailableDistricts;
 
   // ── 5. Progressive Hydration: Fill pincode/state/district first, then street/village ──
   const handleProgressiveFill = (partial: Partial<LocationResult>, stage: 'postal' | 'full') => {
@@ -122,42 +133,52 @@ export function BilingualAddressBlock({
     onChange(updates);
   };
 
-  // ── 4. Instant Pincode -> { taluk, district, state } Lookup on entry ──
+  // ── 4. Lazy Pincode -> { postOffice, taluk, district, state } Exact 6-Digit Lookup ──
   const handlePinCodeChange = (raw: string) => {
     const val = raw.replace(/\D/g, '').slice(0, 6);
-    const updates: Partial<AddressFormData> = { pinCode: val };
+    latestPinRef.current = val;
+    onChange({ pinCode: val });
 
     if (val.length === 6) {
-      const resolved = lookupPincode(val);
-      if (resolved) {
-        if (resolved.state && !data.state) {
-          updates.state = resolved.state;
-          setAutoFilledFields((prev) => new Set([...Array.from(prev), 'state']));
-        }
-        if (resolved.district && !data.district) {
-          updates.district = resolved.district;
-          setAutoFilledFields((prev) => new Set([...Array.from(prev), 'district']));
-        }
-        if (resolved.taluk && !data.talukMandalBlock) {
-          updates.talukMandalBlock = resolved.taluk;
-          setAutoFilledFields((prev) => new Set([...Array.from(prev), 'talukMandalBlock']));
-        }
+      if (data.state) {
+        const match = validatePinCodeMatch(val, data.state);
+        setPinCodeWarning(!match.valid && match.message ? match.message : null);
       }
 
-      const activeState = updates.state || data.state;
-      if (activeState) {
-        const match = validatePinCodeMatch(val, activeState);
-        if (!match.valid && match.message) {
-          setPinCodeWarning(match.message);
-        } else {
-          setPinCodeWarning(null);
+      void lookupPincodeAsync(val).then((resolved) => {
+        if (latestPinRef.current !== val || !resolved) return;
+
+        const current = latestDataRef.current;
+        const updates: Partial<AddressFormData> = {};
+        const newlyFilled: string[] = [];
+
+        if (resolved.state && !current.state) {
+          updates.state = resolved.state;
+          newlyFilled.push('state');
         }
-      }
+        if (resolved.district && !current.district) {
+          updates.district = resolved.district;
+          newlyFilled.push('district');
+        }
+        if (resolved.taluk && !current.talukMandalBlock) {
+          updates.talukMandalBlock = resolved.taluk;
+          newlyFilled.push('talukMandalBlock');
+        }
+
+        if (newlyFilled.length > 0) {
+          setAutoFilledFields((prev) => new Set([...Array.from(prev), ...newlyFilled]));
+          onChange(updates);
+        }
+
+        const activeState = updates.state || current.state;
+        if (activeState) {
+          const match = validatePinCodeMatch(val, activeState);
+          setPinCodeWarning(!match.valid && match.message ? match.message : null);
+        }
+      });
     } else {
       setPinCodeWarning(null);
     }
-
-    onChange(updates);
   };
 
   const isAutoFilled = (field: string) => autoFilledFields.has(field);

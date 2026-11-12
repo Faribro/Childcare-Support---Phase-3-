@@ -102,10 +102,22 @@ export function LocationFetchButton({
 
         if (!res.ok) {
           const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson.error || 'Server could not resolve address from coordinates under 2s.');
+          setErrorMsg(
+            errJson.error || 'Address lookup unavailable — please enter address fields manually.'
+          );
+          setStatus('error');
+          return;
         }
 
         const json = await res.json();
+        if (json?.fallback || !json?.success || !json?.data) {
+          setErrorMsg(
+            json?.error || 'Live address lookup unavailable — please enter address fields manually.'
+          );
+          setStatus('error');
+          return;
+        }
+
         const data: ReverseGeocodeResult = json.data;
         const serverTimings: GeocodeTimings | undefined = json.timings;
         const totalDurationMs = Date.now() - clickStart;

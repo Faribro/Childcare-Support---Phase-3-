@@ -2857,31 +2857,6 @@ export default function ResumeDraftSinglePage() {
         </div>
 
         {/* Sticky Floating Bottom Action Bar (Mobile & Desktop) */}
-        
-        {/* Sticky Validation Summary Indicator */}
-        {validationErrors.length > 0 && (
-          <aside
-            aria-live="polite"
-            role="status"
-            className="fixed bottom-24 sm:bottom-20 left-3 right-3 max-w-4xl mx-auto z-40 bg-amber-500/95 backdrop-blur-md text-amber-950 border border-amber-600/30 px-3.5 py-2 rounded-full shadow-lg flex items-center justify-between gap-2.5 animate-in slide-in-from-bottom-2"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-white font-bold text-xs">
-                {validationErrors.length}
-              </span>
-              <p className="text-xs font-bold truncate">
-                {Object.keys(errorsBySection).length} sections need attention
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigateToValidationError(validationErrors[0])}
-              className="shrink-0 px-3 py-1 rounded-full bg-amber-950 text-white text-[11px] font-bold hover:bg-black transition-colors cursor-pointer"
-            >
-              Jump to error &rarr;
-            </button>
-          </aside>
-        )}
 
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))]">
           <div className="max-w-5xl mx-auto flex flex-col gap-2">

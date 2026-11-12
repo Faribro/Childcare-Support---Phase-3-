@@ -634,7 +634,7 @@ export function ExpensesAndApprovalGrid({
               <PhotoUpload
                 id="expenses-feeReceiptPhotoUrl"
                 label="SCHOOL FEE RECEIPT (PHOTO) *"
-                helperText="Clear photo of the fee receipt. All text must be readable (< 10MB)."
+                helperText="Clear photo of the fee receipt. All text must be readable (Up to 2.5MB JPEG, PNG, or PDF)."
                 value={currentExpenses.feeReceiptPhotoUrl}
                 onChange={onReceiptPhotoChange}
                 onReplace={onReceiptPhotoReplace}
@@ -646,7 +646,7 @@ export function ExpensesAndApprovalGrid({
               <PhotoUpload
                 id="expenses-marksheetPhotoUrl"
                 label="PREVIOUS YEAR MARKSHEET (PHOTO) *"
-                helperText="Photo of last year's report card. Click here to upload file (< 10MB)."
+                helperText="Photo of last year's report card. All text must be readable (Up to 2.5MB JPEG, PNG, or PDF)."
                 value={currentExpenses.marksheetPhotoUrl}
                 onChange={onMarksheetPhotoChange}
                 onReplace={onMarksheetPhotoReplace}

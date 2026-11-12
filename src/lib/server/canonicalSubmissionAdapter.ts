@@ -874,7 +874,11 @@ class CanonicalSubmissionAdapterService {
   async createSubmission(input: CanonicalCreateInput): Promise<CanonicalSubmissionResult> {
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
-      return await adapter.createSubmission(input);
+      const createRes = await adapter.createSubmission(input);
+      if (createRes.status === 'success') {
+        this.triggerBestEffortMirrorDrain();
+      }
+      return createRes;
     }
 
     const configCheck = this.checkConfiguration('write');

@@ -2,11 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateUser, setSessionCookie } from '@/lib/server/sessionService';
 import { logSecurityEvent, validateCsrfOrigin } from '@/lib/server/authorisation';
 import { isLeadershipSharedPasswordPermitted } from '@/lib/server/leadershipAuthPolicy';
+import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { logServerError } from '@/lib/server/errorLogger';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown';
+  const clientIp = getClientIp(req);
+
+  const rl = checkRateLimit('auth_login', clientIp, 60, 60 * 1000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      {
+        status: 'error',
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many sign-in attempts from this network. Please wait a minute and try again.',
+      },
+      { status: 429, headers: buildRateLimitHeaders(rl) }
+    );
+  }
 
   // Enforce CSRF Origin validation on login
   const csrf = validateCsrfOrigin(req);
@@ -124,7 +138,7 @@ export async function POST(req: NextRequest) {
     setSessionCookie(response, authResult.token);
     return response;
   } catch (err: any) {
-    console.error('POST /api/auth/login error:', err);
+    logServerError('POST /api/auth/login', err);
     return NextResponse.json(
       { status: 'error', code: 'INTERNAL_ERROR', message: 'Internal server error during authentication.' },
       { status: 500 }

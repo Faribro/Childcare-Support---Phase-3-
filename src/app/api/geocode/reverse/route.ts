@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCanonicalState, getDistrictsForState } from '@/lib/constants/indianDistricts';
-import { lookupPincode } from '@/lib/constants/pincodeDirectory';
+import { lookupPincodeAsync } from '@/lib/constants/pincodeDirectory';
+import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,9 @@ export interface GeocodeTimings {
   totalMs: number;
 }
 
+const GEOCODER_CONTACT_EMAIL = 'tech@allianceindia.org';
+const GEOCODER_USER_AGENT = `ChildCareSupportPWA/3.0 (India HIV/AIDS Alliance; public health intake; contact: ${GEOCODER_CONTACT_EMAIL})`;
+
 // ── In-Memory LRU Cache with 24h TTL (Resolution: ~110m / 3 decimal places) ──
 interface CacheEntry {
   data: ReverseGeocodeResult;
@@ -38,28 +42,8 @@ const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_CACHE_SIZE = 5000;
 
-// ── In-Memory Rate Limiting: 30 requests per minute per IP ──
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-const rateLimits = new Map<string, RateLimitEntry>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 30;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimits.get(ip);
-  if (!entry || entry.resetAt <= now) {
-    rateLimits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= MAX_REQUESTS_PER_WINDOW) {
-    return false;
-  }
-  entry.count++;
-  return true;
-}
+const GEOCODE_RATE_LIMIT = 30; // 30 requests per minute per IP
+const GEOCODE_WINDOW_MS = 60 * 1000;
 
 function cleanDistrictName(raw: string): string {
   if (!raw) return '';
@@ -73,12 +57,36 @@ function formatLandmarkNear(raw: string): string {
   return `Near ${s}`;
 }
 
+async function applyExactPincodeEnrichment(
+  pinCode: string,
+  canonicalState: string,
+  resolvedDistrict: string,
+  talukMandalBlock: string
+): Promise<{ state: string; district: string; taluk: string }> {
+  let state = canonicalState;
+  let district = resolvedDistrict;
+  let taluk = talukMandalBlock;
+
+  if (pinCode) {
+    const postal = await lookupPincodeAsync(pinCode);
+    if (postal) {
+      if (!state && postal.state) state = postal.state;
+      if (!district && postal.district) district = postal.district;
+      if (!taluk && postal.taluk) taluk = postal.taluk;
+    }
+  }
+
+  return { state, district, taluk };
+}
+
 // ── Provider 1: OpenStreetMap Nominatim with 2s Timeout ──
 async function fetchNominatim(lat: number, lng: number, timeoutMs = 2000): Promise<ReverseGeocodeResult> {
-  const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1&extratags=1`;
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=en&zoom=18&addressdetails=1&extratags=1&email=${encodeURIComponent(GEOCODER_CONTACT_EMAIL)}`;
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'ChildCareSupportPWA/3.0 (India HIV/AIDS Alliance; public health research)',
+      'User-Agent': GEOCODER_USER_AGENT,
+      'From': GEOCODER_CONTACT_EMAIL,
+      'X-Contact': GEOCODER_CONTACT_EMAIL,
       'Accept': 'application/json',
     },
     signal: AbortSignal.timeout(timeoutMs),
@@ -93,12 +101,11 @@ async function fetchNominatim(lat: number, lng: number, timeoutMs = 2000): Promi
   const rawState = addr.state || addr.state_district || '';
   let canonicalState = getCanonicalState(rawState) || rawState;
   const rawDistrict = cleanDistrictName(addr.state_district || addr.district || addr.county || addr.city || '');
-  
-  // Resolve district against official LGD list if possible
+
   let resolvedDistrict = rawDistrict;
   if (canonicalState) {
     const lgdDistricts = getDistrictsForState(canonicalState);
-    const match = lgdDistricts.find(d => d.toLowerCase() === rawDistrict.toLowerCase());
+    const match = lgdDistricts.find((d) => d.toLowerCase() === rawDistrict.toLowerCase());
     if (match) resolvedDistrict = match;
   }
 
@@ -113,22 +120,24 @@ async function fetchNominatim(lat: number, lng: number, timeoutMs = 2000): Promi
   const landmark = rawLandmark ? formatLandmarkNear(rawLandmark) : '';
   const pinCode = /^[1-9][0-9]{5}$/.test(addr.postcode || '') ? addr.postcode : '';
 
-  // Instant static postal lookup if pincode was resolved
-  if (pinCode) {
-    const postal = lookupPincode(pinCode);
-    if (postal) {
-      if (!canonicalState && postal.state) canonicalState = postal.state;
-      if (!resolvedDistrict && postal.district) resolvedDistrict = postal.district;
-      if (!talukMandalBlock && postal.taluk) talukMandalBlock = postal.taluk;
-    }
-  }
+  const enriched = await applyExactPincodeEnrichment(pinCode, canonicalState, resolvedDistrict, talukMandalBlock);
+  canonicalState = enriched.state;
+  resolvedDistrict = enriched.district;
+  talukMandalBlock = enriched.taluk;
 
   if (!canonicalState && !resolvedDistrict && !street && !villageCity) {
     throw new Error('Nominatim returned empty address components');
   }
 
-  const parts = [doorAndColony, street, villageCity, talukMandalBlock, resolvedDistrict, canonicalState, pinCode ? `PIN: ${pinCode}` : ''].filter(Boolean);
-  const fullAddress = parts.join(', ');
+  const parts = [
+    doorAndColony,
+    street,
+    villageCity,
+    talukMandalBlock,
+    resolvedDistrict,
+    canonicalState,
+    pinCode ? `PIN: ${pinCode}` : '',
+  ].filter(Boolean);
 
   return {
     doorAndColony,
@@ -139,7 +148,7 @@ async function fetchNominatim(lat: number, lng: number, timeoutMs = 2000): Promi
     district: resolvedDistrict,
     state: canonicalState,
     pinCode,
-    fullAddress,
+    fullAddress: parts.join(', '),
     source: 'nominatim',
   };
 }
@@ -149,7 +158,9 @@ async function fetchPhoton(lat: number, lng: number, timeoutMs = 2000): Promise<
   const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`;
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'ChildCareSupportPWA/3.0 (India HIV/AIDS Alliance)',
+      'User-Agent': GEOCODER_USER_AGENT,
+      'From': GEOCODER_CONTACT_EMAIL,
+      'X-Contact': GEOCODER_CONTACT_EMAIL,
       'Accept': 'application/json',
     },
     signal: AbortSignal.timeout(timeoutMs),
@@ -168,7 +179,7 @@ async function fetchPhoton(lat: number, lng: number, timeoutMs = 2000): Promise<
   let resolvedDistrict = rawDistrict;
   if (canonicalState) {
     const lgdDistricts = getDistrictsForState(canonicalState);
-    const match = lgdDistricts.find(d => d.toLowerCase() === rawDistrict.toLowerCase());
+    const match = lgdDistricts.find((d) => d.toLowerCase() === rawDistrict.toLowerCase());
     if (match) resolvedDistrict = match;
   }
 
@@ -182,21 +193,24 @@ async function fetchPhoton(lat: number, lng: number, timeoutMs = 2000): Promise<
   const landmark = props.name && props.name !== street ? formatLandmarkNear(props.name) : '';
   const pinCode = /^[1-9][0-9]{5}$/.test(props.postcode || '') ? props.postcode : '';
 
-  if (pinCode) {
-    const postal = lookupPincode(pinCode);
-    if (postal) {
-      if (!canonicalState && postal.state) canonicalState = postal.state;
-      if (!resolvedDistrict && postal.district) resolvedDistrict = postal.district;
-      if (!talukMandalBlock && postal.taluk) talukMandalBlock = postal.taluk;
-    }
-  }
+  const enriched = await applyExactPincodeEnrichment(pinCode, canonicalState, resolvedDistrict, talukMandalBlock);
+  canonicalState = enriched.state;
+  resolvedDistrict = enriched.district;
+  talukMandalBlock = enriched.taluk;
 
   if (!canonicalState && !resolvedDistrict && !street && !villageCity) {
     throw new Error('Photon returned empty address components');
   }
 
-  const parts = [doorAndColony, street, villageCity, resolvedDistrict, canonicalState, pinCode ? `PIN: ${pinCode}` : ''].filter(Boolean);
-  const fullAddress = parts.join(', ');
+  const parts = [
+    doorAndColony,
+    street,
+    villageCity,
+    talukMandalBlock,
+    resolvedDistrict,
+    canonicalState,
+    pinCode ? `PIN: ${pinCode}` : '',
+  ].filter(Boolean);
 
   return {
     doorAndColony,
@@ -207,7 +221,7 @@ async function fetchPhoton(lat: number, lng: number, timeoutMs = 2000): Promise<
     district: resolvedDistrict,
     state: canonicalState,
     pinCode,
-    fullAddress,
+    fullAddress: parts.join(', '),
     source: 'photon',
   };
 }
@@ -215,52 +229,67 @@ async function fetchPhoton(lat: number, lng: number, timeoutMs = 2000): Promise<
 export async function POST(req: NextRequest) {
   const reqStart = Date.now();
 
-  // ── Rate Limiting ──
-  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
-                   req.headers.get('x-real-ip') ||
-                   '127.0.0.1';
+  // ── Per-IP Rate Limiting ──
+  const clientIp = getClientIp(req);
+  const rl = checkRateLimit('geocode_reverse', clientIp, GEOCODE_RATE_LIMIT, GEOCODE_WINDOW_MS);
+  const rateHeaders = buildRateLimitHeaders(rl);
 
-  if (!checkRateLimit(clientIp)) {
+  if (!rl.allowed) {
     return NextResponse.json(
-      { error: 'Rate limit exceeded. Please wait a minute before fetching location again.' },
-      { status: 429, headers: { 'Retry-After': '60' } }
+      {
+        success: false,
+        fallback: true,
+        manual: true,
+        error: 'Rate limit exceeded. Please wait a minute or enter address details manually.',
+      },
+      { status: 429, headers: rateHeaders }
     );
   }
 
-  // ── Coordinate Validation (Strict privacy: NO coordinate coordinates in logs) ──
+  // ── Coordinate Validation (Strict privacy: NO coordinates in logs) ──
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON request body' }, { status: 400 });
+    return NextResponse.json(
+      { success: false, fallback: true, manual: true, error: 'Invalid JSON request body' },
+      { status: 400, headers: rateHeaders }
+    );
   }
 
   const parsed = coordinateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Valid latitude and longitude numbers are required' }, { status: 400 });
+    return NextResponse.json(
+      { success: false, fallback: true, manual: true, error: 'Valid latitude and longitude numbers are required' },
+      { status: 400, headers: rateHeaders }
+    );
   }
 
   const { lat, lng } = parsed.data;
 
-  // ── 6. Cache Lookup: Coordinates rounded to 3 decimals (~110m resolution) ──
+  // ── Cache Lookup: Coordinates rounded to 3 decimals (~110m resolution) ──
   const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)}`;
   const now = Date.now();
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     const totalMs = Date.now() - reqStart;
     console.info(`[GEOCODE:TIMING] provider=cache duration=0ms total=${totalMs}ms status=hit`);
-    return NextResponse.json({
-      success: true,
-      data: { ...cached.data, source: 'cache' },
-      timings: {
-        provider: 'cache',
-        providerMs: 0,
-        totalMs,
+    return NextResponse.json(
+      {
+        success: true,
+        fallback: false,
+        data: { ...cached.data, source: 'cache' },
+        timings: {
+          provider: 'cache',
+          providerMs: 0,
+          totalMs,
+        },
       },
-    });
+      { headers: rateHeaders }
+    );
   }
 
-  // ── 2. Run providers in parallel with Promise.any and 2s timeout each ──
+  // ── Parallel Race with Promise.any and 2s timeout per provider ──
   interface TimedProviderResult {
     result: ReverseGeocodeResult;
     provider: 'nominatim' | 'photon';
@@ -285,37 +314,46 @@ export async function POST(req: NextRequest) {
     ]);
 
     const totalMs = Date.now() - reqStart;
-    console.info(`[GEOCODE:TIMING] winner=${winning.provider} providerMs=${winning.providerMs}ms totalMs=${totalMs}ms status=success`);
+    console.info(
+      `[GEOCODE:TIMING] winner=${winning.provider} providerMs=${winning.providerMs}ms totalMs=${totalMs}ms status=success`
+    );
 
-    // Store in LRU Cache with 3-decimal key
     if (cache.size >= MAX_CACHE_SIZE) {
       const firstKey = cache.keys().next().value;
       if (firstKey) cache.delete(firstKey);
     }
     cache.set(cacheKey, { data: winning.result, expiresAt: now + CACHE_TTL_MS });
 
-    return NextResponse.json({
-      success: true,
-      data: winning.result,
-      timings: {
-        provider: winning.provider,
-        providerMs: winning.providerMs,
-        totalMs,
-      },
-    });
-  } catch (aggErr: any) {
-    const totalMs = Date.now() - reqStart;
-    console.warn(`[GEOCODE:TIMING] all_providers_failed totalMs=${totalMs}ms error=${aggErr?.message || 'timeout/network'}`);
     return NextResponse.json(
       {
-        error: 'Unable to resolve address from coordinates under 2s limit. Please enter address details manually.',
+        success: true,
+        fallback: false,
+        data: winning.result,
         timings: {
-          provider: 'none',
-          providerMs: 2000,
+          provider: winning.provider,
+          providerMs: winning.providerMs,
           totalMs,
         },
       },
-      { status: 504 }
+      { headers: rateHeaders }
+    );
+  } catch {
+    // Graceful fallback: never block form completion if geocoding providers time out or block.
+    const totalMs = Date.now() - reqStart;
+    console.warn(`[GEOCODE:TIMING] all_providers_failed totalMs=${totalMs}ms fallback=manual`);
+    return NextResponse.json(
+      {
+        success: false,
+        fallback: true,
+        manual: true,
+        error: 'Live address lookup is currently unavailable. Please enter address fields manually.',
+        timings: {
+          provider: 'none',
+          providerMs: Math.min(totalMs, 2000),
+          totalMs,
+        },
+      },
+      { status: 200, headers: rateHeaders }
     );
   }
 }
