@@ -622,45 +622,49 @@ export function ExpensesAndApprovalGrid({
         )
       ) : (
         /* ── Write mode: full PhotoUpload inputs ────────────────────────── */
-        <div className="bg-white rounded-2xl border border-black p-5 space-y-4 shadow-xs">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-xs" id="sec-document-proofs">
           <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm pb-2 border-b border-slate-100">
             <FileText className="h-4 w-4 text-purple-700" />
             <span>Document Verification Proofs</span>
+            <span className="text-rose-500 font-bold ml-0.5" title="Mandatory section">*</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <PhotoUpload
                 id="expenses-feeReceiptPhotoUrl"
-                label="SCHOOL FEE RECEIPT (PHOTO)"
+                label="SCHOOL FEE RECEIPT (PHOTO) *"
                 helperText="Clear photo of the fee receipt. All text must be readable (< 10MB)."
                 value={currentExpenses.feeReceiptPhotoUrl}
                 onChange={onReceiptPhotoChange}
                 onReplace={onReceiptPhotoReplace}
-                error={errors['expenses-feeReceiptPhotoUrl'] || errors['educationExpenses.feeReceiptPhotoUrl']}
+                error={errors?.['expenses-feeReceiptPhotoUrl'] || errors?.['educationExpenses.feeReceiptPhotoUrl']}
               />
             </div>
 
             <div className="space-y-1">
               <PhotoUpload
                 id="expenses-marksheetPhotoUrl"
-                label="PREVIOUS YEAR MARKSHEET (PHOTO)"
+                label="PREVIOUS YEAR MARKSHEET (PHOTO) *"
                 helperText="Photo of last year's report card. Click here to upload file (< 10MB)."
                 value={currentExpenses.marksheetPhotoUrl}
                 onChange={onMarksheetPhotoChange}
                 onReplace={onMarksheetPhotoReplace}
-                error={errors['expenses-marksheetPhotoUrl'] || errors['educationExpenses.marksheetPhotoUrl']}
+                error={errors?.['expenses-marksheetPhotoUrl'] || errors?.['educationExpenses.marksheetPhotoUrl']}
               />
             </div>
           </div>
 
-          <Input
-            label="REMARKS (IF ANY)"
-            helperText="Reason for documents not available, etc"
-            value={currentExpenses.remarks || ''}
-            onChange={(e) => onRemarksChange && onRemarksChange(e.target.value)}
-            placeholder="e.g. Marksheet pending from school administration office"
-          />
+          <div id="expenses-remarks" tabIndex={-1}>
+            <Input
+              label="REMARKS"
+              helperText="Mandatory if fee receipt or marksheet is unavailable (reason for missing document)."
+              value={currentExpenses.remarks || ''}
+              onChange={(e) => onRemarksChange && onRemarksChange(e.target.value)}
+              placeholder="e.g. Marksheet pending from school administration office"
+              error={errors?.['expenses-remarks'] || errors?.['educationExpenses.remarks']}
+            />
+          </div>
         </div>
       )}
 

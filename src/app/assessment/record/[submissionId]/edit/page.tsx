@@ -2070,7 +2070,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                      Child Identification (Aadhaar) / बच्चे की पहचान (आधार)
+                      Child Identification (Aadhaar)
                     </h4>
                     <p className="text-[11px] text-slate-500">12-digit Indian UID number</p>
                   </div>
@@ -2095,14 +2095,14 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                      Status of Guardian or Parent / अभिभावक या माता-पिता की स्थिति
+                      Status of Guardian or Parent
                     </h4>
                     <p className="text-[11px] text-slate-500">Select parent/guardian vitality status</p>
                   </div>
                 </div>
                 <div className="space-y-1">
                   <label htmlFor="edit-guardian-status-select" className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
-                    Status / स्थिति
+                    Status
                   </label>
                   <select
                     id="edit-guardian-status-select"
@@ -2110,12 +2110,12 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                     onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value as any })}
                     className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl transition-all shadow-2xs focus:outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-200 cursor-pointer"
                   >
-                    <option value="">-- Select Status / स्थिति चुनें --</option>
-                    <option value="Alive">Alive / जीवित</option>
-                    <option value="Deceased">Deceased / दिवंगत</option>
-                    <option value="Ill">Ill / बीमार</option>
-                    <option value="Migrated">Migrated / पलायित</option>
-                    <option value="Unknown">Unknown / अज्ञात</option>
+                    <option value="">-- Select Status --</option>
+                    <option value="Alive">Alive</option>
+                    <option value="Deceased">Deceased</option>
+                    <option value="Ill">Ill</option>
+                    <option value="Migrated">Migrated</option>
+                    <option value="Unknown">Unknown</option>
                   </select>
                 </div>
               </div>
@@ -3123,6 +3123,11 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                 onRemarksChange={(rem: string) =>
                   setFormData((prev) => ({ ...prev, remarks: rem }))
                 }
+                errors={{
+                  'expenses-feeReceiptPhotoUrl': errorsByField['expenses-feeReceiptPhotoUrl']?.message || errorsByField['educationExpenses.feeReceiptPhotoUrl']?.message,
+                  'expenses-marksheetPhotoUrl': errorsByField['expenses-marksheetPhotoUrl']?.message || errorsByField['educationExpenses.marksheetPhotoUrl']?.message,
+                  'expenses-remarks': errorsByField['expenses-remarks']?.message || errorsByField['educationExpenses.remarks']?.message,
+                }}
               />
             </div>
           </section>

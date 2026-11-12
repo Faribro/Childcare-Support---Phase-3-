@@ -109,6 +109,7 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
         schoolType: 'Government school',
         currentClass: 'Class 5',
         attendance: 'Regular (>80%)',
+        feeReceiptPhotoUrl: 'https://example.com/fee-receipt.jpg',
         // Review
         allInfoCorrect: true,
         formSubmittedBy: 'Kavita Caseworker',
@@ -436,6 +437,7 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
         schoolType: 'Government',
         currentClass: 'Class 5',
         attendance: 'Regular (> 80%)',
+        feeReceiptPhotoUrl: 'https://example.com/receipt.jpg',
         formSubmittedBy: 'Ramesh Fieldworker',
         allInfoCorrect: true,
       };
@@ -496,6 +498,9 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
           currentClass: 'Class 5',
           attendance: 'Regular (> 80%)',
         },
+        educationExpenses: {
+          feeReceiptPhotoUrl: 'https://example.com/receipt.jpg',
+        },
         finalReview: {
           formSubmittedBy: 'Ramesh Fieldworker',
           allInfoCorrect: true,
@@ -505,6 +510,41 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
       const result = validateEntireForm(completeNestedRecord, true);
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
+    });
+
+    it('mandates document verification proofs: fails when neither proof nor remark is provided', () => {
+      const withoutDocs = {
+        educationStatus: 'Currently going to school',
+        feeReceiptPhotoUrl: '',
+        marksheetPhotoUrl: '',
+        remarks: '',
+      };
+      const errors = validateSection('expenses', withoutDocs);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].fieldKey).toBe('educationExpenses.feeReceiptPhotoUrl');
+      expect(errors[0].message).toContain('Document verification proof is required');
+    });
+
+    it('mandates document verification proofs: passes when marksheet is provided', () => {
+      const withMarksheet = {
+        educationStatus: 'Currently going to school',
+        feeReceiptPhotoUrl: '',
+        marksheetPhotoUrl: 'data:image/jpeg;base64,sample',
+        remarks: '',
+      };
+      const errors = validateSection('expenses', withMarksheet);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('mandates document verification proofs: passes when remarks explanation is provided without photos', () => {
+      const withRemarks = {
+        educationStatus: 'Currently going to school',
+        feeReceiptPhotoUrl: '',
+        marksheetPhotoUrl: '',
+        remarks: 'Marksheet pending from school administration office',
+      };
+      const errors = validateSection('expenses', withRemarks);
+      expect(errors).toHaveLength(0);
     });
   });
 });
