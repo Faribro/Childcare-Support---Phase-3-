@@ -150,8 +150,11 @@ describe('Form Submission Select Defaults, Exact Field IDs & Error Focus Regress
     const fullNewPageSource = newPageSource + '\n' + addressBlockSource;
     const fullDraftPageSource = draftPageSource + '\n' + addressBlockSource;
 
-    // Select defaults in new/page.tsx must not be empty strings when no blank <option> exists
-    expect(newPageSource).toContain("caregiverRelationship: 'Mother' as CaregiverRelationship");
+    // Caregiver relationship starts unselected with an explicit blank placeholder option
+    expect(newPageSource).toContain("caregiverRelationship: '' as CaregiverRelationship | ''");
+    expect(newPageSource).toContain('<option value="">Select relationship...</option>');
+    expect(draftPageSource).toContain("caregiverRelationship: '' as CaregiverRelationship | ''");
+    expect(draftPageSource).toContain('<option value="">Select relationship...</option>');
     // State and clinical fields must have empty defaults so missing stays blank per user directive
     expect(newPageSource).toContain("state: ''");
     expect(newPageSource).toContain("artStatus: '' as any");

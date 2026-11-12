@@ -168,7 +168,7 @@ export default function ResumeDraftSinglePage() {
     gender: '' as Gender,
     orphanStatus: '' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: 'Mother' as CaregiverRelationship,
+    caregiverRelationship: '' as CaregiverRelationship | '',
     contactNumber: '',
     noPhoneAvailable: false,
     alternateContactNumber: '',
@@ -407,7 +407,7 @@ export default function ResumeDraftSinglePage() {
             gender: (d.gender as Gender) || 'Male',
             orphanStatus: (d.orphanStatus as OrphanStatus) || 'Both parents alive',
             caregiverName: d.caregiverName || '',
-            caregiverRelationship: (d.caregiverRelationship as CaregiverRelationship) || 'Mother',
+            caregiverRelationship: (d.caregiverRelationship as CaregiverRelationship) || '',
             contactNumber: d.contactNumber || d.caregiverPhone || '',
             noPhoneAvailable: Boolean(d.noPhoneAvailable),
             alternateContactNumber: d.alternateContactNumber || '',
@@ -663,7 +663,7 @@ export default function ResumeDraftSinglePage() {
         consentProvided: formData.agreeToParticipate ?? false,
         consentVersion: 'v1.0-2026',
         caregiverName: formData.caregiverName || 'Caregiver',
-        caregiverRelationship: formData.caregiverRelationship || 'Mother',
+        caregiverRelationship: formData.caregiverRelationship || '',
         consentCapturedAt: new Date().toISOString(),
         signatureRequired: true,
         signatureStatus: hasSavedSignature ? 'CAPTURED_LOCAL' : 'PENDING',
@@ -920,7 +920,7 @@ export default function ResumeDraftSinglePage() {
           consentProvided: formData.agreeToParticipate ?? false,
           consentVersion: 'v1.0-2026',
           caregiverName: formData.caregiverName || 'Caregiver',
-          caregiverRelationship: formData.caregiverRelationship || 'Mother',
+          caregiverRelationship: formData.caregiverRelationship || '',
           consentCapturedAt: new Date().toISOString(),
           signatureRequired: true,
           signatureStatus: (hasSavedSignature || !!signatureDataUrl) ? 'CAPTURED_LOCAL' : 'PENDING',
@@ -1331,10 +1331,11 @@ export default function ResumeDraftSinglePage() {
                   id="caregiver-relationship"
                   value={formData.caregiverRelationship}
                   onChange={(e) =>
-                    setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship })
+                    setFormData({ ...formData, caregiverRelationship: e.target.value as CaregiverRelationship | '' })
                   }
                   className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)] rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer"
                 >
+                  <option value="">Select relationship...</option>
                   {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
                     <option key={rel} value={rel}>
                       {rel}
@@ -1377,7 +1378,7 @@ export default function ResumeDraftSinglePage() {
                   <CaregiverSignaturePad
                     submissionUuid={clientUuid}
                     caregiverName={formData.caregiverName || 'Caregiver'}
-                    caregiverRelationship={formData.caregiverRelationship || 'Mother'}
+                    caregiverRelationship={formData.caregiverRelationship || ''}
                     onSignatureSaved={(blob) => setHasSavedSignature(!!blob)}
                   />
                 </div>

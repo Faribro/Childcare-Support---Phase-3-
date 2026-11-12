@@ -1189,12 +1189,47 @@ function getSheetAndColMap_() {
 // CREATE & OCC UPDATE HANDLERS
 // ============================================================================
 
+var CREATE_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+var CREATE_IDEMPOTENCY_MAX_KEYS = 400;
+
+function pruneExpiredCreateIdempotencyKeys_(props, nowMs) {
+  if (!props || typeof props.getProperties !== 'function' || typeof props.deleteProperty !== 'function') {
+    return;
+  }
+  try {
+    var allProps = props.getProperties() || {};
+    var active = [];
+    for (var k in allProps) {
+      if (!Object.prototype.hasOwnProperty.call(allProps, k)) continue;
+      if (k.indexOf('create_idem_') !== 0 && k.indexOf('create_csid_') !== 0) continue;
+      var parsed = null;
+      try {
+        parsed = JSON.parse(allProps[k]);
+      } catch (eParse) {}
+      var ts = parsed && typeof parsed.ts === 'number' ? parsed.ts : 0;
+      if (!ts || (nowMs - ts) > CREATE_IDEMPOTENCY_TTL_MS) {
+        props.deleteProperty(k);
+      } else {
+        active.push({ key: k, ts: ts });
+      }
+    }
+    if (active.length > CREATE_IDEMPOTENCY_MAX_KEYS) {
+      active.sort(function (a, b) { return a.ts - b.ts; });
+      var excess = active.length - CREATE_IDEMPOTENCY_MAX_KEYS;
+      for (var i = 0; i < excess; i++) {
+        props.deleteProperty(active[i].key);
+      }
+    }
+  } catch (ePrune) {}
+}
+
 function lookupCreateIdempotency_(idempotencyKey, clientSubmissionId) {
   var keys = [];
   if (idempotencyKey) keys.push('create_idem_' + idempotencyKey);
   if (clientSubmissionId) keys.push('create_csid_' + clientSubmissionId);
   if (keys.length === 0) return null;
 
+  var nowMs = new Date().getTime();
   var cache = (typeof CacheService !== 'undefined' && CacheService.getScriptCache)
     ? CacheService.getScriptCache()
     : null;
@@ -1216,6 +1251,10 @@ function lookupCreateIdempotency_(idempotencyKey, clientSubmissionId) {
     if (raw) {
       try {
         var parsed = JSON.parse(raw);
+        if (parsed && parsed.ts && (nowMs - parsed.ts) > CREATE_IDEMPOTENCY_TTL_MS) {
+          try { if (props) props.deleteProperty(k); } catch (eDel) {}
+          continue;
+        }
         if (parsed && parsed.uniqueId) {
           return parsed;
         }
@@ -1226,9 +1265,18 @@ function lookupCreateIdempotency_(idempotencyKey, clientSubmissionId) {
 }
 
 function recordCreateIdempotency_(idempotencyKey, clientSubmissionId, record) {
+  var nowMs = new Date().getTime();
+  var entry = {};
+  for (var rk in record) {
+    if (Object.prototype.hasOwnProperty.call(record, rk)) {
+      entry[rk] = record[rk];
+    }
+  }
+  entry.ts = nowMs;
+
   var serialized;
   try {
-    serialized = JSON.stringify(record);
+    serialized = JSON.stringify(entry);
   } catch (e) {
     return;
   }
@@ -1243,6 +1291,8 @@ function recordCreateIdempotency_(idempotencyKey, clientSubmissionId, record) {
   var props = (typeof PropertiesService !== 'undefined' && PropertiesService.getScriptProperties)
     ? PropertiesService.getScriptProperties()
     : null;
+
+  pruneExpiredCreateIdempotencyKeys_(props, nowMs);
 
   for (var i = 0; i < keys.length; i++) {
     var k = keys[i];

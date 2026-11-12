@@ -462,7 +462,9 @@ export function CaregiverSignaturePad({
         <div className="inline-flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs whitespace-nowrap self-start sm:self-auto">
           <span className="text-slate-400 text-[10px] uppercase font-bold">Signatory:</span>
           <span className="font-bold text-slate-900">{caregiverName || 'Caregiver'}</span>
-          <span className="text-slate-500 text-[11px]">({caregiverRelationship || 'Mother'})</span>
+          {caregiverRelationship ? (
+            <span className="text-slate-500 text-[11px]">({caregiverRelationship})</span>
+          ) : null}
         </div>
       </div>
 
