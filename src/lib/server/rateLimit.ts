@@ -11,6 +11,17 @@ export interface RateLimitResult {
   remaining: number;
   resetAt: number;
   retryAfterSeconds: number;
+  scopedBy?: 'user' | 'ip';
+}
+
+export interface UserAwareRateLimitOptions {
+  req: NextRequest;
+  namespace: string;
+  perUserLimit: number;
+  sharedIpLimit: number;
+  windowMs: number;
+  userId?: string | null;
+  isVerifiedUser?: boolean;
 }
 
 /**
@@ -89,6 +100,43 @@ export function checkRateLimit(
     resetAt: existing.resetAt,
     retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
   };
+}
+
+/**
+ * User-aware rate limiter for clinic/training environments where many field workers share a single NAT IP.
+ * Verified users receive isolated per-user buckets while a higher shared-IP ceiling protects against flooding.
+ */
+export function checkUserAwareRateLimit({
+  req,
+  namespace,
+  perUserLimit,
+  sharedIpLimit,
+  windowMs,
+  userId,
+  isVerifiedUser,
+}: UserAwareRateLimitOptions): RateLimitResult {
+  const clientIp = getClientIp(req);
+  const hasDistinctUser =
+    Boolean(isVerifiedUser) &&
+    Boolean(userId) &&
+    userId !== 'anonymous-field' &&
+    userId !== 'test-runner' &&
+    userId !== 'trusted-server-actor';
+
+  if (hasDistinctUser && userId) {
+    const userRl = checkRateLimit(`${namespace}:user`, `user:${userId}`, perUserLimit, windowMs);
+    if (!userRl.allowed) {
+      return { ...userRl, scopedBy: 'user' };
+    }
+    const ipRl = checkRateLimit(`${namespace}:ip`, `ip:${clientIp}`, sharedIpLimit, windowMs);
+    if (!ipRl.allowed) {
+      return { ...ipRl, scopedBy: 'ip' };
+    }
+    return { ...userRl, scopedBy: 'user' };
+  }
+
+  const ipRl = checkRateLimit(`${namespace}:ip`, `ip:${clientIp}`, sharedIpLimit, windowMs);
+  return { ...ipRl, scopedBy: 'ip' };
 }
 
 export function buildRateLimitHeaders(result: RateLimitResult): Record<string, string> {

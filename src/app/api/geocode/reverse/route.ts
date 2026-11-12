@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCanonicalState, getDistrictsForState } from '@/lib/constants/indianDistricts';
 import { lookupPincodeAsync } from '@/lib/constants/pincodeDirectory';
-import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { resolveUserAccessScope } from '@/lib/server/authorisation';
+import { buildRateLimitHeaders, checkUserAwareRateLimit } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,8 @@ const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_CACHE_SIZE = 5000;
 
-const GEOCODE_RATE_LIMIT = 30; // 30 requests per minute per IP
+const GEOCODE_USER_RATE_LIMIT = 60; // 60 requests per minute per authenticated user
+const GEOCODE_SHARED_IP_RATE_LIMIT = 240; // Higher shared-NAT ceiling for clinic/training Wi-Fi
 const GEOCODE_WINDOW_MS = 60 * 1000;
 
 function cleanDistrictName(raw: string): string {
@@ -229,9 +231,17 @@ async function fetchPhoton(lat: number, lng: number, timeoutMs = 2000): Promise<
 export async function POST(req: NextRequest) {
   const reqStart = Date.now();
 
-  // ── Per-IP Rate Limiting ──
-  const clientIp = getClientIp(req);
-  const rl = checkRateLimit('geocode_reverse', clientIp, GEOCODE_RATE_LIMIT, GEOCODE_WINDOW_MS);
+  // ── User-Keyed + Shared-IP Rate Limiting ──
+  const scope = await resolveUserAccessScope(req);
+  const rl = checkUserAwareRateLimit({
+    req,
+    namespace: 'geocode_reverse',
+    perUserLimit: GEOCODE_USER_RATE_LIMIT,
+    sharedIpLimit: GEOCODE_SHARED_IP_RATE_LIMIT,
+    windowMs: GEOCODE_WINDOW_MS,
+    userId: scope.userId,
+    isVerifiedUser: scope.isVerified,
+  });
   const rateHeaders = buildRateLimitHeaders(rl);
 
   if (!rl.allowed) {

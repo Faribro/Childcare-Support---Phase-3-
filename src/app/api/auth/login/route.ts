@@ -7,10 +7,14 @@ import { logServerError } from '@/lib/server/errorLogger';
 
 export const dynamic = 'force-dynamic';
 
+const AUTH_LOGIN_SHARED_IP_LIMIT = 180; // Raised for simultaneous clinic/training Wi-Fi sign-ins
+const AUTH_LOGIN_ACCOUNT_IP_LIMIT = 20; // Strict per-account+IP brute-force guard
+const AUTH_LOGIN_WINDOW_MS = 60 * 1000;
+
 export async function POST(req: NextRequest) {
   const clientIp = getClientIp(req);
 
-  const rl = checkRateLimit('auth_login', clientIp, 60, 60 * 1000);
+  const rl = checkRateLimit('auth_login', clientIp, AUTH_LOGIN_SHARED_IP_LIMIT, AUTH_LOGIN_WINDOW_MS);
   if (!rl.allowed) {
     return NextResponse.json(
       {
@@ -48,6 +52,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { status: 'error', code: 'INVALID_CREDENTIALS', message: 'Access identifier and password are required.' },
         { status: 400 }
+      );
+    }
+
+    const normalizedIdentifier = identifier.trim().toLowerCase();
+    const accountRl = checkRateLimit(
+      'auth_login_account',
+      `${clientIp}:${normalizedIdentifier}`,
+      AUTH_LOGIN_ACCOUNT_IP_LIMIT,
+      AUTH_LOGIN_WINDOW_MS
+    );
+    if (!accountRl.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many sign-in attempts for this account. Please wait a minute and try again.',
+        },
+        { status: 429, headers: buildRateLimitHeaders(accountRl) }
       );
     }
 

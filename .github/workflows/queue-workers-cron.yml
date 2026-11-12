@@ -1,10 +1,28 @@
-name: Queue Workers Scheduled Drain
+name: Queue Workers Scheduled Drain (Prepared)
 
 on:
   schedule:
-    # Run every 15 minutes as an external authenticated scheduler for Vercel Hobby
+    # Run every 15 minutes via external authenticated POST trigger
+    # (Vercel crons in vercel.json only issue GET requests; queue draining requires POST)
     - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Base app URL (defaults to production URL if omitted)'
+        required: false
+        default: 'https://childcare-support-phase-3.vercel.app'
+      batch_size:
+        description: 'Max jobs to drain per invocation (1-50)'
+        required: false
+        default: '25'
+      action:
+        description: 'Worker action: drain or replayDeadLetters'
+        required: false
+        type: choice
+        options:
+          - drain
+          - replayDeadLetters
+        default: 'drain'
 
 permissions:
   contents: read
@@ -14,14 +32,52 @@ jobs:
     name: Drain Sheets Mirror & Export Delivery Queues
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Prepared only: enable in repository variables (ENABLE_SHEETS_MIRROR_CRON = 'true')
+    # once Supabase STORAGE_ENGINE cutover is ready, or run manually via workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_SHEETS_MIRROR_CRON == 'true'
 
     steps:
-      - name: Trigger Sheets Mirror Worker
+      - name: Trigger Sheets Mirror Worker (POST)
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url || vars.SHEETS_MIRROR_BASE_URL || 'https://childcare-support-phase-3.vercel.app' }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '25' }}
+          WORKER_ACTION: ${{ github.event.inputs.action || 'drain' }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
         run: |
-          curl -s -f -X POST "https://childcare-support-phase-3.vercel.app/api/workers/sheets-mirror" \
-            -H "x-webhook-secret: ${{ secrets.WEBHOOK_SECRET }}" || echo "Sheets mirror drain skipped or empty"
+          if [ -z "$WEBHOOK_SECRET" ]; then
+            echo "::error::WEBHOOK_SECRET repository secret is required to invoke POST /api/workers/sheets-mirror."
+            exit 1
+          fi
 
-      - name: Trigger Export Delivery Worker
+          BODY=$(printf '{"action":"%s","batchSize":%s,"limit":%s,"drainAfterReplay":true}' "$WORKER_ACTION" "$BATCH_SIZE" "$BATCH_SIZE")
+          RESPONSE_FILE=$(mktemp)
+
+          HTTP_CODE=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+            -X POST "${TARGET_URL%/}/api/workers/sheets-mirror" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
+            -d "$BODY")
+
+          echo "HTTP status: $HTTP_CODE"
+          cat "$RESPONSE_FILE"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::POST /api/workers/sheets-mirror failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          DEAD_COUNT=$(node -e "const fs = require('fs'); const d = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(Number(d?.queue?.deadLetterCount ?? 0));" "$RESPONSE_FILE")
+          if [ "$DEAD_COUNT" -gt 0 ]; then
+            echo "::warning::DEAD_LETTER count is $DEAD_COUNT — review DEAD_LETTER jobs via GET /api/workers/sheets-mirror?includeDeadLetters=true or replay via action=replayDeadLetters."
+          fi
+
+      - name: Trigger Export Delivery Worker (POST)
+        if: ${{ github.event.inputs.action != 'replayDeadLetters' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url || vars.SHEETS_MIRROR_BASE_URL || 'https://childcare-support-phase-3.vercel.app' }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
         run: |
-          curl -s -f -X POST "https://childcare-support-phase-3.vercel.app/api/workers/export-delivery" \
-            -H "x-webhook-secret: ${{ secrets.WEBHOOK_SECRET }}" || echo "Export delivery drain skipped or empty"
+          curl -sS -f -X POST "${TARGET_URL%/}/api/workers/export-delivery" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
+            -d '{}' || echo "Export delivery drain skipped or empty"

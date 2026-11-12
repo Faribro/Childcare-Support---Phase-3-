@@ -3,9 +3,19 @@ import { NextRequest } from 'next/server';
 import { POST as createSubmission } from '@/app/api/submissions/route';
 import { POST as loginPost } from '@/app/api/auth/login/route';
 import { GET as healthGet } from '@/app/api/health/route';
+import {
+  GET as workerGet,
+  POST as workerPost,
+} from '@/app/api/workers/sheets-mirror/route';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
 import { SupabaseSubmissionAdapter } from '@/lib/server/supabaseSubmissionAdapter';
 import { sanitizeLogContext, logServerError } from '@/lib/server/errorLogger';
+import { checkUserAwareRateLimit, _resetRateLimitsForTest } from '@/lib/server/rateLimit';
+import {
+  InMemorySheetsMirrorRepository,
+  SheetsMirrorWorker,
+} from '@/lib/server/sheetsMirrorWorker';
+import { notifyDeadLetterAlert } from '@/lib/server/deadLetterAlert';
 
 function makeValidPayload(uuid: string) {
   return {
@@ -157,11 +167,12 @@ describe('Phase 3 Hardening: Idempotency, Rate Limits, Health, Error Logging', (
     spy.mockRestore();
   });
 
-  it('POST /api/auth/login enforces per-IP rate limiting with HTTP 429', async () => {
+  it('POST /api/auth/login enforces raised shared-IP rate limiting (180/min) with HTTP 429', async () => {
+    _resetRateLimitsForTest();
     const testIp = `203.0.113.${Math.floor(10 + Math.random() * 200)}`;
     let limitedRes: Response | null = null;
 
-    for (let i = 0; i < 65; i++) {
+    for (let i = 0; i < 185; i++) {
       const req = new NextRequest('http://localhost:3000/api/auth/login', {
         method: 'POST',
         headers: {
@@ -181,5 +192,195 @@ describe('Phase 3 Hardening: Idempotency, Rate Limits, Health, Error Logging', (
     expect(limitedRes).not.toBeNull();
     expect(limitedRes!.status).toBe(429);
     expect(limitedRes!.headers.get('Retry-After')).toBeTruthy();
+  });
+
+  it('POST /api/auth/login allows different accounts behind shared NAT IP while throttling brute-force per account', async () => {
+    _resetRateLimitsForTest();
+    const sharedIp = '198.51.100.88';
+
+    let accountLimited: Response | null = null;
+    for (let i = 0; i < 25; i++) {
+      const req = new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': sharedIp,
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({ accessIdentifier: 'staff-a@allianceindia.org', password: 'wrong' }),
+      });
+      const res = await loginPost(req);
+      if (res.status === 429) {
+        accountLimited = res;
+        break;
+      }
+    }
+    expect(accountLimited).not.toBeNull();
+    expect(accountLimited!.status).toBe(429);
+
+    // Another staff member on the exact same shared IP should NOT be blocked
+    const otherUserReq = new NextRequest('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-forwarded-for': sharedIp,
+        origin: 'http://localhost:3000',
+      },
+      body: JSON.stringify({ accessIdentifier: 'staff-b@allianceindia.org', password: 'wrong' }),
+    });
+    const otherUserRes = await loginPost(otherUserReq);
+    expect(otherUserRes.status).not.toBe(429);
+  });
+
+  it('checkUserAwareRateLimit isolates verified users sharing the same clinic NAT IP', () => {
+    _resetRateLimitsForTest();
+    const sharedReq = new NextRequest('http://localhost:3000/api/submissions', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': '198.51.100.77' },
+    });
+
+    // User A consumes their per-user quota (limit = 3), while shared-IP ceiling = 10
+    for (let i = 0; i < 3; i++) {
+      const ok = checkUserAwareRateLimit({
+        req: sharedReq,
+        namespace: 'test_ns',
+        perUserLimit: 3,
+        sharedIpLimit: 10,
+        windowMs: 60_000,
+        userId: 'user-a',
+        isVerifiedUser: true,
+      });
+      expect(ok.allowed).toBe(true);
+      expect(ok.scopedBy).toBe('user');
+    }
+
+    const userABlocked = checkUserAwareRateLimit({
+      req: sharedReq,
+      namespace: 'test_ns',
+      perUserLimit: 3,
+      sharedIpLimit: 10,
+      windowMs: 60_000,
+      userId: 'user-a',
+      isVerifiedUser: true,
+    });
+    expect(userABlocked.allowed).toBe(false);
+    expect(userABlocked.scopedBy).toBe('user');
+
+    // User B on the same IP still has full isolated quota
+    const userBAllowed = checkUserAwareRateLimit({
+      req: sharedReq,
+      namespace: 'test_ns',
+      perUserLimit: 3,
+      sharedIpLimit: 10,
+      windowMs: 60_000,
+      userId: 'user-b',
+      isVerifiedUser: true,
+    });
+    expect(userBAllowed.allowed).toBe(true);
+    expect(userBAllowed.scopedBy).toBe('user');
+  });
+
+  it('SheetsMirrorWorker dead-lettered jobs can be listed, alerted without PII, replayed, and completed', async () => {
+    const repo = new InMemorySheetsMirrorRepository();
+    const job = await repo.enqueueJob({
+      job_type: 'UPSERT_ROW',
+      target_sheet_name: 'Children',
+      idempotency_key: 'dlq-test-1',
+      payload_snapshot: {
+        UniqueID: 'MH-PUN-999-01',
+        ChildName: 'Sensitive Name',
+        Aadhaar: '123456789012',
+      },
+      max_attempts: 1,
+    });
+
+    const failingWorker = new SheetsMirrorWorker(
+      repo,
+      {
+        callGateway: async () => ({
+          status: 'error',
+          statusCode: 500,
+          message: 'Upstream 500 timeout',
+        }),
+      },
+      { workerId: 'test-fail-worker' }
+    );
+
+    const drain1 = await failingWorker.drainQueue(5);
+    expect(drain1.deadLettered).toBe(1);
+    expect(await repo.getDeadLetterCount()).toBe(1);
+
+    const deadJobs = await repo.listDeadLetterJobs(10);
+    expect(deadJobs).toHaveLength(1);
+    expect(deadJobs[0].id).toBe(job.id);
+
+    const alertSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const alertResult = await notifyDeadLetterAlert({
+      source: 'unit-test',
+      requestId: 'req-dlq-1',
+      deadLetteredInBatch: 1,
+      totalDeadLetterCount: 1,
+      sampleJobs: deadJobs.map((j) => ({
+        id: j.id,
+        jobType: j.job_type,
+        targetSheetName: j.target_sheet_name,
+        attemptCount: j.attempt_count,
+        lastError: j.last_error,
+      })),
+    });
+    expect(alertResult.triggered).toBe(true);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    const loggedAlert = String(alertSpy.mock.calls[0][1]);
+    expect(loggedAlert).not.toContain('Sensitive Name');
+    expect(loggedAlert).not.toContain('123456789012');
+    alertSpy.mockRestore();
+
+    const replay = await repo.replayDeadLetterJobs({ jobIds: [job.id] });
+    expect(replay.requeuedCount).toBe(1);
+    expect(replay.requeuedJobIds).toEqual([job.id]);
+    expect(await repo.getDeadLetterCount()).toBe(0);
+    expect(await repo.getPendingCount()).toBe(1);
+
+    const recoveringWorker = new SheetsMirrorWorker(
+      repo,
+      {
+        callGateway: async () => ({
+          status: 'success',
+          statusCode: 200,
+          resolvedRow: 42,
+        }),
+      },
+      { workerId: 'test-recover-worker' }
+    );
+    const drain2 = await recoveringWorker.drainQueue(5);
+    expect(drain2.completed).toBe(1);
+    const finished = await repo.getJobById(job.id);
+    expect(finished?.status).toBe('COMPLETED');
+    expect(finished?.sheet_row).toBe(42);
+  });
+
+  it('GET and POST /api/workers/sheets-mirror enforce auth and support includeDeadLetters & replayDeadLetters', async () => {
+    const unauthReq = new NextRequest('http://localhost:3000/api/workers/sheets-mirror?includeDeadLetters=true', {
+      method: 'GET',
+      headers: { 'x-test-unauthenticated': 'true' },
+    });
+    const unauthRes = await workerGet(unauthReq);
+    expect(unauthRes.status).toBe(401);
+
+    const authGet = new NextRequest('http://localhost:3000/api/workers/sheets-mirror?includeDeadLetters=true', {
+      method: 'GET',
+    });
+    const getRes = await workerGet(authGet);
+    expect(getRes.status).toBe(200);
+
+    const replayPost = new NextRequest('http://localhost:3000/api/workers/sheets-mirror', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'replayDeadLetters', limit: 10, drainAfterReplay: false }),
+    });
+    const postRes = await workerPost(replayPost);
+    expect(postRes.status).toBe(200);
+    const body = await postRes.json();
+    expect(body.status).toMatch(/ok|success/);
   });
 });

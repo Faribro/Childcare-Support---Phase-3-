@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { validateServerSubmissionIntake } from '@/lib/server/intakeValidation';
-import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { buildRateLimitHeaders, checkUserAwareRateLimit } from '@/lib/server/rateLimit';
 import { logServerError } from '@/lib/server/errorLogger';
 import {
   resolveUserAccessScope,
@@ -402,9 +402,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
-    // Per-IP rate limiting (150 req/min/IP to allow simultaneous clinic/training Wi-Fi bursts)
-    const clientIp = getClientIp(req);
-    const rl = checkRateLimit('submissions_post', clientIp, 150, 60 * 1000);
+    // User-keyed rate limiting (150 req/min/user; 600 req/min shared NAT ceiling)
+    const scope = await resolveUserAccessScope(req);
+    const rl = checkUserAwareRateLimit({
+      req,
+      namespace: 'submissions_post',
+      perUserLimit: 150,
+      sharedIpLimit: 600,
+      windowMs: 60 * 1000,
+      userId: scope.userId,
+      isVerifiedUser: scope.isVerified,
+    });
     if (!rl.allowed) {
       return NextResponse.json(
         {

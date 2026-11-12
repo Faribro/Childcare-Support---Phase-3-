@@ -4,7 +4,9 @@ import {
   SheetsMirrorWorker,
   GatewayClient,
   DrainSummary,
+  SheetsMirrorJob,
 } from '@/lib/server/sheetsMirrorWorker';
+import { notifyDeadLetterAlert } from '@/lib/server/deadLetterAlert';
 import { resolveUserAccessScope, logSecurityEvent } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +31,19 @@ function verifyWorkerAuthorization(req: NextRequest, webhookSecret?: string): bo
   if (secretHeader.trim() === webhookSecret) return true;
 
   return false;
+}
+
+function sanitizeDeadLetterJobs(jobs: SheetsMirrorJob[]) {
+  return jobs.map((j) => ({
+    id: j.id,
+    jobType: j.job_type,
+    targetSheetName: j.target_sheet_name,
+    attemptCount: j.attempt_count,
+    maxAttempts: j.max_attempts,
+    lastError: j.last_error,
+    createdAt: j.created_at,
+    updatedAt: j.updated_at,
+  }));
 }
 
 export async function GET(req: NextRequest) {
@@ -59,6 +74,20 @@ export async function GET(req: NextRequest) {
 
     const pendingCount = await mirrorRepo.getPendingCount();
     const deadLetterCount = await mirrorRepo.getDeadLetterCount();
+    const includeDeadLetters = req.nextUrl.searchParams.get('includeDeadLetters') === 'true';
+    const deadLetterJobs =
+      includeDeadLetters && deadLetterCount > 0 ? await mirrorRepo.listDeadLetterJobs(50) : [];
+
+    const alert =
+      deadLetterCount > 0
+        ? await notifyDeadLetterAlert({
+            source: 'GET /api/workers/sheets-mirror',
+            requestId,
+            deadLetteredInBatch: 0,
+            totalDeadLetterCount: deadLetterCount,
+            sampleJobs: sanitizeDeadLetterJobs(deadLetterJobs),
+          })
+        : { triggered: false, webhookDispatched: false };
 
     return NextResponse.json(
       {
@@ -67,8 +96,10 @@ export async function GET(req: NextRequest) {
         queue: {
           pendingCount,
           deadLetterCount,
-          status: pendingCount > 0 ? 'HAS_WORK' : 'IDLE',
+          status: deadLetterCount > 0 ? 'HAS_DEAD_LETTERS' : pendingCount > 0 ? 'HAS_WORK' : 'IDLE',
         },
+        ...(includeDeadLetters ? { deadLetterJobs: sanitizeDeadLetterJobs(deadLetterJobs) } : {}),
+        alert,
         requestId,
       },
       { status: 200, headers: WORKER_NO_STORE_HEADERS }
@@ -85,6 +116,8 @@ export async function POST(req: NextRequest) {
   const requestId = `worker-drain-${Date.now().toString(36)}`;
   const webhookSecret = canonicalSubmissionAdapter.getWebhookSecret();
 
+  let actor = 'webhook-cron';
+  let actorRole = 'SYSTEM';
   const isSecretAuthorized = verifyWorkerAuthorization(req, webhookSecret);
   if (!isSecretAuthorized) {
     const scope = await resolveUserAccessScope(req);
@@ -101,16 +134,35 @@ export async function POST(req: NextRequest) {
         { status: 401, headers: WORKER_NO_STORE_HEADERS }
       );
     }
+    actor = scope.userId;
+    actorRole = scope.role;
   }
 
   let batchSize = 10;
+  let action: 'drain' | 'replayDeadLetters' = 'drain';
+  let jobIds: Array<string | number> | undefined;
+  let replayLimit = 50;
+  let drainAfterReplay = true;
+
   try {
     const body = await req.json().catch(() => ({}));
-    if (body.batchSize && Number.isInteger(body.batchSize) && body.batchSize > 0 && body.batchSize <= 50) {
+    if (body?.batchSize && Number.isInteger(body.batchSize) && body.batchSize > 0 && body.batchSize <= 50) {
       batchSize = body.batchSize;
     }
+    if (body?.action === 'replayDeadLetters') {
+      action = 'replayDeadLetters';
+    }
+    if (Array.isArray(body?.jobIds)) {
+      jobIds = body.jobIds.filter((id: unknown) => typeof id === 'string' || typeof id === 'number');
+    }
+    if (body?.limit && Number.isInteger(body.limit) && body.limit > 0 && body.limit <= 200) {
+      replayLimit = body.limit;
+    }
+    if (typeof body?.drainAfterReplay === 'boolean') {
+      drainAfterReplay = body.drainAfterReplay;
+    }
   } catch {
-    // Default to batch size 10
+    // Default options
   }
 
   try {
@@ -165,18 +217,51 @@ export async function POST(req: NextRequest) {
       workerId: `api-trigger-${Date.now().toString(36)}`,
     });
 
-    const summary: DrainSummary = await worker.drainQueue(batchSize);
+    let replayResult: { requeuedCount: number; requeuedJobIds: Array<string | number> } | undefined;
+    if (action === 'replayDeadLetters') {
+      const replayed = await mirrorRepo.replayDeadLetterJobs({
+        jobIds,
+        limit: replayLimit,
+      });
+      replayResult = replayed;
+      logSecurityEvent({
+        actor,
+        actorRole,
+        eventType: 'RECORD_MODIFIED',
+        targetResource: 'sheets_mirror_jobs',
+        outcome: 'ALLOW',
+        details: `Replayed ${replayed.requeuedCount} DEAD_LETTER sheets mirror job(s) into QUEUED state.`,
+      });
+    }
+
+    const summary: DrainSummary =
+      action === 'drain' || drainAfterReplay
+        ? await worker.drainQueue(batchSize)
+        : { processed: 0, completed: 0, failed: 0, deadLettered: 0, superseded: 0 };
     const pendingRemaining = await mirrorRepo.getPendingCount();
     const deadLetterCount = await mirrorRepo.getDeadLetterCount();
+    const sampleDeadLetters =
+      summary.deadLettered > 0 || deadLetterCount > 0 ? await mirrorRepo.listDeadLetterJobs(10) : [];
+
+    const alert = await notifyDeadLetterAlert({
+      source: 'POST /api/workers/sheets-mirror',
+      requestId,
+      deadLetteredInBatch: summary.deadLettered,
+      totalDeadLetterCount: deadLetterCount,
+      sampleJobs: sanitizeDeadLetterJobs(sampleDeadLetters),
+    });
 
     return NextResponse.json(
       {
         status: 'success',
+        action,
+        ...(replayResult ? { replay: replayResult } : {}),
         summary,
         queue: {
           pendingRemaining,
           deadLetterCount,
         },
+        alert,
         requestId,
       },
       { status: 200, headers: WORKER_NO_STORE_HEADERS }

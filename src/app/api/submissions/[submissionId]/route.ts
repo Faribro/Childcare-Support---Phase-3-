@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { validateSubmissionAttachments } from '@/lib/server/assetValidation';
-import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { buildRateLimitHeaders, checkUserAwareRateLimit } from '@/lib/server/rateLimit';
 import { logServerError } from '@/lib/server/errorLogger';
 import {
   resolveServerVerifiedRole,
@@ -122,7 +122,16 @@ export async function PATCH(
 ) {
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
-    const rl = checkRateLimit('submissions_patch', getClientIp(req), 150, 60 * 1000);
+    const scope = await resolveUserAccessScope(req);
+    const rl = checkUserAwareRateLimit({
+      req,
+      namespace: 'submissions_patch',
+      perUserLimit: 150,
+      sharedIpLimit: 600,
+      windowMs: 60 * 1000,
+      userId: scope.userId,
+      isVerifiedUser: scope.isVerified,
+    });
     if (!rl.allowed) {
       return NextResponse.json(
         {
@@ -151,7 +160,6 @@ export async function PATCH(
       );
     }
 
-    const scope = await resolveUserAccessScope(req);
     if (!scope.isVerified) {
       logSecurityEvent({
         actor: scope.userId,

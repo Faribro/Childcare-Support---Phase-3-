@@ -7,7 +7,7 @@ import {
   logSecurityEvent,
 } from '@/lib/server/authorisation';
 import { validateAssetPayload } from '@/lib/server/assetValidation';
-import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { buildRateLimitHeaders, checkUserAwareRateLimit } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -26,8 +26,16 @@ export async function POST(
   const requestId = `req-asset-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
 
   try {
-    const clientIp = getClientIp(req);
-    const rl = checkRateLimit('asset_upload', clientIp, 200, 60 * 1000);
+    const scope = await resolveUserAccessScope(req);
+    const rl = checkUserAwareRateLimit({
+      req,
+      namespace: 'asset_upload',
+      perUserLimit: 200,
+      sharedIpLimit: 800,
+      windowMs: 60 * 1000,
+      userId: scope.userId,
+      isVerifiedUser: scope.isVerified,
+    });
     if (!rl.allowed) {
       return NextResponse.json(
         {
@@ -48,7 +56,6 @@ export async function POST(
       );
     }
 
-    const scope = await resolveUserAccessScope(req);
     if (!scope.isVerified) {
       logSecurityEvent({
         actor: scope.userId,
@@ -860,8 +867,16 @@ export async function PUT(
   const requestId = `req-replace-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
 
   try {
-    const clientIp = getClientIp(req);
-    const rl = checkRateLimit('asset_upload', clientIp, 200, 60 * 1000);
+    const scope = await resolveUserAccessScope(req);
+    const rl = checkUserAwareRateLimit({
+      req,
+      namespace: 'asset_upload',
+      perUserLimit: 200,
+      sharedIpLimit: 800,
+      windowMs: 60 * 1000,
+      userId: scope.userId,
+      isVerifiedUser: scope.isVerified,
+    });
     if (!rl.allowed) {
       return NextResponse.json(
         {
@@ -881,8 +896,6 @@ export async function PUT(
         { status: 400, headers: ASSET_NO_STORE_HEADERS }
       );
     }
-
-    const scope = await resolveUserAccessScope(req);
     if (!scope.isVerified) {
       logSecurityEvent({
         actor: scope.userId,

@@ -3,7 +3,8 @@ import { completeSubmissionSchema, patchSubmissionSchema, flattenPatchBody } fro
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { validateServerSubmissionIntake } from '@/lib/server/intakeValidation';
 import { validateSubmissionAttachments } from '@/lib/server/assetValidation';
-import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { resolveUserAccessScope } from '@/lib/server/authorisation';
+import { buildRateLimitHeaders, checkUserAwareRateLimit } from '@/lib/server/rateLimit';
 import { logServerError } from '@/lib/server/errorLogger';
 
 export const dynamic = 'force-dynamic';
@@ -22,8 +23,16 @@ interface SyncBatchItem {
 export async function POST(req: NextRequest) {
   const requestId = `batch-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
-    const clientIp = getClientIp(req);
-    const rl = checkRateLimit('sync_batch', clientIp, 150, 60 * 1000);
+    const scope = await resolveUserAccessScope(req);
+    const rl = checkUserAwareRateLimit({
+      req,
+      namespace: 'sync_batch',
+      perUserLimit: 150,
+      sharedIpLimit: 600,
+      windowMs: 60 * 1000,
+      userId: scope.userId,
+      isVerifiedUser: scope.isVerified,
+    });
     if (!rl.allowed) {
       return NextResponse.json(
         {

@@ -37,6 +37,11 @@ export interface SheetsMirrorJob {
   updated_at: string;
 }
 
+export interface DeadLetterReplayResult {
+  requeuedCount: number;
+  requeuedJobIds: Array<string | number>;
+}
+
 export interface SheetsMirrorRepository {
   claimJobs(batchSize: number, workerId: string, leaseDurationMs: number): Promise<SheetsMirrorJob[]>;
   completeJob(jobId: string | number, sheetRow?: number): Promise<void>;
@@ -46,6 +51,8 @@ export interface SheetsMirrorRepository {
   getJobById(jobId: string | number): Promise<SheetsMirrorJob | null>;
   getPendingCount(): Promise<number>;
   getDeadLetterCount(): Promise<number>;
+  listDeadLetterJobs(limit?: number): Promise<SheetsMirrorJob[]>;
+  replayDeadLetterJobs(options?: { jobIds?: Array<string | number>; limit?: number }): Promise<DeadLetterReplayResult>;
 }
 
 export interface GatewayClient {
@@ -157,6 +164,45 @@ export class InMemorySheetsMirrorRepository implements SheetsMirrorRepository {
 
   public async getDeadLetterCount(): Promise<number> {
     return this.jobs.filter((j) => j.status === 'DEAD_LETTER').length;
+  }
+
+  public async listDeadLetterJobs(limit = 50): Promise<SheetsMirrorJob[]> {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit || 50)));
+    return this.jobs
+      .filter((j) => j.status === 'DEAD_LETTER')
+      .slice(0, safeLimit)
+      .map((j) => ({ ...j }));
+  }
+
+  public async replayDeadLetterJobs(
+    options: { jobIds?: Array<string | number>; limit?: number } = {}
+  ): Promise<DeadLetterReplayResult> {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(options.limit || 50)));
+    const idSet = options.jobIds && options.jobIds.length > 0
+      ? new Set(options.jobIds.map((id) => String(id)))
+      : null;
+
+    const now = new Date().toISOString();
+    const requeuedJobIds: Array<string | number> = [];
+
+    for (const job of this.jobs) {
+      if (requeuedJobIds.length >= safeLimit) break;
+      if (job.status !== 'DEAD_LETTER') continue;
+      if (idSet && !idSet.has(String(job.id))) continue;
+
+      job.status = 'QUEUED';
+      job.attempt_count = 0;
+      job.locked_at = null;
+      job.locked_by = null;
+      job.last_error = job.last_error ? `[REPLAYED] ${job.last_error}` : '[REPLAYED]';
+      job.updated_at = now;
+      requeuedJobIds.push(job.id);
+    }
+
+    return {
+      requeuedCount: requeuedJobIds.length,
+      requeuedJobIds,
+    };
   }
 }
 
@@ -393,6 +439,65 @@ export class SupabaseSheetsMirrorRepository implements SheetsMirrorRepository {
     }
     const data = await res.json().catch(() => []);
     return Array.isArray(data) ? data.length : 0;
+  }
+
+  public async listDeadLetterJobs(limit = 50): Promise<SheetsMirrorJob[]> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.listDeadLetterJobs(limit);
+    }
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit || 50)));
+    const res = await fetch(
+      `${this.baseUrl}/rest/v1/sheets_mirror_jobs?status=eq.DEAD_LETTER&order=created_at.asc&limit=${safeLimit}`,
+      {
+        method: 'GET',
+        headers: this.headers,
+      }
+    );
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => []);
+    if (!Array.isArray(data)) return [];
+    return data.map((c: any) => ({
+      id: c.id,
+      job_type: c.operation,
+      target_sheet_name: c.target_sheet_name,
+      idempotency_key: c.idempotency_key,
+      payload_snapshot: c.payload_snapshot,
+      status: c.status,
+      attempt_count: c.attempt_count,
+      max_attempts: c.max_attempts,
+      locked_at: c.locked_at,
+      locked_by: c.locked_by,
+      sheet_row: c.sheet_row,
+      last_error: c.last_error,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    }));
+  }
+
+  public async replayDeadLetterJobs(
+    options: { jobIds?: Array<string | number>; limit?: number } = {}
+  ): Promise<DeadLetterReplayResult> {
+    if (!this.isConfigured()) {
+      return this.inMemoryFallback.replayDeadLetterJobs(options);
+    }
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(options.limit || 50)));
+    const res = await fetch(`${this.baseUrl}/rest/v1/rpc/replay_sheets_mirror_dead_letters_atomic`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        p_job_ids: options.jobIds && options.jobIds.length > 0 ? options.jobIds.map(String) : null,
+        p_limit: safeLimit,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`replay_sheets_mirror_dead_letters_atomic failed (${res.status}): ${err}`);
+    }
+    const data = await res.json().catch(() => ({}));
+    return {
+      requeuedCount: Number(data?.requeuedCount || 0),
+      requeuedJobIds: Array.isArray(data?.requeuedJobIds) ? data.requeuedJobIds : [],
+    };
   }
 }
 
