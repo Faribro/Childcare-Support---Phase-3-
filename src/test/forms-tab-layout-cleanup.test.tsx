@@ -164,7 +164,7 @@ describe('Forms Tab Layout Simplification (/app)', () => {
     expect(surveyLink?.getAttribute('href')).toBe('/assessment/new');
   });
 
-  it('3. Renders all 3 Needs Attention cards with accurate counts and destinations', async () => {
+  it('3. Renders the 3 circular cards with accurate counts and destinations (Forms to finish, Waiting to send, Pendings)', async () => {
     const { container } = render(<FieldWorkspacePage />);
     const desktopView = container.querySelector('.max-w-4xl') as HTMLElement;
     expect(desktopView).not.toBeNull();
@@ -175,27 +175,34 @@ describe('Forms Tab Layout Simplification (/app)', () => {
     expect(needsAttentionSection).not.toBeNull();
 
     await waitFor(() => {
-      // 1. Forms to finish (shortcut to drafts)
+      // 1. Forms to finish
       expect(within(needsAttentionSection).getByText(/Forms to finish/i)).toBeDefined();
       expect(
         within(needsAttentionSection).getByRole('link', { name: /Continue forms/i }).getAttribute('href')
       ).toBe('/assessment/drafts');
 
-      // 2. Missing documents (Intake gaps)
-      expect(within(needsAttentionSection).getAllByText(/Missing documents/i).length).toBeGreaterThanOrEqual(1);
+      // 2. Waiting to send
+      expect(within(needsAttentionSection).getByText(/Waiting to send/i)).toBeDefined();
       expect(
-        within(needsAttentionSection).getAllByRole('link', { name: /Add documents/i })[0].getAttribute('href')
-      ).toBe('/supervisor/assessments');
+        within(needsAttentionSection).getByRole('link', { name: /View outbox/i }).getAttribute('href')
+      ).toBe('/assessment/sync?tab=outbox');
 
-      // 3. Pendings Card (Combined Missing documents + Bank details)
+      // 3. Pendings (with Missing documents & Bank details needed sub-rows)
       expect(within(needsAttentionSection).getByText(/^Pendings$/i)).toBeDefined();
-      const missingDocsLinks = within(needsAttentionSection).getAllByRole('link', { name: /Missing documents/i });
-      expect(missingDocsLinks.length).toBeGreaterThanOrEqual(1);
-      expect(missingDocsLinks[0].getAttribute('href')).toBe('/supervisor/assessments');
+      expect(
+        within(needsAttentionSection).getByRole('link', { name: /Missing documents/i }).getAttribute('href')
+      ).toBe('/supervisor/assessments');
       expect(
         within(needsAttentionSection).getByRole('link', { name: /Bank details needed/i }).getAttribute('href')
       ).toBe('/assessment/sync?tab=bank_pending');
     });
+
+    // Verify old tile labels are absent
+    expect(within(needsAttentionSection).queryByText(/Unfinished Forms/i)).toBeNull();
+    expect(within(needsAttentionSection).queryByText(/Intake Docs Incomplete/i)).toBeNull();
+    expect(within(needsAttentionSection).queryByText(/Queued \/ Retryable Sync/i)).toBeNull();
+    expect(within(needsAttentionSection).queryByText(/\(local\)/i)).toBeNull();
+    expect(within(needsAttentionSection).queryByText(/Authorized scope/i)).toBeNull();
   });
 
   it('4. Confirms the three obsolete summary tiles are completely absent from the DOM', async () => {

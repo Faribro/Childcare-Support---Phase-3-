@@ -33,9 +33,10 @@ export function NeedsAttentionPanel({
   isServerLoading = false,
   className = '',
 }: NeedsAttentionPanelProps) {
-  // Pendings consolidates Missing Documents + Bank Details Needed per user instruction
+  // Pendings consolidates Missing Documents + Bank Details Needed per user addendum
   const pendingsTotal = submittedMissingDocsCount + approvedBankPendingCount;
-  const totalActionable = localDraftsCount + submittedMissingDocsCount + pendingsTotal;
+  // Total distinct actionable items: drafts + unsent offline outbox + pendings (missing docs + bank details)
+  const totalActionable = localDraftsCount + outboxAttentionCount + pendingsTotal;
 
   const badgeText =
     totalActionable === 0
@@ -84,12 +85,12 @@ export function NeedsAttentionPanel({
 
       {/* 3 True Circular Cards with Completely Rounded Borders (rounded-full aspect-square) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 justify-items-center">
-        {/* Circle Card 1: Forms to finish */}
+        {/* Circle Card 1: Forms to finish (Teal) */}
         <Link
           href={DASHBOARD_COPY.cards.formsToFinish.href}
           className="group block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600 rounded-full w-full max-w-[310px]"
         >
-          <div className="relative w-full aspect-square rounded-full border-2 border-teal-200/90 bg-gradient-to-b from-teal-50/70 via-white/95 to-teal-50/40 backdrop-blur-md shadow-md hover:shadow-xl hover:border-teal-400 hover:scale-[1.03] motion-reduce:hover:scale-100 transition-all duration-300 p-6 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer">
+          <div className="relative w-full aspect-square rounded-full border-2 border-teal-200/90 bg-gradient-to-b from-teal-50/70 via-white/95 to-teal-50/40 backdrop-blur-md shadow-md hover:shadow-xl hover:border-teal-400 hover:scale-[1.03] motion-reduce:hover:scale-100 transition-all duration-300 pt-6 px-6 pb-8 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer">
             {/* Ambient Glow & Concentric Inner Ring */}
             <div className="absolute inset-0 rounded-full bg-teal-400/10 blur-xl pointer-events-none" />
             <div className="absolute inset-2.5 rounded-full border border-teal-200/50 pointer-events-none" />
@@ -111,10 +112,10 @@ export function NeedsAttentionPanel({
 
             {/* Center Hero Counter & Status */}
             <div className="relative z-10 flex flex-col items-center justify-center my-auto">
-              <span className="text-5xl sm:text-6xl font-black text-slate-900 tracking-tight drop-shadow-xs">
+              <span className="text-5xl sm:text-6xl font-black text-teal-950 tracking-tight drop-shadow-xs">
                 {localDraftsCount}
               </span>
-              <span className="text-xs font-semibold text-slate-500 mt-1 max-w-[190px] leading-tight">
+              <span className="text-xs font-semibold text-teal-900/80 mt-0.5 max-w-[190px] leading-tight">
                 {localDraftsCount === 0
                   ? DASHBOARD_COPY.cards.formsToFinish.allClearText
                   : DASHBOARD_COPY.cards.formsToFinish.description}
@@ -122,7 +123,7 @@ export function NeedsAttentionPanel({
             </div>
 
             {/* Bottom Completely Rounded Action Pill */}
-            <div className="relative z-10 pb-1 w-full flex justify-center">
+            <div className="relative z-10 w-full flex justify-center">
               <span className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-full text-xs font-bold text-white bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 group-hover:from-teal-800 group-hover:to-emerald-700 shadow-sm border border-teal-700 transition-all">
                 <span>{DASHBOARD_COPY.cards.formsToFinish.linkText}</span>
                 <ChevronRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
@@ -131,117 +132,129 @@ export function NeedsAttentionPanel({
           </div>
         </Link>
 
-        {/* Circle Card 2: Missing documents */}
+        {/* Circle Card 2: Waiting to send (Amber / Warm) */}
         <Link
-          href={DASHBOARD_COPY.cards.missingDocs.href}
-          className="group block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-600 rounded-full w-full max-w-[310px]"
+          href={DASHBOARD_COPY.cards.waitingToSend.href}
+          className="group block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600 rounded-full w-full max-w-[310px]"
         >
-          <div className="relative w-full aspect-square rounded-full border-2 border-rose-200/90 bg-gradient-to-b from-rose-50/70 via-white/95 to-rose-50/40 backdrop-blur-md shadow-md hover:shadow-xl hover:border-rose-400 hover:scale-[1.03] motion-reduce:hover:scale-100 transition-all duration-300 p-6 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer">
+          <div className="relative w-full aspect-square rounded-full border-2 border-amber-200/90 bg-gradient-to-b from-amber-50/70 via-white/95 to-amber-50/40 backdrop-blur-md shadow-md hover:shadow-xl hover:border-amber-400 hover:scale-[1.03] motion-reduce:hover:scale-100 transition-all duration-300 pt-6 px-6 pb-8 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer">
             {/* Ambient Glow & Concentric Inner Ring */}
-            <div className="absolute inset-0 rounded-full bg-rose-400/10 blur-xl pointer-events-none" />
-            <div className="absolute inset-2.5 rounded-full border border-rose-200/50 pointer-events-none" />
+            <div className="absolute inset-0 rounded-full bg-amber-400/10 blur-xl pointer-events-none" />
+            <div className="absolute inset-2.5 rounded-full border border-amber-200/50 pointer-events-none" />
 
             {/* Three.js 3D WebGL Background Aura */}
             <ThreeStatusOrb
-              variant="rose"
-              count={submittedMissingDocsCount}
-              isAllClear={!isServerLoading && submittedMissingDocsCount === 0}
+              variant="amber"
+              count={outboxAttentionCount}
+              isAllClear={outboxAttentionCount === 0}
             />
 
             {/* Top Completely Rounded Pill Header */}
             <div className="relative z-10 pt-1">
-              <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-rose-100/90 text-rose-800 border border-rose-200 text-xs font-bold uppercase tracking-wider shadow-2xs">
-                <FileWarning className="w-3.5 h-3.5 text-rose-600" aria-hidden="true" />
-                <span>{DASHBOARD_COPY.cards.missingDocs.title}</span>
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-100/90 text-amber-900 border border-amber-200 text-xs font-bold uppercase tracking-wider shadow-2xs">
+                <Clock className="w-3.5 h-3.5 text-amber-800" aria-hidden="true" />
+                <span>{DASHBOARD_COPY.cards.waitingToSend.title}</span>
               </span>
             </div>
 
             {/* Center Hero Counter & Status */}
             <div className="relative z-10 flex flex-col items-center justify-center my-auto">
-              <span className="text-5xl sm:text-6xl font-black text-rose-950 tracking-tight drop-shadow-xs">
-                {isServerLoading ? (
-                  <span className="inline-block w-10 h-10 bg-rose-200 animate-pulse rounded-full" />
-                ) : (
-                  submittedMissingDocsCount
-                )}
+              <span className="text-5xl sm:text-6xl font-black text-amber-950 tracking-tight drop-shadow-xs">
+                {outboxAttentionCount}
               </span>
-              <span className="text-xs font-semibold text-rose-900/80 mt-1 max-w-[190px] leading-tight">
-                {!isServerLoading && submittedMissingDocsCount === 0
-                  ? DASHBOARD_COPY.cards.missingDocs.allClearText
-                  : DASHBOARD_COPY.cards.missingDocs.description}
+              <span className="text-xs font-semibold text-amber-900/80 mt-0.5 max-w-[190px] leading-tight">
+                {outboxAttentionCount === 0
+                  ? DASHBOARD_COPY.cards.waitingToSend.allClearText
+                  : DASHBOARD_COPY.cards.waitingToSend.description}
               </span>
             </div>
 
             {/* Bottom Completely Rounded Action Pill */}
-            <div className="relative z-10 pb-1 w-full flex justify-center">
-              <span className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-full text-xs font-bold text-white bg-gradient-to-r from-rose-700 via-rose-600 to-rose-800 group-hover:from-rose-800 group-hover:to-rose-900 shadow-sm border border-rose-700 transition-all">
-                <span>{DASHBOARD_COPY.cards.missingDocs.linkText}</span>
+            <div className="relative z-10 w-full flex justify-center">
+              <span className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-full text-xs font-bold text-white bg-gradient-to-r from-amber-700 via-amber-600 to-amber-800 group-hover:from-amber-800 group-hover:to-amber-900 shadow-sm border border-amber-700 transition-all">
+                <span>{DASHBOARD_COPY.cards.waitingToSend.linkText}</span>
                 <ChevronRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
               </span>
             </div>
           </div>
         </Link>
 
-        {/* Circle Card 3: Pendings (Combined Missing Documents + Bank Details) */}
-        <div className="relative w-full max-w-[310px] aspect-square rounded-full border-2 border-amber-200/90 bg-gradient-to-b from-amber-50/70 via-white/95 to-amber-50/40 backdrop-blur-md shadow-md hover:shadow-xl hover:border-amber-400 transition-all duration-300 p-5 flex flex-col items-center justify-between text-center overflow-hidden">
+        {/* Circle Card 3: Pendings (Rose) */}
+        <div className="relative w-full max-w-[310px] aspect-square rounded-full border-2 border-rose-200/90 bg-gradient-to-b from-rose-50/70 via-white/95 to-rose-50/40 backdrop-blur-md shadow-md hover:shadow-xl hover:border-rose-400 transition-all duration-300 pt-5 px-5 pb-9 sm:pb-10 flex flex-col items-center justify-between text-center overflow-hidden">
           {/* Ambient Glow & Concentric Inner Ring */}
-          <div className="absolute inset-0 rounded-full bg-amber-400/10 blur-xl pointer-events-none" />
-          <div className="absolute inset-2.5 rounded-full border border-amber-200/50 pointer-events-none" />
+          <div className="absolute inset-0 rounded-full bg-rose-400/10 blur-xl pointer-events-none" />
+          <div className="absolute inset-2.5 rounded-full border border-rose-200/50 pointer-events-none" />
 
           {/* Three.js 3D WebGL Background Aura */}
           <ThreeStatusOrb
-            variant="amber"
+            variant="rose"
             count={pendingsTotal}
             isAllClear={pendingsTotal === 0}
           />
 
           {/* Top Completely Rounded Pill Header */}
           <div className="relative z-10 pt-1">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-100/90 text-amber-900 border border-amber-200 text-xs font-bold uppercase tracking-wider shadow-2xs">
-              <Clock className="w-3.5 h-3.5 text-amber-800" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-rose-100/90 text-rose-900 border border-rose-200 text-xs font-bold uppercase tracking-wider shadow-2xs">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-800" aria-hidden="true" />
               <span>{DASHBOARD_COPY.cards.pendings.title}</span>
             </span>
           </div>
 
           {/* Center Hero Counter & Status */}
-          <div className="relative z-10 flex flex-col items-center justify-center my-auto">
-            <span className="text-5xl sm:text-6xl font-black text-amber-950 tracking-tight drop-shadow-xs">
+          <div className="relative z-10 flex flex-col items-center justify-center my-auto -mt-1.5">
+            <span className="text-5xl sm:text-6xl font-black text-rose-950 tracking-tight drop-shadow-xs">
               {isServerLoading ? (
-                <span className="inline-block w-10 h-10 bg-amber-200 animate-pulse rounded-full" />
+                <span className="inline-block w-10 h-10 bg-rose-200 animate-pulse rounded-full" />
               ) : (
                 pendingsTotal
               )}
             </span>
-            <span className="text-xs font-semibold text-amber-900/80 mt-0.5 max-w-[190px] leading-tight">
+            <span className="text-xs font-semibold text-rose-900/80 mt-0.5 max-w-[190px] leading-tight">
               {pendingsTotal === 0
                 ? DASHBOARD_COPY.cards.pendings.allClearText
                 : DASHBOARD_COPY.cards.pendings.description}
             </span>
           </div>
 
-          {/* Bottom Sub-Pills (Completely rounded buttons for Missing documents & Bank details needed) */}
-          <div className="relative z-10 pb-1 w-full flex flex-col gap-1.5 max-w-[240px]">
+          {/* Bottom Sub-Pills (Elevated with pb-9/pb-10 container and max-w-[170px] to guarantee generous clearance from circular border and inner ring) */}
+          <div className="relative z-10 w-full flex flex-col items-center gap-1.5 max-w-[170px] mb-1">
             {/* Sub-item 1: Missing documents */}
             <Link
-              href="/supervisor/assessments"
-              className="inline-flex items-center justify-between px-3.5 py-1.5 rounded-full text-[11px] font-bold text-amber-950 bg-amber-100/80 hover:bg-amber-200 border border-amber-300 shadow-2xs transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600"
+              href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
+              className="w-full inline-flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold text-rose-950 bg-rose-100/80 hover:bg-rose-200 border border-rose-300 shadow-2xs transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-600"
             >
-              <span className="truncate">Missing documents</span>
-              <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-white text-amber-900 border border-amber-200 shrink-0 ml-1">
-                {submittedMissingDocsCount}
+              <span className="flex items-center gap-1.5 truncate min-w-0">
+                <FileWarning className="w-3 h-3 text-rose-700 shrink-0" aria-hidden="true" />
+                <span className="truncate">{DASHBOARD_COPY.cards.pendings.rows.missingDocs.label}</span>
+              </span>
+              {' '}
+              <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded-full bg-white text-rose-900 border border-rose-200 shrink-0 ml-1">
+                {isServerLoading ? (
+                  <span
+                    className="inline-block w-2.5 h-2 bg-rose-200 animate-pulse rounded"
+                    role="status"
+                    aria-label="Loading missing docs count"
+                  />
+                ) : (
+                  submittedMissingDocsCount
+                )}
               </span>
             </Link>
 
             {/* Sub-item 2: Bank details needed */}
             <Link
               href={DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href}
-              className="inline-flex items-center justify-between px-3.5 py-1.5 rounded-full text-[11px] font-bold text-amber-950 bg-amber-100/80 hover:bg-amber-200 border border-amber-300 shadow-2xs transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600"
+              className="w-full inline-flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold text-rose-950 bg-rose-100/80 hover:bg-rose-200 border border-rose-300 shadow-2xs transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-600"
             >
-              <span className="truncate">{DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}</span>
-              <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-white text-amber-900 border border-amber-200 shrink-0 ml-1">
+              <span className="flex items-center gap-1.5 truncate min-w-0">
+                <Landmark className="w-3 h-3 text-rose-700 shrink-0" aria-hidden="true" />
+                <span className="truncate">{DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}</span>
+              </span>
+              {' '}
+              <span className="font-mono text-[9.5px] px-1.5 py-0.5 rounded-full bg-white text-rose-900 border border-rose-200 shrink-0 ml-1">
                 {isServerLoading ? (
                   <span
-                    className="inline-block w-3 h-2 bg-amber-200 animate-pulse rounded"
+                    className="inline-block w-2.5 h-2 bg-rose-200 animate-pulse rounded"
                     role="status"
                     aria-label="Loading bank count"
                   />

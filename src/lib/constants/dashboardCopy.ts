@@ -3,19 +3,21 @@
  * 
  * Provides clear, jargon-free messaging for field workers and supervisors.
  * Avoids technical/bureaucratic terms like "(local)", "Authorized scope", "Retryable", "DBT", and "passbook".
+ * Single source of truth for dashboard wording.
  */
 
 export const DASHBOARD_COPY = {
   sectionHeading: 'Needs Attention',
   sectionSubtitle: 'Pending work on this device and in your area.',
-  
+
   badgeZero: 'Nothing needs your attention',
-  badgePlural: (count: number) => `${count} things need your attention`,
   badgeSingular: '1 thing needs your attention',
-  
+  badgePlural: (count: number) => `${count} things need your attention`,
+
   allClear: 'All clear',
-  
+
   cards: {
+    // Card 1: Forms to finish
     formsToFinish: {
       title: 'Forms to finish',
       description: 'Forms you started and saved.',
@@ -23,22 +25,24 @@ export const DASHBOARD_COPY = {
       allClearText: 'No incomplete drafts',
       href: '/assessment/drafts',
     },
-    missingDocs: {
-      title: 'Missing documents',
-      description: 'Records that still need an Aadhaar or photo.',
-      linkText: 'Add documents',
-      allClearText: 'All documents uploaded',
-      href: '/supervisor/assessments',
+    // Card 2: Waiting to send (standalone card per addendum)
+    waitingToSend: {
+      title: 'Waiting to send',
+      description: 'Saved on this device. They send when you are online.',
+      linkText: 'View outbox',
+      allClearText: 'Everything has been sent',
+      href: '/assessment/sync?tab=outbox',
     },
+    // Card 3: Pendings (consolidates Missing Documents + Bank Details Needed)
     pendings: {
       title: 'Pendings',
-      description: 'Things waiting to be sent or completed.',
+      description: 'Items needing action.',
       allClearText: 'No pending items',
       rows: {
-        waitingToSend: {
-          label: 'Waiting to send',
-          hint: 'Saved on this device, will send when online',
-          href: '/assessment/sync?tab=outbox',
+        missingDocs: {
+          label: 'Missing documents',
+          hint: 'Records that still need an Aadhaar or photo.',
+          href: '/supervisor/assessments',
         },
         bankDetailsNeeded: {
           label: 'Bank details needed',
@@ -48,14 +52,23 @@ export const DASHBOARD_COPY = {
       },
     },
   },
-  
+
   mobile: {
-    pendingsTitle: 'Pendings',
-    pendingsSubtitle: 'Waiting to send or add bank details',
-    draftsTitle: 'Drafts',
-    draftsSubtitle: 'Saved locally on this device',
-    submittedTitle: 'Submitted surveys',
     startSurveyTitle: 'Start New Survey',
     startSurveySubtitle: 'New beneficiary intake assessment',
+    draftsTitle: 'Drafts',
+    draftsSubtitle: 'Saved locally on this device',
+    waitingToSendTitle: 'Waiting to send',
+    waitingToSendSubtitle: 'Saved on this device, will send when online',
+    pendingsTitle: 'Pendings',
+    pendingsSubtitle: 'Missing documents & bank details needed',
+    missingDocsTitle: 'Missing documents',
+    missingDocsSubtitle: 'Records that still need an Aadhaar or photo',
+    bankDetailsTitle: 'Bank details needed',
+    bankDetailsSubtitle: 'Cases that still need bank details',
+    submittedTitle: 'Submitted surveys',
+    submittedSubtitle: 'Confirmed on central server',
+    hideBreakdown: 'Hide breakdown',
+    showBreakdown: 'Show breakdown',
   },
 } as const;
