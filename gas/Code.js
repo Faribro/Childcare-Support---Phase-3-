@@ -1314,8 +1314,8 @@ function handleCreate_(payload) {
   row[14] = d.caregiverRelationship || payload.caregiverRelation || ''; // 15 Caregiver Relation
   row[15] = d.contactNumber || d.caregiverPhone || payload.caregiverContact || ''; // 16 Caregiver Contact
   row[16] = d.fullAddress || payload.address || ''; // 17 Address
-  row[17] = d.state || payload.state || 'Maharashtra'; // 18 State
-  row[18] = d.district || payload.district || 'Pune'; // 19 District
+  row[17] = d.state || payload.state || ''; // 18 State
+  row[18] = d.district || payload.district || ''; // 19 District
   row[19] = b.bankAccountHolderName || b.accountHolderName || payload.bankAccountHolderName || ''; // 20 Bank Account Holder Name
   row[20] = b.bankAccountNumber || b.accountNumber || payload.bankAccountNumber || ''; // 21 Bank Account Number
   row[21] = b.bankIfscCode || b.ifscCode || payload.bankIfscCode || ''; // 22 Bank IFSC Code
