@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { completeSubmissionSchema, patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import { validateServerSubmissionIntake } from '@/lib/server/intakeValidation';
+import { validateSubmissionAttachments } from '@/lib/server/assetValidation';
+import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { logServerError } from '@/lib/server/errorLogger';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -18,6 +22,20 @@ interface SyncBatchItem {
 export async function POST(req: NextRequest) {
   const requestId = `batch-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
+    const clientIp = getClientIp(req);
+    const rl = checkRateLimit('sync_batch', clientIp, 150, 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many sync batch requests. Outbox items remain queued and will retry automatically.',
+          batchRequestId: requestId,
+        },
+        { status: 429, headers: buildRateLimitHeaders(rl) }
+      );
+    }
+
     // Fail-closed verification in production/staging
     const configCheck = canonicalSubmissionAdapter.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
@@ -63,6 +81,19 @@ export async function POST(req: NextRequest) {
       const itemReqId = `${requestId}-${item.id || item.submissionUuid.slice(0, 4)}`;
 
       if (item.operationType === 'CREATE') {
+        const intakeCheck = validateServerSubmissionIntake(item.payload);
+        if (!intakeCheck.valid) {
+          results.push({
+            submissionUuid: item.submissionUuid,
+            status: 'failed',
+            statusCode: intakeCheck.statusCode || 422,
+            error: intakeCheck.message || 'Validation failed',
+            code: intakeCheck.code || 'VALIDATION_ERROR',
+            issues: intakeCheck.errors.map((e) => e.issue),
+          });
+          continue;
+        }
+
         const parsed = completeSubmissionSchema.safeParse(item.payload);
         if (!parsed.success) {
           results.push({
@@ -100,6 +131,18 @@ export async function POST(req: NextRequest) {
           });
         }
       } else if (item.operationType === 'UPDATE') {
+        const attachmentCheck = validateSubmissionAttachments(item.payload);
+        if (!attachmentCheck.valid) {
+          results.push({
+            submissionUuid: item.submissionUuid,
+            status: 'failed',
+            statusCode: attachmentCheck.statusCode || 422,
+            error: attachmentCheck.message || 'Attachment validation failed',
+            code: attachmentCheck.code || 'INVALID_ASSET',
+          });
+          continue;
+        }
+
         const expectedVersion = item.expectedVersion || (item.payload && (item.payload.expectedVersion || item.payload.version)) || 1;
         const patchData = {
           ...(typeof item.payload === 'object' ? item.payload : {}),
@@ -173,7 +216,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: any) {
-    console.error('POST /api/sync batch error:', err);
+    logServerError('POST /api/sync', err, { requestId });
     return NextResponse.json(
       { status: 'error', code: 'INTERNAL_ERROR', message: 'Failed to process sync batch' },
       { status: 500 }

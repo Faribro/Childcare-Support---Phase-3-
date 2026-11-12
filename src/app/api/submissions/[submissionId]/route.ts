@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { patchSubmissionSchema, flattenPatchBody } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import { validateSubmissionAttachments } from '@/lib/server/assetValidation';
+import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { logServerError } from '@/lib/server/errorLogger';
 import {
   resolveServerVerifiedRole,
   resolveUserAccessScope,
@@ -119,6 +122,19 @@ export async function PATCH(
 ) {
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
+    const rl = checkRateLimit('submissions_patch', getClientIp(req), 150, 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many update requests sent quickly. Please retry shortly.',
+          requestId,
+        },
+        { status: 429, headers: buildRateLimitHeaders(rl) }
+      );
+    }
+
     const csrf = validateCsrfOrigin(req);
     if (!csrf.isValid) {
       return NextResponse.json(
@@ -250,6 +266,19 @@ export async function PATCH(
     rawBody.expectedVersion = resolvedVersion;
 
     const flattenedBody = flattenPatchBody(rawBody);
+    const attachmentRes = validateSubmissionAttachments(rawBody);
+    if (!attachmentRes.valid) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: attachmentRes.code || 'INVALID_ASSET',
+          message: attachmentRes.message || 'Uploaded attachment exceeds limits or uses an unsupported format.',
+          requestId,
+        },
+        { status: attachmentRes.statusCode || 422 }
+      );
+    }
+
     const validation = patchSubmissionSchema.safeParse(flattenedBody);
     if (!validation.success) {
       return NextResponse.json(
@@ -383,9 +412,9 @@ export async function PATCH(
       { status: 200 }
     );
   } catch (err: any) {
-    console.error('PATCH /api/submissions/[submissionId] error:', err);
+    logServerError('PATCH /api/submissions/[submissionId]', err, { requestId });
     return NextResponse.json(
-      { status: 'error', code: 'INTERNAL_ERROR', message: 'Internal server error processing patch' },
+      { status: 'error', code: 'INTERNAL_ERROR', message: 'Internal server error processing patch', requestId },
       { status: 500 }
     );
   }

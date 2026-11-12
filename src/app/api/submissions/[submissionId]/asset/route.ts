@@ -6,6 +6,8 @@ import {
   isDistrictAuthorized,
   logSecurityEvent,
 } from '@/lib/server/authorisation';
+import { validateAssetPayload } from '@/lib/server/assetValidation';
+import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -24,6 +26,20 @@ export async function POST(
   const requestId = `req-asset-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
 
   try {
+    const clientIp = getClientIp(req);
+    const rl = checkRateLimit('asset_upload', clientIp, 200, 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many asset upload requests. Please wait a minute and retry.',
+          requestId,
+        },
+        { status: 429, headers: { ...ASSET_NO_STORE_HEADERS, ...buildRateLimitHeaders(rl) } }
+      );
+    }
+
     const submissionId = params.submissionId;
     if (!submissionId) {
       return NextResponse.json(
@@ -96,6 +112,19 @@ export async function POST(
       return NextResponse.json(
         { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing required field: fileData' },
         { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const assetCheck = validateAssetPayload(fileData, docType);
+    if (!assetCheck.valid) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: assetCheck.code || 'VALIDATION_ERROR',
+          message: assetCheck.message || 'Invalid asset upload.',
+          requestId,
+        },
+        { status: assetCheck.statusCode || 422, headers: ASSET_NO_STORE_HEADERS }
       );
     }
 
@@ -831,6 +860,20 @@ export async function PUT(
   const requestId = `req-replace-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
 
   try {
+    const clientIp = getClientIp(req);
+    const rl = checkRateLimit('asset_upload', clientIp, 200, 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many document replacement requests. Please wait a minute and retry.',
+          requestId,
+        },
+        { status: 429, headers: { ...ASSET_NO_STORE_HEADERS, ...buildRateLimitHeaders(rl) } }
+      );
+    }
+
     const submissionId = params.submissionId;
     if (!submissionId) {
       return NextResponse.json(
@@ -905,6 +948,19 @@ export async function PUT(
       return NextResponse.json(
         { status: 'error', code: 'VALIDATION_ERROR', message: 'Missing required field: fileData or fileDataUrl' },
         { status: 400, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+
+    const assetCheck = validateAssetPayload(targetFileData, targetDocType);
+    if (!assetCheck.valid) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: assetCheck.code || 'VALIDATION_ERROR',
+          message: assetCheck.message || 'Invalid replacement asset upload.',
+          requestId,
+        },
+        { status: assetCheck.statusCode || 422, headers: ASSET_NO_STORE_HEADERS }
       );
     }
 

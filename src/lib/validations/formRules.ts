@@ -175,6 +175,16 @@ export function isFieldApplicable(fieldKey: string, data: Record<string, any>): 
     return true; // visible, but not mandatory at submit
   }
 
+  // Document Verification Proofs: Mandated when child is enrolled in school
+  if (
+    fieldKey === 'educationExpenses.feeReceiptPhotoUrl' ||
+    fieldKey === 'educationExpenses.marksheetPhotoUrl' ||
+    fieldKey === 'feeReceiptPhotoUrl' ||
+    fieldKey === 'marksheetPhotoUrl'
+  ) {
+    return educationStatus === 'Currently going to school' || !educationStatus;
+  }
+
   // All other core intake fields are applicable
   return true;
 }
@@ -644,6 +654,22 @@ export function validateField(
     }
   }
 
+  // ── Section 8: Expenses & Document Verification Proofs ─────────────────────
+  if (
+    fieldKey === 'educationExpenses.feeReceiptPhotoUrl' ||
+    fieldKey === 'feeReceiptPhotoUrl' ||
+    fieldKey === 'educationExpenses.marksheetPhotoUrl' ||
+    fieldKey === 'marksheetPhotoUrl'
+  ) {
+    const feeReceipt = getFieldValue(data, 'educationExpenses.feeReceiptPhotoUrl') || data.feeReceiptPhotoUrl;
+    const marksheet = getFieldValue(data, 'educationExpenses.marksheetPhotoUrl') || data.marksheetPhotoUrl;
+    const remarks = (getFieldValue(data, 'educationExpenses.remarks') || data.remarks || '').toString().trim();
+
+    if (!feeReceipt && !marksheet && remarks.length < 3) {
+      return createErr('Document verification proof is required: please upload a fee receipt or marksheet photo (or provide reason in Remarks).');
+    }
+  }
+
   // ── Section 9: Final Review ────────────────────────────────────────────────
   if (fieldKey === 'finalReview.formSubmittedBy' || fieldKey === 'formSubmittedBy') {
     const val = (getFieldValue(data, 'finalReview.formSubmittedBy') || '').toString().trim();
@@ -725,7 +751,9 @@ export function validateSection(
       'educationStatus.educationSchemeName',
       'educationStatus.educationSchemeNameSpecify',
     ],
-    expenses: [],
+    expenses: [
+      'educationExpenses.feeReceiptPhotoUrl',
+    ],
     review: [
       'finalReview.formSubmittedBy',
       'finalReview.allInfoCorrect',
@@ -759,6 +787,7 @@ export function validateEntireForm(
     'health',
     'nutrition',
     'education',
+    'expenses',
     'review',
   ];
 

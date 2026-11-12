@@ -11,6 +11,8 @@ import { ExpensesAndApprovalGrid } from '@/components/education/ExpensesAndAppro
 import { PhotoUpload } from '@/components/ui/PhotoUpload';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
+import { BilingualAddressBlock } from '@/components/forms/BilingualAddressBlock';
+import { Fingerprint, Users } from 'lucide-react';
 import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
 import { enqueueCreate, enqueueUpdate } from '@/features/submission/submissionQueueRepository';
@@ -265,13 +267,22 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
     caregiverName: '',
     caregiverRelationship: 'Mother' as CaregiverRelationship,
     contactNumber: '',
+    noPhoneAvailable: false,
+    alternateContactNumber: '',
+    residenceType: '' as 'Owned' | 'Rented' | 'Others' | '',
+    doorAndColony: '',
+    street: '',
+    villageCity: '',
+    talukMandalBlock: '',
+    landmark: '',
     fullAddress: '',
-    state: 'Maharashtra',
-    district: 'Pune',
+    state: '',
+    district: '',
+    pinCode: '',
     childAadhaarNumber: '',
     srName: '',
     ssrName: '',
-    guardianStatus: '',
+    guardianStatus: '' as 'Alive' | 'Deceased' | 'Ill' | 'Migrated' | 'Unknown' | '',
 
     // Section 2: Consent
     agreeToParticipate: true,
@@ -286,45 +297,45 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
     childPhotoUrl: '',
 
     // Section 4: Household & Financial Details
-    totalFamilyMembers: 4,
-    numberOfChildrenUnder18: 2,
-    monthlyIncomeRs: 5000,
-    mainSourceOfIncome: 'Daily wage labour' as MainSourceOfIncome,
+    totalFamilyMembers: '' as any,
+    numberOfChildrenUnder18: '' as any,
+    monthlyIncomeRs: '' as any,
+    mainSourceOfIncome: '' as any,
 
     // Section 5: Health, Clinical, ART & Viral Load
-    weightKg: 14.5,
-    heightCm: 100,
-    haemoglobinGdl: '12.0',
+    weightKg: '' as any,
+    heightCm: '' as any,
+    haemoglobinGdl: '',
     otherHealthConditions: [] as string[],
     otherHealthConditionSpecify: '',
-    artStatus: 'On ART' as ARTStatus,
+    artStatus: '' as any,
     artRegistrationDate: '',
     artInitiationDate: '',
     artIdNumber: '',
     artMedicineType: '',
     currentlyOnArt: '' as 'Yes' | 'No' | '',
     cd4Count: '',
-    vlStatus: 'Tested in last 6 months' as VLStatus,
+    vlStatus: '' as any,
     vlDate: '',
-    viralLoad: '< 50',
-    hasDisability: 'No',
+    viralLoad: '',
+    hasDisability: '',
     disabilityType: '',
     disabilityCertificateStatus: '',
 
     // Section 6: Nutrition Habits
-    appetite: 'Good' as AppetiteLevel,
-    mealsPerDay: 3,
+    appetite: '' as any,
+    mealsPerDay: '' as any,
     malnutritionSymptoms: '',
 
     // Section 7: Education Status
-    educationStatus: 'Currently going to school' as EducationStatus,
+    educationStatus: '' as any,
     educationStatusSpecify: '',
     schoolName: '',
     schoolSessionStartDate: '',
-    schoolType: 'Government school' as SchoolType,
+    schoolType: '' as any,
     currentClass: '',
     currentClassSpecify: '',
-    attendance: 'Regular' as AttendanceType,
+    attendance: '' as any,
     receivingEducationSchemeBenefit: '',
 
     // Section 8: Current Expenses & Documents
@@ -727,9 +738,18 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           caregiverName: d.caregiverName || foundRecord['14\nCaregiver Full Name'] || foundRecord.caregiver_name || '',
           caregiverRelationship: (d.caregiverRelationship || foundRecord['15\nCaregiver Relation'] || foundRecord.caregiver_relationship || 'Mother') as CaregiverRelationship,
           contactNumber: d.contactNumber || d.caregiverPhone || foundRecord['16\nCaregiver Contact'] || foundRecord.caregiver_phone || '',
+          noPhoneAvailable: Boolean(d.noPhoneAvailable),
+          alternateContactNumber: d.alternateContactNumber || '',
+          residenceType: d.residenceType || '',
+          doorAndColony: d.doorAndColony || '',
+          street: d.street || '',
+          villageCity: d.villageCity || '',
+          talukMandalBlock: d.talukMandalBlock || '',
+          landmark: d.landmark || '',
           fullAddress: d.fullAddress || foundRecord['17\nAddress'] || foundRecord.address || '',
-          state: d.state || foundRecord['18\nState'] || 'Maharashtra',
-          district: d.district || foundRecord['19\nDistrict'] || 'Pune',
+          state: d.state || foundRecord['18\nState'] || '',
+          district: d.district || foundRecord['19\nDistrict'] || '',
+          pinCode: d.pinCode || '',
           childAadhaarNumber: d.childAadhaarNumber || b.childAadhaarNumber || foundRecord['24\nChild Aadhaar Number'] || '',
           srName: d.srName || foundRecord['74\nSR Name'] || foundRecord.srName || '',
           ssrName: d.ssrName || foundRecord['75\nSSR Name'] || foundRecord.ssrName || '',
@@ -747,45 +767,42 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           aadhaarCardPhotoUrl: aadhaarPhoto,
           childPhotoUrl: childPhoto,
 
-          totalFamilyMembers: pickNum([hf.totalFamilyMembers, foundRecord['28\nHousehold Members']], 4),
-          numberOfChildrenUnder18: pickNum([hf.numberOfChildrenUnder18, foundRecord['29\nNo of Children']], 2),
-          monthlyIncomeRs: pickNum(
-            [hf.monthlyIncomeRs, hf.monthlyHouseholdIncome, foundRecord.monthly_household_income, foundRecord['30\nMonthly Income']],
-            5000
-          ),
-          mainSourceOfIncome: (hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || 'Daily wage labour') as MainSourceOfIncome,
+          totalFamilyMembers: (hf.totalFamilyMembers || foundRecord['28\nHousehold Members']) !== undefined ? (hf.totalFamilyMembers || foundRecord['28\nHousehold Members']) : '',
+          numberOfChildrenUnder18: (hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children']) !== undefined ? (hf.numberOfChildrenUnder18 || foundRecord['29\nNo of Children']) : '',
+          monthlyIncomeRs: (hf.monthlyIncomeRs || hf.monthlyHouseholdIncome || foundRecord.monthly_household_income || foundRecord['30\nMonthly Income']) !== undefined ? (hf.monthlyIncomeRs || hf.monthlyHouseholdIncome || foundRecord.monthly_household_income || foundRecord['30\nMonthly Income']) : '',
+          mainSourceOfIncome: (hf.mainSourceOfIncome || foundRecord['31\nIncome Source'] || '') as MainSourceOfIncome,
 
-          weightKg: pickNum([h.weightKg, n.weightKg, foundRecord['32\nCurrent Weight (kg)'], foundRecord.weight_kg], 14.5),
-          heightCm: pickNum([h.heightCm, n.heightCm, foundRecord['33\nCurrent Height (cm)'], foundRecord.height_cm], 100),
-          haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || '12.0'),
+          weightKg: (h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg) !== undefined ? (h.weightKg || n.weightKg || foundRecord['32\nCurrent Weight (kg)'] || foundRecord.weight_kg) : '',
+          heightCm: (h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm) !== undefined ? (h.heightCm || n.heightCm || foundRecord['33\nCurrent Height (cm)'] || foundRecord.height_cm) : '',
+          haemoglobinGdl: String(h.haemoglobinGdl || foundRecord['36\nHemoglobin (g/dL)'] || ''),
           otherHealthConditions: h.otherHealthConditions || [],
           otherHealthConditionSpecify: h.otherHealthConditionSpecify || '',
-          artStatus: (h.artStatus || foundRecord['40\nART Status'] || 'On ART') as ARTStatus,
+          artStatus: (h.artStatus || foundRecord['40\nART Status'] || '') as ARTStatus,
           artRegistrationDate: toDateInputString(h.artRegistrationDate || foundRecord['41\nART Registration Date'] || ''),
           artInitiationDate: toDateInputString(h.artInitiationDate || foundRecord.artInitiationDate || h.artRegistrationDate || foundRecord['41\nART Registration Date'] || ''),
           artIdNumber: h.artIdNumber || foundRecord['42\nART ID Number'] || '',
           artMedicineType: h.artMedicineType || foundRecord['77\nType of ART Medicines'] || foundRecord.artMedicineType || '',
           currentlyOnArt: (h.currentlyOnArt || foundRecord.currentlyOnArt || '') as any,
           cd4Count: String(h.cd4Count !== undefined ? h.cd4Count : (foundRecord['78\nCD4 Count (Latest)'] || foundRecord.cd4Count || '')),
-          vlStatus: (h.vlStatus || foundRecord['43\nVL Status'] || 'Tested in last 6 months') as VLStatus,
+          vlStatus: (h.vlStatus || foundRecord['43\nVL Status'] || '') as VLStatus,
           vlDate: toDateInputString(h.vlDate || foundRecord['44\nVL Date'] || ''),
-          viralLoad: String(h.viralLoad || foundRecord['45\nViral Load'] || '< 50'),
-          hasDisability: h.hasDisability || foundRecord['79\nIs Child With Disability'] || foundRecord.hasDisability || 'No',
+          viralLoad: String(h.viralLoad || foundRecord['45\nViral Load'] || ''),
+          hasDisability: h.hasDisability || foundRecord['79\nIs Child With Disability'] || foundRecord.hasDisability || '',
           disabilityType: h.disabilityType || foundRecord['80\nTypes of Disability'] || foundRecord.disabilityType || '',
           disabilityCertificateStatus: h.disabilityCertificateStatus || foundRecord['81\nDisability Certificate'] || foundRecord.disabilityCertificateStatus || '',
 
-          appetite: (n.appetite || foundRecord['47\nAppetite'] || 'Good') as AppetiteLevel,
-          mealsPerDay: pickNum([n.mealsPerDay, foundRecord['48\nMeals per Day']], 3),
+          appetite: (n.appetite || foundRecord['47\nAppetite'] || '') as AppetiteLevel,
+          mealsPerDay: (n.mealsPerDay || foundRecord['48\nMeals per Day']) !== undefined ? (n.mealsPerDay || foundRecord['48\nMeals per Day']) : '',
           malnutritionSymptoms: n.malnutritionSymptoms || foundRecord['83\nSymptoms of Malnutrition'] || foundRecord.malnutritionSymptoms || '',
 
-          educationStatus: (ed.educationStatus || foundRecord['49\nEducation Status'] || 'Currently going to school') as EducationStatus,
+          educationStatus: (ed.educationStatus || foundRecord['49\nEducation Status'] || '') as EducationStatus,
           educationStatusSpecify: ed.educationStatusSpecify || '',
           schoolName: ed.schoolName || foundRecord['51\nSchool Name'] || '',
           schoolSessionStartDate: toDateInputString(ed.schoolSessionStartDate || foundRecord['52\nSchool Session Start Date'] || ''),
-          schoolType: (ed.schoolType || foundRecord['53\nSchool Type'] || 'Government school') as SchoolType,
+          schoolType: (ed.schoolType || foundRecord['53\nSchool Type'] || '') as SchoolType,
           currentClass: (ed.currentClass !== undefined ? ed.currentClass : (ed.schoolGrade || foundRecord['54\nCurrent Class'] || '')) || '',
           currentClassSpecify: ed.currentClassSpecify || foundRecord.currentClassSpecify || '',
-          attendance: (ed.attendance || foundRecord['55\nAttendance Status'] || 'Regular') as AttendanceType,
+          attendance: (ed.attendance || foundRecord['55\nAttendance Status'] || '') as AttendanceType,
           receivingEducationSchemeBenefit: ed.receivingEducationSchemeBenefit || foundRecord['82\nEducation Scheme Benefit'] || foundRecord.receivingEducationSchemeBenefit || '',
 
           schoolFees: pickNum([exp.schoolFees, foundRecord.schoolFees, foundRecord.school_fees, foundRecord['56\nSchool Fees']], 0),
@@ -1173,6 +1190,15 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
             caregiverRelationship: formData.caregiverRelationship,
             contactNumber: formData.contactNumber,
             caregiverPhone: formData.contactNumber,
+            noPhoneAvailable: formData.noPhoneAvailable,
+            alternateContactNumber: formData.alternateContactNumber,
+            residenceType: formData.residenceType,
+            doorAndColony: formData.doorAndColony,
+            street: formData.street,
+            villageCity: formData.villageCity,
+            talukMandalBlock: formData.talukMandalBlock,
+            landmark: formData.landmark,
+            pinCode: formData.pinCode,
             fullAddress: formData.fullAddress,
             state: formData.state,
             district: formData.district,
@@ -1995,54 +2021,103 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                 </div>
               </div>
 
-              <Input
-                label="Child Aadhaar Number"
-                value={formData.childAadhaarNumber}
-                onChange={(e) => setFormData({ ...formData, childAadhaarNumber: e.target.value })}
-                
-                placeholder="e.g. 123456789012"
-              />
+            </div>
 
-              <div className="sm:col-span-2">
+            {/* Bilingual Paper Form A12 Address Block */}
+            <div className="mt-6 pt-5 border-t border-teal-100 sm:col-span-2">
+              <BilingualAddressBlock
+                data={{
+                  residenceType: formData.residenceType,
+                  doorAndColony: formData.doorAndColony,
+                  street: formData.street,
+                  villageCity: formData.villageCity,
+                  talukMandalBlock: formData.talukMandalBlock,
+                  landmark: formData.landmark,
+                  state: formData.state,
+                  district: formData.district,
+                  pinCode: formData.pinCode,
+                  contactNumber: formData.contactNumber,
+                  noPhoneAvailable: formData.noPhoneAvailable,
+                  alternateContactNumber: formData.alternateContactNumber,
+                }}
+                onChange={(updates) => {
+                  setFormData((prev) => {
+                    const merged = { ...prev, ...updates };
+                    const fullAddress = [
+                      merged.doorAndColony,
+                      merged.street,
+                      merged.landmark,
+                      merged.villageCity,
+                      merged.talukMandalBlock,
+                      merged.district,
+                      merged.state ? `${merged.state}${merged.pinCode ? ` - ${merged.pinCode}` : ''}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(', ');
+                    return { ...merged, fullAddress };
+                  });
+                }}
+              />
+            </div>
+
+            {/* Standalone Cards: Child Aadhaar & Status of Guardian / Parent */}
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:col-span-2">
+              {/* Standalone Card: Child Identification (Aadhaar) */}
+              <div className="p-4 sm:p-5 bg-white border border-slate-200/90 rounded-2xl shadow-2xs space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-teal-50 rounded-xl text-teal-700">
+                    <Fingerprint className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                      Child Identification (Aadhaar)
+                    </h4>
+                    <p className="text-[11px] text-slate-500">12-digit Indian UID number</p>
+                  </div>
+                </div>
                 <Input
-                  label="Full Residential Address *"
-                  required
-                  value={formData.fullAddress}
-                  onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-                  placeholder="e.g. Room 4, Shanti Nagar, Near ZP School"
+                  label="Child Aadhaar Number"
+                  type="text"
+                  maxLength={12}
+                  value={formData.childAadhaarNumber}
+                  onChange={(e) =>
+                    setFormData({ ...formData, childAadhaarNumber: e.target.value.replace(/\D/g, '') })
+                  }
+                  placeholder="e.g. 123456789012"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">State / Union Territory *</label>
-                <select
-                  value={formData.state}
-                  onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                >
-                  {INDIAN_STATES_AND_UTS.map((st) => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </select>
-              </div>
-
-              <Input
-                label="District *"
-                required
-                value={formData.district}
-                onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                placeholder="e.g. Pune"
-              />
-
-              <div className="flex flex-col justify-end">
-                <LocationFetchButton
-                  onLocationFetched={(loc) => setFormData((prev) => ({
-                    ...prev,
-                    fullAddress: loc.fullAddress || prev.fullAddress,
-                    state: loc.state || prev.state,
-                    district: loc.district || prev.district,
-                  }))}
-                />
+              {/* Standalone Card: Status of Guardian / Parent */}
+              <div className="p-4 sm:p-5 bg-white border border-slate-200/90 rounded-2xl shadow-2xs space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-teal-50 rounded-xl text-teal-700">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                      Status of Guardian or Parent
+                    </h4>
+                    <p className="text-[11px] text-slate-500">Select parent/guardian vitality status</p>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="edit-guardian-status-select" className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
+                    Status
+                  </label>
+                  <select
+                    id="edit-guardian-status-select"
+                    value={formData.guardianStatus}
+                    onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value as any })}
+                    className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl transition-all shadow-2xs focus:outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-200 cursor-pointer"
+                  >
+                    <option value="">-- Select Status --</option>
+                    <option value="Alive">Alive</option>
+                    <option value="Deceased">Deceased</option>
+                    <option value="Ill">Ill</option>
+                    <option value="Migrated">Migrated</option>
+                    <option value="Unknown">Unknown</option>
+                  </select>
+                </div>
               </div>
             </div>
           </section>
@@ -2190,6 +2265,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                   onChange={(e) => setFormData({ ...formData, mainSourceOfIncome: e.target.value as MainSourceOfIncome })}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 >
+                  <option value="">Select income source...</option>
                   <option value="Daily wage labour">Daily wage labour</option>
                   <option value="Agriculture / farming">Agriculture / farming</option>
                   <option value="Salaried employment">Salaried employment</option>
@@ -2342,6 +2418,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                       onChange={(e) => setFormData({ ...formData, artStatus: e.target.value as ARTStatus })}
                       className="w-full h-11 px-3 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none cursor-pointer"
                     >
+                      <option value="">Select ART status...</option>
                       {['On ART', 'Not on ART', 'Defaulted / Interrupted', 'Transferred In'].map((st) => (
                         <option key={st} value={st}>
                           {st}
@@ -2507,6 +2584,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                           onChange={(e) => setFormData({ ...formData, vlStatus: e.target.value as VLStatus })}
                           className="w-full h-11 px-2.5 text-xs rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none cursor-pointer"
                         >
+                          <option value="">Select VL testing status...</option>
                           {[
                             'Tested in last 6 months',
                             'Tested > 6 months ago',
@@ -2834,6 +2912,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                           : 'border-slate-300 focus:ring-teal-500'
                       }`}
                     >
+                      <option value="">Select school type...</option>
                       {['Government school', 'Private school', 'Aided school'].map((st) => (
                         <option key={st} value={st}>
                           {st}
@@ -3044,6 +3123,11 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                 onRemarksChange={(rem: string) =>
                   setFormData((prev) => ({ ...prev, remarks: rem }))
                 }
+                errors={{
+                  'expenses-feeReceiptPhotoUrl': errorsByField['expenses-feeReceiptPhotoUrl']?.message || errorsByField['educationExpenses.feeReceiptPhotoUrl']?.message,
+                  'expenses-marksheetPhotoUrl': errorsByField['expenses-marksheetPhotoUrl']?.message || errorsByField['educationExpenses.marksheetPhotoUrl']?.message,
+                  'expenses-remarks': errorsByField['expenses-remarks']?.message || errorsByField['educationExpenses.remarks']?.message,
+                }}
               />
             </div>
           </section>

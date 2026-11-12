@@ -143,14 +143,19 @@ describe('Form Submission Select Defaults, Exact Field IDs & Error Focus Regress
   it('4. New and Draft assessment pages initialize select controls with valid defaults and wire canonical elementIds so clinical weight input never receives false fallback focus', () => {
     const newPagePath = path.resolve(process.cwd(), 'src/app/assessment/new/page.tsx');
     const draftPagePath = path.resolve(process.cwd(), 'src/app/assessment/draft/[draftId]/page.tsx');
+    const addressBlockPath = path.resolve(process.cwd(), 'src/components/forms/BilingualAddressBlock.tsx');
     const newPageSource = fs.readFileSync(newPagePath, 'utf8');
     const draftPageSource = fs.readFileSync(draftPagePath, 'utf8');
+    const addressBlockSource = fs.readFileSync(addressBlockPath, 'utf8');
+    const fullNewPageSource = newPageSource + '\n' + addressBlockSource;
+    const fullDraftPageSource = draftPageSource + '\n' + addressBlockSource;
 
     // Select defaults in new/page.tsx must not be empty strings when no blank <option> exists
     expect(newPageSource).toContain("caregiverRelationship: 'Mother' as CaregiverRelationship");
-    expect(newPageSource).toContain("state: 'Maharashtra'");
-    expect(newPageSource).toContain("artStatus: 'On ART' as ARTStatus");
-    expect(newPageSource).toContain("vlStatus: 'Tested in last 6 months' as VLStatus");
+    // State and clinical fields must have empty defaults so missing stays blank per user directive
+    expect(newPageSource).toContain("state: ''");
+    expect(newPageSource).toContain("artStatus: '' as any");
+    expect(newPageSource).toContain("vlStatus: '' as any");
 
     // Required canonical DOM IDs must be present on new/page.tsx controls
     const requiredIds = [
@@ -170,8 +175,8 @@ describe('Form Submission Select Defaults, Exact Field IDs & Error Focus Regress
     ];
 
     for (const reqId of requiredIds) {
-      expect(newPageSource).toContain(reqId);
-      expect(draftPageSource).toContain(reqId);
+      expect(fullNewPageSource).toContain(reqId);
+      expect(fullDraftPageSource).toContain(reqId);
     }
 
     // Global error banner must list specific validationErrors field labels so user knows which field failed

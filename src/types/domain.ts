@@ -189,6 +189,15 @@ export interface DemographicsData {
   caregiverName: string;
   caregiverRelationship: CaregiverRelationship | string;
   contactNumber: string;
+  noPhoneAvailable?: boolean;
+  alternateContactNumber?: string;
+  residenceType?: 'Owned' | 'Rented' | 'Others' | string;
+  doorAndColony?: string;
+  street?: string;
+  villageCity?: string;
+  talukMandalBlock?: string;
+  landmark?: string;
+  pinCode?: string;
   fullAddress: string;
   state: string;
   district: string;

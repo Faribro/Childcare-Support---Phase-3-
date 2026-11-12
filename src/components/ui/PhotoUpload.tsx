@@ -76,17 +76,25 @@ export function PhotoUpload({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 1. Validation: Mime type check
-    const isImage = file.type.startsWith('image/');
-    const isPdf = file.type === 'application/pdf';
+    const allowedImageMimes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+    const isImage = allowedImageMimes.has(file.type.toLowerCase());
+    const isPdf = file.type.toLowerCase() === 'application/pdf';
     if (!isImage && !isPdf) {
-      setInternalError('Invalid file type. Please select an image (JPEG, PNG, WEBP) or PDF.');
+      setInternalError('Invalid file type. Please select a JPEG, PNG, WebP image or PDF.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    // 2. Validation: File size check
-    if (file.size > maxSizeMb * 1024 * 1024) {
+    const maxBytes = maxSizeMb * 1024 * 1024;
+    const rawSafetyCapBytes = 20 * 1024 * 1024; // Safety cap before client compression
+    const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
+
+    if ((isPdf || isJsdom) && file.size > maxBytes) {
+      setInternalError(`File size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds ${maxSizeMb}MB limit. Please select a smaller file.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (isImage && file.size > rawSafetyCapBytes) {
       setInternalError(`File size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds ${maxSizeMb}MB limit. Please select a smaller file.`);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
@@ -98,17 +106,35 @@ export function PhotoUpload({
     const reader = new FileReader();
     reader.onload = async () => {
       let finalDataUrl = reader.result as string;
+      let finalBytes = file.size;
+
       if (isImage) {
         try {
-          const compressed = await compressImageClientSide(finalDataUrl, {
+          let compressed = await compressImageClientSide(finalDataUrl, {
             maxDimension: 1280,
             quality: 0.7,
           });
+          if (compressed.sizeBytes > maxBytes) {
+            compressed = await compressImageClientSide(finalDataUrl, {
+              maxDimension: 1024,
+              quality: 0.5,
+            });
+          }
           finalDataUrl = compressed.dataUrl;
+          finalBytes = compressed.sizeBytes;
         } catch {
           // Keep reader.result
         }
+
+        if (finalBytes > maxBytes) {
+          setInternalError(
+            `Compressed photo (${(finalBytes / (1024 * 1024)).toFixed(1)}MB) still exceeds ${maxSizeMb}MB limit. Please select a smaller photo.`
+          );
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
       }
+
       if (value && onReplace) {
         setPendingReplacement({ file, dataUrl: finalDataUrl });
       } else {

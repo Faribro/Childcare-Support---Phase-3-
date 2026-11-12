@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
+import { validateServerSubmissionIntake } from '@/lib/server/intakeValidation';
+import { buildRateLimitHeaders, checkRateLimit, getClientIp } from '@/lib/server/rateLimit';
+import { logServerError } from '@/lib/server/errorLogger';
 import {
   resolveUserAccessScope,
   isSyntheticDemoModeAllowed,
@@ -376,7 +379,7 @@ export async function GET(req: NextRequest) {
       }
     );
   } catch (err: any) {
-    console.error('GET /api/submissions error:', err);
+    logServerError('GET /api/submissions', err, { requestId });
     return NextResponse.json(
       {
         status: 'error',
@@ -399,6 +402,21 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
   try {
+    // Per-IP rate limiting (150 req/min/IP to allow simultaneous clinic/training Wi-Fi bursts)
+    const clientIp = getClientIp(req);
+    const rl = checkRateLimit('submissions_post', clientIp, 150, 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many submissions sent quickly. Your form stays safely saved offline and will retry automatically.',
+          requestId,
+        },
+        { status: 429, headers: buildRateLimitHeaders(rl) }
+      );
+    }
+
     const idempotencyKey = req.headers.get('Idempotency-Key') || req.headers.get('idempotency-key');
     if (!idempotencyKey) {
       return NextResponse.json(
@@ -437,6 +455,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { status: 'error', code: 'MALFORMED_JSON', message: 'Malformed JSON payload.' },
         { status: 400 }
+      );
+    }
+
+    // Enforce attachments (<= 2.5MB, allowed MIME), Document Verification Proofs, and required intake fields server-side
+    const intakeCheck = validateServerSubmissionIntake(rawBody);
+    if (!intakeCheck.valid) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: intakeCheck.code || 'VALIDATION_ERROR',
+          message:
+            intakeCheck.statusCode === 413 || intakeCheck.statusCode === 415
+              ? intakeCheck.message || 'Uploaded attachment exceeds limits or uses an unsupported format.'
+              : 'The record needs correction before it can be sent.',
+          details: {
+            fields: intakeCheck.errors.map((e) => ({
+              field: e.field,
+              path: e.field,
+              issue: e.issue,
+              code: e.code,
+            })),
+          },
+          issues: intakeCheck.errors.map((e) => ({
+            path: e.field,
+            message: e.issue,
+          })),
+          requestId,
+        },
+        { status: intakeCheck.statusCode || 422 }
       );
     }
 
@@ -515,7 +562,7 @@ export async function POST(req: NextRequest) {
       { status: result.statusCode || (result.isDuplicate ? 200 : 201) }
     );
   } catch (err: any) {
-    console.error('API submission ingestion error:', err);
+    logServerError('POST /api/submissions', err, { requestId });
     return NextResponse.json(
       {
         status: 'error',

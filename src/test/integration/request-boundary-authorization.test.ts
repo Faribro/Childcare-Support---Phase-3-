@@ -382,8 +382,12 @@ describe('Next.js Request Boundary Authorization & Security Suite', () => {
           orphanStatus: 'Single orphan (one parent deceased)',
           caregiverName: 'Test Caregiver',
           caregiverRelationship: 'Mother',
+          contactNumber: '9876543210',
           district: 'Pune',
           state: 'Maharashtra',
+        },
+        educationExpenses: {
+          remarks: 'School fee receipt pending verification',
         },
         caregiverConsent: {
           consentProvided: true,
