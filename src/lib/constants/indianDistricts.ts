@@ -1,10 +1,13 @@
 /**
- * Canonical Local Government Directory (LGD) Districts of India
- * Sourced from the Ministry of Panchayati Raj, Government of India (lgd.gov.in)
- * Covering all 28 States and 8 Union Territories (36 administrative divisions).
+ * PROVISIONAL / UNVERIFIED DISTRICTS LIST
+ * STATUS: UNVERIFIED_PENDING_OFFICIAL_LGD_EXPORT
+ * NOTE: Generated as a provisional reference. Awaiting official government LGD export.
+ * DO NOT use this list for hard blocking validation. All fields must allow manual entry.
  */
 
-export const LGD_STATE_DISTRICTS: Record<string, string[]> = {
+export const IS_LGD_LIST_OFFICIALLY_VERIFIED = false;
+
+export const UNVERIFIED_STATE_DISTRICTS: Record<string, string[]> = {
   'Andhra Pradesh': [
     'Alluri Sitharama Raju', 'Anakapalli', 'Ananthapuramu', 'Annamayya', 'Bapatla',
     'Chittoor', 'Dr. B.R. Ambedkar Konaseema', 'East Godavari', 'Eluru', 'Guntur',
@@ -244,13 +247,15 @@ export const LGD_STATE_DISTRICTS: Record<string, string[]> = {
   ]
 };
 
+export const LGD_STATE_DISTRICTS = UNVERIFIED_STATE_DISTRICTS;
+
 /**
  * Normalise State Name lookup against canonical keys
  */
 export function getCanonicalState(rawState: string): string | null {
   if (!rawState) return null;
   const cleaned = rawState.trim().toLowerCase();
-  for (const officialState of Object.keys(LGD_STATE_DISTRICTS)) {
+  for (const officialState of Object.keys(UNVERIFIED_STATE_DISTRICTS)) {
     if (officialState.toLowerCase() === cleaned) return officialState;
   }
   // Common aliases
@@ -263,26 +268,35 @@ export function getCanonicalState(rawState: string): string | null {
 }
 
 /**
- * Retrieve official LGD districts for a selected state
+ * Retrieve unverified districts for a selected state (advisory typeahead only)
  */
 export function getDistrictsForState(state: string): string[] {
   const canonical = getCanonicalState(state);
   if (!canonical) return [];
-  return LGD_STATE_DISTRICTS[canonical] || [];
+  return UNVERIFIED_STATE_DISTRICTS[canonical] || [];
 }
 
 /**
- * Validate that a given district is valid for the specified state under LGD
+ * Check if a district is in the unverified reference list (NON-BLOCKING)
  */
-export function isValidDistrictForState(state: string, district: string): boolean {
-  if (!state || !district) return false;
+export function isKnownDistrictAdvisory(state: string, district: string): boolean {
+  if (!state || !district) return true; // Non-blocking
   const districts = getDistrictsForState(state);
+  if (districts.length === 0) return true;
   const target = district.trim().toLowerCase();
   return districts.some(d => d.toLowerCase() === target || d.toLowerCase().includes(target) || target.includes(d.toLowerCase()));
 }
 
 /**
- * Cross-check PIN code prefix (first 1-2 digits) against the selected State
+ * Backwards compatibility alias: ALWAYS returns true to prevent hard blocking
+ */
+export function isValidDistrictForState(_state: string, _district: string): boolean {
+  return true;
+}
+
+/**
+ * Cross-check PIN code prefix (first 1-2 digits) against selected State
+ * ADVISORY WARNING ONLY - NEVER BLOCKS SUBMISSION
  */
 const POSTAL_CIRCLE_PREFIXES: Record<string, string[]> = {
   'Delhi': ['11'],

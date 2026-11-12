@@ -1308,7 +1308,7 @@ function handleCreate_(payload) {
   row[8] = childName; // 9 Child Name
   row[9] = d.dob || payload.dob || ''; // 10 Date of Birth
   row[10] = d.calculatedAgeYears !== undefined ? d.calculatedAgeYears : (payload.age || ''); // 11 Age
-  row[11] = d.gender || payload.gender || 'Male'; // 12 Gender
+  row[11] = d.gender || payload.gender || ''; // 12 Gender
   row[12] = d.orphanStatus || payload.orphanStatus || ''; // 13 Orphan Status
   row[13] = d.caregiverName || payload.caregiverFullName || payload.caregiverName || ''; // 14 Caregiver Full Name
   row[14] = d.caregiverRelationship || payload.caregiverRelation || ''; // 15 Caregiver Relation
@@ -1327,34 +1327,34 @@ function handleCreate_(payload) {
   row[25] = safeProcessDoc_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, 'Aadhaar');
   row[26] = safeProcessDoc_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, 'Child_Photo');
 
-  row[27] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || 4); // 28 Household Members
-  row[28] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || 2); // 29 No of Children
-  row[29] = payload.householdFinancial ? payload.householdFinancial.monthlyIncomeRs : (payload.monthlyIncome || 0); // 30 Monthly Income
-  row[30] = payload.householdFinancial ? payload.householdFinancial.mainSourceOfIncome : (payload.incomeSource || 'Daily wage labour'); // 31 Income Source
-  row[31] = h.weightKg || n.weightKg || payload.currentWeightKg || 0; // 32 Current Weight (kg)
-  row[32] = h.heightCm || n.heightCm || payload.currentHeightCm || 0; // 33 Current Height (cm)
-  row[33] = h.bmi || n.bmi || payload.bmi || 0; // 34 BMI
-  row[34] = h.bmiCategory || payload.bmiCategory || (h.nutritionStatus || n.nutritionStatus || 'Normal'); // 35 BMI Category
+  row[27] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || ''); // 28 Household Members
+  row[28] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || ''); // 29 No of Children
+  row[29] = payload.householdFinancial ? payload.householdFinancial.monthlyIncomeRs : (payload.monthlyIncome || ''); // 30 Monthly Income
+  row[30] = payload.householdFinancial ? payload.householdFinancial.mainSourceOfIncome : (payload.incomeSource || ''); // 31 Income Source
+  row[31] = h.weightKg || n.weightKg || payload.currentWeightKg || ''; // 32 Current Weight (kg)
+  row[32] = h.heightCm || n.heightCm || payload.currentHeightCm || ''; // 33 Current Height (cm)
+  row[33] = h.bmi || n.bmi || payload.bmi || ''; // 34 BMI
+  row[34] = h.bmiCategory || payload.bmiCategory || (h.nutritionStatus || n.nutritionStatus || ''); // 35 BMI Category
   row[35] = h.haemoglobinGdl !== undefined ? h.haemoglobinGdl : (payload.hemoglobinGdl || ''); // 36 Hemoglobin (g/dL)
-  row[36] = h.hbCategory || payload.hbCategory || 'Normal'; // 37 Hb Category
+  row[36] = h.hbCategory || payload.hbCategory || ''; // 37 Hb Category
   row[37] = Array.isArray(h.otherHealthConditions) ? h.otherHealthConditions.join(', ') : (payload.comorbidities || ''); // 38 Comorbidities
   row[38] = h.otherHealthConditionSpecify || payload.comorbiditiesOther || ''; // 39 Comorbidities Other
-  row[39] = h.artStatus || payload.artStatus || 'On ART'; // 40 ART Status
+  row[39] = h.artStatus || payload.artStatus || ''; // 40 ART Status
   row[40] = h.artInitiationDate || h.artRegistrationDate || payload.artRegistrationDate || payload.artInitiationDate || ''; // 41 ART Registration Date
   row[41] = h.artIdNumber || payload.artIdNumber || ''; // 42 ART ID Number
-  row[42] = h.vlStatus || payload.vlStatus || 'Tested in last 6 months'; // 43 VL Status
+  row[42] = h.vlStatus || payload.vlStatus || ''; // 43 VL Status
   row[43] = h.vlDate || payload.vlDate || ''; // 44 VL Date
-  row[44] = h.viralLoad !== undefined ? String(h.viralLoad) : (payload.viralLoad || '< 50'); // 45 Viral Load
-  row[45] = h.vlCategory || payload.vlCategory || 'Undetectable (<50 copies/mL)'; // 46 VL Category
-  row[46] = n.appetite || payload.appetite || 'Good'; // 47 Appetite
-  row[47] = n.mealsPerDay || payload.mealsPerDay || 3; // 48 Meals per Day
-  row[48] = e.educationStatus || payload.educationStatus || 'Currently going to school'; // 49 Education Status
+  row[44] = h.viralLoad !== undefined ? String(h.viralLoad) : (payload.viralLoad || ''); // 45 Viral Load
+  row[45] = h.vlCategory || payload.vlCategory || ''; // 46 VL Category
+  row[46] = n.appetite || payload.appetite || ''; // 47 Appetite
+  row[47] = n.mealsPerDay || payload.mealsPerDay || ''; // 48 Meals per Day
+  row[48] = e.educationStatus || payload.educationStatus || ''; // 49 Education Status
   row[49] = e.educationStatusSpecify || payload.educationStatusOther || ''; // 50 Education Status Other
   row[50] = e.schoolName || payload.schoolName || ''; // 51 School Name
   row[51] = e.schoolSessionStartDate || payload.schoolSessionStartDate || ''; // 52 School Session Start Date
-  row[52] = e.schoolType || payload.schoolType || 'Government school'; // 53 School Type
+  row[52] = e.schoolType || payload.schoolType || ''; // 53 School Type
   row[53] = e.currentClass || payload.currentClass || ''; // 54 Current Class
-  row[54] = e.attendance || payload.attendanceStatus || 'Regular'; // 55 Attendance Status
+  row[54] = e.attendance || payload.attendanceStatus || ''; // 55 Attendance Status
   row[55] = Number(exp.schoolFees) || 0; // 56 School Fees
   row[56] = Number(exp.tuitionFees) || 0; // 57 Private Tuition Fee
   row[57] = Number(exp.books) || 0; // 58 School Books
@@ -1369,22 +1369,22 @@ function handleCreate_(payload) {
   row[64] = safeProcessDoc_(exp.marksheetPhotoUrl || e.marksheetPhotoUrl || payload.marksheetPhotoUrl || payload.marksheetPhotoLink, 'Marksheet');
 
   row[65] = exp.remarks || payload.remarks || ''; // 66 Remarks (If Any)
-  row[66] = f.approvedAllianceIndia || payload.approvedAllianceIndia || 'Pending'; // 67 Approved Alliance India
+  row[66] = f.approvedAllianceIndia || payload.approvedAllianceIndia || ''; // 67 Approved Alliance India
   row[67] = f.allInfoCorrect || payload.reviewConfirmed ? 'Yes' : 'No'; // 68 Review Confirmed
-  row[68] = f.organizationName || payload.organizationName || 'India HIV/AIDS Alliance'; // 69 Organization Name
+  row[68] = f.organizationName || payload.organizationName || ''; // 69 Organization Name
   row[69] = f.formSubmittedBy || payload.formSubmittedBy || payload.interviewerName || ''; // 70 Form Submitted By
   row[70] = f.organizationEmail || payload.organizationEmail || ''; // 71 Organization Email
-  row[71] = payload.syncNeeded || 'NO'; // 72 Sync Needed
+  row[71] = payload.syncNeeded || ''; // 72 Sync Needed
   row[72] = payload.updatedAt || now; // 73 Last Updated
   row[73] = d.srName || payload.srName || ''; // 74 SR Name
   row[74] = d.ssrName || payload.ssrName || ''; // 75 SSR Name
   row[75] = d.guardianStatus || payload.guardianStatus || ''; // 76 Status of Guardian/Parent
   row[76] = h.artMedicineType || payload.artMedicineType || ''; // 77 Type of ART Medicines
   row[77] = h.cd4Count !== undefined ? String(h.cd4Count) : (payload.cd4Count || ''); // 78 CD4 Count (Latest)
-  row[78] = h.hasDisability || payload.hasDisability || 'No'; // 79 Is Child With Disability
+  row[78] = h.hasDisability || payload.hasDisability || ''; // 79 Is Child With Disability
   row[79] = h.disabilityType || payload.disabilityType || ''; // 80 Types of Disability
   row[80] = h.disabilityCertificateStatus || payload.disabilityCertificateStatus || ''; // 81 Disability Certificate
-  row[81] = e.receivingEducationSchemeBenefit || payload.receivingEducationSchemeBenefit || 'No'; // 82 Education Scheme Benefit
+  row[81] = e.receivingEducationSchemeBenefit || payload.receivingEducationSchemeBenefit || ''; // 82 Education Scheme Benefit
   row[82] = n.malnutritionSymptoms || payload.malnutritionSymptoms || ''; // 83 Symptoms of Malnutrition
 
   sheet.appendRow(row);
