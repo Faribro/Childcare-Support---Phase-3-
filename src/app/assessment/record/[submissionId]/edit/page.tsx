@@ -1474,12 +1474,17 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
 
         const outcome = await outcomePromise;
         if (outcome.status === 'success') {
-          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
+          const syncStatus = (outcome as any)?.data?.syncStatus || (outcome as any)?.syncStatus;
+          if (syncStatus === 'SYNCED') {
+            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}&submitted=true`);
+          } else {
+            router.push(`/assessment/sync?status=sheet_pending&ref=${encodeURIComponent(refId)}&submitted=true`);
+          }
         } else if (outcome.status === 'failed') {
-          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
+          router.push(`/assessment/sync?status=sheet_failed&ref=${encodeURIComponent(refId)}&submitted=true`);
         } else {
           // Timeout -> non-success tracking state
-          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
+          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}&submitted=true`);
         }
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);

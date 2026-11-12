@@ -177,13 +177,13 @@ function SubmissionStatusBanner({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h4 className="text-sm font-bold text-emerald-950">Assessment submitted &amp; saved to server</h4>
+              <h4 className="text-sm font-bold text-emerald-950">Assessment saved &amp; synced to Google Sheets</h4>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                Submitted
+                Synced
               </span>
             </div>
             <p className="text-xs text-emerald-800 mt-1">
-              Reference: <strong className="font-mono font-bold text-emerald-950">{submittedRef || 'Recorded'}</strong>. Canonical server confirmation received. Your assessment is recorded in the central linelist.
+              Reference: <strong className="font-mono font-bold text-emerald-950">{submittedRef || 'Recorded'}</strong>. Central sheet and Revisions log have confirmed receipt of this update.
             </p>
           </div>
         </div>
@@ -191,6 +191,118 @@ function SubmissionStatusBanner({
           type="button"
           onClick={onDismiss}
           className="text-emerald-700 hover:text-emerald-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (effectiveStatus === 'sheet_pending') {
+    return (
+      <div className="bg-sky-50 border border-sky-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-sky-100 border border-sky-300 flex items-center justify-center text-sky-700 shrink-0 mt-0.5">
+            <Clock className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-sky-950">Saved. Sheet sync pending…</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-300">
+                Sync Pending
+              </span>
+            </div>
+            <p className="text-xs text-sky-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-sky-950">{submittedRef || 'Recorded'}</strong>. Your revision is safely committed to the central database. Replication to Google Sheets and Revisions log is queued.
+            </p>
+            {submittedRef && (
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`/api/submissions/${encodeURIComponent(submittedRef)}/sync-retry`, { method: 'POST' });
+                      const d = await res.json();
+                      if (d.status === 'success') {
+                        alert('Sync to Google Sheets completed successfully!');
+                        window.location.href = `/assessment/sync?status=synced&ref=${encodeURIComponent(submittedRef)}&submitted=true`;
+                      } else {
+                        alert('Sync pending or retry failed: ' + (d.message || 'Unknown error'));
+                      }
+                    } catch (e: any) {
+                      alert('Retry error: ' + (e.message || 'Network error'));
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Retry Sync Now
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-sky-700 hover:text-sky-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (effectiveStatus === 'sheet_failed') {
+    return (
+      <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-700 shrink-0 mt-0.5">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-rose-950">Saved. Sheet sync failed, retry available</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                Sync Failed
+              </span>
+            </div>
+            <p className="text-xs text-rose-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-rose-950">{submittedRef || 'Recorded'}</strong>. The database has your changes, but the Google Sheets mirror encountered an error.
+            </p>
+            {submittedRef && (
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`/api/submissions/${encodeURIComponent(submittedRef)}/sync-retry`, { method: 'POST' });
+                      const d = await res.json();
+                      if (d.status === 'success') {
+                        alert('Sync to Google Sheets succeeded!');
+                        window.location.href = `/assessment/sync?status=synced&ref=${encodeURIComponent(submittedRef)}&submitted=true`;
+                      } else {
+                        alert('Retry failed: ' + (d.message || 'Error'));
+                      }
+                    } catch (e: any) {
+                      alert('Retry error: ' + (e.message || 'Network error'));
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Retry Sync Now
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-rose-700 hover:text-rose-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
           aria-label="Dismiss banner"
         >
           <X className="w-4 h-4" />

@@ -470,6 +470,10 @@ export class SheetsMirrorWorker {
         action = 'create';
       }
 
+      const patchData = sanitizedPayload.patch || (sanitizedPayload.data ? sanitizedPayload.data : sanitizedPayload);
+      const editor = sanitizedPayload.editor || sanitizedPayload.formSubmittedBy || sanitizedPayload.interviewerName;
+      const expectedRev = sanitizedPayload.expectedVersion ?? (sanitizedPayload.version > 1 ? sanitizedPayload.version - 1 : undefined);
+
       const gatewayReq = {
         action,
         secret: process.env.WEBHOOK_SECRET || 'MOCK_SECRET',
@@ -480,7 +484,12 @@ export class SheetsMirrorWorker {
         docType: sanitizedPayload.docType,
         fileData: sanitizedPayload.fileData,
         expectedCurrentCellStateHash: sanitizedPayload.expectedCurrentCellStateHash,
-        expectedVersion: sanitizedPayload.expectedVersion ?? (sanitizedPayload.version > 1 ? sanitizedPayload.version - 1 : undefined),
+        expectedVersion: expectedRev,
+        expectedRevision: expectedRev,
+        patch: patchData,
+        data: patchData,
+        editor: editor,
+        formSubmittedBy: editor,
         payload: sanitizedPayload,
         idempotencyKey: job.idempotency_key,
       };

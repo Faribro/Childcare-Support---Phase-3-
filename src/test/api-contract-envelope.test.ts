@@ -158,7 +158,7 @@ describe('Server Response Contract & Health Envelope (Phase 5 & 6)', () => {
       expect(body.acknowledged).toBe(true);
       expect(body.data).toBeDefined();
       expect(body.data.version).toBe(2);
-      expect(body.data.syncStatus).toBe('SYNCED');
+      expect(body.data.syncStatus).toBe('PENDING_SHEET_SYNC');
       expect(body.requestId).toBeDefined();
     });
 

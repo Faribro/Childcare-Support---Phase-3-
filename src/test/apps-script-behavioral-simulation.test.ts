@@ -12,12 +12,13 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
   let mockSheetData: any[][];
   let mockSheetFormulas: any[][];
   let mockRegistryData: any[][];
+  let mockRevisionsData: any[][];
   let mockProtections: any[];
   let mockDriveFiles: Record<string, any>;
   let mockDriveFolders: Record<string, any>;
 
   function createMockRange(sheetName: string, startRow: number, startCol: number, numRows: number, numCols: number) {
-    const dataStore = sheetName === '_Asset_Containers' ? mockRegistryData : mockSheetData;
+    const dataStore = sheetName === '_Asset_Containers' ? mockRegistryData : (sheetName === 'Revisions' ? mockRevisionsData : mockSheetData);
     const formulaStore = mockSheetFormulas;
 
     return {
@@ -129,6 +130,10 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     mockRegistryData = [
       ['submissionId', 'assetContainerId', 'folderId', 'createdAt', 'updatedAt'],
       ['BEN-SYN-001', 'ast-e2e-001', 'folder-ast-e2e-001', '2026-06-25T10:00:00Z', '2026-06-25T10:00:00Z']
+    ];
+
+    mockRevisionsData = [
+      ['Submission ID', 'Revision Number', 'Changed Fields', 'Editor', 'Timestamp']
     ];
 
     mockProtections = [];
@@ -280,6 +285,26 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
                 setColumnWidth: () => {},
                 setFrozenRows: () => {},
                 setFrozenColumns: () => {}
+              };
+            }
+            if (name === 'Revisions') {
+              return {
+                getName: () => 'Revisions',
+                getLastRow: () => mockRevisionsData.length,
+                getLastColumn: () => mockRevisionsData[0] ? mockRevisionsData[0].length : 5,
+                getMaxRows: () => 100,
+                getMaxColumns: () => 5,
+                insertColumnsAfter: () => {},
+                insertRowsAfter: () => {},
+                getRange: (r: number, c: number, numR?: number, numC?: number) => createMockRange('Revisions', r, c, numR || 1, numC || 1),
+                appendRow: (row: any[]) => mockRevisionsData.push(row),
+                deleteRow: (r: number) => { mockRevisionsData.splice(r - 1, 1); },
+                deleteRows: (r: number, cnt: number) => { mockRevisionsData.splice(r - 1, cnt); },
+                setRowHeight: () => {},
+                setColumnWidth: () => {},
+                setFrozenRows: () => {},
+                setFrozenColumns: () => {},
+                setFontWeight: () => {}
               };
             }
             return {
@@ -983,5 +1008,119 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     const repeatData = JSON.parse(resRepeat.getContent());
     expect(repeatData.status).toBe('error');
     expect(repeatData.statusCode).toBe(404);
+  });
+
+  it('Scenario 22: handleUpdate_ with nested outbox payload updates cells, bumps revision, and writes to Revisions sheet', () => {
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'update',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001',
+          payload: {
+            uniqueId: 'BEN-SYN-001',
+            version: 2,
+            expectedVersion: 1,
+            patch: {
+              childName: 'Aarav Updated Name',
+              monthlyIncome: '7500'
+            },
+            editor: 'caseworker@alliance.org'
+          }
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.acknowledged).toBe(true);
+    expect(data.revisionNumber).toBe(2);
+
+    // Verify cell update in Child_Nutrition (Column 9: Child Name, Column 30: Monthly Income)
+    const row = mockSheetData[3];
+    expect(row[8]).toBe('Aarav Updated Name');
+    expect(row[29]).toBe('7500');
+    expect(row[1]).toBe(2); // Revision bumped
+
+    // Verify row appended to Revisions sheet
+    expect(mockRevisionsData.length).toBe(2);
+    const revRow = mockRevisionsData[1];
+    expect(revRow[0]).toBe('BEN-SYN-001'); // Submission ID
+    expect(revRow[1]).toBe(2);             // Revision Number
+    expect(revRow[2]).toContain('childName'); // Changed fields
+    expect(revRow[3]).toBe('caseworker@alliance.org'); // Editor
+  });
+
+  it('Scenario 23: handleUpdate_ on missing row upserts a new row in Child_Nutrition and appends to Revisions sheet', () => {
+    const missingId = 'BEN-NEW-UPSERT-099';
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'update',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: missingId,
+          expectedVersion: 1,
+          patch: {
+            childName: 'Pooja Upserted',
+            state: 'Maharashtra',
+            district: 'Pune'
+          },
+          editor: 'supervisor@alliance.org'
+        })
+      }
+    });
+
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+    expect(data.acknowledged).toBe(true);
+
+    // Verify new row created in Child_Nutrition
+    const newLinelistRow = mockSheetData.find(r => r[0] === missingId);
+    expect(newLinelistRow).toBeDefined();
+    expect(newLinelistRow![8]).toBe('Pooja Upserted');
+    expect(newLinelistRow![17]).toBe('Maharashtra');
+
+    // Verify Revisions sheet has entry
+    const revEntry = mockRevisionsData.find(r => r[0] === missingId);
+    expect(revEntry).toBeDefined();
+    expect(revEntry![3]).toBe('supervisor@alliance.org');
+  });
+
+  it('Scenario 24: handleUpdate_ idempotent retry does not append duplicate Revisions row', () => {
+    // First update
+    const res1 = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'update',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001',
+          expectedVersion: 1,
+          idempotencyKey: 'idem-key-rev2',
+          patch: { childName: 'Aarav Twice' }
+        })
+      }
+    });
+    expect(JSON.parse(res1.getContent()).status).toBe('success');
+    const revCountAfterFirst = mockRevisionsData.length;
+
+    // Retry with same idempotency key and expectedVersion
+    const res2 = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'update',
+          secret: 'TEST_SECRET_KEY_888999',
+          uniqueId: 'BEN-SYN-001',
+          expectedVersion: 1,
+          idempotencyKey: 'idem-key-rev2',
+          patch: { childName: 'Aarav Twice' }
+        })
+      }
+    });
+    const data2 = JSON.parse(res2.getContent());
+    expect(data2.status).toBe('success');
+    expect(data2.isDuplicate).toBe(true);
+
+    // No extra row added to Revisions
+    expect(mockRevisionsData.length).toBe(revCountAfterFirst);
   });
 });

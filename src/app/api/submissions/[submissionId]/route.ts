@@ -355,16 +355,24 @@ export async function PATCH(
       details: `Record ${submissionId} updated by ${scope.name} (${scope.role}). Fields: ${Object.keys(patchPayload).filter((k) => k !== 'expectedVersion').join(', ')}. Version: ${result.version || patchPayload.expectedVersion + 1}`,
     });
 
+    const finalSyncStatus = result.syncStatus || (result.sheetSyncCompleted ? 'SYNCED' : 'PENDING_SHEET_SYNC');
+    const syncMessage = finalSyncStatus === 'SYNCED'
+      ? 'Record updated and synced to Google Sheets.'
+      : (finalSyncStatus === 'FAILED_SHEET_SYNC' ? 'Saved. Sheet sync failed, retry available.' : 'Saved. Sheet sync pending.');
+
     return NextResponse.json(
       {
         status: 'success',
+        syncStatus: finalSyncStatus,
+        message: syncMessage,
         data: {
           ...(result.data || {}),
           remoteSubmissionId: result.remoteSubmissionId || submissionId,
           clientSubmissionId: result.uniqueId || submissionId,
           version: result.version || patchPayload.expectedVersion + 1,
           updatedAt: result.updatedAt || new Date().toISOString(),
-          syncStatus: 'SYNCED',
+          syncStatus: finalSyncStatus,
+          syncMessage,
         },
         acknowledged: true,
         remoteSubmissionId: result.remoteSubmissionId || submissionId,

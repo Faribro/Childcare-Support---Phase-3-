@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "npm ci --include=dev"
+  "installCommand": "npm ci --include=dev",
+  "crons": [
+    {
+      "path": "/api/workers/sheets-mirror",
+      "schedule": "0 2 * * *"
+    }
+  ]
 }

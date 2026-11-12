@@ -88,6 +88,8 @@ export interface CanonicalSubmissionResult {
     hasMore: boolean;
     totalCount: number;
   };
+  syncStatus?: 'SYNCED' | 'PENDING_SHEET_SYNC' | 'FAILED_SHEET_SYNC';
+  sheetSyncCompleted?: boolean;
 }
 
 export type UserRole = 'supervisor' | 'caseworker' | 'auditor';
@@ -699,6 +701,60 @@ class CanonicalSubmissionAdapterService {
     return this.supabaseAdapterInstance;
   }
 
+  public triggerBestEffortMirrorDrain(): void {
+    const drainFn = async () => {
+      try {
+        const adapter = await this.getSupabaseAdapter();
+        const appsScriptUrl = this.getAppsScriptUrl();
+        const webhookSecret = this.getWebhookSecret();
+        if (!appsScriptUrl || !this.isConfigured()) return;
+
+        const { SheetsMirrorWorker } = await import('./sheetsMirrorWorker');
+        const gatewayClient = {
+          callGateway: async (payload: Record<string, any>) => {
+            const res = await fetch(appsScriptUrl, {
+              method: 'POST',
+              cache: 'no-store',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+              },
+              body: JSON.stringify({ ...payload, secret: webhookSecret }),
+            });
+            const gasData = await res.json().catch(() => ({}));
+            return {
+              status: gasData.status || (res.ok ? 'success' : 'error'),
+              statusCode: res.status,
+              resolvedRow: gasData.resolvedRow || gasData.rowNumber,
+              currentVersion: gasData.currentVersion,
+              message: gasData.message,
+            };
+          },
+        };
+
+        const mirrorRepo = adapter.getMirrorRepo ? adapter.getMirrorRepo() : null;
+        if (!mirrorRepo) return;
+
+        const worker = new SheetsMirrorWorker(mirrorRepo, gatewayClient as any, {
+          workerId: `post-commit-drain-${Date.now().toString(36)}`,
+          leaseDurationMs: 60000,
+        });
+
+        await worker.drainQueue(5);
+      } catch (drainErr) {
+        console.warn('Best-effort mirror drain exception (outbox retains jobs):', drainErr);
+      }
+    };
+
+    if (typeof (globalThis as any).waitUntil === 'function') {
+      (globalThis as any).waitUntil(drainFn());
+    } else {
+      setImmediate(() => {
+        drainFn().catch((err) => console.warn('setImmediate drain error:', err));
+      });
+    }
+  }
+
   public getAppsScriptUrl(): string | undefined {
     return (
       process.env.APPS_SCRIPT_URL ||
@@ -914,7 +970,16 @@ class CanonicalSubmissionAdapterService {
   async updateSubmission(input: CanonicalUpdateInput): Promise<CanonicalSubmissionResult> {
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
-      return await adapter.updateSubmission(input);
+      const updateRes = await adapter.updateSubmission(input);
+      if (updateRes.status === 'success') {
+        this.triggerBestEffortMirrorDrain();
+        return {
+          ...updateRes,
+          syncStatus: 'PENDING_SHEET_SYNC',
+          sheetSyncCompleted: false,
+        };
+      }
+      return updateRes;
     }
 
     const configCheck = this.checkConfiguration('write');
@@ -985,6 +1050,8 @@ class CanonicalSubmissionAdapterService {
           revisionNumber: gasData.revisionNumber || gasData.version,
           updatedAt: gasData.updatedAt || new Date().toISOString(),
           isDuplicate: !!gasData.isDuplicate,
+          syncStatus: 'SYNCED',
+          sheetSyncCompleted: true,
           requestId: input.requestId,
           data: gasData,
         };

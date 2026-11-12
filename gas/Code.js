@@ -1411,7 +1411,29 @@ function handleCreate_(payload) {
   ).setMimeType(ContentService.MimeType.JSON);
 }
 
+function getOrCreateRevisionsSheet_(ss) {
+  var revSheet = ss.getSheetByName('Revisions');
+  if (!revSheet) {
+    revSheet = ss.insertSheet('Revisions');
+    var headers = ['Submission ID', 'Revision Number', 'Changed Fields', 'Editor', 'Timestamp'];
+    revSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    revSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    revSheet.setFrozenRows(1);
+  }
+  return revSheet;
+}
+
 function handleUpdate_(payload) {
+  // 1. Unpack wrapped payload from SheetsMirrorWorker outbox if present
+  if (payload.payload && typeof payload.payload === 'object') {
+    for (var plk in payload.payload) {
+      if (payload.payload.hasOwnProperty(plk) && !payload.hasOwnProperty(plk)) {
+        payload[plk] = payload.payload[plk];
+      }
+    }
+  }
+
+  // 2. Unpack data object if present
   if (payload.data && typeof payload.data === 'object') {
     for (var k in payload.data) {
       if (payload.data.hasOwnProperty(k) && !payload.hasOwnProperty(k)) {
@@ -1420,10 +1442,12 @@ function handleUpdate_(payload) {
     }
   }
 
-  if (payload.patch && typeof payload.patch === 'object') {
-    for (var pk in payload.patch) {
-      if (payload.patch.hasOwnProperty(pk) && !payload.hasOwnProperty(pk)) {
-        payload[pk] = payload.patch[pk];
+  // 3. Unpack patch object (including nested patch from outbox)
+  var patchObj = payload.patch || (payload.payload && payload.payload.patch) || payload.data || {};
+  if (patchObj && typeof patchObj === 'object') {
+    for (var pk in patchObj) {
+      if (patchObj.hasOwnProperty(pk)) {
+        payload[pk] = patchObj[pk];
       }
     }
   }
@@ -1437,42 +1461,52 @@ function handleUpdate_(payload) {
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
 
-  if (lastRow < 4) {
-    return errorResponse_('Record not found: Sheet has no data rows.', 404);
-  }
-
-  var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
   var foundRow = -1;
-
-  for (var r = 0; r < ids.length; r++) {
-    var existingId = String(ids[r][0]).trim();
-    if (existingId === String(targetId).trim()) {
-      foundRow = 4 + r;
-      break;
+  if (lastRow >= 4) {
+    var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+    for (var r = 0; r < ids.length; r++) {
+      var existingId = String(ids[r][0]).trim();
+      if (existingId === String(targetId).trim()) {
+        foundRow = 4 + r;
+        break;
+      }
     }
-  }
-
-  if (foundRow === -1) {
-    return errorResponse_('Record not found with ID: ' + targetId, 404);
-  }
-
-  var existingRow = sheet.getRange(foundRow, 1, 1, COLUMN_HEADERS.length).getValues()[0];
-
-  // OCC Version & Revision Check
-  var currentRevision = 1;
-  var rawRev = sheet.getRange(foundRow, 2).getValue();
-  if (rawRev) {
-    currentRevision = parseInt(rawRev, 10) || 1;
   }
 
   var expectedRev = payload.expectedRevision !== undefined ? payload.expectedRevision :
                    (payload.expectedVersion !== undefined ? payload.expectedVersion : payload.baseVersion);
 
+  var isUpsertNewRow = false;
+  var existingRow;
+  var currentRevision = 1;
+
+  if (foundRow === -1) {
+    // Upsert on missing row: Create a new row in Child_Nutrition
+    var newRow = new Array(COLUMN_HEADERS.length);
+    for (var cIdx = 0; cIdx < COLUMN_HEADERS.length; cIdx++) {
+      newRow[cIdx] = '';
+    }
+    newRow[0] = targetId;
+    var initialRev = (expectedRev !== undefined && expectedRev > 0) ? expectedRev : 1;
+    newRow[1] = initialRev;
+    sheet.appendRow(newRow);
+    foundRow = sheet.getLastRow();
+    currentRevision = initialRev;
+    existingRow = newRow;
+    isUpsertNewRow = true;
+  } else {
+    existingRow = sheet.getRange(foundRow, 1, 1, COLUMN_HEADERS.length).getValues()[0];
+    var rawRev = sheet.getRange(foundRow, 2).getValue();
+    if (rawRev) {
+      currentRevision = parseInt(rawRev, 10) || 1;
+    }
+  }
+
   // Idempotency check: If an update retry arrives where currentRevision equals expectedRev + 1
   // and the payload has an idempotencyKey / requestId that was already applied, return existing revision without bumping.
   var updateIdempotencyKey = payload.idempotencyKey || payload.requestId;
   var lastUpdatedTime = sheet.getRange(foundRow, 73).getValue();
-  if (expectedRev !== undefined && currentRevision === (expectedRev + 1) && updateIdempotencyKey) {
+  if (!isUpsertNewRow && expectedRev !== undefined && currentRevision === (expectedRev + 1) && updateIdempotencyKey) {
     return ContentService.createTextOutput(
       JSON.stringify({
         status: 'success',
@@ -1490,7 +1524,7 @@ function handleUpdate_(payload) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  if (expectedRev !== undefined && currentRevision > expectedRev) {
+  if (!isUpsertNewRow && expectedRev !== undefined && currentRevision > expectedRev) {
     return ContentService.createTextOutput(
       JSON.stringify({
         status: 'error',
@@ -1505,7 +1539,7 @@ function handleUpdate_(payload) {
   }
 
   // Increment Revision Number on Column 2
-  var nextRevision = currentRevision + 1;
+  var nextRevision = isUpsertNewRow ? currentRevision : (currentRevision + 1);
   sheet.getRange(foundRow, 2).setValue(nextRevision);
 
   var childName = payload.childName || (payload.demographics && payload.demographics.childName) || existingRow[8] || '';
@@ -1686,6 +1720,34 @@ function handleUpdate_(payload) {
   var now = new Date().toISOString();
   sheet.getRange(foundRow, 73).setValue(now);
 
+  // Write a row to the Revisions sheet (submission ID, revision, changed fields, editor, timestamp)
+  var revisionsLogged = false;
+  try {
+    var ss = (sheet.getParent && typeof sheet.getParent === 'function') ? sheet.getParent() : getTargetSpreadsheet_();
+    var revSheet = getOrCreateRevisionsSheet_(ss);
+    var changedKeys = [];
+    if (patchObj && typeof patchObj === 'object') {
+      for (var chKey in patchObj) {
+        if (patchObj.hasOwnProperty(chKey) && chKey !== 'expectedVersion' && chKey !== 'expectedRevision' && chKey !== 'version' && chKey !== 'patch' && chKey !== 'data') {
+          changedKeys.push(chKey);
+        }
+      }
+    }
+    var changedSummary = changedKeys.length > 0 ? changedKeys.join(', ') : (isUpsertNewRow ? 'Upsert initial record' : 'Record modified');
+    var editorName = payload.formSubmittedBy || payload.editor || payload.interviewerName || payload.organizationEmail || payload.userId || 'Caseworker';
+
+    revSheet.appendRow([
+      String(targetId),
+      nextRevision,
+      changedSummary,
+      editorName,
+      now
+    ]);
+    revisionsLogged = true;
+  } catch (revErr) {
+    Logger.log('Warning: Revisions sheet append failed: ' + revErr);
+  }
+
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
@@ -1695,6 +1757,7 @@ function handleUpdate_(payload) {
       revisionNumber: nextRevision,
       version: nextRevision,
       rowNumber: foundRow,
+      revisionsLogged: revisionsLogged,
       updatedAt: now,
       requestId: payload.requestId || ('req-' + Utilities.getUuid()),
     })

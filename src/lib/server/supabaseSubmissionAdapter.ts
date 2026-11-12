@@ -514,12 +514,15 @@ export class SupabaseSubmissionAdapter {
             p_unique_id: input.submissionId,
             p_expected_version: input.expectedVersion ?? null,
             p_patch: input.patch,
-            p_idempotency_key: input.idempotencyKey || `update-${input.submissionId}-v${(input.expectedVersion || 1) + 1}`,
+            p_idempotency_key: `update-${input.submissionId}-r${(input.expectedVersion || 1) + 1}`,
             p_mirror_payload: {
               uniqueId: input.submissionId,
               remoteSubmissionId: input.submissionId,
               version: (input.expectedVersion || 1) + 1,
+              expectedVersion: input.expectedVersion,
               patch: input.patch,
+              data: input.patch,
+              editor: session?.userId || (session as any)?.user?.name || (session as any)?.user?.email || 'Caseworker',
             },
           }),
         });
@@ -635,14 +638,18 @@ export class SupabaseSubmissionAdapter {
     await this.mirrorRepo.enqueueJob({
       job_type: 'UPSERT_ROW',
       target_sheet_name: 'Child_Nutrition',
-      idempotency_key: input.idempotencyKey || `update-${input.submissionId}-v${nextVersion}`,
+      idempotency_key: `update-${input.submissionId}-r${nextVersion}`,
       payload_snapshot: {
         uniqueId: existing.unique_id,
         remoteSubmissionId: existing.id,
         version: nextVersion,
+        expectedVersion: existing.version - 1,
         status: existing.status,
         state: existing.state,
         district: existing.district,
+        patch: input.patch,
+        data: input.patch,
+        editor: session?.userId || (session as any)?.user?.name || (session as any)?.user?.email || 'Caseworker',
       },
       max_attempts: 5,
     });

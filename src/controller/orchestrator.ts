@@ -104,7 +104,12 @@ export class BoundedOvernightController {
     }
     const tmp = `${filePath}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf-8');
-    fs.renameSync(tmp, filePath);
+    try {
+      fs.renameSync(tmp, filePath);
+    } catch {
+      fs.copyFileSync(tmp, filePath);
+      try { fs.unlinkSync(tmp); } catch { /* ignore cleanup error */ }
+    }
   }
 
   /**
