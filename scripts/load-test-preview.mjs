@@ -85,6 +85,21 @@ function percentile(sorted, p) {
   return Math.round(sorted[idx]);
 }
 
+function loadCookieHeader(cookieFile) {
+  if (process.env.VERCEL_COOKIE_HEADER) return process.env.VERCEL_COOKIE_HEADER;
+  if (!cookieFile || !fs.existsSync(cookieFile)) return '';
+  const raw = fs.readFileSync(cookieFile, 'utf8').trim();
+  const pairs = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line || (line.startsWith('#') && !line.startsWith('#HttpOnly_'))) continue;
+    const cols = line.split('\t');
+    if (cols.length >= 7) {
+      pairs.push(`${cols[5]}=${cols[6]}`);
+    }
+  }
+  return pairs.length ? pairs.join('; ') : raw;
+}
+
 async function main() {
   const { url, concurrency, cookieFile } = parseArgs(process.argv);
   if (!url) {
@@ -92,10 +107,7 @@ async function main() {
     process.exit(1);
   }
 
-  let cookieHeader = process.env.VERCEL_COOKIE_HEADER || '';
-  if (!cookieHeader && cookieFile && fs.existsSync(cookieFile)) {
-    cookieHeader = fs.readFileSync(cookieFile, 'utf8').trim();
-  }
+  const cookieHeader = loadCookieHeader(cookieFile);
 
   const targetEndpoint = `${url.replace(/\/+$/, '')}/api/submissions`;
   const requests = Array.from({ length: concurrency }, (_, i) => buildLoadTestPayload(i));
