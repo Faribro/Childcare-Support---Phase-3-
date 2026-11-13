@@ -83,9 +83,44 @@ export function createMockFirestore() {
     return collections.get(name)!;
   }
 
+  function createQuery(col: Map<string, any>, filters: Array<{ field: string; op: string; val: any }> = [], limitVal?: number) {
+    return {
+      where(field: string, op: string, val: any) {
+        return createQuery(col, [...filters, { field, op, val }], limitVal);
+      },
+      orderBy(_field: string, _direction?: 'asc' | 'desc') {
+        return createQuery(col, filters, limitVal);
+      },
+      limit(n: number) {
+        return createQuery(col, filters, n);
+      },
+      async get() {
+        const matching: any[] = [];
+        for (const [id, d] of col.entries()) {
+          let match = true;
+          for (const f of filters) {
+            if (f.op === '==' && d[f.field] !== f.val) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            matching.push({ id, exists: true, data: () => ({ ...d }) });
+            if (limitVal !== undefined && matching.length >= limitVal) break;
+          }
+        }
+        return {
+          empty: matching.length === 0,
+          docs: matching,
+        };
+      },
+    };
+  }
+
   return {
     collection(colName: string) {
       const col = getCol(colName);
+      const q = createQuery(col);
       return {
         doc(docId: string) {
           return {
@@ -111,37 +146,16 @@ export function createMockFirestore() {
           };
         },
         where(field: string, op: string, val: any) {
-          return {
-            limit(n: number) {
-              return {
-                async get() {
-                  const matching: any[] = [];
-                  for (const [id, d] of col.entries()) {
-                    if (op === '==' && d[field] === val) {
-                      matching.push({ id, exists: true, data: () => ({ ...d }) });
-                      if (matching.length >= n) break;
-                    }
-                  }
-                  return {
-                    empty: matching.length === 0,
-                    docs: matching,
-                  };
-                },
-              };
-            },
-            async get() {
-              const matching: any[] = [];
-              for (const [id, d] of col.entries()) {
-                if (op === '==' && d[field] === val) {
-                  matching.push({ id, exists: true, data: () => ({ ...d }) });
-                }
-              }
-              return {
-                empty: matching.length === 0,
-                docs: matching,
-              };
-            },
-          };
+          return q.where(field, op, val);
+        },
+        orderBy(field: string, direction?: 'asc' | 'desc') {
+          return q.orderBy(field, direction);
+        },
+        limit(n: number) {
+          return q.limit(n);
+        },
+        async get() {
+          return q.get();
         },
       };
     },

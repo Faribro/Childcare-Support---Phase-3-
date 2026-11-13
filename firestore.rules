@@ -4,6 +4,24 @@ rules_version = '2';
 // All reads and writes to Firestore are conducted strictly through the server-side
 // Google Cloud Admin SDK using service account credentials. Direct client web/SDK
 // access is completely forbidden to preserve medical and demographic privacy.
+//
+// Protected Collections:
+// - submissions
+// - attachment_metadata
+// - sheets_mirror_retry_queue
+// - evaluation_credentials
+// - auth_attempts
+// - leader_otp_challenges
+// - leadership_sessions
+// - leader_identities
+// - state_team_registrations
+// - state_team_invitations
+// - state_team_challenges
+// - field_user_profiles
+// - export_preview_contracts
+// - export_delivery_jobs
+// - reporting_sessions
+// - state_sub_recipients
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
