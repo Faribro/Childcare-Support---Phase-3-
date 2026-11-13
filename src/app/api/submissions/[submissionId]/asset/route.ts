@@ -472,7 +472,64 @@ export async function GET(
     });
   }
 
-  // 5. Handle Tigris / S3 private protocol URI (e.g. asset://, storage://, s3://, urn:asset:)
+  // 5a. Handle Google Cloud Storage (GCS) private protocol URI (gcs:// or STORAGE_PROVIDER=gcs)
+  if (
+    targetRef.startsWith('gcs://') ||
+    (process.env.STORAGE_PROVIDER === 'gcs' && (targetRef.startsWith('asset://') || targetRef.startsWith('storage://')))
+  ) {
+    try {
+      const { GcsStorageService } = await import('@/lib/server/gcsStorageService');
+      const gcsService = new GcsStorageService();
+      const fetchRes = await gcsService.fetchAttachment(targetRef);
+
+      if (fetchRes.status === 'NOT_FOUND') {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'STORAGE_NOT_FOUND',
+            message: `Document preview unavailable: ${fetchRes.error || 'Object not found in GCS bucket.'}`,
+          },
+          { status: 404, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
+
+      if (fetchRes.status !== 'SUCCESS' || !fetchRes.buffer) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'STORAGE_RETRIEVAL_FAILED',
+            message: `Document preview unavailable: ${fetchRes.error || 'Failed to retrieve object from GCS.'}`,
+          },
+          { status: 502, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
+
+      const contentType = fetchRes.contentType || 'application/octet-stream';
+      const ext = ALLOWED_MIME_TYPES[contentType] || contentType.split('/')[1] || 'bin';
+
+      return new Response(new Uint8Array(fetchRes.buffer), {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(fetchRes.buffer.length),
+          'Content-Disposition': `inline; filename="${rawDocType}.${ext}"`,
+          'X-Content-Type-Options': 'nosniff',
+          ...ASSET_NO_STORE_HEADERS,
+        },
+      });
+    } catch (err: any) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          code: 'STORAGE_RETRIEVAL_FAILED',
+          message: `Document preview unavailable: GCS retrieval error (${err?.message || err}).`,
+        },
+        { status: 502, headers: ASSET_NO_STORE_HEADERS }
+      );
+    }
+  }
+
+  // 5b. Handle Tigris / S3 private protocol URI (e.g. asset://, storage://, s3://, urn:asset:)
   if (
     targetRef.startsWith('asset://') ||
     targetRef.startsWith('storage://') ||
