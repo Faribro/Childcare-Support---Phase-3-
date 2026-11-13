@@ -81,6 +81,26 @@ export function validateAttachmentExtension(filename: string): boolean {
   );
 }
 
+export function validateGcsBucketEnvironment(appEnv?: string, bucketName?: string): void {
+  const cleanEnv = (appEnv || process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'staging')
+    .toLowerCase()
+    .trim();
+  const cleanBucket = (bucketName || process.env.GCS_BUCKET_NAME || 'cs-p3-childcare-staging')
+    .toLowerCase()
+    .trim();
+
+  if (cleanEnv === 'staging' && cleanBucket.includes('production')) {
+    throw new Error(
+      `CONFIGURATION_ERROR: Refusing to start staging environment (APP_ENV=staging) against production GCS bucket '${cleanBucket}'. Staging must use the staging bucket.`
+    );
+  }
+  if (cleanEnv === 'production' && cleanBucket.includes('staging')) {
+    throw new Error(
+      `CONFIGURATION_ERROR: Refusing to start production environment (APP_ENV=production) against staging GCS bucket '${cleanBucket}'. Production must use the production bucket.`
+    );
+  }
+}
+
 export class GcsStorageService {
   private config: GcsStorageConfig;
   private storageClient: any = null;
@@ -104,11 +124,14 @@ export class GcsStorageService {
       process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
       `csc-runtime@${projectId}.iam.gserviceaccount.com`;
 
+    const appEnv = customConfig?.appEnv || process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'staging';
+    validateGcsBucketEnvironment(appEnv, bucket);
+
     this.config = {
       bucketName: bucket,
       projectId,
       clientEmail,
-      appEnv: customConfig?.appEnv || process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'staging',
+      appEnv,
     };
 
     if (options.isMock !== undefined) {
