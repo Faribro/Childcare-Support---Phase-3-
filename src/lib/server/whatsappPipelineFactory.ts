@@ -8,9 +8,11 @@ import {
   AppsScriptReportingEmailDispatcher,
   MockReportingEmailDispatcher,
   SupabaseReportingSessionRepository,
+  FirestoreReportingSessionRepository,
   InMemoryReportingSessionRepository,
   IReportingSessionRepository,
   SupabaseExportConfirmationStore,
+  FirestoreExportConfirmationStore,
   InMemoryExportConfirmationStore,
   IExportConfirmationStore,
 } from '@/features/leadership-reporting';
@@ -44,6 +46,12 @@ export function getInboundPersistence(): IInboundPersistence {
 
 export function getSessionRepository(): IReportingSessionRepository {
   if (!sharedSessionRepository) {
+    const dataEngine = (process.env.DATA_ENGINE || 'sheets').toLowerCase().trim();
+    if (dataEngine === 'firestore') {
+      sharedSessionRepository = new FirestoreReportingSessionRepository();
+      return sharedSessionRepository;
+    }
+
     const env = getAppEnvConfig();
     if (env.supabaseUrl && env.supabaseServiceRoleKey) {
       sharedSessionRepository = new SupabaseReportingSessionRepository(env.supabaseUrl, env.supabaseServiceRoleKey);
@@ -60,6 +68,12 @@ export function getSessionRepository(): IReportingSessionRepository {
 
 export function getExportConfirmationStore(): IExportConfirmationStore {
   if (!sharedConfirmationStore) {
+    const dataEngine = (process.env.DATA_ENGINE || 'sheets').toLowerCase().trim();
+    if (dataEngine === 'firestore') {
+      sharedConfirmationStore = new FirestoreExportConfirmationStore();
+      return sharedConfirmationStore;
+    }
+
     const env = getAppEnvConfig();
     if (env.supabaseUrl && env.supabaseServiceRoleKey) {
       sharedConfirmationStore = new SupabaseExportConfirmationStore(env.supabaseUrl, env.supabaseServiceRoleKey);

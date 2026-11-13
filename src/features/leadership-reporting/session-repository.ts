@@ -1,5 +1,9 @@
 import { ReportingSession } from './types';
 import { getAppEnvConfig } from '@/lib/server/envConfig';
+import { validateFirestoreDatabaseEnvironment } from '@/lib/server/firestoreSubmissionAdapter';
+import { getFirestoreDb } from '@/lib/server/credentialRegistry';
+
+export const REPORTING_SESSIONS_COLLECTION = 'reporting_sessions';
 
 /**
  * Interface defining durable persistence for conversational reporting sessions.
@@ -216,5 +220,104 @@ export class SupabaseReportingSessionRepository implements IReportingSessionRepo
       if (this.isProduction) throw err;
       await this.fallbackMemory.deleteSession(userId);
     }
+  }
+}
+
+/**
+ * Cloud Firestore Reporting Session Repository (Phase B / Task 2b)
+ * Connects directly to Firestore collection 'reporting_sessions'.
+ * Uses document ID = userId.
+ * TTL field = expiresAt (7 days).
+ * Fails closed in staging/production if Firestore is unreachable.
+ */
+export class FirestoreReportingSessionRepository implements IReportingSessionRepository {
+  private customDb?: any;
+
+  constructor(customDb?: any) {
+    this.customDb = customDb;
+  }
+
+  private async getDb() {
+    const appEnv = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development';
+    const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+    validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+    const isProductionOrStaging =
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production' ||
+      process.env.APP_ENV === 'production' ||
+      (process.env.NODE_ENV as string) === 'staging' ||
+      process.env.APP_ENV === 'staging';
+
+    try {
+      return await getFirestoreDb(this.customDb);
+    } catch (err: any) {
+      if (isProductionOrStaging) {
+        throw new Error(
+          `[REPORTING_SESSION_STORE_UNAVAILABLE] Cloud Firestore unreachable in ${appEnv}: ${err?.message || err}`
+        );
+      }
+      throw err;
+    }
+  }
+
+  public async getSession(userId: string): Promise<ReportingSession | null> {
+    const db = await this.getDb();
+    const docSnap = await db.collection(REPORTING_SESSIONS_COLLECTION).doc(userId).get();
+    if (!docSnap.exists) {
+      return null;
+    }
+
+    const data = docSnap.data();
+    return {
+      sessionId: data.sessionId,
+      ownerUserId: data.ownerUserId || userId,
+      callerScope: data.callerScope,
+      activeStateFilter: data.activeStateFilter || null,
+      activeDateBasis: data.activeDateBasis || 'VISIT_DATE',
+      confirmedYear: data.confirmedYear ?? undefined,
+      confirmedDateBasis: data.confirmedDateBasis ?? undefined,
+      confirmedYearExplicitlyClarified: data.confirmedYearExplicitlyClarified ?? false,
+      confirmedDateBasisExplicitlyClarified: data.confirmedDateBasisExplicitlyClarified ?? false,
+      isConfirmedPolicy: data.isConfirmedPolicy ?? false,
+      pendingClarification: data.pendingClarification ?? null,
+      pendingExport: data.pendingExport ?? null,
+      lastCohortResult: data.lastCohortResult ?? null,
+      messages: data.messages || [],
+      createdAt: data.createdAt || new Date().toISOString(),
+      updatedAt: data.updatedAt || new Date().toISOString(),
+    };
+  }
+
+  public async saveSession(userId: string, session: ReportingSession): Promise<void> {
+    const db = await this.getDb();
+    const docRef = db.collection(REPORTING_SESSIONS_COLLECTION).doc(userId);
+    const ttlDays = 7;
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
+
+    await docRef.set({
+      sessionId: session.sessionId,
+      ownerUserId: userId,
+      callerScope: session.callerScope,
+      activeStateFilter: session.activeStateFilter || null,
+      activeDateBasis: session.activeDateBasis,
+      confirmedYear: session.confirmedYear ?? null,
+      confirmedDateBasis: session.confirmedDateBasis ?? null,
+      confirmedYearExplicitlyClarified: session.confirmedYearExplicitlyClarified ?? false,
+      confirmedDateBasisExplicitlyClarified: session.confirmedDateBasisExplicitlyClarified ?? false,
+      isConfirmedPolicy: session.isConfirmedPolicy ?? false,
+      pendingClarification: session.pendingClarification || null,
+      pendingExport: session.pendingExport || null,
+      lastCohortResult: session.lastCohortResult || null,
+      messages: session.messages || [],
+      createdAt: session.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      expiresAt, // Firestore TTL field
+    });
+  }
+
+  public async deleteSession(userId: string): Promise<void> {
+    const db = await this.getDb();
+    await db.collection(REPORTING_SESSIONS_COLLECTION).doc(userId).delete();
   }
 }

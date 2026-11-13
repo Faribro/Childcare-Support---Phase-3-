@@ -6,6 +6,11 @@ import {
 } from './types';
 import { computeImmutableExportHash } from './export-contract-service';
 import { getAppEnvConfig } from '@/lib/server/envConfig';
+import { validateFirestoreDatabaseEnvironment } from '@/lib/server/firestoreSubmissionAdapter';
+import { getFirestoreDb } from '@/lib/server/credentialRegistry';
+
+export const EXPORT_PREVIEW_CONTRACTS_COLLECTION = 'export_preview_contracts';
+export const EXPORT_DELIVERY_JOBS_COLLECTION = 'export_delivery_jobs';
 
 export type TokenConsumptionStatus =
   | 'CONSUMED'
@@ -643,5 +648,263 @@ export class SupabaseExportConfirmationStore implements IExportConfirmationStore
       if (this.isProduction) throw err;
       return this.fallbackMemory.recoverStaleDeliveryJobs(leaseTimeoutMs);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Firestore Distributed Export Confirmation Adapter (Phase B)
+// ---------------------------------------------------------------------------
+
+function parseTimestamp(val: any): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (val instanceof Date) return val.getTime();
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.toDate === 'function') return val.toDate().getTime();
+  if (typeof val === 'string') return new Date(val).getTime();
+  return 0;
+}
+
+export class FirestoreExportConfirmationStore implements IExportConfirmationStore {
+  private customDb?: any;
+
+  constructor(customDb?: any) {
+    this.customDb = customDb;
+  }
+
+  private async getDb() {
+    const appEnv = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development';
+    const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+    validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+    const isProductionOrStaging =
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production' ||
+      process.env.APP_ENV === 'production' ||
+      (process.env.NODE_ENV as string) === 'staging' ||
+      process.env.APP_ENV === 'staging';
+
+    try {
+      return await getFirestoreDb(this.customDb);
+    } catch (err: any) {
+      if (isProductionOrStaging) {
+        throw new Error(`[EXPORT_CONFIRMATION_STORE_UNAVAILABLE] Cloud Firestore unreachable in ${appEnv}: ${err?.message || err}`);
+      }
+      throw err;
+    }
+  }
+
+  public async registerPreviewContract(contract: ExportPreviewContract): Promise<void> {
+    const db = await this.getDb();
+    const docRef = db.collection(EXPORT_PREVIEW_CONTRACTS_COLLECTION).doc(contract.exportId);
+    const expiresAtMs = new Date(contract.expiresAt).getTime();
+
+    await docRef.set({
+      ...contract,
+      expiresAt: new Date(expiresAtMs), // Firestore TTL field
+      expiresAtMs,
+      isConsumed: false,
+      createdAt: Date.now(),
+    });
+  }
+
+  public async consumeConfirmationTokenAtomic(params: {
+    exportId: string;
+    parametersHash: string;
+    userId: string;
+    userConfirmationText: string;
+    caller: CallerSecurityContext;
+  }): Promise<TokenConsumptionResult> {
+    const db = await this.getDb();
+    const previewRef = db.collection(EXPORT_PREVIEW_CONTRACTS_COLLECTION).doc(params.exportId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(previewRef);
+      if (!snap.exists) {
+        return {
+          success: false,
+          status: 'NOT_FOUND',
+          errorReason: `Export preview contract '${params.exportId}' not found. Please request a new export.`,
+        };
+      }
+
+      const preview = snap.data() as ExportPreviewContract & { isConsumed: boolean; expiresAtMs?: number };
+      if (preview.isConsumed) {
+        return {
+          success: false,
+          status: 'ALREADY_CONSUMED',
+          errorReason: 'REPLAY_REJECTED: This export preview has already been confirmed and queued for delivery. Duplicate execution blocked.',
+        };
+      }
+
+      const expiresAt = preview.expiresAtMs || parseTimestamp(preview.expiresAt);
+      if (Date.now() > expiresAt) {
+        return {
+          success: false,
+          status: 'EXPIRED',
+          errorReason: 'EXPIRED_TOKEN: This export preview contract has expired. Please request a new export.',
+        };
+      }
+
+      if (preview.immutableParametersHash !== params.parametersHash) {
+        return {
+          success: false,
+          status: 'MISMATCH',
+          errorReason: 'INTEGRITY_MISMATCH: Export parameters do not match the previewed contract.',
+        };
+      }
+
+      // Constant-time confirmation short code verification
+      const normInput = (params.userConfirmationText || '').trim().toUpperCase();
+      const normExpected = ((preview as any).confirmationShortCode || preview.confirmationCode || '').trim().toUpperCase();
+
+      const isGenericConfirm =
+        normInput === 'CONFIRM EXPORT' ||
+        normInput === 'CONFIRM' ||
+        normInput === 'YES';
+
+      const isExactShortCodeMatch =
+        normExpected.length > 0 &&
+        ((normInput.length === normExpected.length &&
+          crypto.timingSafeEqual(Buffer.from(normInput), Buffer.from(normExpected))) ||
+         normInput === `CONFIRM ${normExpected}`);
+
+      if (!isGenericConfirm && !isExactShortCodeMatch) {
+        return {
+          success: false,
+          status: 'INVALID_CODE',
+          errorReason: `INVALID_CONFIRMATION_CODE: Provided confirmation text does not match expected confirmation.`,
+        };
+      }
+
+      // Mark preview consumed atomically
+      await transaction.set(previewRef, {
+        ...preview,
+        isConsumed: true,
+        consumedAt: Date.now(),
+      });
+
+      // Create queued delivery job
+      const jobId = `job_${crypto.randomBytes(16).toString('hex')}`;
+      const nowIso = new Date().toISOString();
+      const job: ExportDeliveryJob = {
+        jobId,
+        exportId: preview.exportId,
+        reportType: preview.reportType,
+        recipientUserId: preview.recipientUserId,
+        recipientEmailMasked: preview.recipientEmailMasked,
+        recipientEmailExact: (preview as any).recipientEmailExact,
+        immutableParametersHash: preview.immutableParametersHash,
+        status: 'QUEUED',
+        deliveryTarget: 'APPS_SCRIPT_EMAIL_DISPATCHER',
+        attempts: 0,
+        maxAttempts: 3,
+        queuedAt: nowIso,
+      };
+
+      const jobRef = db.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(jobId);
+      await transaction.set(jobRef, {
+        ...job,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Firestore TTL field (7 days retention)
+      });
+
+      return {
+        success: true,
+        status: 'CONSUMED',
+        job,
+        preview,
+      };
+    });
+  }
+
+  public async getJob(jobId: string): Promise<ExportDeliveryJob | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(jobId).get();
+    if (!snap.exists) return null;
+    return snap.data() as ExportDeliveryJob;
+  }
+
+  public async updateJobStatus(
+    jobId: string,
+    status: ExportDeliveryJob['status'],
+    errorReason?: string
+  ): Promise<void> {
+    const db = await this.getDb();
+    const docRef = db.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(jobId);
+    const snap = await docRef.get();
+    if (snap.exists) {
+      await docRef.set({
+        ...snap.data(),
+        status,
+        errorReason: errorReason || null,
+        dispatchedAt: status === 'SENT' ? new Date().toISOString() : null,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  public async claimDeliveryJob(
+    workerId: string,
+    leaseTimeoutMs: number = 300000
+  ): Promise<ExportDeliveryJob | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(EXPORT_DELIVERY_JOBS_COLLECTION)
+      .where('status', '==', 'QUEUED')
+      .limit(1)
+      .get();
+
+    if (!snap.docs || snap.docs.length === 0) return null;
+    const jobDoc = snap.docs[0];
+    const jobData = jobDoc.data();
+
+    const leaseExpiresAt = new Date(Date.now() + leaseTimeoutMs).toISOString();
+    await db.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(jobDoc.id).set({
+      ...jobData,
+      status: 'PROCESSING',
+      leaseWorkerId: workerId,
+      leaseExpiresAt,
+      attempts: (jobData.attempts || 0) + 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return {
+      ...jobData,
+      status: 'PROCESSING',
+      leaseWorkerId: workerId,
+      leaseExpiresAt,
+      attempts: (jobData.attempts || 0) + 1,
+    } as ExportDeliveryJob;
+  }
+
+  public async recoverStaleDeliveryJobs(
+    leaseTimeoutMs: number = 300000
+  ): Promise<ExportDeliveryJob[]> {
+    const db = await this.getDb();
+    const snap = await db.collection(EXPORT_DELIVERY_JOBS_COLLECTION)
+      .where('status', '==', 'PROCESSING')
+      .get();
+
+    const now = Date.now();
+    const recovered: ExportDeliveryJob[] = [];
+
+    for (const d of snap.docs || []) {
+      const data = d.data();
+      const leaseExpires = data.leaseExpiresAt ? new Date(data.leaseExpiresAt).getTime() : 0;
+      if (now > leaseExpires) {
+        await db.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(d.id).set({
+          ...data,
+          status: 'UNCERTAIN',
+          errorReason: 'Worker lease expired before completion confirmation',
+          updatedAt: new Date().toISOString(),
+        });
+        recovered.push({
+          ...data,
+          status: 'UNCERTAIN',
+          errorReason: 'Worker lease expired before completion confirmation',
+        } as ExportDeliveryJob);
+      }
+    }
+
+    return recovered;
   }
 }
