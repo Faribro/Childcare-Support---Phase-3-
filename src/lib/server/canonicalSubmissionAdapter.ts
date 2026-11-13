@@ -681,12 +681,20 @@ export function validateUpstreamEndpoint(
 
 class CanonicalSubmissionAdapterService {
   private supabaseAdapterInstance: any = null;
+  private firestoreAdapterInstance: any = null;
 
-  public getStorageEngine(): 'sheets' | 'supabase' {
-    if (process.env.STORAGE_ENGINE === 'supabase') {
+  public getDataEngine(): 'sheets' | 'supabase' | 'firestore' {
+    if (process.env.DATA_ENGINE === 'firestore') {
+      return 'firestore';
+    }
+    if (process.env.DATA_ENGINE === 'supabase' || process.env.STORAGE_ENGINE === 'supabase') {
       return 'supabase';
     }
     return 'sheets';
+  }
+
+  public getStorageEngine(): 'sheets' | 'supabase' | 'firestore' {
+    return this.getDataEngine();
   }
 
   public setSupabaseAdapter(adapter: any): void {
@@ -699,6 +707,46 @@ class CanonicalSubmissionAdapterService {
       this.supabaseAdapterInstance = new SupabaseSubmissionAdapter();
     }
     return this.supabaseAdapterInstance;
+  }
+
+  public setFirestoreAdapter(adapter: any): void {
+    this.firestoreAdapterInstance = adapter;
+  }
+
+  public async getFirestoreAdapter(): Promise<any> {
+    if (!this.firestoreAdapterInstance) {
+      const { FirestoreSubmissionAdapter } = await import('./firestoreSubmissionAdapter');
+      const appsScriptUrl = this.getAppsScriptUrl();
+      const webhookSecret = this.getWebhookSecret();
+      let gatewayClient: any = undefined;
+      if (this.isConfigured() && appsScriptUrl) {
+        gatewayClient = {
+          callGateway: async (payload: Record<string, any>) => {
+            const res = await fetch(appsScriptUrl, {
+              method: 'POST',
+              cache: 'no-store',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(webhookSecret ? { 'X-Webhook-Secret': webhookSecret } : {}),
+              },
+              body: JSON.stringify({ ...payload, secret: webhookSecret }),
+            });
+            const gasData = await res.json().catch(() => ({}));
+            return {
+              status: gasData.status || (res.ok ? 'success' : 'error'),
+              statusCode: res.status,
+              resolvedRow: gasData.resolvedRow || gasData.rowNumber,
+              currentVersion: gasData.currentVersion,
+              message: gasData.message,
+            };
+          },
+        };
+      }
+      this.firestoreAdapterInstance = new FirestoreSubmissionAdapter({
+        gatewayClient,
+      });
+    }
+    return this.firestoreAdapterInstance;
   }
 
   public triggerBestEffortMirrorDrain(): void {
@@ -872,6 +920,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL CREATE
    */
   async createSubmission(input: CanonicalCreateInput): Promise<CanonicalSubmissionResult> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      return await adapter.createSubmission(input);
+    }
+
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       const createRes = await adapter.createSubmission(input);
@@ -972,6 +1025,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL UPDATE (OCC)
    */
   async updateSubmission(input: CanonicalUpdateInput): Promise<CanonicalSubmissionResult> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      return await adapter.updateSubmission(input);
+    }
+
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       const updateRes = await adapter.updateSubmission(input);
@@ -1113,6 +1171,29 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL GET (READ)
    */
   async getSubmission(submissionId: string, role: UserRole = 'caseworker'): Promise<CanonicalSubmissionResult> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      const raw = await adapter.getSubmission(submissionId, role);
+      if (!raw) {
+        return {
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${submissionId} not found in Firestore.`,
+        };
+      }
+      return {
+        status: 'success',
+        statusCode: 200,
+        data: raw.payload || raw,
+        remoteSubmissionId: raw.id,
+        uniqueId: raw.uniqueId || raw.id,
+        version: raw.version || 1,
+        revisionNumber: raw.revisionNumber || 1,
+        submissionStatus: raw.status || 'SUBMITTED',
+      };
+    }
+
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       const res = await adapter.getSubmission(submissionId, role);
@@ -1211,6 +1292,21 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL LIST
    */
   async listSubmissions(params: CanonicalListParams): Promise<CanonicalSubmissionResult> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      const res = await adapter.listSubmissions(params);
+      return {
+        status: 'success',
+        statusCode: 200,
+        data: res.items,
+        pagination: {
+          totalCount: res.totalCount,
+          hasMore: res.hasMore,
+          nextCursor: res.nextCursor,
+        },
+      };
+    }
+
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       return await adapter.listSubmissions(params);
@@ -1355,6 +1451,11 @@ class CanonicalSubmissionAdapterService {
     expectedCurrentCellStateHash?: string;
     requestId: string;
   }): Promise<CanonicalSubmissionResult> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      return await adapter.updateAsset(input);
+    }
+
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       if (typeof adapter.updateAsset === 'function') {
@@ -1509,6 +1610,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL ASSET REPLACEMENT (TWO-PHASE COMMIT WITH OCC)
    */
   async replaceAsset(input: CanonicalReplaceAssetInput): Promise<CanonicalSubmissionResult> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      return await adapter.updateAsset(input);
+    }
+
     const configCheck = this.checkConfiguration('write');
     if (!configCheck.valid && configCheck.errorResponse) {
       return configCheck.errorResponse;
@@ -1688,6 +1794,11 @@ class CanonicalSubmissionAdapterService {
    * CANONICAL DELETE
    */
   async deleteSubmission(submissionId: string): Promise<{ success: boolean; message: string; statusCode: number }> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      return await adapter.deleteSubmission(submissionId);
+    }
+
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       if (typeof adapter.deleteSubmission === 'function') {
