@@ -241,7 +241,7 @@ describe('Unified Session Cookie Engine & Firebase Hosting Compatibility', () =>
       expect(extractDeviceBindingSecret(req)).toBe('device-from-unified');
     });
 
-    it('clearing one session field retains other active tokens in __session', () => {
+    it('clearing leader session retains evaluation session token in __session', () => {
       const now = Date.now();
       const signed = signUnifiedSession({
         evalToken: 'eval-token-retained',
@@ -267,6 +267,81 @@ describe('Unified Session Cookie Engine & Firebase Hosting Compatibility', () =>
       expect(verified?.leaderSessionId).toBeUndefined();
       expect(verified?.evalToken).toBe('eval-token-retained');
       expect(verified?.leaderDeviceSecret).toBe('device-retained');
+    });
+
+    it('clearing evaluation session retains leader session token and device secret in __session', () => {
+      const now = Date.now();
+      const signed = signUnifiedSession({
+        evalToken: 'eval-token-to-clear',
+        leaderSessionId: 'leader-session-retained',
+        leaderDeviceSecret: 'device-secret-retained',
+        iat: now,
+        exp: now + 3600 * 1000,
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/auth/logout', {
+        headers: {
+          cookie: `${UNIFIED_SESSION_COOKIE_NAME}=${signed}`,
+        },
+      });
+
+      const res = NextResponse.json({ ok: true });
+      clearSessionCookie(res, req);
+
+      const updatedCookie = res.cookies.get(UNIFIED_SESSION_COOKIE_NAME)?.value;
+      expect(updatedCookie).toBeDefined();
+
+      const verified = verifyUnifiedSession(updatedCookie);
+      expect(verified?.evalToken).toBeUndefined();
+      expect(verified?.leaderSessionId).toBe('leader-session-retained');
+      expect(verified?.leaderDeviceSecret).toBe('device-secret-retained');
+    });
+
+    it('ensures worst-case unified __session cookie size is well below 4096-byte browser limit', () => {
+      // Simulate worst-case scenario: large evaluation JWT (with all states and districts),
+      // full leader session UUID, 64-byte device secret, OAuth state, onboarding ticket
+      const largeEvalJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+        Buffer.from(JSON.stringify({
+          userId: 'usr_state_evaluator_andhra_pradesh_super_admin_99999',
+          username: 'evaluation_super_lead_andhra_pradesh_telangana_delhi',
+          name: 'Principal State Monitoring and Quality Assurance Director',
+          role: 'ADMIN',
+          allowedStates: ['Andhra Pradesh', 'Telangana', 'Maharashtra', 'Karnataka', 'Tamil Nadu', 'Delhi'],
+          allowedDistricts: ['Visakhapatnam', 'Krishna', 'Guntur', 'Hyderabad', 'Rangareddy', 'Mumbai Suburban', 'Pune', 'Bangalore Urban'],
+          allowedProgrammes: ['CSC_COMMUNITY', 'CSC_INSTITUTIONAL', 'CSC_OUTREACH', 'CSC_NUTRITION_MONITORING'],
+          credentialVersion: 42,
+          credentialKind: 'STATE_EVALUATION',
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 28800000,
+        })).toString('base64url') +
+        '.dGVzdC1zaWduYXR1cmUtd2l0aC1oaWdoLWVudHJvcHktbW9jay1qd3Qtc2lnbmF0dXJl';
+
+      const worstCasePayload = {
+        evalToken: largeEvalJwt,
+        leaderSessionId: 'sess-leader-e2e-4b9e-b83c-94819e9bf928-extended-session-id',
+        leaderDeviceSecret: 'f8c7b6a5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7',
+        oauthState: 'oauth_state_nonce_random_string_with_csrf_protection_token_value_xyz123',
+        onboardingTicket: 'onboard_ticket_secure_token_hash_value_with_metadata_state_andhra_pradesh_role_supervisor',
+        iat: Date.now(),
+        exp: Date.now() + 28800000,
+      };
+
+      const signed = signUnifiedSession(worstCasePayload);
+      const byteLength = Buffer.byteLength(signed, 'utf-8');
+
+      // Assert size limit strictly meets HTTP cookie specifications (RFC 6265 max is 4096 bytes)
+      expect(byteLength).toBeLessThan(4096);
+      // Realistic upper bound should be around ~1.2KB - ~1.8KB, far below 4KB
+      expect(byteLength).toBeLessThan(2048);
+
+      // Verify complete integrity and loss-less round-trip
+      const verified = verifyUnifiedSession(signed);
+      expect(verified).not.toBeNull();
+      expect(verified?.evalToken).toBe(largeEvalJwt);
+      expect(verified?.leaderSessionId).toBe(worstCasePayload.leaderSessionId);
+      expect(verified?.leaderDeviceSecret).toBe(worstCasePayload.leaderDeviceSecret);
+      expect(verified?.oauthState).toBe(worstCasePayload.oauthState);
+      expect(verified?.onboardingTicket).toBe(worstCasePayload.onboardingTicket);
     });
 
     it('deletes __session completely when the last active session field is cleared', () => {
