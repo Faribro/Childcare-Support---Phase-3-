@@ -14,6 +14,8 @@
 
 import crypto from 'crypto';
 import { findLeaderById, findLeaderByEmail, getPublicDirectoryLeaders, type LeaderIdentity, type PublicDirectoryLeader } from './leaderIdentityStore';
+import { validateFirestoreDatabaseEnvironment } from './firestoreSubmissionAdapter';
+import { getFirestoreDb, sanitizeIpForDocId } from './credentialRegistry';
 
 export const LEADER_COOKIE_NAME = 'leader_session_id';
 export const LEADER_DEVICE_COOKIE_NAME = 'leader_device_binding';
@@ -23,6 +25,11 @@ export const CHALLENGE_TTL_MS = 10 * 60 * 1000;             // 10 minutes
 export const MAX_VERIFY_ATTEMPTS = 5;
 export const MAX_REQUESTS_15M = 3;
 export const MAX_REQUESTS_24H = 10;
+
+export const LEADER_OTP_CHALLENGES_COLLECTION = 'leader_otp_challenges';
+export const LEADERSHIP_SESSIONS_COLLECTION = 'leadership_sessions';
+export const LEADER_IDENTITIES_COLLECTION = 'leader_identities';
+export const AUTH_ATTEMPTS_COLLECTION = 'auth_attempts';
 
 export interface LeaderAuthChallengeRecord {
   challengeId: string;
@@ -928,6 +935,533 @@ export class SupabaseLeaderAuthStore implements LeaderAuthStore {
 }
 
 // ---------------------------------------------------------------------------
+// Firestore Distributed Leadership Auth Adapter (Task 2b / Phase B)
+// ---------------------------------------------------------------------------
+
+function parseTimestamp(val: any): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (val instanceof Date) return val.getTime();
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.toDate === 'function') return val.toDate().getTime();
+  if (typeof val === 'string') return new Date(val).getTime();
+  return 0;
+}
+
+export class FirestoreLeaderAuthStore implements LeaderAuthStore {
+  private customDb?: any;
+
+  constructor(customDb?: any) {
+    this.customDb = customDb;
+  }
+
+  private async getDb() {
+    const appEnv = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development';
+    const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+    validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+    const isProductionOrStaging =
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production' ||
+      process.env.APP_ENV === 'production' ||
+      (process.env.NODE_ENV as string) === 'staging' ||
+      process.env.APP_ENV === 'staging';
+
+    try {
+      return await getFirestoreDb(this.customDb);
+    } catch (err: any) {
+      if (isProductionOrStaging) {
+        throw new Error(`[LEADER_AUTH_STORE_UNAVAILABLE] Cloud Firestore unreachable in ${appEnv}: ${err?.message || err}`);
+      }
+      throw err;
+    }
+  }
+
+  async checkAndRecordRateLimit(key: string, now: number): Promise<RateLimitCheckResult> {
+    const db = await this.getDb();
+    const docId = `leader_rl_${sanitizeIpForDocId(key)}`;
+    const docRef = db.collection(AUTH_ATTEMPTS_COLLECTION).doc(docId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(docRef);
+      const data = snap.exists ? snap.data() : null;
+      const fifteenMinAgo = now - 15 * 60 * 1000;
+
+      const rawAttempts = Array.isArray(data?.attempts) ? data.attempts : [];
+      const attempts = rawAttempts.filter((t: number) => typeof t === 'number' && t > fifteenMinAgo);
+
+      if (attempts.length >= MAX_REQUESTS_15M) {
+        const oldest = attempts[0];
+        const retryAfterSeconds = Math.max(1, Math.ceil((oldest + 15 * 60 * 1000 - now) / 1000));
+        return {
+          allowed: false,
+          reason: 'Too many verification code requests in a short time. Please wait 15 minutes before requesting a new code.',
+          retryAfterSeconds,
+        };
+      }
+
+      attempts.push(now);
+      await transaction.set(docRef, {
+        key,
+        attempts,
+        expiresAt: new Date(now + 15 * 60 * 1000), // Firestore TTL field
+        updatedAt: new Date(now),
+      });
+
+      return { allowed: true };
+    });
+  }
+
+  async createChallenge(challenge: LeaderAuthChallengeRecord): Promise<void> {
+    const db = await this.getDb();
+    await this.supersedePriorChallenges(challenge.email, challenge.leaderId);
+
+    const docRef = db.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(challenge.challengeId);
+    await docRef.set({
+      challengeId: challenge.challengeId,
+      leaderId: challenge.leaderId,
+      email: challenge.email.toLowerCase().trim(),
+      codeHash: challenge.codeHash,
+      deviceBindingHash: challenge.deviceBindingHash,
+      userAgentHash: challenge.userAgentHash,
+      ip: challenge.ip,
+      createdAt: challenge.createdAt,
+      expiresAt: new Date(challenge.expiresAt), // Firestore TTL field
+      expiresAtMs: challenge.expiresAt,
+      failedAttempts: challenge.failedAttempts || 0,
+      isUsed: false,
+      isLocked: false,
+    });
+  }
+
+  async supersedePriorChallenges(email: string, leaderId: string): Promise<void> {
+    const db = await this.getDb();
+    const norm = email.toLowerCase().trim();
+
+    const [emailSnaps, leaderSnaps] = await Promise.all([
+      db.collection(LEADER_OTP_CHALLENGES_COLLECTION)
+        .where('email', '==', norm)
+        .get(),
+      leaderId
+        ? db.collection(LEADER_OTP_CHALLENGES_COLLECTION)
+            .where('leaderId', '==', leaderId)
+            .get()
+        : Promise.resolve({ docs: [] }),
+    ]);
+
+    const docsToUpdate = new Map<string, any>();
+    for (const d of emailSnaps.docs || []) {
+      const data = d.data();
+      if (!data.isUsed) docsToUpdate.set(d.id, d);
+    }
+    for (const d of leaderSnaps.docs || []) {
+      const data = d.data();
+      if (!data.isUsed) docsToUpdate.set(d.id, d);
+    }
+
+    await Promise.all(
+      Array.from(docsToUpdate.values()).map((d) =>
+        db.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(d.id).set({
+          ...d.data(),
+          isUsed: true,
+        })
+      )
+    );
+  }
+
+  async getPendingChallenge(email: string): Promise<LeaderAuthChallengeRecord | null> {
+    const db = await this.getDb();
+    const norm = email.toLowerCase().trim();
+
+    const snap = await db.collection(LEADER_OTP_CHALLENGES_COLLECTION)
+      .where('email', '==', norm)
+      .get();
+
+    const matching = (snap.docs || [])
+      .map((d: any) => d.data())
+      .filter((d: any) => !d.isUsed && !d.isLocked && Date.now() <= parseTimestamp(d.expiresAt))
+      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    if (matching.length === 0) return null;
+    const r = matching[0];
+    return {
+      challengeId: r.challengeId,
+      leaderId: r.leaderId,
+      email: r.email,
+      codeHash: r.codeHash,
+      deviceBindingHash: r.deviceBindingHash,
+      userAgentHash: r.userAgentHash,
+      ip: r.ip,
+      createdAt: r.createdAt,
+      expiresAt: parseTimestamp(r.expiresAt),
+      failedAttempts: r.failedAttempts || 0,
+      isUsed: Boolean(r.isUsed),
+      isLocked: Boolean(r.isLocked),
+    };
+  }
+
+  async getPendingChallengeById(challengeId: string): Promise<LeaderAuthChallengeRecord | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(challengeId).get();
+    if (!snap.exists) return null;
+
+    const r = snap.data();
+    if (r.isUsed || r.isLocked || Date.now() > parseTimestamp(r.expiresAt)) {
+      return null;
+    }
+
+    return {
+      challengeId: r.challengeId,
+      leaderId: r.leaderId,
+      email: r.email,
+      codeHash: r.codeHash,
+      deviceBindingHash: r.deviceBindingHash,
+      userAgentHash: r.userAgentHash,
+      ip: r.ip,
+      createdAt: r.createdAt,
+      expiresAt: parseTimestamp(r.expiresAt),
+      failedAttempts: r.failedAttempts || 0,
+      isUsed: Boolean(r.isUsed),
+      isLocked: Boolean(r.isLocked),
+    };
+  }
+
+  async incrementFailedAttempt(
+    challengeId: string,
+    maxAttempts: number
+  ): Promise<{ failedAttempts: number; isLocked: boolean }> {
+    const db = await this.getDb();
+    const docRef = db.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(challengeId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(docRef);
+      if (!snap.exists) return { failedAttempts: 0, isLocked: true };
+
+      const data = snap.data();
+      const failedAttempts = (data.failedAttempts || 0) + 1;
+      const isLocked = failedAttempts >= maxAttempts;
+
+      await transaction.set(docRef, {
+        ...data,
+        failedAttempts,
+        isLocked,
+      });
+
+      return { failedAttempts, isLocked };
+    });
+  }
+
+  async invalidateChallenge(challengeId: string): Promise<void> {
+    const db = await this.getDb();
+    const docRef = db.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(challengeId);
+    const snap = await docRef.get();
+    if (snap.exists) {
+      await docRef.set({
+        ...snap.data(),
+        isUsed: true,
+      });
+    }
+  }
+
+  async consumeChallengeAndCreateSession(params: {
+    challengeId: string;
+    submittedCodeHash: string;
+    deviceBindingHash: string;
+    leader: LeaderIdentity;
+    now: number;
+    absoluteLifetimeMs: number;
+  }): Promise<{
+    success: boolean;
+    session?: LeaderSessionRecord;
+    error?: string;
+    statusCode: number;
+  }> {
+    const db = await this.getDb();
+    const challengeRef = db.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(params.challengeId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(challengeRef);
+      if (!snap.exists) {
+        return {
+          success: false,
+          error: 'No active verification code found or code already consumed. Please request a new code.',
+          statusCode: 401,
+        };
+      }
+
+      const challenge = snap.data();
+      if (challenge.isUsed) {
+        return {
+          success: false,
+          error: 'No active verification code found or code already consumed. Please request a new code.',
+          statusCode: 401,
+        };
+      }
+
+      if (challenge.isLocked || challenge.failedAttempts >= MAX_VERIFY_ATTEMPTS) {
+        await transaction.set(challengeRef, { ...challenge, isUsed: true });
+        return {
+          success: false,
+          error: 'This verification challenge has been locked due to excessive failed attempts. Please request a new code.',
+          statusCode: 429,
+        };
+      }
+
+      const expiry = parseTimestamp(challenge.expiresAt);
+      if (params.now > expiry) {
+        await transaction.set(challengeRef, { ...challenge, isUsed: true });
+        return {
+          success: false,
+          error: 'This verification code has expired (10-minute limit). Please request a new code.',
+          statusCode: 401,
+        };
+      }
+
+      if (challenge.deviceBindingHash && challenge.deviceBindingHash !== params.deviceBindingHash) {
+        const failedAttempts = (challenge.failedAttempts || 0) + 1;
+        const isLocked = failedAttempts >= MAX_VERIFY_ATTEMPTS;
+        await transaction.set(challengeRef, { ...challenge, failedAttempts, isLocked });
+        return {
+          success: false,
+          error: 'Device binding mismatch. Verification must be completed in the same browser session.',
+          statusCode: 401,
+        };
+      }
+
+      // Constant-time hash verification
+      const expectedBuf = Buffer.from(challenge.codeHash);
+      const submittedBuf = Buffer.from(params.submittedCodeHash);
+      const isCodeValid =
+        expectedBuf.length === submittedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, submittedBuf);
+
+      if (!isCodeValid) {
+        const failedAttempts = (challenge.failedAttempts || 0) + 1;
+        const isLocked = failedAttempts >= MAX_VERIFY_ATTEMPTS;
+        const remaining = Math.max(0, MAX_VERIFY_ATTEMPTS - failedAttempts);
+        await transaction.set(challengeRef, { ...challenge, failedAttempts, isLocked });
+
+        if (isLocked) {
+          return {
+            success: false,
+            error: 'Too many incorrect attempts. This verification code has been locked. Please request a new code.',
+            statusCode: 429,
+          };
+        }
+
+        return {
+          success: false,
+          error: `Invalid verification code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`,
+          statusCode: 401,
+        };
+      }
+
+      // Mark challenge consumed
+      await transaction.set(challengeRef, { ...challenge, isUsed: true });
+
+      // Revoke any prior active session for this leader across all instances (Single Active Session)
+      const priorSessionsQuery = await db.collection(LEADERSHIP_SESSIONS_COLLECTION)
+        .where('leaderId', '==', params.leader.id)
+        .get();
+
+      for (const priorDoc of priorSessionsQuery.docs || []) {
+        const pData = priorDoc.data();
+        if (!pData.isRevoked) {
+          await db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(priorDoc.id).set({
+            ...pData,
+            isRevoked: true,
+            revokedAt: params.now,
+          });
+        }
+      }
+
+      // Issue new session
+      const sessionId = crypto.randomBytes(32).toString('hex');
+      const newSession: LeaderSessionRecord = {
+        sessionId,
+        leaderId: params.leader.id,
+        email: params.leader.email,
+        name: params.leader.name,
+        title: params.leader.title,
+        role: 'LEADERSHIP',
+        allowedStates: params.leader.allowedStates || ['*'],
+        allowedDistricts: params.leader.allowedDistricts || ['*'],
+        authVersion: params.leader.authVersion,
+        deviceBindingHash: params.deviceBindingHash,
+        createdAt: params.now,
+        lastActivityAt: params.now,
+        absoluteExpiresAt: params.now + params.absoluteLifetimeMs,
+        isRevoked: false,
+        revokedAt: null,
+      };
+
+      const sessionRef = db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(sessionId);
+      await transaction.set(sessionRef, {
+        ...newSession,
+        expiresAt: new Date(newSession.absoluteExpiresAt), // Firestore TTL field
+      });
+
+      return {
+        success: true,
+        session: newSession,
+        statusCode: 200,
+      };
+    });
+  }
+
+  async getSession(sessionId: string): Promise<LeaderSessionRecord | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(sessionId).get();
+    if (!snap.exists) return null;
+
+    const r = snap.data();
+    if (r.isRevoked) return null;
+
+    return {
+      sessionId: r.sessionId,
+      leaderId: r.leaderId,
+      email: r.email,
+      name: r.name,
+      title: r.title,
+      role: r.role,
+      allowedStates: r.allowedStates || ['*'],
+      allowedDistricts: r.allowedDistricts || ['*'],
+      authVersion: r.authVersion,
+      deviceBindingHash: r.deviceBindingHash,
+      createdAt: r.createdAt,
+      lastActivityAt: r.lastActivityAt,
+      absoluteExpiresAt: r.absoluteExpiresAt,
+      isRevoked: false,
+      revokedAt: null,
+    };
+  }
+
+  async updateSessionActivity(sessionId: string, now: number): Promise<void> {
+    const db = await this.getDb();
+    const docRef = db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(sessionId);
+    const snap = await docRef.get();
+    if (snap.exists && !snap.data().isRevoked) {
+      await docRef.set({
+        ...snap.data(),
+        lastActivityAt: now,
+      });
+    }
+  }
+
+  async revokeSession(sessionId: string): Promise<void> {
+    const db = await this.getDb();
+    const docRef = db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(sessionId);
+    const snap = await docRef.get();
+    if (snap.exists) {
+      await docRef.set({
+        ...snap.data(),
+        isRevoked: true,
+        revokedAt: Date.now(),
+      });
+    }
+  }
+
+  async revokeAllSessionsForLeader(leaderId: string): Promise<void> {
+    const db = await this.getDb();
+    const snap = await db.collection(LEADERSHIP_SESSIONS_COLLECTION)
+      .where('leaderId', '==', leaderId)
+      .get();
+
+    await Promise.all(
+      (snap.docs || []).map((doc: any) =>
+        db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(doc.id).set({
+          ...doc.data(),
+          isRevoked: true,
+          revokedAt: Date.now(),
+        })
+      )
+    );
+  }
+
+  async getLeaderIdentity(leaderId: string): Promise<LeaderIdentity | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(LEADER_IDENTITIES_COLLECTION).doc(leaderId).get();
+    if (snap.exists) {
+      const r = snap.data();
+      return {
+        id: r.id,
+        email: r.email,
+        name: r.name,
+        title: r.title,
+        role: 'LEADERSHIP',
+        allowedStates: r.allowedStates || ['*'],
+        allowedDistricts: r.allowedDistricts || ['*'],
+        isActive: Boolean(r.isActive),
+        authVersion: Number(r.authVersion || 1),
+      };
+    }
+    const fromStore = findLeaderById(leaderId);
+    return fromStore ? { ...fromStore } : null;
+  }
+
+  async getLeaderIdentityByEmail(email: string): Promise<LeaderIdentity | null> {
+    const db = await this.getDb();
+    const norm = email.toLowerCase().trim();
+    const snap = await db.collection(LEADER_IDENTITIES_COLLECTION)
+      .where('email', '==', norm)
+      .get();
+
+    if (snap.docs && snap.docs.length > 0) {
+      const r = snap.docs[0].data();
+      return {
+        id: r.id,
+        email: r.email,
+        name: r.name,
+        title: r.title,
+        role: 'LEADERSHIP',
+        allowedStates: r.allowedStates || ['*'],
+        allowedDistricts: r.allowedDistricts || ['*'],
+        isActive: Boolean(r.isActive),
+        authVersion: Number(r.authVersion || 1),
+      };
+    }
+    const fromStore = findLeaderByEmail(email);
+    return fromStore ? { ...fromStore } : null;
+  }
+
+  async listActiveLeaderIdentities(): Promise<LeaderIdentity[]> {
+    const db = await this.getDb();
+    const snap = await db.collection(LEADER_IDENTITIES_COLLECTION)
+      .where('isActive', '==', true)
+      .get();
+
+    if (snap.docs && snap.docs.length > 0) {
+      return snap.docs.map((d: any) => {
+        const r = d.data();
+        return {
+          id: r.id,
+          email: r.email,
+          name: r.name,
+          title: r.title,
+          role: 'LEADERSHIP' as const,
+          allowedStates: r.allowedStates || ['*'],
+          allowedDistricts: r.allowedDistricts || ['*'],
+          isActive: true,
+          authVersion: Number(r.authVersion || 1),
+        };
+      });
+    }
+
+    return getPublicDirectoryLeaders().map((l: PublicDirectoryLeader) => ({
+      id: l.id,
+      email: `${l.id}@example.org`,
+      name: l.name,
+      title: l.title,
+      role: 'LEADERSHIP' as const,
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+      isActive: true,
+      authVersion: 1,
+    }));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Store Singleton & Testing Hook
 // ---------------------------------------------------------------------------
 
@@ -948,6 +1482,12 @@ export function getLeaderAuthStore(): LeaderAuthStore {
   // Strict rejection of memory forcing in production/staging
   if (isProductionOrStaging && process.env.FORCE_MEMORY_STORE) {
     throw new Error('[LEADER_AUTH_STORE:FATAL] FORCE_MEMORY_STORE is strictly forbidden in production and staging environments.');
+  }
+
+  const dataEngine = (process.env.DATA_ENGINE || 'sheets').toLowerCase().trim();
+  if (dataEngine === 'firestore') {
+    activeStoreInstance = new FirestoreLeaderAuthStore();
+    return activeStoreInstance;
   }
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
