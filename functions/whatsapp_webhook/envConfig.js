@@ -31,12 +31,20 @@ function getAppEnvConfig() {
     }
     const supabaseServiceRoleKey = canonicalSbKey || aliasSbKey || undefined;
     // 3. Google Apps Script Webapp URL: Separate Intake and Email Dispatch services
-    // Intake URLs (Google Sheets intake submission pipeline)
-    const intakeUrls = [
-        process.env.APPS_SCRIPT_URL,
-        process.env.APPS_SCRIPT_WEBHOOK_URL,
-        process.env.STAGING_APPS_SCRIPT_URL,
-    ]
+    // Intake URLs (Google Sheets intake submission pipeline).
+    // When Preview/Staging explicitly sets APP_ENV=staging + STAGING_APPS_SCRIPT_URL,
+    // allow STAGING_APPS_SCRIPT_URL to override an inherited APPS_SCRIPT_URL outside production.
+    const explicitAppEnv = (process.env.APP_ENV || '').toLowerCase().trim();
+    const stagingOverrideUrl = explicitAppEnv === 'staging' && process.env.VERCEL_ENV !== 'production'
+        ? (process.env.STAGING_APPS_SCRIPT_URL || '').trim()
+        : '';
+    const intakeUrls = (stagingOverrideUrl
+        ? [stagingOverrideUrl]
+        : [
+            process.env.APPS_SCRIPT_URL,
+            process.env.APPS_SCRIPT_WEBHOOK_URL,
+            process.env.STAGING_APPS_SCRIPT_URL,
+        ])
         .map((u) => (u || '').trim())
         .filter(Boolean);
     const distinctIntakeUrls = Array.from(new Set(intakeUrls));

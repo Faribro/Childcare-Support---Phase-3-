@@ -18,6 +18,7 @@ import {
   resetFirestoreDb,
   getAuthAttemptCredDocId,
   getAuthAttemptIpDocId,
+  sanitizeIpForDocId,
   EVALUATION_CREDENTIALS_COLLECTION,
   AUTH_ATTEMPTS_COLLECTION,
   EvaluationCredential,
@@ -312,6 +313,26 @@ describe('Firestore Evaluation Credential Registry & Multi-Instance Lockouts (Ta
       // Global IP doc remains tracked
       const ipDoc = await mockDb.collection(AUTH_ATTEMPTS_COLLECTION).doc(getAuthAttemptIpDocId(ip)).get();
       expect(ipDoc.exists).toBe(true);
+    });
+
+    it('sanitizes IPv4 and IPv6 addresses into valid Firestore document IDs and confirms baseline thresholds', async () => {
+      expect(sanitizeIpForDocId('192.168.1.1')).toBe('192_168_1_1');
+      expect(sanitizeIpForDocId('::1')).toBe('1');
+      expect(sanitizeIpForDocId('2001:0db8:85a3:0000:0000:8a2e:0370:7334')).toBe('2001_0db8_85a3_0000_0000_8a2e_0370_7334');
+      expect(sanitizeIpForDocId('[fe80::1ff:fe23:4567:890a%eth0]:8080')).toBe('fe80__1ff_fe23_4567_890a_eth0__8080');
+      expect(sanitizeIpForDocId('')).toBe('unknown');
+
+      // Verify generated doc IDs contain no invalid Firestore characters (such as colons or slashes)
+      const ipv6 = '2001:db8::1';
+      const credDocId = getAuthAttemptCredDocId('STATE-TN', ipv6);
+      expect(credDocId).not.toContain(':');
+      expect(credDocId).not.toContain('/');
+      expect(credDocId).toBe('cred_STATE-TN_2001_db8__1');
+
+      const ipDocId = getAuthAttemptIpDocId(ipv6);
+      expect(ipDocId).not.toContain(':');
+      expect(ipDocId).not.toContain('/');
+      expect(ipDocId).toBe('ip_2001_db8__1');
     });
   });
 

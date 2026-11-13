@@ -203,12 +203,22 @@ function sanitizeDocKey(s: string): string {
   return s.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
 }
 
+export function sanitizeIpForDocId(ip: string): string {
+  if (!ip || typeof ip !== 'string') return 'unknown';
+  const cleaned = ip
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || 'unknown';
+}
+
 export function getAuthAttemptCredDocId(identifier: string, ip: string): string {
-  return `cred_${sanitizeDocKey(identifier)}_${sanitizeDocKey(ip)}`;
+  return `cred_${sanitizeDocKey(identifier)}_${sanitizeIpForDocId(ip)}`;
 }
 
 export function getAuthAttemptIpDocId(ip: string): string {
-  return `ip_${sanitizeDocKey(ip)}`;
+  return `ip_${sanitizeIpForDocId(ip)}`;
 }
 
 /**
