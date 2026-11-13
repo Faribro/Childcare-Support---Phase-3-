@@ -186,7 +186,14 @@ export class AppsScriptAuthorizedDataAdapter implements AuthorizedReportingDataA
 
   constructor(upstreamUrl?: string, apiKey?: string) {
     this.fallbackAdapter = new SyntheticAuthorizedDataAdapter();
-    this.upstreamUrl = upstreamUrl || process.env.APPS_SCRIPT_URL;
+    const isStagingOverride =
+      (process.env.APP_ENV || '').toLowerCase().trim() === 'staging' &&
+      process.env.VERCEL_ENV !== 'production' &&
+      Boolean((process.env.STAGING_APPS_SCRIPT_URL || '').trim());
+    this.upstreamUrl =
+      upstreamUrl ||
+      (isStagingOverride ? process.env.STAGING_APPS_SCRIPT_URL!.trim() : undefined) ||
+      process.env.APPS_SCRIPT_URL;
     this.apiKey = apiKey || process.env.APPS_SCRIPT_SECRET;
   }
 

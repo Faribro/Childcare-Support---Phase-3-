@@ -265,7 +265,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
     gender: 'Male' as Gender,
     orphanStatus: 'Both parents alive' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: 'Mother' as CaregiverRelationship,
+    caregiverRelationship: '' as CaregiverRelationship | '',
     contactNumber: '',
     noPhoneAvailable: false,
     alternateContactNumber: '',
@@ -736,7 +736,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           gender: (d.gender || foundRecord['12\nGender'] || 'Male') as Gender,
           orphanStatus: (d.orphanStatus || foundRecord['13\nOrphan Status'] || 'Both parents alive') as OrphanStatus,
           caregiverName: d.caregiverName || foundRecord['14\nCaregiver Full Name'] || foundRecord.caregiver_name || '',
-          caregiverRelationship: (d.caregiverRelationship || foundRecord['15\nCaregiver Relation'] || foundRecord.caregiver_relationship || 'Mother') as CaregiverRelationship,
+          caregiverRelationship: (d.caregiverRelationship || foundRecord['15\nCaregiver Relation'] || foundRecord.caregiver_relationship || '') as CaregiverRelationship | '',
           contactNumber: d.contactNumber || d.caregiverPhone || foundRecord['16\nCaregiver Contact'] || foundRecord.caregiver_phone || '',
           noPhoneAvailable: Boolean(d.noPhoneAvailable),
           alternateContactNumber: d.alternateContactNumber || '',
@@ -897,7 +897,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                             consentProvided: true,
                             consentVersion: 'v1.0-2026',
                             caregiverName: d.caregiverName || 'Caregiver',
-                            caregiverRelationship: d.caregiverRelationship || 'Mother',
+                            caregiverRelationship: d.caregiverRelationship || '',
                             consentCapturedAt: new Date().toISOString(),
                             signatureRequired: true,
                             signatureStatus: 'CAPTURED_LOCAL',
@@ -1350,7 +1350,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                 consentProvided: true,
                 consentVersion: prevCC.consentVersion || 'v1.0-2026',
                 caregiverName: formData.caregiverName || prevCC.caregiverName || queuePayload.demographics?.caregiverName || 'Caregiver',
-                caregiverRelationship: formData.caregiverRelationship || prevCC.caregiverRelationship || queuePayload.demographics?.caregiverRelationship || 'Mother',
+                caregiverRelationship: formData.caregiverRelationship || prevCC.caregiverRelationship || queuePayload.demographics?.caregiverRelationship || '',
                 consentCapturedAt: prevCC.consentCapturedAt || prevC.signatureTimestamp || baseRecord.createdAt || new Date().toISOString(),
                 signatureRequired: prevCC.signatureRequired ?? true,
                 signatureStatus: effectiveSigUrl || hasSavedSignature ? 'CAPTURED_LOCAL' : (prevCC.signatureStatus || 'PENDING'),
@@ -1794,7 +1794,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                     id="caregiver-relationship"
                     value={formData.caregiverRelationship}
                     onChange={(e) => {
-                      const val = e.target.value as CaregiverRelationship;
+                      const val = e.target.value as CaregiverRelationship | '';
                       setFormData({ ...formData, caregiverRelationship: val });
                       if (val) {
                         clearFieldError('caregiver-relationship', 'caregiverRelationship');
@@ -1804,6 +1804,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                     aria-describedby={errorsByField['caregiver-relationship'] ? 'caregiver-relationship-error' : undefined}
                     className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   >
+                    <option value="">Select relationship...</option>
                     {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
                       <option key={rel} value={rel}>
                         {rel}
@@ -1850,7 +1851,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                     fallbackUuid={fallbackSigUuid || submissionId}
                     initialSignatureUrl={existingSignatureUrl}
                     caregiverName={formData.caregiverName}
-                    caregiverRelationship={formData.caregiverRelationship || 'Caregiver'}
+                    caregiverRelationship={formData.caregiverRelationship || ''}
                     onSignatureChange={(dataUrl) => {
                       setExistingSignatureUrl(dataUrl);
                       setHasSavedSignature(!!dataUrl);

@@ -65,6 +65,7 @@ export async function GET(req: NextRequest) {
         'local',
       adapterMode,
       appEnvironmentMarker:
+        process.env.APP_ENV ||
         process.env.NEXT_PUBLIC_APP_ENV ||
         process.env.NODE_ENV ||
         'development',

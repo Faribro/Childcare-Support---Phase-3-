@@ -190,7 +190,7 @@ export default function NewSinglePageAssessment() {
     gender: '' as Gender,
     orphanStatus: '' as OrphanStatus,
     caregiverName: '',
-    caregiverRelationship: 'Mother' as CaregiverRelationship,
+    caregiverRelationship: '' as CaregiverRelationship | '',
     contactNumber: '',
     noPhoneAvailable: false,
     alternateContactNumber: '',
@@ -550,7 +550,7 @@ export default function NewSinglePageAssessment() {
         consentProvided: formData.agreeToParticipate ?? false,
         consentVersion: 'v1.0-2026',
         caregiverName: formData.caregiverName || 'Caregiver',
-        caregiverRelationship: formData.caregiverRelationship || 'Mother',
+        caregiverRelationship: formData.caregiverRelationship || '',
         consentCapturedAt: new Date().toISOString(),
         signatureRequired: true,
         signatureStatus: hasSavedSignature ? 'CAPTURED_LOCAL' : 'PENDING',
@@ -1142,9 +1142,11 @@ export default function NewSinglePageAssessment() {
                   id="caregiver-relationship"
                   value={formData.caregiverRelationship}
                   onChange={(e) => {
-                    const val = e.target.value as CaregiverRelationship;
+                    const val = e.target.value as CaregiverRelationship | '';
                     setFormData({ ...formData, caregiverRelationship: val });
-                    clearFieldError('caregiver-relationship', 'caregiverRelationship');
+                    if (val) {
+                      clearFieldError('caregiver-relationship', 'caregiverRelationship');
+                    }
                   }}
                   aria-invalid={!!errorsByField['caregiver-relationship']}
                   className={`w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border rounded-xl transition-all shadow-2xs focus:outline-none cursor-pointer ${
@@ -1153,6 +1155,7 @@ export default function NewSinglePageAssessment() {
                       : 'border-black hover:border-black focus:border-purple-600 focus:ring-2 focus:ring-purple-400/40 focus:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                   }`}
                 >
+                  <option value="">Select relationship...</option>
                   {['Mother', 'Father', 'Grandparent', 'Legal Guardian', 'Other'].map((rel) => (
                     <option key={rel} value={rel}>
                       {rel}
@@ -1207,7 +1210,7 @@ export default function NewSinglePageAssessment() {
                   <CaregiverSignaturePad
                     submissionUuid={clientUuid}
                     caregiverName={formData.caregiverName || 'Caregiver'}
-                    caregiverRelationship={formData.caregiverRelationship || 'Mother'}
+                    caregiverRelationship={formData.caregiverRelationship || ''}
                     onSignatureSaved={(blob) => {
                       setHasSavedSignature(!!blob);
                       if (blob) {

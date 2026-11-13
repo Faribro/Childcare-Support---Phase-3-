@@ -804,6 +804,11 @@ class CanonicalSubmissionAdapterService {
   }
 
   public getAppsScriptUrl(): string | undefined {
+    const env = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || '').toLowerCase().trim();
+    const stagingUrl = (process.env.STAGING_APPS_SCRIPT_URL || '').trim();
+    if (env === 'staging' && process.env.VERCEL_ENV !== 'production' && stagingUrl) {
+      return stagingUrl;
+    }
     return (
       process.env.APPS_SCRIPT_URL ||
       process.env.APPS_SCRIPT_WEBAPP_URL ||

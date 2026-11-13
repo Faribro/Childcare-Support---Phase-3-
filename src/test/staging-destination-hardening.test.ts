@@ -193,5 +193,19 @@ describe('Staging Destination Hardening & Endpoint Validation', () => {
       expect(configCheck.errorResponse?.code).toBe('QUERY_SECRET_PROHIBITED');
       expect(configCheck.errorResponse?.statusCode).toBe(503);
     });
+
+    it('prefers STAGING_APPS_SCRIPT_URL over inherited operational APPS_SCRIPT_URL in staging preview', () => {
+      (process.env as any).NODE_ENV = 'production';
+      process.env.APP_ENV = 'staging';
+      process.env.VERCEL_ENV = 'preview';
+      delete process.env.E2E_ALLOW_LOCAL_MOCK;
+      process.env.APPS_SCRIPT_URL = `https://script.google.com/macros/s/${OPERATIONAL_APPS_SCRIPT_DEPLOYMENT_IDS[0]}/exec`;
+      process.env.STAGING_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx_staging_isolated_deploy_12345/exec';
+      process.env.WEBHOOK_SECRET = 'valid-staging-secret';
+
+      expect(canonicalSubmissionAdapter.getAppsScriptUrl()).toBe(process.env.STAGING_APPS_SCRIPT_URL);
+      const configCheck = canonicalSubmissionAdapter.checkConfiguration('write');
+      expect(configCheck.valid).toBe(true);
+    });
   });
 });

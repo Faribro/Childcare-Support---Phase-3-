@@ -225,6 +225,7 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
       PropertiesService: {
         getScriptProperties: () => ({
           getProperty: (k: string) => scriptProperties[k] || null,
+          getProperties: () => ({ ...scriptProperties }),
           setProperty: (k: string, v: string) => { scriptProperties[k] = v; },
           deleteProperty: (k: string) => { delete scriptProperties[k]; }
         })
@@ -1176,5 +1177,52 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     expect(data3.isDuplicate).toBe(true);
     expect(data3.uniqueId).toBe('MH-PUN-777001-01');
     expect(mockSheetData.length).toBe(rowsAfterFirst);
+  });
+
+  it('Scenario 26: handleCreate_ prunes create idempotency keys older than 24h while keeping fresh keys', () => {
+    const staleTs = Date.now() - 25 * 60 * 60 * 1000;
+    const freshTs = Date.now() - 60 * 60 * 1000;
+    scriptProperties['create_idem_stale-key'] = JSON.stringify({
+      uniqueId: 'OLD-001',
+      remoteSubmissionId: 'OLD-001',
+      ts: staleTs,
+    });
+    scriptProperties['create_csid_stale-csid'] = JSON.stringify({
+      uniqueId: 'OLD-001',
+      remoteSubmissionId: 'OLD-001',
+      ts: staleTs,
+    });
+    scriptProperties['create_idem_fresh-key'] = JSON.stringify({
+      uniqueId: 'FRESH-001',
+      remoteSubmissionId: 'FRESH-001',
+      ts: freshTs,
+    });
+
+    const res = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'create',
+          secret: 'TEST_SECRET_KEY_888999',
+          idempotencyKey: 'idem-create-prune-trigger',
+          clientSubmissionId: 'csid-create-prune-trigger',
+          uniqueId: 'MH-PUN-888001-01',
+          demographics: {
+            childName: 'Prune Test',
+            state: 'Maharashtra',
+            district: 'Pune',
+          },
+        }),
+      },
+    });
+    const data = JSON.parse(res.getContent());
+    expect(data.status).toBe('success');
+
+    expect(scriptProperties['create_idem_stale-key']).toBeUndefined();
+    expect(scriptProperties['create_csid_stale-csid']).toBeUndefined();
+    expect(scriptProperties['create_idem_fresh-key']).toBeDefined();
+
+    const storedNew = JSON.parse(scriptProperties['create_idem_idem-create-prune-trigger']);
+    expect(storedNew.uniqueId).toBe('MH-PUN-888001-01');
+    expect(typeof storedNew.ts).toBe('number');
   });
 });
