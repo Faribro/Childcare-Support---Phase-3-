@@ -99,6 +99,33 @@ To prevent storage bloat from aborted client multipart uploads:
 }
 ```
 
+### Bucket CORS Configuration (`cors.json`):
+Direct browser PUT uploads to GCS V4 signed URLs require cross-origin resource sharing (CORS) configured on the bucket to permit HTTP `PUT` and `OPTIONS` preflight, allowing both `Content-Type` and the signed `x-goog-content-length-range` header:
+
+```json
+[
+  {
+    "origin": [
+      "https://childcare.allianceindia.org",
+      "https://csc-staging-*.a.run.app",
+      "http://localhost:3000"
+    ],
+    "method": ["PUT", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "x-goog-content-length-range",
+      "ETag"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+To apply CORS configuration to the staging bucket (Reference only — do not run):
+```bash
+gcloud storage buckets update gs://cs-p3-childcare-staging --cors-file=cors.json
+```
+
 ---
 
 ## 5. IAM Roles & Permissions (Reference Commands — Do Not Run)

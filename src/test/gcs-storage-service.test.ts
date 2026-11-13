@@ -5,6 +5,7 @@ import {
   getStorageService,
   validateAttachmentMime,
   validateAttachmentExtension,
+  uploadToGcsSignedUrl,
   MAX_ATTACHMENT_BYTES,
 } from '@/lib/server/gcsStorageService';
 import crypto from 'crypto';
@@ -100,8 +101,8 @@ describe('Google Cloud Storage Adapter (Task 3)', () => {
     });
   });
 
-  describe('4. Keyless Signed Upload URL Generation', () => {
-    it('should generate valid v4 signed upload URL with 15-minute expiry', async () => {
+  describe('4. Keyless Signed Upload URL Generation & Content-Length Range', () => {
+    it('should generate valid v4 signed upload URL with 15-minute expiry and signed content-length-range header', async () => {
       const service = new GcsStorageService({
         bucketName: 'cs-p3-childcare-staging',
         clientEmail: 'csc-runtime@cs-p3-production.iam.gserviceaccount.com',
@@ -121,6 +122,56 @@ describe('Google Cloud Storage Adapter (Task 3)', () => {
       expect(res.url).toContain('https://storage.googleapis.com/cs-p3-childcare-staging');
       expect(res.url).toContain('X-Goog-Algorithm=GOOG4-RSA-SHA256');
       expect(res.url).toContain('X-Goog-Expires=900');
+      // Must include x-goog-content-length-range in signed headers
+      expect(res.url).toContain('x-goog-content-length-range');
+      expect(res.contentLengthRange).toBe(`1,${MAX_ATTACHMENT_BYTES}`);
+      expect(res.requiredHeaders).toEqual({
+        'Content-Type': 'image/jpeg',
+        'x-goog-content-length-range': `1,${MAX_ATTACHMENT_BYTES}`,
+      });
+    });
+
+    it('should upload via uploadToGcsSignedUrl with required headers attached', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => '',
+      });
+
+      const res = await uploadToGcsSignedUrl({
+        url: 'https://storage.googleapis.com/test-bucket/test.bin?X-Goog-Signature=mock',
+        data: Buffer.from('test binary content'),
+        contentType: 'image/jpeg',
+        requiredHeaders: {
+          'x-goog-content-length-range': `1,${MAX_ATTACHMENT_BYTES}`,
+        },
+        fetchFn: mockFetch as any,
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
+      expect(calledUrl).toBe('https://storage.googleapis.com/test-bucket/test.bin?X-Goog-Signature=mock');
+      expect(calledOpts.method).toBe('PUT');
+      expect(calledOpts.headers['Content-Type']).toBe('image/jpeg');
+      expect(calledOpts.headers['x-goog-content-length-range']).toBe(`1,${MAX_ATTACHMENT_BYTES}`);
+    });
+
+    it('should reject oversized payload (> 3145728 bytes) in uploadToGcsSignedUrl with HTTP 413', async () => {
+      const mockFetch = vi.fn();
+      const largeData = Buffer.alloc(MAX_ATTACHMENT_BYTES + 1024);
+
+      const res = await uploadToGcsSignedUrl({
+        url: 'https://storage.googleapis.com/test-bucket/test.bin?X-Goog-Signature=mock',
+        data: largeData,
+        contentType: 'image/jpeg',
+        fetchFn: mockFetch as any,
+      });
+
+      expect(res.status).toBe(413);
+      expect(res.statusText).toBe('Payload Too Large');
+      const body = await res.json();
+      expect(body.error).toBe('EntityTooLarge');
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should reject signed upload URL request with unsupported MIME type', async () => {

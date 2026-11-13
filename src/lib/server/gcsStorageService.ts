@@ -50,6 +50,8 @@ export interface SignedUrlResult {
   bucketName: string;
   contentType: string;
   expiresAt: string;
+  contentLengthRange?: string;
+  requiredHeaders?: Record<string, string>;
   error?: string;
 }
 
@@ -188,6 +190,11 @@ export class GcsStorageService {
     // 2. Bound expiration to max 15 minutes (900s)
     const expiresInSeconds = Math.min(Math.max(input.expiresInSeconds || 900, 60), 900);
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+    const contentLengthRange = `1,${MAX_ATTACHMENT_BYTES}`;
+    const requiredHeaders: Record<string, string> = {
+      'Content-Type': contentType,
+      'x-goog-content-length-range': contentLengthRange,
+    };
 
     if (this.isMock) {
       const mockSignature = crypto.randomBytes(32).toString('hex');
@@ -195,7 +202,7 @@ export class GcsStorageService {
         this.config.clientEmail || 'csc-runtime'
       )}&X-Goog-Date=${encodeURIComponent(
         new Date().toISOString().replace(/[:-]|\.\d{3}/g, '')
-      )}&X-Goog-Expires=${expiresInSeconds}&X-Goog-SignedHeaders=content-type%3Bhost&X-Goog-Signature=${mockSignature}`;
+      )}&X-Goog-Expires=${expiresInSeconds}&X-Goog-SignedHeaders=content-type%3Bhost%3Bx-goog-content-length-range&X-Goog-Signature=${mockSignature}`;
 
       return {
         status: 'SUCCESS',
@@ -204,6 +211,8 @@ export class GcsStorageService {
         bucketName: bucket,
         contentType,
         expiresAt,
+        contentLengthRange,
+        requiredHeaders,
       };
     }
 
@@ -216,6 +225,9 @@ export class GcsStorageService {
         action: 'write',
         expires: Date.now() + expiresInSeconds * 1000,
         contentType,
+        extensionHeaders: {
+          'x-goog-content-length-range': contentLengthRange,
+        },
       });
 
       return {
@@ -225,6 +237,8 @@ export class GcsStorageService {
         bucketName: bucket,
         contentType,
         expiresAt,
+        contentLengthRange,
+        requiredHeaders,
       };
     } catch (err: any) {
       return {
@@ -452,3 +466,52 @@ export async function getStorageService(provider?: 'tigris' | 'gcs'): Promise<an
   const { TigrisStorageService } = await import('./tigrisStorageService');
   return new TigrisStorageService();
 }
+
+export interface UploadToSignedUrlOptions {
+  url: string;
+  data: Buffer | Blob | Uint8Array | ArrayBuffer;
+  contentType: string;
+  requiredHeaders?: Record<string, string>;
+  fetchFn?: typeof fetch;
+}
+
+/**
+ * Uploads binary document data to a V4 signed upload URL.
+ * Automatically attaches required headers including 'x-goog-content-length-range'
+ * to satisfy signed URL policy invariants.
+ */
+export async function uploadToGcsSignedUrl(options: UploadToSignedUrlOptions): Promise<Response> {
+  const byteLength =
+    options.data instanceof Buffer || options.data instanceof Uint8Array
+      ? options.data.byteLength
+      : options.data instanceof ArrayBuffer
+      ? options.data.byteLength
+      : (options.data as any)?.size;
+
+  if (typeof byteLength === 'number' && byteLength > MAX_ATTACHMENT_BYTES) {
+    return new Response(
+      JSON.stringify({
+        error: 'EntityTooLarge',
+        message: `Upload payload size (${byteLength} bytes) exceeds maximum limit of ${MAX_ATTACHMENT_BYTES} bytes.`,
+      }),
+      {
+        status: 413,
+        statusText: 'Payload Too Large',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
+
+  const fetchImpl = options.fetchFn || globalThis.fetch;
+  const headers: Record<string, string> = {
+    'Content-Type': options.contentType,
+    'x-goog-content-length-range': `1,${MAX_ATTACHMENT_BYTES}`,
+    ...(options.requiredHeaders || {}),
+  };
+  return await fetchImpl(options.url, {
+    method: 'PUT',
+    headers,
+    body: options.data as any,
+  });
+}
+
