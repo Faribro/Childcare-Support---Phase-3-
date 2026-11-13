@@ -37,6 +37,9 @@ yarn-error.log*
 credentials.json
 token.json
 service-account.json
+credentials.seed.json
+leaders.seed.json
+backups/
 
 # Operating System Files
 .DS_Store

@@ -29,6 +29,10 @@
     "sheet:passwords:dry-run": "tsx scripts/admin/setup-passwords-sheet-tab.ts --dry-run",
     "staging:verify:scope-b": "tsx scripts/run-scope-b-staging.ts",
     "staging:verify:scope-d": "tsx scripts/run-scope-d-staging.ts",
+    "seed:credentials": "bun scripts/seed-credentials.ts",
+    "seed:leaders": "bun scripts/seed-leader-identities.ts",
+    "reset:staging": "bun scripts/reset-staging.ts",
+    "backup:sheets": "bun scripts/export-sheets-backup.ts",
     "build:native-client": "vite build --config vite.native.config.ts"
   },
   "dependencies": {
