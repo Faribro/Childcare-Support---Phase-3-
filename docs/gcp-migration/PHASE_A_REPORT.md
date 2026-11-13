@@ -128,17 +128,41 @@ The table below specifies the **primary secret name** (the one the code evaluate
 
 ---
 
-## 6. GCS Bucket CORS Policy (`cors.json`)
+## 6. Bucket CORS Policies (`cors.staging.json` & `cors.production.json`)
 
-To enable client web applications to upload binary documents directly to Cloud Storage via V4 signed PUT URLs, the following CORS configuration is required on `gs://cs-p3-childcare-staging`:
+Google Cloud Storage requires exact origins (no wildcards such as `*.a.run.app`). Staging permits local development origins; production is strictly restricted to production domains and Firebase Hosting.
 
+### Staging Policy (`cors.staging.json`):
 ```json
 [
   {
     "origin": [
       "https://childcare.allianceindia.org",
-      "https://csc-staging-*.a.run.app",
+      "https://cs-p3-production.web.app",
+      "https://cs-p3-production.firebaseapp.com",
+      "https://<EXACT-CLOUD-RUN-STAGING-URL>.a.run.app",
       "http://localhost:3000"
+    ],
+    "method": ["PUT", "GET", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "x-goog-content-length-range",
+      "ETag"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+### Production Policy (`cors.production.json`):
+```json
+[
+  {
+    "origin": [
+      "https://childcare.allianceindia.org",
+      "https://cs-p3-production.web.app",
+      "https://cs-p3-production.firebaseapp.com",
+      "https://<EXACT-CLOUD-RUN-PROD-URL>.a.run.app"
     ],
     "method": ["PUT", "GET", "OPTIONS"],
     "responseHeader": [

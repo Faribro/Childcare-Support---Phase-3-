@@ -3,6 +3,7 @@
 /.pnp
 .pnp.js
 .yarn/install-state.gz
+bun.lock
 
 # Next.js build output
 /.next/

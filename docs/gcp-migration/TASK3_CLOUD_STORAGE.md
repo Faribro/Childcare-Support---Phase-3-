@@ -99,18 +99,43 @@ To prevent storage bloat from aborted client multipart uploads:
 }
 ```
 
-### Bucket CORS Configuration (`cors.json`):
-Direct browser PUT uploads to GCS V4 signed URLs require cross-origin resource sharing (CORS) configured on the bucket to permit HTTP `PUT` and `OPTIONS` preflight, allowing both `Content-Type` and the signed `x-goog-content-length-range` header:
+### Bucket CORS Configuration (`cors.staging.json` & `cors.production.json`):
+Direct browser PUT uploads to GCS V4 signed URLs require cross-origin resource sharing (CORS) configured on the bucket to permit HTTP `PUT`, `GET`, and `OPTIONS` preflight, allowing both `Content-Type` and the signed `x-goog-content-length-range` header.
+Wildcard origins (e.g. `*.a.run.app`) are strictly rejected by GCS CORS. Exact origins must be specified.
 
+**Staging CORS Policy (`cors.staging.json`)**:
 ```json
 [
   {
     "origin": [
       "https://childcare.allianceindia.org",
-      "https://csc-staging-*.a.run.app",
+      "https://cs-p3-production.web.app",
+      "https://cs-p3-production.firebaseapp.com",
+      "https://<EXACT-CLOUD-RUN-STAGING-URL>.a.run.app",
       "http://localhost:3000"
     ],
-    "method": ["PUT", "OPTIONS"],
+    "method": ["PUT", "GET", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "x-goog-content-length-range",
+      "ETag"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+**Production CORS Policy (`cors.production.json`)**:
+```json
+[
+  {
+    "origin": [
+      "https://childcare.allianceindia.org",
+      "https://cs-p3-production.web.app",
+      "https://cs-p3-production.firebaseapp.com",
+      "https://<EXACT-CLOUD-RUN-PROD-URL>.a.run.app"
+    ],
+    "method": ["PUT", "GET", "OPTIONS"],
     "responseHeader": [
       "Content-Type",
       "x-goog-content-length-range",
@@ -123,7 +148,7 @@ Direct browser PUT uploads to GCS V4 signed URLs require cross-origin resource s
 
 To apply CORS configuration to the staging bucket (Reference only — do not run):
 ```bash
-gcloud storage buckets update gs://cs-p3-childcare-staging --cors-file=cors.json
+gcloud storage buckets update gs://cs-p3-childcare-staging --cors-file=cors.staging.json
 ```
 
 ---

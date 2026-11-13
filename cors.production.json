@@ -1,0 +1,17 @@
+[
+  {
+    "origin": [
+      "https://childcare.allianceindia.org",
+      "https://cs-p3-production.web.app",
+      "https://cs-p3-production.firebaseapp.com",
+      "https://<EXACT-CLOUD-RUN-PROD-URL>.a.run.app"
+    ],
+    "method": ["PUT", "GET", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "x-goog-content-length-range",
+      "ETag"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
