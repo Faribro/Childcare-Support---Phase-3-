@@ -574,10 +574,29 @@ function recordFailedAttempt(key: string, record: RateLimitRecord, now: number) 
   loginAttemptsMap.set(key, record);
 }
 
+import {
+  getCookieStrategy,
+  setUnifiedCookieField,
+  clearUnifiedCookieField,
+  verifyUnifiedSession,
+  NO_STORE_CACHE_HEADERS,
+} from './unifiedSessionCookie';
+
 /**
  * Attaches the secure HttpOnly session cookie to an outgoing response.
+ * Automatically respects COOKIE_STRATEGY ('default' vs 'unified' __session).
+ * Always attaches Cache-Control: private, no-store headers.
  */
-export function setSessionCookie(response: NextResponse, token: string): void {
+export function setSessionCookie(response: NextResponse, token: string, req?: NextRequest): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    setUnifiedCookieField(response, { evalToken: token }, req);
+    return;
+  }
+
   response.cookies.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -589,20 +608,36 @@ export function setSessionCookie(response: NextResponse, token: string): void {
 
 /**
  * Clears the session cookie on logout.
+ * Always attaches Cache-Control: private, no-store headers.
  */
-export function clearSessionCookie(response: NextResponse): void {
+export function clearSessionCookie(response: NextResponse, req?: NextRequest): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    clearUnifiedCookieField(response, 'evalToken', req);
+    return;
+  }
+
   response.cookies.delete(SESSION_COOKIE_NAME);
 }
 
 /**
  * Extracts session token from request cookie or Authorization header.
+ * Transparently unpacks __session envelope when present.
  */
 export function extractSessionToken(req: NextRequest): string | null {
-  const cookieToken =
+  const directCookie =
     req.cookies.get(SESSION_COOKIE_NAME)?.value ||
-    req.cookies.get('session_token')?.value ||
-    req.cookies.get('__session')?.value;
-  if (cookieToken) return cookieToken;
+    req.cookies.get('session_token')?.value;
+  if (directCookie) return directCookie;
+
+  const sessionEnvVal = req.cookies.get('__session')?.value;
+  if (sessionEnvVal) {
+    const verified = verifyUnifiedSession(sessionEnvVal);
+    if (verified?.evalToken) return verified.evalToken;
+  }
 
   const authHeader = req.headers.get('authorization') || '';
   if (authHeader.toLowerCase().startsWith('bearer ')) {

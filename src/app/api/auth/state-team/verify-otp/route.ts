@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStateTeamOtp } from '@/lib/server/stateTeamAuthChallenge';
 import { validateMutationOrigin } from '@/lib/server/authorisation';
-
-const SESSION_COOKIE_NAME = 'evaluation_session_token';
-const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+import { setSessionCookie } from '@/lib/server/sessionService';
 
 export async function POST(req: NextRequest) {
   const originCheck = validateMutationOrigin(req);
@@ -55,16 +53,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    response.cookies.set({
-      name: SESSION_COOKIE_NAME,
-      value: result.sessionToken,
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: SESSION_TTL_SECONDS,
-    });
+    setSessionCookie(response, result.sessionToken, req);
 
     return response;
   }

@@ -131,10 +131,29 @@ export async function revokeAllSessionsForLeader(leaderId: string): Promise<void
   await store.revokeAllSessionsForLeader(leaderId);
 }
 
+import {
+  getCookieStrategy,
+  setUnifiedCookieField,
+  clearUnifiedCookieField,
+  verifyUnifiedSession,
+  NO_STORE_CACHE_HEADERS,
+} from './unifiedSessionCookie';
+
 /**
  * Sets the HttpOnly leader session cookie.
+ * Respects COOKIE_STRATEGY ('default' vs 'unified' __session).
+ * Always attaches Cache-Control: private, no-store headers.
  */
-export function attachLeaderSessionCookie(response: NextResponse, sessionId: string): void {
+export function attachLeaderSessionCookie(response: NextResponse, sessionId: string, req?: NextRequest | null): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    setUnifiedCookieField(response, { leaderSessionId: sessionId }, req);
+    return;
+  }
+
   response.cookies.set(LEADER_COOKIE_NAME, sessionId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -146,8 +165,18 @@ export function attachLeaderSessionCookie(response: NextResponse, sessionId: str
 
 /**
  * Clears the leader session cookie.
+ * Always attaches Cache-Control: private, no-store headers.
  */
-export function clearLeaderSessionCookie(response: NextResponse): void {
+export function clearLeaderSessionCookie(response: NextResponse, req?: NextRequest | null): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    clearUnifiedCookieField(response, 'leaderSessionId', req);
+    return;
+  }
+
   response.cookies.set(LEADER_COOKIE_NAME, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -159,8 +188,19 @@ export function clearLeaderSessionCookie(response: NextResponse): void {
 
 /**
  * Sets the HttpOnly browser device binding cookie.
+ * Respects COOKIE_STRATEGY ('default' vs 'unified' __session).
+ * Always attaches Cache-Control: private, no-store headers.
  */
-export function attachDeviceBindingCookie(response: NextResponse, secret: string): void {
+export function attachDeviceBindingCookie(response: NextResponse, secret: string, req?: NextRequest | null): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    setUnifiedCookieField(response, { leaderDeviceSecret: secret }, req);
+    return;
+  }
+
   response.cookies.set(LEADER_DEVICE_COOKIE_NAME, secret, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -172,8 +212,18 @@ export function attachDeviceBindingCookie(response: NextResponse, secret: string
 
 /**
  * Clears the device binding cookie.
+ * Always attaches Cache-Control: private, no-store headers.
  */
-export function clearDeviceBindingCookie(response: NextResponse): void {
+export function clearDeviceBindingCookie(response: NextResponse, req?: NextRequest | null): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    clearUnifiedCookieField(response, 'leaderDeviceSecret', req);
+    return;
+  }
+
   response.cookies.set(LEADER_DEVICE_COOKIE_NAME, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -185,11 +235,20 @@ export function clearDeviceBindingCookie(response: NextResponse): void {
 
 /**
  * Extracts leader session ID from incoming request cookie or header.
+ * Transparently checks __session envelope when present.
  */
 export function extractLeaderSessionId(req?: NextRequest | null): string | null {
   if (!req) return null;
-  const cookieVal = req.cookies?.get(LEADER_COOKIE_NAME)?.value;
-  if (cookieVal) return cookieVal.trim();
+  const directCookie =
+    req.cookies?.get(LEADER_COOKIE_NAME)?.value ||
+    req.cookies?.get('leader_session_token')?.value;
+  if (directCookie) return directCookie.trim();
+
+  const sessionEnvVal = req.cookies?.get('__session')?.value;
+  if (sessionEnvVal) {
+    const verified = verifyUnifiedSession(sessionEnvVal);
+    if (verified?.leaderSessionId) return verified.leaderSessionId.trim();
+  }
 
   // Header fallback for testing / API clients
   const headerVal = req.headers?.get('x-leader-session-id');
@@ -200,11 +259,18 @@ export function extractLeaderSessionId(req?: NextRequest | null): string | null 
 
 /**
  * Extracts browser device binding secret from incoming request cookie or header.
+ * Transparently checks __session envelope when present.
  */
 export function extractDeviceBindingSecret(req?: NextRequest | null): string | null {
   if (!req) return null;
-  const cookieVal = req.cookies?.get(LEADER_DEVICE_COOKIE_NAME)?.value;
-  if (cookieVal) return cookieVal.trim();
+  const directCookie = req.cookies?.get(LEADER_DEVICE_COOKIE_NAME)?.value;
+  if (directCookie) return directCookie.trim();
+
+  const sessionEnvVal = req.cookies?.get('__session')?.value;
+  if (sessionEnvVal) {
+    const verified = verifyUnifiedSession(sessionEnvVal);
+    if (verified?.leaderDeviceSecret) return verified.leaderDeviceSecret.trim();
+  }
 
   // Header fallback for testing
   const headerVal = req.headers?.get('x-device-binding');

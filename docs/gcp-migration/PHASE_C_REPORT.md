@@ -55,7 +55,7 @@
 
 ### C5. Deployment Guide & Runbook (`docs/gcp-migration/TASK4_CLOUD_RUN.md`)
 - Detailed step-by-step runbook with exact `gcloud` and `firebase` commands (documented only; not executed):
-  1. Service account creation (`csc-cloud-run@cs-p3-production.iam.gserviceaccount.com`).
+  1. Service account creation (`csc-runtime@cs-p3-production.iam.gserviceaccount.com`).
   2. IAM least-privilege role bindings:
      - `roles/datastore.user` (Firestore access)
      - `roles/storage.objectAdmin` (scoped specifically to bucket `cs-p3-childcare-staging`)

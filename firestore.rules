@@ -11,6 +11,7 @@ rules_version = '2';
 // - sheets_mirror_retry_queue
 // - evaluation_credentials
 // - auth_attempts
+// - auth_lockouts
 // - leader_otp_challenges
 // - leadership_sessions
 // - leader_identities

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyOnboardingTicket, ONBOARDING_TICKET_COOKIE } from '@/lib/server/googleAuth';
+import { verifyOnboardingTicket, extractOnboardingTicketCookie, NO_STORE_CACHE_HEADERS } from '@/lib/server/googleAuth';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const ticketCookie = req.cookies.get(ONBOARDING_TICKET_COOKIE)?.value;
+  const ticketCookie = extractOnboardingTicketCookie(req);
   const ticket = verifyOnboardingTicket(ticketCookie);
 
   if (!ticket) {
@@ -11,7 +13,7 @@ export async function GET(req: NextRequest) {
         status: 'success',
         hasTicket: false,
       },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_CACHE_HEADERS }
     );
   }
 
@@ -25,6 +27,6 @@ export async function GET(req: NextRequest) {
         lastName: ticket.lastName,
       },
     },
-    { status: 200 }
+    { status: 200, headers: NO_STORE_CACHE_HEADERS }
   );
 }

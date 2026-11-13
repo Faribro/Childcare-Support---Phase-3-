@@ -76,7 +76,7 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
     : '';
 
   const internalKey = req.headers.get('x-internal-key') || req.headers.get('x-server-auth');
-  const sessionCookie = req.cookies.get('session_token')?.value || req.cookies.get('__session')?.value;
+  const sessionCookie = extractSessionToken(req);
 
   const validSecrets = [
     process.env.INTERNAL_AUTH_SECRET,
@@ -191,9 +191,22 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
   };
 }
 
+function extractHostFromUrl(rawUrl?: string | null): string | null {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    return parsed.host.toLowerCase();
+  } catch {
+    return trimmed.split('/')[0].split(':')[0].toLowerCase();
+  }
+}
+
 /**
- * Resolves the list of expected hostnames based on APP_ENV and ALLOWED_HOSTS.
- * Accommodates Cloud Run direct addresses, Firebase Hosting rewrites, and the custom domain.
+ * Resolves the list of expected hostnames based on APP_ENV, STAGING_SERVICE_URL,
+ * PRODUCTION_URL, and ALLOWED_HOSTS.
+ * Exact hosts only; zero wildcards.
  */
 export function getExpectedHosts(): string[] {
   const envHosts = process.env.ALLOWED_HOSTS
@@ -211,6 +224,18 @@ export function getExpectedHosts(): string[] {
     'cs-p3-production.web.app',
     'cs-p3-production.firebaseapp.com',
   ];
+
+  // Exact service URLs from environment
+  const envUrls = [
+    process.env.STAGING_SERVICE_URL,
+    process.env.PRODUCTION_URL,
+    process.env.APP_BASE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ];
+  for (const u of envUrls) {
+    const h = extractHostFromUrl(u);
+    if (h) defaults.push(h);
+  }
 
   if (appEnv !== 'production') {
     defaults.push('localhost', '127.0.0.1');
@@ -246,21 +271,19 @@ export function validateMutationOrigin(req: NextRequest): { valid: boolean; reas
         return { valid: true };
       }
 
-      // Check allowlist of expected hosts for the target APP_ENV
+      // Check allowlist of expected hosts for the target APP_ENV (exact matches only)
       const expectedHosts = getExpectedHosts();
       const isOriginAllowed = expectedHosts.some(
         (allowed) =>
           originUrl.host.toLowerCase() === allowed ||
           originUrl.hostname.toLowerCase() === allowed ||
-          originUrl.host.toLowerCase().endsWith('.a.run.app') ||
           (process.env.NODE_ENV !== 'production' &&
             (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1'))
       );
 
       if (
         isOriginAllowed &&
-        (!forwardedHost ||
-          expectedHosts.some((a) => forwardedHost === a || forwardedHost.endsWith('.a.run.app')))
+        (!forwardedHost || expectedHosts.some((a) => forwardedHost === a))
       ) {
         return { valid: true };
       }

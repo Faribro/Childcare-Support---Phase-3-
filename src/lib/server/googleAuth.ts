@@ -17,9 +17,135 @@ import { getSessionSecret } from './sessionService';
 import { getOnboardingStore } from './onboardingStore';
 import type { FieldUserProfile } from '@/lib/types/onboarding';
 
+import {
+  getCookieStrategy,
+  setUnifiedCookieField,
+  clearUnifiedCookieField,
+  verifyUnifiedSession,
+  NO_STORE_CACHE_HEADERS,
+} from './unifiedSessionCookie';
+
+export { NO_STORE_CACHE_HEADERS };
+
 export const GOOGLE_AUTH_COOKIE_STATE = 'google_oauth_state';
 export const ONBOARDING_TICKET_COOKIE = 'field_onboarding_ticket';
 export const ONBOARDING_TICKET_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Attaches the OAuth CSRF state cookie to response.
+ * Respects COOKIE_STRATEGY ('default' vs 'unified' __session).
+ */
+export function attachOAuthStateCookie(response: NextResponse, stateToken: string, req?: NextRequest): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    setUnifiedCookieField(response, { oauthState: stateToken }, req);
+    return;
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  response.cookies.set({
+    name: GOOGLE_AUTH_COOKIE_STATE,
+    value: stateToken,
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 15 * 60, // 15 minutes
+  });
+}
+
+/**
+ * Clears the OAuth CSRF state cookie.
+ */
+export function clearOAuthStateCookie(response: NextResponse, req?: NextRequest): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    clearUnifiedCookieField(response, 'oauthState', req);
+    return;
+  }
+
+  response.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+}
+
+/**
+ * Extracts OAuth CSRF state from request cookies.
+ */
+export function extractOAuthStateCookie(req: NextRequest): string | null {
+  const directCookie = req.cookies.get(GOOGLE_AUTH_COOKIE_STATE)?.value;
+  if (directCookie) return directCookie;
+
+  const sessionEnvVal = req.cookies.get('__session')?.value;
+  if (sessionEnvVal) {
+    const verified = verifyUnifiedSession(sessionEnvVal);
+    if (verified?.oauthState) return verified.oauthState;
+  }
+
+  return null;
+}
+
+/**
+ * Attaches the onboarding ticket cookie to response.
+ * Respects COOKIE_STRATEGY ('default' vs 'unified' __session).
+ */
+export function attachOnboardingTicketCookie(response: NextResponse, ticket: string, req?: NextRequest): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    setUnifiedCookieField(response, { onboardingTicket: ticket }, req);
+    return;
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  response.cookies.set({
+    name: ONBOARDING_TICKET_COOKIE,
+    value: ticket,
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: Math.floor(ONBOARDING_TICKET_TTL_MS / 1000),
+  });
+}
+
+/**
+ * Clears the onboarding ticket cookie.
+ */
+export function clearOnboardingTicketCookie(response: NextResponse, req?: NextRequest): void {
+  for (const [k, v] of Object.entries(NO_STORE_CACHE_HEADERS)) {
+    response.headers.set(k, v);
+  }
+
+  if (getCookieStrategy() === 'unified') {
+    clearUnifiedCookieField(response, 'onboardingTicket', req);
+    return;
+  }
+
+  response.cookies.delete(ONBOARDING_TICKET_COOKIE);
+}
+
+/**
+ * Extracts onboarding ticket string from request cookies.
+ */
+export function extractOnboardingTicketCookie(req: NextRequest): string | null {
+  const directCookie = req.cookies.get(ONBOARDING_TICKET_COOKIE)?.value;
+  if (directCookie) return directCookie;
+
+  const sessionEnvVal = req.cookies.get('__session')?.value;
+  if (sessionEnvVal) {
+    const verified = verifyUnifiedSession(sessionEnvVal);
+    if (verified?.onboardingTicket) return verified.onboardingTicket;
+  }
+
+  return null;
+}
 
 export interface OnboardingTicketPayload {
   googleSub: string;

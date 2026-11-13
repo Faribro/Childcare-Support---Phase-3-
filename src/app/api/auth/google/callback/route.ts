@@ -3,15 +3,14 @@ import {
   verifyOAuthState,
   exchangeGoogleCodeForUser,
   signOnboardingTicket,
-  GOOGLE_AUTH_COOKIE_STATE,
-  ONBOARDING_TICKET_COOKIE,
-  ONBOARDING_TICKET_TTL_MS,
+  extractOAuthStateCookie,
+  clearOAuthStateCookie,
+  attachOnboardingTicketCookie,
 } from '@/lib/server/googleAuth';
 import { getOnboardingStore } from '@/lib/server/onboardingStore';
-import { createSessionToken } from '@/lib/server/sessionService';
+import { createSessionToken, setSessionCookie } from '@/lib/server/sessionService';
 
-const SESSION_COOKIE_NAME = 'evaluation_session_token';
-const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl;
@@ -24,34 +23,34 @@ export async function GET(req: NextRequest) {
   // 1. Safe handling for user cancellation
   if (errorParam === 'access_denied' || errorParam === 'consent_required') {
     const res = NextResponse.redirect(`${appBaseUrl}?auth_cancelled=1`);
-    res.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+    clearOAuthStateCookie(res, req);
     return res;
   }
 
   if (errorParam) {
     const res = NextResponse.redirect(`${appBaseUrl}?auth_error=${encodeURIComponent(errorParam)}`);
-    res.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+    clearOAuthStateCookie(res, req);
     return res;
   }
 
   // 2. Validate state against CSRF cookie
-  const storedState = req.cookies.get(GOOGLE_AUTH_COOKIE_STATE)?.value;
+  const storedState = extractOAuthStateCookie(req);
   if (!state || !storedState || state !== storedState) {
     const res = NextResponse.redirect(`${appBaseUrl}?auth_error=invalid_csrf_state`);
-    res.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+    clearOAuthStateCookie(res, req);
     return res;
   }
 
   const verifiedState = verifyOAuthState(state);
   if (!verifiedState) {
     const res = NextResponse.redirect(`${appBaseUrl}?auth_error=expired_state`);
-    res.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+    clearOAuthStateCookie(res, req);
     return res;
   }
 
   if (!code) {
     const res = NextResponse.redirect(`${appBaseUrl}?auth_error=missing_code`);
-    res.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+    clearOAuthStateCookie(res, req);
     return res;
   }
 
@@ -61,7 +60,7 @@ export async function GET(req: NextRequest) {
     const res = NextResponse.redirect(
       `${appBaseUrl}?auth_error=${encodeURIComponent(userResult.error || 'google_auth_failed')}`
     );
-    res.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
+    clearOAuthStateCookie(res, req);
     return res;
   }
 
@@ -75,7 +74,6 @@ export async function GET(req: NextRequest) {
   } catch (dbErr: any) {
     console.error('[Google Callback:DB_WARNING] Failed to query existing field profile from Supabase:', dbErr?.message);
   }
-  const isProduction = process.env.NODE_ENV === 'production';
 
   if (existingProfile && existingProfile.status === 'ACTIVE') {
     // RETURNING FIELD USER: established session immediately without re-entering invitation
@@ -92,16 +90,8 @@ export async function GET(req: NextRequest) {
     const redirectUrl = `${url.protocol}//${url.host}${destination}`;
     const response = NextResponse.redirect(redirectUrl);
 
-    response.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
-    response.cookies.set({
-      name: SESSION_COOKIE_NAME,
-      value: sessionToken,
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: SESSION_TTL_SECONDS,
-    });
+    clearOAuthStateCookie(response, req);
+    setSessionCookie(response, sessionToken, req);
 
     return response;
   }
@@ -115,17 +105,8 @@ export async function GET(req: NextRequest) {
   });
 
   const response = NextResponse.redirect(`${appBaseUrl}?onboarding=open`);
-  response.cookies.delete(GOOGLE_AUTH_COOKIE_STATE);
-
-  response.cookies.set({
-    name: ONBOARDING_TICKET_COOKIE,
-    value: ticket,
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: Math.floor(ONBOARDING_TICKET_TTL_MS / 1000),
-  });
+  clearOAuthStateCookie(response, req);
+  attachOnboardingTicketCookie(response, ticket, req);
 
   return response;
 }

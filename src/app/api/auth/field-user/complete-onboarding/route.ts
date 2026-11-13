@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   verifyOnboardingTicket,
-  ONBOARDING_TICKET_COOKIE,
+  extractOnboardingTicketCookie,
+  clearOnboardingTicketCookie,
 } from '@/lib/server/googleAuth';
 import { getOnboardingStore } from '@/lib/server/onboardingStore';
-import { createSessionToken } from '@/lib/server/sessionService';
+import { createSessionToken, setSessionCookie } from '@/lib/server/sessionService';
 import { validateMutationOrigin } from '@/lib/server/authorisation';
-
-const SESSION_COOKIE_NAME = 'evaluation_session_token';
-const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
 
 export async function POST(req: NextRequest) {
   const originCheck = validateMutationOrigin(req);
@@ -19,7 +17,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const ticketCookie = req.cookies.get(ONBOARDING_TICKET_COOKIE)?.value;
+  const ticketCookie = extractOnboardingTicketCookie(req);
   const ticket = verifyOnboardingTicket(ticketCookie);
 
   if (!ticket) {
@@ -147,21 +145,8 @@ export async function POST(req: NextRequest) {
     { status: 200 }
   );
 
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  // Clear onboarding ticket cookie
-  response.cookies.delete(ONBOARDING_TICKET_COOKIE);
-
-  // Set session cookie
-  response.cookies.set({
-    name: SESSION_COOKIE_NAME,
-    value: sessionToken,
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: SESSION_TTL_SECONDS,
-  });
+  clearOnboardingTicketCookie(response, req);
+  setSessionCookie(response, sessionToken, req);
 
   return response;
 }
