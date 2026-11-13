@@ -21,6 +21,13 @@ import {
   DEFAULT_INVITATION_EXPIRY_MS,
   DEFAULT_MAX_REDEMPTIONS,
 } from './invitationCrypto';
+import { validateFirestoreDatabaseEnvironment } from './firestoreSubmissionAdapter';
+import { getFirestoreDb, sanitizeIpForDocId } from './credentialRegistry';
+
+export const STATE_TEAM_REGISTRATIONS_COLLECTION = 'state_team_registrations';
+export const STATE_TEAM_INVITATIONS_COLLECTION = 'state_team_invitations';
+export const STATE_TEAM_CHALLENGES_COLLECTION = 'state_team_challenges';
+export const FIELD_USER_PROFILES_COLLECTION = 'field_user_profiles';
 
 export interface RateLimitStatus {
   allowed: boolean;
@@ -1390,6 +1397,563 @@ export class SupabaseOnboardingStore implements OnboardingStore {
   }
 }
 
+// -------------------------------------------------------------
+// Firestore Onboarding Adapter (Phase B)
+// -------------------------------------------------------------
+
+function parseTimestamp(val: any): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (val instanceof Date) return val.getTime();
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.toDate === 'function') return val.toDate().getTime();
+  if (typeof val === 'string') return new Date(val).getTime();
+  return 0;
+}
+
+export class FirestoreOnboardingStore implements OnboardingStore {
+  private customDb?: any;
+
+  constructor(customDb?: any) {
+    this.customDb = customDb;
+  }
+
+  private async getDb() {
+    const appEnv = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development';
+    const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+    validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+    const isProductionOrStaging =
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV === 'production' ||
+      process.env.APP_ENV === 'production' ||
+      (process.env.NODE_ENV as string) === 'staging' ||
+      process.env.APP_ENV === 'staging';
+
+    try {
+      return await getFirestoreDb(this.customDb);
+    } catch (err: any) {
+      if (isProductionOrStaging) {
+        throw new Error(`[ONBOARDING_STORE_UNAVAILABLE] Cloud Firestore unreachable in ${appEnv}: ${err?.message || err}`);
+      }
+      throw err;
+    }
+  }
+
+  // Rate Limiting
+  async checkRateLimit(key: string, now: number, maxAttempts: number, windowMs: number): Promise<RateLimitStatus> {
+    const db = await this.getDb();
+    const docId = `onboard_rl_${sanitizeIpForDocId(key)}`;
+    const docRef = db.collection('auth_attempts').doc(docId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(docRef);
+      const data = snap.exists ? snap.data() : null;
+      const windowStart = now - windowMs;
+
+      const rawAttempts = Array.isArray(data?.attempts) ? data.attempts : [];
+      const attempts = rawAttempts.filter((t: number) => typeof t === 'number' && t > windowStart);
+
+      if (attempts.length >= maxAttempts) {
+        const oldest = attempts[0];
+        const retryAfterSeconds = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
+        return { allowed: false, retryAfterSeconds };
+      }
+
+      attempts.push(now);
+      await transaction.set(docRef, {
+        key,
+        attempts,
+        expiresAt: new Date(now + windowMs),
+        updatedAt: new Date(now),
+      });
+
+      return { allowed: true };
+    });
+  }
+
+  // Durable OTP Challenges
+  async saveStateTeamChallenge(challenge: any): Promise<void> {
+    const db = await this.getDb();
+    const norm = challenge.workEmail.toLowerCase().trim();
+    const docId = sanitizeIpForDocId(norm);
+    const expiresAtMs = typeof challenge.expiresAt === 'number' ? challenge.expiresAt : Date.now() + 10 * 60 * 1000;
+
+    await db.collection(STATE_TEAM_CHALLENGES_COLLECTION).doc(docId).set({
+      ...challenge,
+      workEmail: norm,
+      expiresAt: new Date(expiresAtMs),
+      expiresAtMs,
+      updatedAt: Date.now(),
+    });
+  }
+
+  async getStateTeamChallenge(workEmail: string): Promise<any | null> {
+    const db = await this.getDb();
+    const norm = workEmail.toLowerCase().trim();
+    const docId = sanitizeIpForDocId(norm);
+    const snap = await db.collection(STATE_TEAM_CHALLENGES_COLLECTION).doc(docId).get();
+    if (!snap.exists) return null;
+    const data = snap.data();
+    if (Date.now() > parseTimestamp(data.expiresAt)) {
+      return null;
+    }
+    return {
+      ...data,
+      expiresAt: parseTimestamp(data.expiresAt),
+    };
+  }
+
+  async recordStateTeamChallengeAttempt(workEmail: string, failedAttempts: number, isLocked: boolean): Promise<void> {
+    const db = await this.getDb();
+    const norm = workEmail.toLowerCase().trim();
+    const docId = sanitizeIpForDocId(norm);
+    const snap = await db.collection(STATE_TEAM_CHALLENGES_COLLECTION).doc(docId).get();
+    if (snap.exists) {
+      await db.collection(STATE_TEAM_CHALLENGES_COLLECTION).doc(docId).set({
+        ...snap.data(),
+        failedAttempts,
+        isLocked,
+        updatedAt: Date.now(),
+      });
+    }
+  }
+
+  async deleteStateTeamChallenge(workEmail: string): Promise<void> {
+    const db = await this.getDb();
+    const norm = workEmail.toLowerCase().trim();
+    const docId = sanitizeIpForDocId(norm);
+    await db.collection(STATE_TEAM_CHALLENGES_COLLECTION).doc(docId).delete();
+  }
+
+  // State Team Registrations
+  async createStateTeamRegistration(data: {
+    firstName: string;
+    lastName: string;
+    workEmail: string;
+    requestedState: string;
+    organization: string;
+    autoApprove?: boolean;
+    notes?: string;
+  }): Promise<StateTeamRegistration> {
+    const db = await this.getDb();
+    const id = `reg_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const now = Date.now();
+    const registration: StateTeamRegistration = {
+      id,
+      firstName: data.firstName.trim(),
+      lastName: data.lastName.trim(),
+      workEmail: data.workEmail.toLowerCase().trim(),
+      requestedState: data.requestedState.trim().toUpperCase(),
+      organization: data.organization.trim(),
+      status: data.autoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
+      emailVerified: Boolean(data.autoApprove),
+      approvedAt: data.autoApprove ? now : undefined,
+      approvedBy: data.autoApprove ? 'SYSTEM_AUTO' : undefined,
+      notes: data.notes || '',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set(registration);
+    return registration;
+  }
+
+  async getStateTeamRegistrationById(id: string): Promise<StateTeamRegistration | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return null;
+    return snap.data() as StateTeamRegistration;
+  }
+
+  async getStateTeamRegistrationByEmail(email: string): Promise<StateTeamRegistration | null> {
+    const db = await this.getDb();
+    const norm = email.toLowerCase().trim();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION)
+      .where('workEmail', '==', norm)
+      .get();
+    if (!snap.docs || snap.docs.length === 0) return null;
+    return snap.docs[0].data() as StateTeamRegistration;
+  }
+
+  async verifyStateTeamEmail(email: string): Promise<boolean> {
+    const db = await this.getDb();
+    const reg = await this.getStateTeamRegistrationByEmail(email);
+    if (!reg) return false;
+    await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(reg.id).set({
+      ...reg,
+      emailVerified: true,
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
+
+  async approveStateTeamRegistration(id: string, approvedBy: string): Promise<boolean> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return false;
+    const now = Date.now();
+    await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set({
+      ...snap.data(),
+      status: 'APPROVED',
+      approvedBy,
+      approvedAt: now,
+      reviewedBy: approvedBy,
+      reviewedAt: now,
+      updatedAt: now,
+    });
+    return true;
+  }
+
+  async rejectStateTeamRegistration(id: string, rejectedBy: string, reason?: string): Promise<boolean> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return false;
+    const now = Date.now();
+    await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set({
+      ...snap.data(),
+      status: 'REJECTED',
+      reviewedBy: rejectedBy,
+      rejectionReason: reason || null,
+      reviewedAt: now,
+      notes: reason || snap.data().notes,
+      updatedAt: now,
+    });
+    return true;
+  }
+
+  async updateRegistrationNotes(id: string, notes: string): Promise<boolean> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return false;
+    await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set({
+      ...snap.data(),
+      notes,
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
+
+  async listStateTeamRegistrations(): Promise<StateTeamRegistration[]> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).get();
+    return (snap.docs || []).map((d: any) => d.data() as StateTeamRegistration);
+  }
+
+  // State Team Invitations
+  async createInvitation(params: {
+    stateTeamId: string;
+    state: string;
+    salt: string;
+    verifier: string;
+    maxRedemptions?: number;
+    expiresAt?: number;
+  }): Promise<StateTeamInvitation> {
+    const db = await this.getDb();
+    const id = `inv_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const now = Date.now();
+    const expiresAt = params.expiresAt || now + DEFAULT_INVITATION_EXPIRY_MS;
+
+    const invitation: StateTeamInvitation = {
+      id,
+      stateTeamId: params.stateTeamId,
+      state: params.state.toUpperCase().trim(),
+      codeSalt: params.salt,
+      codeVerifier: params.verifier,
+      redemptionCount: 0,
+      maxRedemptions: params.maxRedemptions || DEFAULT_MAX_REDEMPTIONS,
+      status: 'ACTIVE',
+      expiresAt,
+      createdAt: now,
+    };
+
+    await db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(id).set({
+      ...invitation,
+      expiresAtDate: new Date(expiresAt), // Firestore TTL field
+    });
+
+    return invitation;
+  }
+
+  async getInvitationById(id: string): Promise<StateTeamInvitation | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return null;
+    return snap.data() as StateTeamInvitation;
+  }
+
+  async getActiveInvitationForState(state: string): Promise<StateTeamInvitation | null> {
+    const db = await this.getDb();
+    const norm = state.toUpperCase().trim();
+    const snap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION)
+      .where('state', '==', norm)
+      .get();
+
+    const active = (snap.docs || [])
+      .map((d: any) => d.data() as StateTeamInvitation)
+      .filter((inv: StateTeamInvitation) => inv.status === 'ACTIVE' && Date.now() <= inv.expiresAt);
+
+    return active.length > 0 ? active[0] : null;
+  }
+
+  async getActiveInvitationForCoordinator(stateTeamId: string): Promise<StateTeamInvitation | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION)
+      .where('stateTeamId', '==', stateTeamId)
+      .get();
+
+    const active = (snap.docs || [])
+      .map((d: any) => d.data() as StateTeamInvitation)
+      .filter((inv: StateTeamInvitation) => inv.status === 'ACTIVE' && Date.now() <= inv.expiresAt);
+
+    return active.length > 0 ? active[0] : null;
+  }
+
+  async listInvitationsForState(state: string): Promise<StateTeamInvitation[]> {
+    const db = await this.getDb();
+    const norm = state.toUpperCase().trim();
+    const snap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION)
+      .where('state', '==', norm)
+      .get();
+
+    return (snap.docs || []).map((d: any) => d.data() as StateTeamInvitation);
+  }
+
+  async rotateInvitation(currentInvitationId: string, newSalt: string, newVerifier: string): Promise<StateTeamInvitation> {
+    const db = await this.getDb();
+    const current = await this.getInvitationById(currentInvitationId);
+    if (!current) throw new Error('Current invitation not found');
+
+    await this.revokeInvitation(currentInvitationId);
+    return await this.createInvitation({
+      stateTeamId: current.stateTeamId,
+      state: current.state,
+      salt: newSalt,
+      verifier: newVerifier,
+      maxRedemptions: current.maxRedemptions,
+      expiresAt: current.expiresAt,
+    });
+  }
+
+  async revokeInvitation(invitationId: string): Promise<boolean> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(invitationId).get();
+    if (!snap.exists) return false;
+    await db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(invitationId).set({
+      ...snap.data(),
+      status: 'REVOKED',
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
+
+  async findAndValidateInvitation(
+    plainCode: string,
+    state: string,
+    now: number = Date.now()
+  ): Promise<{
+    valid: boolean;
+    error?: string;
+    statusCode: number;
+    invitation?: StateTeamInvitation;
+  }> {
+    const db = await this.getDb();
+    const normState = state.toUpperCase().trim();
+    const snap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION)
+      .where('state', '==', normState)
+      .get();
+
+    for (const d of snap.docs || []) {
+      const inv = d.data() as StateTeamInvitation;
+      if (inv.status !== 'ACTIVE') continue;
+
+      if (now > inv.expiresAt) {
+        await db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(inv.id).set({
+          ...inv,
+          status: 'EXPIRED',
+          updatedAt: now,
+        });
+        continue;
+      }
+
+      if (verifyInvitationCode(plainCode, inv.codeSalt, inv.codeVerifier)) {
+        if (inv.redemptionCount >= inv.maxRedemptions) {
+          return {
+            valid: false,
+            error: 'This invitation code has reached its maximum redemptions.',
+            statusCode: 409,
+          };
+        }
+        return {
+          valid: true,
+          statusCode: 200,
+          invitation: inv,
+        };
+      }
+    }
+
+    return {
+      valid: false,
+      error: 'Invalid invitation code for this state.',
+      statusCode: 401,
+    };
+  }
+
+  async atomicRedeemInvitation(invitationId: string): Promise<{ success: boolean; error?: string }> {
+    const db = await this.getDb();
+    const docRef = db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(invitationId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(docRef);
+      if (!snap.exists) return { success: false, error: 'Invitation not found' };
+
+      const inv = snap.data() as StateTeamInvitation;
+      if (inv.redemptionCount !== undefined && inv.maxRedemptions !== undefined && inv.redemptionCount >= inv.maxRedemptions) {
+        return { success: false, error: 'This invitation code has been fully redeemed (maximum redemptions reached).' };
+      }
+      if (inv.status !== 'ACTIVE') return { success: false, error: 'Invitation is not active' };
+      if (Date.now() > inv.expiresAt) {
+        await transaction.set(docRef, { ...inv, status: 'EXPIRED', updatedAt: Date.now() });
+        return { success: false, error: 'Invitation has expired' };
+      }
+
+      const nextRedemptions = (inv.redemptionCount || 0) + 1;
+
+      await transaction.set(docRef, {
+        ...inv,
+        redemptionCount: nextRedemptions,
+        updatedAt: Date.now(),
+      });
+
+      return { success: true };
+    });
+  }
+
+  async redeemInvitation(invitationId: string, plainCode: string): Promise<{
+    success: boolean;
+    error?: string;
+    statusCode: number;
+    invitation?: StateTeamInvitation;
+  }> {
+    const db = await this.getDb();
+    const docRef = db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(invitationId);
+
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(docRef);
+      if (!snap.exists) {
+        return { success: false, error: 'Invitation not found', statusCode: 404 };
+      }
+
+      const inv = snap.data() as StateTeamInvitation;
+      if (inv.status !== 'ACTIVE') {
+        return { success: false, error: 'Invitation is not active', statusCode: 400 };
+      }
+
+      if (Date.now() > inv.expiresAt) {
+        await transaction.set(docRef, { ...inv, status: 'EXPIRED', updatedAt: Date.now() });
+        return { success: false, error: 'Invitation has expired', statusCode: 400 };
+      }
+
+      if (!verifyInvitationCode(plainCode, inv.codeSalt, inv.codeVerifier)) {
+        return { success: false, error: 'Invalid invitation code', statusCode: 401 };
+      }
+
+      if (inv.redemptionCount >= inv.maxRedemptions) {
+        return { success: false, error: 'Maximum redemptions exceeded', statusCode: 409 };
+      }
+
+      const nextRedemptions = (inv.redemptionCount || 0) + 1;
+      const updatedInv: StateTeamInvitation = {
+        ...inv,
+        redemptionCount: nextRedemptions,
+      };
+
+      await transaction.set(docRef, {
+        ...updatedInv,
+        expiresAtDate: new Date(updatedInv.expiresAt),
+      });
+
+      return { success: true, statusCode: 200, invitation: updatedInv };
+    });
+  }
+
+  // Field User Profiles
+  async createFieldUserProfile(data: {
+    googleSub: string;
+    googleEmail: string;
+    firstName: string;
+    lastName: string;
+    assignedState: string;
+    assignedDistrict: string;
+    invitationId: string;
+  }): Promise<FieldUserProfile> {
+    const db = await this.getDb();
+    const id = `fld_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const now = Date.now();
+    const profile: FieldUserProfile = {
+      id,
+      googleSub: data.googleSub,
+      googleEmail: data.googleEmail.toLowerCase().trim(),
+      firstName: data.firstName.trim(),
+      lastName: data.lastName.trim(),
+      assignedState: data.assignedState.toUpperCase().trim(),
+      assignedDistrict: data.assignedDistrict.trim(),
+      invitationId: data.invitationId,
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(profile);
+    return profile;
+  }
+
+  async getFieldUserProfileByGoogleSub(googleSub: string): Promise<FieldUserProfile | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+      .where('googleSub', '==', googleSub)
+      .get();
+    if (!snap.docs || snap.docs.length === 0) return null;
+    return snap.docs[0].data() as FieldUserProfile;
+  }
+
+  async getFieldUserProfileByEmail(googleEmail: string): Promise<FieldUserProfile | null> {
+    const db = await this.getDb();
+    const norm = googleEmail.toLowerCase().trim();
+    const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+      .where('googleEmail', '==', norm)
+      .get();
+    if (!snap.docs || snap.docs.length === 0) return null;
+    return snap.docs[0].data() as FieldUserProfile;
+  }
+
+  async getFieldUserProfileById(id: string): Promise<FieldUserProfile | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).get();
+    if (!snap.exists) return null;
+    return snap.data() as FieldUserProfile;
+  }
+
+  async updateFieldUserProfile(
+    id: string,
+    updates: Partial<Omit<FieldUserProfile, 'id' | 'googleSub' | 'createdAt'>>
+  ): Promise<FieldUserProfile | null> {
+    const db = await this.getDb();
+    const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).get();
+    if (!snap.exists) return null;
+
+    const current = snap.data() as FieldUserProfile;
+    const updated: FieldUserProfile = {
+      ...current,
+      ...updates,
+      updatedAt: Date.now(),
+    };
+
+    await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(updated);
+    return updated;
+  }
+}
+
 let globalOnboardingStore: OnboardingStore | null = null;
 
 export function getOnboardingStore(): OnboardingStore {
@@ -1406,6 +1970,13 @@ export function getOnboardingStore(): OnboardingStore {
 
   if (isProductionOrStaging && process.env.FORCE_MEMORY_STORE) {
     throw new Error('[ONBOARDING_STORE:FATAL] FORCE_MEMORY_STORE is strictly forbidden in production and staging environments.');
+  }
+
+  const dataEngine = (process.env.DATA_ENGINE || 'sheets').toLowerCase().trim();
+  if (dataEngine === 'firestore') {
+    const store = new FirestoreOnboardingStore();
+    globalOnboardingStore = store;
+    return store;
   }
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
