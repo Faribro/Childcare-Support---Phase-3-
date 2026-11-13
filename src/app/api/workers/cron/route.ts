@@ -20,9 +20,9 @@ const NO_STORE_HEADERS = {
 
 function safeCompareSecrets(provided: string, expected?: string): boolean {
   if (!expected || !provided) return false;
-  const pBuf = Buffer.from(provided);
-  const eBuf = Buffer.from(expected);
-  return pBuf.length === eBuf.length && crypto.timingSafeEqual(pBuf, eBuf);
+  const pHash = crypto.createHash('sha256').update(provided).digest();
+  const eHash = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(pHash, eHash);
 }
 
 function verifyCronAuthorization(req: NextRequest): boolean {

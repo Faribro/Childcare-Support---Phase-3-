@@ -152,14 +152,19 @@ export class GcsStorageService {
 
   /**
    * Parses storage URI into clean bucket and relative key.
+   * Strips URI schemes, leading slashes, and neutralizes directory traversal patterns.
    */
   public parseStorageRef(targetRef: string): { bucket: string; key: string } {
-    let clean = targetRef.replace(/^(gcs|asset|storage|urn:asset):\/*/, '');
+    let clean = (targetRef || '').replace(/^(gcs|asset|storage|urn:asset):\/*/, '');
     clean = clean.replace(/^\/+/, '');
+    // Neutralize directory traversal attempts
+    clean = clean.replace(/\.\./g, '');
     const configuredBucket = this.config.bucketName;
     if (clean.startsWith(`${configuredBucket}/`)) {
       clean = clean.substring(configuredBucket.length + 1);
     }
+    // Strip leading slashes and collapse consecutive slashes
+    clean = clean.replace(/^\/+/, '').replace(/\/+/g, '/');
     return {
       bucket: configuredBucket,
       key: clean,
