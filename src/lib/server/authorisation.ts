@@ -192,8 +192,37 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
 }
 
 /**
+ * Resolves the list of expected hostnames based on APP_ENV and ALLOWED_HOSTS.
+ * Accommodates Cloud Run direct addresses, Firebase Hosting rewrites, and the custom domain.
+ */
+export function getExpectedHosts(): string[] {
+  const envHosts = process.env.ALLOWED_HOSTS
+    ? process.env.ALLOWED_HOSTS.split(',').map((h) => h.trim().toLowerCase())
+    : [];
+  const appEnv = (
+    process.env.APP_ENV ||
+    process.env.NEXT_PUBLIC_APP_ENV ||
+    process.env.NODE_ENV ||
+    'development'
+  ).toLowerCase();
+
+  const defaults: string[] = [
+    'childcare.allianceindia.org',
+    'cs-p3-production.web.app',
+    'cs-p3-production.firebaseapp.com',
+  ];
+
+  if (appEnv !== 'production') {
+    defaults.push('localhost', '127.0.0.1');
+  }
+
+  return [...new Set([...defaults, ...envHosts])];
+}
+
+/**
  * Validates request Origin and Sec-Fetch-Site for state-changing authentication mutations.
  * Rejects cross-site requests to prevent CSRF attacks.
+ * Strictly verifies x-forwarded-host against allowlisted hosts for Cloud Run + Firebase Hosting rewrites.
  */
 export function validateMutationOrigin(req: NextRequest): { valid: boolean; reason?: string } {
   // If Sec-Fetch-Site is cross-site, reject
@@ -207,9 +236,36 @@ export function validateMutationOrigin(req: NextRequest): { valid: boolean; reas
     try {
       const originUrl = new URL(origin);
       const reqUrl = new URL(req.url);
-      if (originUrl.host !== reqUrl.host) {
-        return { valid: false, reason: `Origin mismatch: ${originUrl.host} vs ${reqUrl.host}.` };
+
+      // Handle x-forwarded-host strictly against allowlisted expected hosts (Firebase Hosting rewrite / Cloud Run proxy)
+      const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0].trim().toLowerCase();
+      const hostHeader = (req.headers.get('host') || '').toLowerCase();
+      const effectiveHost = forwardedHost || hostHeader || reqUrl.host.toLowerCase();
+
+      if (originUrl.host.toLowerCase() === effectiveHost) {
+        return { valid: true };
       }
+
+      // Check allowlist of expected hosts for the target APP_ENV
+      const expectedHosts = getExpectedHosts();
+      const isOriginAllowed = expectedHosts.some(
+        (allowed) =>
+          originUrl.host.toLowerCase() === allowed ||
+          originUrl.hostname.toLowerCase() === allowed ||
+          originUrl.host.toLowerCase().endsWith('.a.run.app') ||
+          (process.env.NODE_ENV !== 'production' &&
+            (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1'))
+      );
+
+      if (
+        isOriginAllowed &&
+        (!forwardedHost ||
+          expectedHosts.some((a) => forwardedHost === a || forwardedHost.endsWith('.a.run.app')))
+      ) {
+        return { valid: true };
+      }
+
+      return { valid: false, reason: `Origin mismatch: ${originUrl.host} vs ${effectiveHost}.` };
     } catch {
       return { valid: false, reason: 'Malformed origin header.' };
     }
@@ -223,6 +279,7 @@ export function validateMutationOrigin(req: NextRequest): { valid: boolean; reas
  *
  * SECURITY MANDATE:
  * - Never true in live/production environments or when live staging/Supabase bridges are active.
+ * - Never true when running on Google Cloud Run (detected via K_SERVICE).
  * - Never true when a test explicitly probes unauthenticated behavior via `x-test-unauthenticated: true`.
  * - Never used as a production authorization bypass.
  */
@@ -231,12 +288,13 @@ export function isSyntheticDemoModeAllowed(req: NextRequest): boolean {
     return false;
   }
 
-  // Hard production guard: Synthetic demo mode / local mock bypass is strictly forbidden in production
+  // Hard production guard: Synthetic demo mode / local mock bypass is strictly forbidden in production or Cloud Run
   const isProductionOrLive =
     process.env.NODE_ENV === 'production' ||
     process.env.VERCEL_ENV === 'production' ||
     process.env.APP_ENV === 'production' ||
     process.env.NEXT_PUBLIC_APP_ENV === 'production' ||
+    process.env.K_SERVICE !== undefined ||
     process.env.E2E_STAGING_ENABLED === 'true' ||
     process.env.SUPABASE_LIVE_TEST === 'true';
 

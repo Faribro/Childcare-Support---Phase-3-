@@ -59,6 +59,8 @@ export async function GET(req: NextRequest) {
       version: '3.0.0',
       apiContractVersion: 'v3.1.0-contract',
       buildCommitSha:
+        process.env.K_REVISION ||
+        process.env.GIT_COMMIT_SHA ||
         process.env.RENDER_GIT_COMMIT ||
         process.env.GIT_COMMIT ||
         process.env.VERCEL_GIT_COMMIT_SHA ||

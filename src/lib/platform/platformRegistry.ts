@@ -103,7 +103,10 @@ class PlatformRegistryService {
 
   public resolveUrl(path: string): string {
     if (this.config.target === 'android') {
-      const envBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://childcare-support-phase-3-peqat23bz-hashcode1.vercel.app';
+      const isCloudRun = Boolean(process.env.K_SERVICE);
+      const envBase = process.env.NEXT_PUBLIC_API_BASE_URL ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        (isCloudRun ? '' : 'https://childcare-support-phase-3-peqat23bz-hashcode1.vercel.app');
       const baseUrl = this.getApiBaseUrl() || envBase;
       if (baseUrl) {
         const cleanBase = baseUrl.replace(/\/+$/, '');
@@ -116,9 +119,12 @@ class PlatformRegistryService {
 
   public getBypassHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
-    const bypass = process.env.NEXT_PUBLIC_VERCEL_PROTECTION_BYPASS;
-    if (bypass) {
-      headers['x-vercel-protection-bypass'] = bypass;
+    // Only attach Vercel protection bypass header when running on Vercel preview, never on Google Cloud Run
+    if (!process.env.K_SERVICE) {
+      const bypass = process.env.NEXT_PUBLIC_VERCEL_PROTECTION_BYPASS;
+      if (bypass) {
+        headers['x-vercel-protection-bypass'] = bypass;
+      }
     }
     return headers;
   }

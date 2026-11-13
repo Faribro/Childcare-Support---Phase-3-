@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import {
@@ -18,19 +19,30 @@ const WORKER_NO_STORE_HEADERS = {
   Pragma: 'no-cache',
 };
 
-function verifyWorkerAuthorization(req: NextRequest, webhookSecret?: string): boolean {
-  if (!webhookSecret) return false;
+function safeCompareSecrets(provided: string, expected?: string): boolean {
+  if (!expected || !provided) return false;
+  const pBuf = Buffer.from(provided);
+  const eBuf = Buffer.from(expected);
+  return pBuf.length === eBuf.length && crypto.timingSafeEqual(pBuf, eBuf);
+}
 
+function verifyWorkerAuthorization(req: NextRequest, webhookSecret?: string): boolean {
+  const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get('authorization') || '';
-  if (authHeader.toLowerCase().startsWith('bearer ')) {
-    const token = authHeader.substring(7).trim();
-    if (token === webhookSecret) return true;
-  }
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.substring(7).trim()
+    : '';
 
   const secretHeader = req.headers.get('x-webhook-secret') || '';
-  if (secretHeader.trim() === webhookSecret) return true;
+  const cronHeader = req.headers.get('x-cron-secret') || '';
 
-  return false;
+  const candidate = bearerToken || secretHeader.trim() || cronHeader.trim();
+  if (!candidate) return false;
+
+  return (
+    safeCompareSecrets(candidate, webhookSecret) ||
+    safeCompareSecrets(candidate, cronSecret)
+  );
 }
 
 function sanitizeDeadLetterJobs(jobs: SheetsMirrorJob[]) {
