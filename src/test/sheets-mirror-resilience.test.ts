@@ -22,7 +22,7 @@ describe('Reliability Review: Sheets Mirror Resilience & Structured Cloud Loggin
 
       // Prepare 60 concurrent submission payloads
       const submissions = Array.from({ length: 60 }, (_, i) => ({
-        clientSubmissionId: `sub-concurrency-${i + 1}`,
+        requestId: `req-concurrency-${i + 1}`,
         idempotencyKey: `idem-key-${i + 1}`,
         payload: {
           clientSubmissionId: `sub-concurrency-${i + 1}`,
@@ -92,7 +92,7 @@ describe('Reliability Review: Sheets Mirror Resilience & Structured Cloud Loggin
       });
 
       await adapter.createSubmission({
-        clientSubmissionId: 'sub-dead-letter-test',
+        requestId: 'req-dead-letter-test',
         idempotencyKey: 'idem-dead-letter',
         payload: {
           clientSubmissionId: 'sub-dead-letter-test',
@@ -127,7 +127,7 @@ describe('Reliability Review: Sheets Mirror Resilience & Structured Cloud Loggin
       });
 
       const firstCall = await adapter.createSubmission({
-        clientSubmissionId: 'sub-idempotent-unique-01',
+        requestId: 'req-idempotent-01',
         idempotencyKey: 'idem-first',
         payload: {
           clientSubmissionId: 'sub-idempotent-unique-01',
@@ -144,7 +144,7 @@ describe('Reliability Review: Sheets Mirror Resilience & Structured Cloud Loggin
 
       // Re-submit identical clientSubmissionId (offline client replay)
       const secondCall = await adapter.createSubmission({
-        clientSubmissionId: 'sub-idempotent-unique-01',
+        requestId: 'req-idempotent-02',
         idempotencyKey: 'idem-second',
         payload: {
           clientSubmissionId: 'sub-idempotent-unique-01',
