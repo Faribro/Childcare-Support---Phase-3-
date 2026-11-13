@@ -39,6 +39,33 @@ In production and staging environments on Cloud Run, the application operates un
    - Requires interactive confirmation.
    - Hardcoded refusal guard: strictly aborts if attempted against `(default)` database or production bucket.
 
+### Environment Variable Matrix (Names Only)
+
+| Environment Variable | Classification | Target Tier | Staging Value / Behavior | Production Value / Behavior |
+|---|---|---|---|---|
+| `APP_ENV` | REQUIRED | Container Env | `staging` | `production` |
+| `NODE_ENV` | REQUIRED | Container Env | `production` | `production` |
+| `GOOGLE_CLOUD_PROJECT` | REQUIRED | Container Env | `cs-p3-production` | `cs-p3-production` |
+| `DATA_ENGINE` | REQUIRED | Container Env | `firestore` | `firestore` |
+| `STORAGE_PROVIDER` | REQUIRED | Container Env | `gcs` | `gcs` |
+| `FIRESTORE_DATABASE_ID` | REQUIRED | Container Env | `staging` | `(default)` |
+| `GCS_BUCKET_NAME` | REQUIRED | Container Env | `cs-p3-childcare-staging` | `cs-p3-childcare-production` |
+| `GCS_SIGNING_SERVICE_ACCOUNT`| REQUIRED | Container Env | `csc-runtime@cs-p3-production...` | `csc-runtime@cs-p3-production...` |
+| `SESSION_SECRET` | REQUIRED | Secret Manager | Staging Session Secret | Production Session Secret |
+| `WEBHOOK_SECRET` | REQUIRED | Secret Manager | Staging Apps Script Webhook Key | Production Apps Script Webhook Key |
+| `ARGON2_PEPPER` | REQUIRED | Secret Manager | Cryptographic Pepper (Argon2id) | Cryptographic Pepper (Argon2id) |
+| `LEADERSHIP_AUTH_SECRET` | REQUIRED | Secret Manager | Leadership OTP Hashing Secret | Leadership OTP Hashing Secret |
+| `UNIFIED_COOKIE_SIGNING_KEY` | REQUIRED | Secret Manager | Cookie HMAC-SHA256 Signing Key | Cookie HMAC-SHA256 Signing Key |
+| `CRON_SECRET` | REQUIRED | Secret Manager | Cloud Scheduler Bearer Secret | Cloud Scheduler Bearer Secret |
+| `DIAGNOSTICS_SECRET` | REQUIRED | Secret Manager | Timing-Safe Diagnostics Secret | Timing-Safe Diagnostics Secret |
+| `APPS_SCRIPT_URL` | REQUIRED | Container Env | Staging Apps Script URL | Production Apps Script URL |
+| `COOKIE_STRATEGY` | OPTIONAL | Container Env | `unified` (Firebase Hosting) | `unified` (Firebase Hosting) |
+| `ALLOW_LIVE_EMAIL_DISPATCH` | ENVIRONMENT GUARD| Container Env | `false` (Strict mock delivery) | `true` (Live delivery to leaders) |
+| `EXPORT_DELIVERY_JOB_RETENTION_DAYS`| OPTIONAL | Container Env | `90` | `90` |
+| `LEADERSHIP_SINGLE_ACTIVE_SESSION` | OPTIONAL | Container Env | `false` (Default: multi-session) | `false` (Default: multi-session) |
+| `GOOGLE_CLIENT_ID` / `_SECRET` | OPTIONAL | Secret Manager | Staging OAuth Credentials | Production OAuth Credentials |
+| `SUPABASE_*` / `TIGRIS_*` | ROLLBACK ONLY | Legacy Vercel | Used only if rolled back | Used only if rolled back |
+
 ---
 
 ## 2. Cookie Architecture: Firebase Hosting vs. Direct Cloud Run
@@ -274,34 +301,197 @@ gcloud firestore fields ttls update expiresAt \
 
 ## 6. Staging Smoke-Test Checklist
 
-Perform these sequential verifications once `csc-staging` is deployed:
+Perform these sequential, end-to-end verifications once `csc-staging` is deployed:
 
-- [ ] **1. Health & Liveness Probes**:
+- [ ] **1. Health & Readiness Probes**:
   - Request `GET /api/health` -> verify HTTP 200, commit revision, and subsystem statuses (`firestore: ok`, `storageBucket: ok`, `appsScript: ok`).
   - Request `GET /api/ready` -> verify HTTP 200.
-- [ ] **2. Evaluation Authentication**:
+- [ ] **2. Field Worker Onboarding & Ticket Validation**:
+  - Open `/auth/field-user/onboarding` -> supply test onboarding token.
+  - Complete registration with PIN -> verify record written to Firestore `field_user_profiles`.
+- [ ] **3. State Evaluation Login & Distributed Lockout**:
   - Sign in with seeded `STATE-MH` credential -> verify session established.
-  - Attempt 5 invalid logins -> verify 429 Account Locked via distributed Firestore rate limiter.
-- [ ] **3. Leadership Email OTP Login**:
-  - Request OTP code for allowlisted leader -> verify mock/staging email dispatched.
-  - Verify code on same device -> verify session cookie (`__session` or `leader_session_id`) set with `Cache-Control: private, no-store`.
-- [ ] **4. Assessment Record Lifecycle**:
+  - Attempt 5 invalid logins from an IP -> verify HTTP 429 Account Locked via distributed Firestore rate limiter (`auth_attempts` and `auth_lockouts`).
+- [ ] **4. Leadership Passwordless Email OTP Login**:
+  - Request OTP code for allowlisted leader -> verify mock/staging email logged.
+  - Verify OTP code on the same browser device -> verify unified `__session` cookie set with `Cache-Control: private, no-store`.
+  - Confirm single active session behavior (configurable via `LEADERSHIP_SINGLE_ACTIVE_SESSION`).
+- [ ] **5. Beneficiary Assessment Intake**:
   - Create beneficiary submission in Maharashtra -> verify record saved to Firestore `submissions`.
-  - Confirm duplicate prevention and idempotency key handling.
-- [ ] **5. File Upload & GCS Enforcement**:
-  - Upload child photo and consent document -> verify keyless V4 signed URL generated by `csc-runtime`.
-  - Confirm `x-goog-content-length-range` enforces 3 MB ceiling on Google Cloud Storage.
-- [ ] **6. Upstream Google Sheets Mirroring**:
-  - Verify new record is asynchronously forwarded to Google Sheets via Apps Script web app.
-  - Simulate Apps Script temporary outage -> verify record enqueued in Firestore `sheets_mirror_retry_queue`.
-- [ ] **7. Cloud Scheduler Cron Execution**:
-  - Invoke `POST /api/workers/cron` with `Authorization: Bearer <CRON_SECRET>` -> verify HTTP 200 and retry queue drained.
-- [ ] **8. Export Security & Audit Logging**:
-  - Initiate report export -> verify confirmation token created, job recorded, and audit log written to `export_audit_events`.
+  - Re-send same `clientSubmissionId` -> verify duplicate is acknowledged idempotently without double-counting.
+- [ ] **6. Offline Queue & Client Reconnect Sync**:
+  - In browser devtools, toggle **Offline Mode**.
+  - Submit a new assessment draft -> confirm saved to IndexedDB local queue.
+  - Toggle **Online Mode** -> confirm client sync worker automatically replays and drains to `/api/submissions`.
+- [ ] **7. Document Upload & GCS Keyless Signed URLs**:
+  - Upload child photo (JPEG) and consent document (PDF) -> verify keyless V4 signed PUT URL generated by `csc-runtime`.
+  - Confirm `x-goog-content-length-range` enforces 3 MB ceiling directly on Google Cloud Storage.
+  - View uploaded attachment -> confirm signed GET URL renders document securely with 15-minute expiry.
+- [ ] **8. Supervisor Dashboard & Paginated Linelist**:
+  - Access `/supervisor/assessments` -> verify paginated query executes with `limit=100`.
+  - Verify geographic access scoping: Maharashtra supervisor only sees Maharashtra records.
+- [ ] **9. Report Export & Audit Trail**:
+  - Initiate report export from supervisor portal -> verify confirmation token generated.
+  - Confirm export download -> verify event logged permanently to `export_audit_events`.
+- [ ] **10. Secondary Sheets Mirror & Resilient Outage Replay**:
+  - Check Google Sheet mirror -> verify new row appears with all 85 columns populated.
+  - Temporarily disable Apps Script webhook -> submit new survey -> verify submission returns HTTP 200 `acknowledged: true` with `PENDING_SHEET_SYNC` status.
+  - Verify failed mirror job is queued in Firestore `sheets_mirror_retry_queue`.
+  - Re-enable Apps Script webhook -> invoke `POST /api/workers/cron` with `x-cron-auth: <CRON_SECRET>` -> verify retry queue drains to `SYNCED`.
 
 ---
 
-## 8. Next.js Route Verification & Inventory
+## 7. Production Cutover Sequence
+
+Execute the production cutover during the scheduled maintenance window (recommended: Sunday 02:00 – 04:00 IST):
+
+```mermaid
+flowchart TD
+    A["1. Pre-Cutover Freeze & Safety Backup"] --> B["2. Build & Deploy Production Container (csc-production)"]
+    B --> C["3. Seed Production Credentials & Leaders"]
+    C --> D["4. Smoke-Test csc-production Directly"]
+    D --> E["5. Switch Firebase Hosting Ingress to Production"]
+    E --> F["6. Final Smoke Tests on Production Domain"]
+```
+
+### Phase 1: Pre-Cutover Freeze & Safety Backup
+1. Notify field teams of the 2-hour maintenance window.
+2. Run read-only Google Sheets safety backup:
+   ```powershell
+   bun run scripts/export-sheets-backup.ts
+   ```
+3. Confirm backup JSON file is safely archived locally.
+
+### Phase 2: Production Container Build & Deploy
+1. Build production image using `cloudbuild.production.yaml`:
+   ```powershell
+   gcloud builds submit --config=cloudbuild.production.yaml --substitutions=_GIT_COMMIT_SHA="$(git rev-parse --short HEAD)" --project=cs-p3-production
+   ```
+2. Deploy Cloud Run service `csc-production`:
+   ```powershell
+   gcloud run deploy csc-production `
+     --image="asia-south1-docker.pkg.dev/cs-p3-production/csc-containers/csc-production:latest" `
+     --region=asia-south1 `
+     --platform=managed `
+     --allow-unauthenticated `
+     --service-account=csc-runtime@cs-p3-production.iam.gserviceaccount.com `
+     --min-instances=1 `
+     --max-instances=5 `
+     --memory=1Gi `
+     --cpu=1 `
+     --cpu-throttling `
+     --port=8080 `
+     --set-env-vars="APP_ENV=production,DATA_ENGINE=firestore,STORAGE_PROVIDER=gcs,FIRESTORE_DATABASE_ID=(default),GCS_BUCKET_NAME=cs-p3-childcare-production,COOKIE_STRATEGY=unified,ALLOW_LIVE_EMAIL_DISPATCH=true" `
+     --set-secrets="SESSION_SECRET=SESSION_SECRET:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest,ARGON2_PEPPER=ARGON2_PEPPER:latest,LEADERSHIP_AUTH_SECRET=LEADERSHIP_AUTH_SECRET:latest,UNIFIED_COOKIE_SIGNING_KEY=UNIFIED_COOKIE_SIGNING_KEY:latest,CRON_SECRET=CRON_SECRET:latest,DIAGNOSTICS_SECRET=DIAGNOSTICS_SECRET:latest" `
+     --project=cs-p3-production
+   ```
+
+### Phase 3: Seed Production Credentials
+1. Seed initial production evaluation accounts and leadership allowlist:
+   ```powershell
+   $env:APP_ENV="production"
+   $env:FIRESTORE_DATABASE_ID="(default)"
+
+   bun run scripts/seed-credentials.ts --input=production-credentials.json --confirm-production --execute
+   bun run scripts/seed-leader-identities.ts --input=production-leaders.json --confirm-production --execute
+   ```
+2. Distribute generated one-time passwords securely to state evaluation coordinators.
+
+### Phase 4: Ingress Traffic Switch
+1. Update `firebase.json` hosting rewrites to point to `csc-production`:
+   ```json
+   "rewrites": [
+     {
+       "source": "**",
+       "run": {
+         "serviceId": "csc-production",
+         "region": "asia-south1"
+       }
+     }
+   ]
+   ```
+2. Deploy Firebase Hosting configuration:
+   ```powershell
+   firebase deploy --only hosting --project=cs-p3-production
+   ```
+3. Production domain `childcare.allianceindia.org` is now served by Cloud Run.
+
+---
+
+## 8. Emergency Rollback Runbook
+
+If fatal issues occur during production validation, execute rollback immediately.
+
+### Rollback Decision Criteria
+- Beneficiary submissions fail to write to Firestore (>2% failure rate over 15 minutes).
+- GCS signed URL generation fails or document uploads corrupt.
+- Critical unresolvable authentication failures across multiple states.
+
+### Rollback Target Stack
+- **Vercel Deployment**: Commit `520f1a4` (frozen, operational).
+- **Database**: Supabase `rjrctsxdvkfkssqvmhbz`.
+- **Storage**: Tigris S3 bucket.
+- **Upstream Mirror**: Apps Script Version 35.
+
+### Instant Rollback Steps (Estimated Time: < 5 Minutes)
+1. **Revert Public Ingress to Legacy Vercel**:
+   - In DNS management console for `allianceindia.org`, switch CNAME from Firebase Hosting to Vercel:
+     ```
+     CNAME childcare.allianceindia.org -> cname.vercel-dns.com
+     ```
+   - Alternatively, in Firebase Hosting `firebase.json`, rewrite traffic back to legacy URL.
+2. **Verify Legacy Vercel Deployment**:
+   - Access `https://childcare.allianceindia.org/api/health` -> verify legacy Vercel backend response.
+3. **Capture Diagnostics & Error Logs for Analysis**:
+   ```powershell
+   gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=csc-production AND severity>=ERROR" `
+     --limit=100 --project=cs-p3-production > rollback-incident-logs.txt
+   ```
+4. **Data Reconciliation**:
+   - Any records created in Firestore during the brief window can be exported via `FirestoreSubmissionAdapter.listSubmissions` and reconciled into the Google Sheet.
+
+---
+
+## 9. First-Week Operational Monitoring & Cloud Logging Guide
+
+During the first 7 days post-cutover, monitor Google Cloud Console daily using these pre-filtered Cloud Logging queries:
+
+### A. High-Severity Error Filter
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="csc-production"
+severity>=ERROR
+```
+
+### B. Authentication Lockout & Security Events
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="csc-production"
+jsonPayload.event="SECURITY_EVENT" OR jsonPayload.message=~"Account locked"
+```
+
+### C. Secondary Sheets Mirror Failures
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="csc-production"
+jsonPayload.message=~"Apps Script sync failed" OR jsonPayload.event="MIRROR_FAILURE"
+```
+
+### D. Dead-Letter Retry Queue Items
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="csc-production"
+jsonPayload.status="DEAD_LETTER"
+```
+
+### E. Recommended Cloud Monitoring Alert Policies
+1. **Cloud Run Error Rate Alert**: Trigger P1 alert if 5xx error rate > 1% over a 5-minute rolling window.
+2. **Cloud Run Container Latency Alert**: Trigger P2 alert if p95 response time > 2,500 ms over 10 minutes.
+3. **Cloud Run Memory Utilization Alert**: Trigger P2 alert if container memory > 80% (819 MB).
+
+---
+
+## 10. Next.js Route Verification & Inventory
 
 A comprehensive route audit was conducted comparing standalone builds across all phases. Next.js prerenders **20 static content pages (`○`)**, **7 dynamic server-rendered pages (`ƒ`)**, and **39 dynamic API endpoints**, confirming **zero routes were lost** during the GCP migration:
 
@@ -335,13 +525,13 @@ All 39 API routes across auth, admin, submissions, geocode, health, sync, and ba
 
 ---
 
-## 9. Post-Cutover Cleanup Runbook (For the Project Owner)
+## 11. Post-Cutover Cleanup Runbook (For the Project Owner)
 
-After final production verification of Google Cloud Platform:
+After final production verification of Google Cloud Platform (7 days post-cutover):
 
 1. **Safety Backup**: Run `bun scripts/export-sheets-backup.ts` to archive a final read-only snapshot of legacy Google Sheets data.
-2. **Pause Supabase**: In Supabase Project Dashboard (`rjrctsxdvkfkssqvmhbz`), go to **Settings -> General** and select **Pause Project** to cease database usage.
-3. **Reset Legacy Google Sheet**: Clear data rows from the historical Google Sheet, leaving all **85 canonical column headers intact**.
+2. **Pause Supabase**: In Supabase Project Dashboard (`rjrctsxdvkfkssqvmhbz`), go to **Settings -> General** and select **Pause Project** to cease database usage and prevent accidental modifications.
+3. **Reset Legacy Google Sheet**: Clear test data rows from the historical Google Sheet, leaving all **85 canonical column headers intact**.
 4. **Empty Legacy Tigris Bucket**: Empty and delete the Tigris S3 bucket, then revoke the corresponding AWS access keys.
 5. **Deactivate Legacy Vercel Deployment**: In Vercel Project Dashboard, cancel active builds and archive the project.
 6. **Rotate Secrets**: Rotate `SESSION_SECRET`, `WEBHOOK_SECRET`, `APPS_SCRIPT_DISPATCH_SECRET`, and `CRON_SECRET` in Google Cloud Secret Manager.
