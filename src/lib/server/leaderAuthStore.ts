@@ -1260,18 +1260,21 @@ export class FirestoreLeaderAuthStore implements LeaderAuthStore {
       await transaction.set(challengeRef, { ...challenge, isUsed: true });
 
       // Revoke any prior active session for this leader across all instances (Single Active Session)
-      const priorSessionsQuery = await db.collection(LEADERSHIP_SESSIONS_COLLECTION)
-        .where('leaderId', '==', params.leader.id)
-        .get();
+      const shouldRevokePrior = process.env.LEADERSHIP_SINGLE_ACTIVE_SESSION !== 'false';
+      if (shouldRevokePrior) {
+        const priorSessionsQuery = await db.collection(LEADERSHIP_SESSIONS_COLLECTION)
+          .where('leaderId', '==', params.leader.id)
+          .get();
 
-      for (const priorDoc of priorSessionsQuery.docs || []) {
-        const pData = priorDoc.data();
-        if (!pData.isRevoked) {
-          await db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(priorDoc.id).set({
-            ...pData,
-            isRevoked: true,
-            revokedAt: params.now,
-          });
+        for (const priorDoc of priorSessionsQuery.docs || []) {
+          const pData = priorDoc.data();
+          if (!pData.isRevoked) {
+            await db.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(priorDoc.id).set({
+              ...pData,
+              isRevoked: true,
+              revokedAt: params.now,
+            });
+          }
         }
       }
 
@@ -1316,6 +1319,16 @@ export class FirestoreLeaderAuthStore implements LeaderAuthStore {
 
     const r = snap.data();
     if (r.isRevoked) return null;
+
+    const now = Date.now();
+    const absExpiry = typeof r.absoluteExpiresAt === 'number' ? r.absoluteExpiresAt : parseTimestamp(r.absoluteExpiresAt);
+    if (absExpiry && now > absExpiry) {
+      return null;
+    }
+    const lastActivity = typeof r.lastActivityAt === 'number' ? r.lastActivityAt : parseTimestamp(r.lastActivityAt);
+    if (lastActivity && (now - lastActivity > LEADER_IDLE_TIMEOUT_MS)) {
+      return null;
+    }
 
     return {
       sessionId: r.sessionId,

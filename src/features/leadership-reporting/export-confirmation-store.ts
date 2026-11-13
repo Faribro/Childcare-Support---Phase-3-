@@ -802,10 +802,15 @@ export class FirestoreExportConfirmationStore implements IExportConfirmationStor
         queuedAt: nowIso,
       };
 
+      const retentionDays = process.env.EXPORT_DELIVERY_JOB_RETENTION_DAYS
+        ? parseInt(process.env.EXPORT_DELIVERY_JOB_RETENTION_DAYS, 10)
+        : 90;
+      const jobRetentionMs = (isNaN(retentionDays) ? 90 : retentionDays) * 24 * 60 * 60 * 1000;
+
       const jobRef = db.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(jobId);
       await transaction.set(jobRef, {
         ...job,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Firestore TTL field (7 days retention)
+        expiresAt: new Date(Date.now() + jobRetentionMs), // Configurable retention (default 90 days)
       });
 
       return {

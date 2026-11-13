@@ -881,4 +881,328 @@ describe('Phase B: Firestore Distributed Stores & Multi-Instance Synchronization
       expect(json.data[0].state).toBe('Maharashtra');
     });
   });
+
+  // ==========================================================================
+  // 9. In-Code Expiration Guards & Configurable Single Session (Phase B Follow-ups)
+  // ==========================================================================
+  describe('9. In-Code Expiration Guards & Configurable Single Session (Phase B Follow-ups)', () => {
+    it('rejects expired-but-not-yet-deleted leader OTP challenges in all read & consume paths', async () => {
+      const store = new FirestoreLeaderAuthStore(sharedMockDb);
+      const challengeId = 'expired-otp-challenge-01';
+      const plainOtp = '123456';
+      const codeHash = crypto.createHash('sha256').update(plainOtp).digest('hex');
+      const expiredTimestamp = Date.now() - 5000; // 5 seconds in the past
+
+      await sharedMockDb.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(challengeId).set({
+        challengeId,
+        leaderId: testLeader.id,
+        email: testLeader.email,
+        codeHash,
+        deviceBindingHash: 'dev-hash-01',
+        userAgentHash: 'ua-hash-01',
+        ip: TEST_IP,
+        createdAt: expiredTimestamp - 600000,
+        expiresAt: new Date(expiredTimestamp).toISOString(),
+        failedAttempts: 0,
+        isUsed: false,
+        isLocked: false,
+      });
+
+      // 1. getPendingChallenge by email must reject expired document
+      const pendingByEmail = await store.getPendingChallenge(testLeader.email);
+      expect(pendingByEmail).toBeNull();
+
+      // 2. getPendingChallengeById must reject expired document
+      const pendingById = await store.getPendingChallengeById(challengeId);
+      expect(pendingById).toBeNull();
+
+      // 3. consumeChallengeAndCreateSession must reject expired document
+      const consumeRes = await store.consumeChallengeAndCreateSession({
+        challengeId,
+        submittedCodeHash: codeHash,
+        deviceBindingHash: 'dev-hash-01',
+        leader: testLeader,
+        now: Date.now(),
+        absoluteLifetimeMs: 8 * 60 * 60 * 1000,
+      });
+      expect(consumeRes.success).toBe(false);
+      expect(consumeRes.statusCode).toBe(401);
+      expect(consumeRes.error).toContain('expired');
+    });
+
+    it('rejects expired-but-not-yet-deleted leadership sessions in getSession (absolute and idle)', async () => {
+      const store = new FirestoreLeaderAuthStore(sharedMockDb);
+
+      // A. Absolute lifetime expired
+      const expiredSessionId = 'expired-session-01';
+      await sharedMockDb.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(expiredSessionId).set({
+        sessionId: expiredSessionId,
+        leaderId: testLeader.id,
+        email: testLeader.email,
+        name: testLeader.name,
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        authVersion: 1,
+        deviceBindingHash: 'dev-hash',
+        createdAt: Date.now() - 9 * 60 * 60 * 1000,
+        lastActivityAt: Date.now() - 5 * 60 * 1000,
+        absoluteExpiresAt: Date.now() - 10000, // Expired 10s ago
+        isRevoked: false,
+      });
+
+      const sessionA = await store.getSession(expiredSessionId);
+      expect(sessionA).toBeNull();
+
+      // B. Idle timeout expired (30m limit)
+      const idleSessionId = 'idle-timeout-session-01';
+      await sharedMockDb.collection(LEADERSHIP_SESSIONS_COLLECTION).doc(idleSessionId).set({
+        sessionId: idleSessionId,
+        leaderId: testLeader.id,
+        email: testLeader.email,
+        name: testLeader.name,
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        authVersion: 1,
+        deviceBindingHash: 'dev-hash',
+        createdAt: Date.now() - 60 * 60 * 1000,
+        lastActivityAt: Date.now() - 35 * 60 * 1000, // 35 minutes idle (> 30m)
+        absoluteExpiresAt: Date.now() + 7 * 60 * 60 * 1000, // Absolute expiry still valid
+        isRevoked: false,
+      });
+
+      const sessionB = await store.getSession(idleSessionId);
+      expect(sessionB).toBeNull();
+    });
+
+    it('rejects expired-but-not-yet-deleted state team invitations in find and redeem paths', async () => {
+      const store = new FirestoreOnboardingStore(sharedMockDb);
+      const pair = createInvitationVerifierPair('EXP-STATE-2026');
+      const invitationId = 'inv-expired-01';
+      const expiredMs = Date.now() - 5000;
+
+      await sharedMockDb.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(invitationId).set({
+        id: invitationId,
+        stateTeamId: 'st-01',
+        state: 'KARNATAKA',
+        codeSalt: pair.salt,
+        codeVerifier: pair.verifier,
+        redemptionCount: 0,
+        maxRedemptions: 5,
+        status: 'ACTIVE',
+        expiresAt: expiredMs,
+      });
+
+      // 1. findAndValidateInvitation skips expired
+      const validateRes = await store.findAndValidateInvitation('EXP-STATE-2026', 'KARNATAKA');
+      expect(validateRes.valid).toBe(false);
+
+      // 2. atomicRedeemInvitation rejects expired
+      const atomicRes = await store.atomicRedeemInvitation(invitationId);
+      expect(atomicRes.success).toBe(false);
+      expect(atomicRes.error).toContain('expired');
+
+      // 3. redeemInvitation rejects expired
+      const redeemRes = await store.redeemInvitation(invitationId, 'EXP-STATE-2026');
+      expect(redeemRes.success).toBe(false);
+      expect(redeemRes.statusCode).toBe(400);
+      expect(redeemRes.error).toContain('expired');
+    });
+
+    it('rejects expired-but-not-yet-deleted state team challenges in getStateTeamChallenge', async () => {
+      const store = new FirestoreOnboardingStore(sharedMockDb);
+      const email = 'coordinator.expired@example.org';
+      const docId = sanitizeIpForDocId(email);
+
+      await sharedMockDb.collection(STATE_TEAM_CHALLENGES_COLLECTION).doc(docId).set({
+        workEmail: email,
+        codeHash: 'hash-abc',
+        expiresAt: new Date(Date.now() - 5000).toISOString(),
+        expiresAtMs: Date.now() - 5000,
+        failedAttempts: 0,
+        isLocked: false,
+      });
+
+      const challenge = await store.getStateTeamChallenge(email);
+      expect(challenge).toBeNull();
+    });
+
+    it('rejects expired export preview contracts in consumeConfirmationTokenAtomic', async () => {
+      const store = new FirestoreExportConfirmationStore(sharedMockDb);
+      const exportId = 'exp-expired-01';
+      const parametersHash = 'hash-xyz';
+
+      await sharedMockDb.collection(EXPORT_PREVIEW_CONTRACTS_COLLECTION).doc(exportId).set({
+        token: 'token-xyz',
+        exportId,
+        reportType: 'DISTRICT_SUMMARY',
+        recipientUserId: 'user-01',
+        recipientEmailMasked: 'u***@example.com',
+        immutableParametersHash: parametersHash,
+        confirmationCode: '4829',
+        expiresAt: new Date(Date.now() - 5000).toISOString(),
+        expiresAtMs: Date.now() - 5000,
+        isConsumed: false,
+      });
+
+      const res = await store.consumeConfirmationTokenAtomic({
+        exportId,
+        parametersHash,
+        userId: 'user-01',
+        userConfirmationText: 'CONFIRM 4829',
+        caller: {
+          userId: 'user-01',
+          role: 'STATE_LEAD',
+          permittedStates: ['MAHARASHTRA'],
+        },
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.status).toBe('EXPIRED');
+    });
+
+    it('supports configurable single active session via LEADERSHIP_SINGLE_ACTIVE_SESSION', async () => {
+      const store = new FirestoreLeaderAuthStore(sharedMockDb);
+
+      // Create challenge 1 & session 1
+      const c1 = 'c1';
+      const c1Hash = crypto.createHash('sha256').update('111111').digest('hex');
+      await sharedMockDb.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(c1).set({
+        challengeId: c1,
+        leaderId: testLeader.id,
+        email: testLeader.email,
+        codeHash: c1Hash,
+        deviceBindingHash: 'dev-1',
+        createdAt: Date.now(),
+        expiresAt: new Date(Date.now() + 600000).toISOString(),
+        failedAttempts: 0,
+        isUsed: false,
+        isLocked: false,
+      });
+
+      const s1Res = await store.consumeChallengeAndCreateSession({
+        challengeId: c1,
+        submittedCodeHash: c1Hash,
+        deviceBindingHash: 'dev-1',
+        leader: testLeader,
+        now: Date.now(),
+        absoluteLifetimeMs: 8 * 60 * 60 * 1000,
+      });
+      expect(s1Res.success).toBe(true);
+      const s1Id = s1Res.session!.sessionId;
+
+      // Now create challenge 2 with LEADERSHIP_SINGLE_ACTIVE_SESSION = 'false'
+      process.env.LEADERSHIP_SINGLE_ACTIVE_SESSION = 'false';
+
+      const c2 = 'c2';
+      const c2Hash = crypto.createHash('sha256').update('222222').digest('hex');
+      await sharedMockDb.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(c2).set({
+        challengeId: c2,
+        leaderId: testLeader.id,
+        email: testLeader.email,
+        codeHash: c2Hash,
+        deviceBindingHash: 'dev-2',
+        createdAt: Date.now(),
+        expiresAt: new Date(Date.now() + 600000).toISOString(),
+        failedAttempts: 0,
+        isUsed: false,
+        isLocked: false,
+      });
+
+      const s2Res = await store.consumeChallengeAndCreateSession({
+        challengeId: c2,
+        submittedCodeHash: c2Hash,
+        deviceBindingHash: 'dev-2',
+        leader: testLeader,
+        now: Date.now(),
+        absoluteLifetimeMs: 8 * 60 * 60 * 1000,
+      });
+      expect(s2Res.success).toBe(true);
+
+      // When false, session 1 MUST still be active
+      const s1Check = await store.getSession(s1Id);
+      expect(s1Check).not.toBeNull();
+      expect(s1Check?.sessionId).toBe(s1Id);
+
+      // Now set LEADERSHIP_SINGLE_ACTIVE_SESSION = 'true' (or default) and log in again
+      process.env.LEADERSHIP_SINGLE_ACTIVE_SESSION = 'true';
+
+      const c3 = 'c3';
+      const c3Hash = crypto.createHash('sha256').update('333333').digest('hex');
+      await sharedMockDb.collection(LEADER_OTP_CHALLENGES_COLLECTION).doc(c3).set({
+        challengeId: c3,
+        leaderId: testLeader.id,
+        email: testLeader.email,
+        codeHash: c3Hash,
+        deviceBindingHash: 'dev-3',
+        createdAt: Date.now(),
+        expiresAt: new Date(Date.now() + 600000).toISOString(),
+        failedAttempts: 0,
+        isUsed: false,
+        isLocked: false,
+      });
+
+      const s3Res = await store.consumeChallengeAndCreateSession({
+        challengeId: c3,
+        submittedCodeHash: c3Hash,
+        deviceBindingHash: 'dev-3',
+        leader: testLeader,
+        now: Date.now(),
+        absoluteLifetimeMs: 8 * 60 * 60 * 1000,
+      });
+      expect(s3Res.success).toBe(true);
+
+      // S1 and S2 should now both be revoked
+      const s1AfterRevoke = await store.getSession(s1Id);
+      expect(s1AfterRevoke).toBeNull();
+      const s2AfterRevoke = await store.getSession(s2Res.session!.sessionId);
+      expect(s2AfterRevoke).toBeNull();
+    });
+
+    it('sets export_delivery_jobs TTL based on EXPORT_DELIVERY_JOB_RETENTION_DAYS (default 90 days)', async () => {
+      const store = new FirestoreExportConfirmationStore(sharedMockDb);
+      const exportId = 'exp-ttl-01';
+      const parametersHash = 'hash-ttl';
+
+      await sharedMockDb.collection(EXPORT_PREVIEW_CONTRACTS_COLLECTION).doc(exportId).set({
+        token: 'token-ttl',
+        exportId,
+        reportType: 'STATE_SUMMARY',
+        recipientUserId: 'u-01',
+        recipientEmailMasked: 'u@example.com',
+        immutableParametersHash: parametersHash,
+        confirmationCode: '9999',
+        expiresAt: new Date(Date.now() + 600000).toISOString(),
+        expiresAtMs: Date.now() + 600000,
+        isConsumed: false,
+      });
+
+      process.env.EXPORT_DELIVERY_JOB_RETENTION_DAYS = '60';
+
+      const res = await store.consumeConfirmationTokenAtomic({
+        exportId,
+        parametersHash,
+        userId: 'u-01',
+        userConfirmationText: 'CONFIRM 9999',
+        caller: {
+          userId: 'u-01',
+          role: 'STATE_LEAD',
+          permittedStates: ['DELHI'],
+        },
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.job).toBeDefined();
+
+      const jobDoc = await sharedMockDb.collection(EXPORT_DELIVERY_JOBS_COLLECTION).doc(res.job!.jobId).get();
+      expect(jobDoc.exists).toBe(true);
+      const data = jobDoc.data();
+      expect(data.expiresAt).toBeDefined();
+
+      const expiresTime = new Date(data.expiresAt).getTime();
+      const expectedApprox = Date.now() + 60 * 24 * 60 * 60 * 1000;
+      expect(Math.abs(expiresTime - expectedApprox)).toBeLessThan(5000);
+    });
+  });
 });

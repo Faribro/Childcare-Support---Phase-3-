@@ -1808,14 +1808,16 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       if (!snap.exists) return { success: false, error: 'Invitation not found' };
 
       const inv = snap.data() as StateTeamInvitation;
+      if (Date.now() > inv.expiresAt || inv.status === 'EXPIRED') {
+        if (inv.status !== 'EXPIRED') {
+          await transaction.set(docRef, { ...inv, status: 'EXPIRED', updatedAt: Date.now() });
+        }
+        return { success: false, error: 'Invitation has expired' };
+      }
       if (inv.redemptionCount !== undefined && inv.maxRedemptions !== undefined && inv.redemptionCount >= inv.maxRedemptions) {
         return { success: false, error: 'This invitation code has been fully redeemed (maximum redemptions reached).' };
       }
       if (inv.status !== 'ACTIVE') return { success: false, error: 'Invitation is not active' };
-      if (Date.now() > inv.expiresAt) {
-        await transaction.set(docRef, { ...inv, status: 'EXPIRED', updatedAt: Date.now() });
-        return { success: false, error: 'Invitation has expired' };
-      }
 
       const nextRedemptions = (inv.redemptionCount || 0) + 1;
 
@@ -1845,13 +1847,14 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       }
 
       const inv = snap.data() as StateTeamInvitation;
+      if (Date.now() > inv.expiresAt || inv.status === 'EXPIRED') {
+        if (inv.status !== 'EXPIRED') {
+          await transaction.set(docRef, { ...inv, status: 'EXPIRED', updatedAt: Date.now() });
+        }
+        return { success: false, error: 'Invitation has expired', statusCode: 400 };
+      }
       if (inv.status !== 'ACTIVE') {
         return { success: false, error: 'Invitation is not active', statusCode: 400 };
-      }
-
-      if (Date.now() > inv.expiresAt) {
-        await transaction.set(docRef, { ...inv, status: 'EXPIRED', updatedAt: Date.now() });
-        return { success: false, error: 'Invitation has expired', statusCode: 400 };
       }
 
       if (!verifyInvitationCode(plainCode, inv.codeSalt, inv.codeVerifier)) {

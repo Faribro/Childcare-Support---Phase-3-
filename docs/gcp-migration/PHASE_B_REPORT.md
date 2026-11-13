@@ -155,3 +155,92 @@ firebase deploy --only firestore:indexes --project=cs-p3-production
 3. **Environment Isolation Guard**:
    - *Risk*: Accidental writes from staging into the production `(default)` database.
    - *Mitigation*: Hard runtime guard in `validateFirestoreDatabaseEnvironment` halts execution immediately if `APP_ENV=staging` is run against `(default)` or `APP_ENV=production` is run against `staging`.
+
+---
+
+## 6. Phase B Follow-ups & Verifications
+
+### 1. Multi-Database `firebase.json` & Deployment Commands
+`firebase.json` was created with a `firestore` array targeting both databases:
+```json
+{
+  "firestore": [
+    {
+      "database": "(default)",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    },
+    {
+      "database": "staging",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ],
+  "hosting": {
+    "public": "public",
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "csc-staging",
+          "region": "asia-south1"
+        }
+      }
+    ]
+  }
+}
+```
+**Exact deployment commands for the owner (document only, do not run):**
+```bash
+# Deploy security rules to both databases defined in firebase.json
+firebase deploy --only firestore:rules --project=cs-p3-production
+
+# Deploy composite indexes to both databases defined in firebase.json
+firebase deploy --only firestore:indexes --project=cs-p3-production
+
+# To deploy hosting rewrite for staging
+firebase deploy --only hosting --project=cs-p3-production
+```
+
+### 2. Single Active Session Parity & Configurable Flag
+- **Pre-Migration Parity**: Confirmed that PostgreSQL migration `003_leadership_email_auth.sql` (lines 386-391) and `MemoryLeaderAuthStore` (lines 429-437) both explicitly revoked prior active sessions when a new session was created (`UPDATE leader_sessions SET is_revoked = TRUE`).
+- **Configurability**: Controlled by `LEADERSHIP_SINGLE_ACTIVE_SESSION !== 'false'` (defaults to `true`, matching pre-migration behavior). When set to `'false'`, multiple concurrent active sessions for the same leader identity are permitted across devices.
+
+### 3. In-Code Expiration Enforcement (Read Paths)
+Firestore TTL deletion runs in the background and can take up to 24–72 hours to remove expired documents. Every application read path explicitly checks timestamps and fails closed even if the document still physically exists:
+- `leader_otp_challenges`: `getPendingChallenge`, `getPendingChallengeById`, `consumeChallengeAndCreateSession` reject if `Date.now() > parseTimestamp(expiresAt)` (returns null / 401).
+- `leadership_sessions`: `getSession` rejects if `Date.now() > absoluteExpiresAt` or `Date.now() - lastActivityAt > LEADER_IDLE_TIMEOUT_MS` (returns null / 401).
+- `state_team_invitations`: `findAndValidateInvitation`, `atomicRedeemInvitation`, `redeemInvitation` reject if `Date.now() > expiresAt` or `status === 'EXPIRED'` (returns 400/401 with `'Invitation has expired'`).
+- `state_team_challenges`: `getStateTeamChallenge` rejects if `Date.now() > parseTimestamp(expiresAt)` (returns null).
+- `export_preview_contracts`: `consumeConfirmationTokenAtomic` rejects if `Date.now() > parseTimestamp(expiresAt)` (returns `'EXPIRED'`).
+
+### 4. Export Delivery Job Retention & Permanent Audit Policy
+- `export_delivery_jobs`: Configured via `EXPORT_DELIVERY_JOB_RETENTION_DAYS` (defaults to **90 days**, extended from 7 days).
+- **Permanent Export Audit Data**:
+  - Structured `[SECURITY_AUDIT]` events are output directly to stdout / Cloud Logging as immutable JSON objects containing `immutableParametersHash`, `reportType`, `recipientUserId`, `actor`, and timestamps. In Cloud Logging, these are immutable and governed by log retention policies.
+  - The secondary mirror Google Sheet retains all export audit rows permanently with zero expiration.
+
+### 5. Phase D Migration Plan Additions & Starting Fresh Decision
+All existing data in Supabase, the production Sheet, and Tigris is dummy test data. Migration starts fresh on Google Cloud:
+- Migration scripts (`migrate-supabase-to-firestore`, `migrate-sheets-to-firestore`, `migrate-tigris-to-gcs`, `verify-migration`) are dropped.
+- Safety export script `scripts/export-sheets-backup` is retained as read-only.
+- Added seed and reset utilities for Phase D:
+  - `scripts/seed-credentials.ts`: creates evaluation credentials from local JSON, printing one-time random passwords to the terminal only.
+  - `scripts/seed-leader-identities.ts`: seeds allowlisted leadership identities (`leader_identities`).
+  - `scripts/reset-staging.ts`: wipes only the `staging` Firestore database and staging bucket objects with interactive confirmation, strictly refusing to touch `(default)` or production bucket.
+  - Smoke-test checklist and post-cutover cleanup instructions.
+
+### 6. Google OAuth Redirect URIs
+In Google Cloud Console under **APIs & Services > Credentials > OAuth 2.0 Client IDs**:
+Authorized Redirect URIs to register:
+- Staging Firebase Hosting: `https://cs-p3-production.web.app/api/auth/google/callback`
+- Staging Firebase Hosting (alt): `https://cs-p3-production.firebaseapp.com/api/auth/google/callback`
+- Staging Direct Cloud Run: `https://csc-staging-<HASH>-el.a.run.app/api/auth/google/callback`
+- Production Domain: `https://childcare.allianceindia.org/api/auth/google/callback`
+- Local Development: `http://localhost:3000/api/auth/google/callback`
+
+Environment variables involved:
+- `GOOGLE_CLIENT_ID`: OAuth Client ID (Plain config)
+- `GOOGLE_CLIENT_SECRET`: OAuth Client Secret (Secret Manager)
+- `NEXT_PUBLIC_APP_URL` / `APP_BASE_URL`: Public base URL used for callback reconstruction
+
