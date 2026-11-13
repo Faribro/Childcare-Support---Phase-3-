@@ -404,6 +404,16 @@ export class FirestoreSubmissionAdapter {
   }
 
   /**
+   * Alias for replaySheetsMirrorRetryQueue matching worker terminology.
+   */
+  public async drainSheetsMirrorRetryQueue(
+    batchSize: number = 25,
+    referenceTimeIso?: string
+  ): Promise<{ processed: number; succeeded: number; failed: number }> {
+    return this.replaySheetsMirrorRetryQueue(batchSize, referenceTimeIso);
+  }
+
+  /**
    * UPDATE: Updates submission in Firestore and mirrors patch to Sheets.
    */
   public async updateSubmission(
