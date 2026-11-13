@@ -360,7 +360,20 @@ export async function authenticateUser(
   }
 
   // Rate limiting check
-  const rateCheck = checkRateLimit(cleanIdentifier, clientIp);
+  let rateCheck: any = null;
+  try {
+    rateCheck = await checkRateLimit(cleanIdentifier, clientIp);
+  } catch (err: any) {
+    if (err?.statusCode === 503 || err?.message === 'DATABASE_UNAVAILABLE') {
+      return {
+        success: false,
+        error: 'Authentication service temporarily unavailable. Please try again later.',
+        statusCode: 503,
+      };
+    }
+    throw err;
+  }
+
   if (!rateCheck.allowed) {
     return {
       success: false,
@@ -370,16 +383,28 @@ export async function authenticateUser(
   }
 
   // 1. Look up credential in the registry
-  const credential = await getCredentialByIdentifier(cleanIdentifier);
+  let credential: any = null;
+  try {
+    credential = await getCredentialByIdentifier(cleanIdentifier);
+  } catch (err: any) {
+    if (err?.statusCode === 503 || err?.message === 'DATABASE_UNAVAILABLE') {
+      return {
+        success: false,
+        error: 'Authentication service temporarily unavailable. Please try again later.',
+        statusCode: 503,
+      };
+    }
+    throw err;
+  }
 
   if (credential && credential.isActive) {
     const isValid = await verifyPassword(credential.passwordHash, plainPassword);
     if (!isValid) {
-      recordAuthAttempt(cleanIdentifier, clientIp, false);
+      await recordAuthAttempt(cleanIdentifier, clientIp, false);
       return { success: false, error: 'Invalid username or password.', statusCode: 401 };
     }
 
-    recordAuthAttempt(cleanIdentifier, clientIp, true);
+    await recordAuthAttempt(cleanIdentifier, clientIp, true);
 
     let role: AuthPolicyRole = 'STATE_REVIEWER';
     let allowedStates: string[] = [];
@@ -498,6 +523,16 @@ export async function authenticateUser(
   }
 
   if (legacyAccount) {
+    const appEnv = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development').toLowerCase();
+    const isProd = appEnv === 'production';
+    const allowEnvFallback = process.env.ALLOW_ENV_CREDENTIAL_FALLBACK === 'true';
+
+    if (isProd && !allowEnvFallback) {
+      console.warn('[AUTH] Environment-variable account fallback is disabled in production without ALLOW_ENV_CREDENTIAL_FALLBACK=true.');
+      await recordAuthAttempt(cleanIdentifier, clientIp, false);
+      return { success: false, error: 'Invalid username or password.', statusCode: 401 };
+    }
+
     const configuredPassword =
       getAccountConfiguredPassword(legacyAccount.username) ||
       getAccountConfiguredPassword(cleanIdentifier) ||
@@ -510,7 +545,7 @@ export async function authenticateUser(
       }
       const isValid = await verifyPassword(passwordHash, plainPassword);
       if (isValid) {
-        recordAuthAttempt(cleanIdentifier, clientIp, true);
+        await recordAuthAttempt(cleanIdentifier, clientIp, true);
         const sessionPayload: SessionPayload = {
           userId: legacyAccount.id,
           username: legacyAccount.username,
@@ -527,7 +562,7 @@ export async function authenticateUser(
     }
   }
 
-  recordAuthAttempt(cleanIdentifier, clientIp, false);
+  await recordAuthAttempt(cleanIdentifier, clientIp, false);
   return { success: false, error: 'Invalid username or password.', statusCode: 401 };
 }
 

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { hashPassword, verifyPassword } from './sessionService';
+import { validateFirestoreDatabaseEnvironment } from './firestoreSubmissionAdapter';
 
 export interface EvaluationCredential {
   id: string;
@@ -39,8 +40,11 @@ export const CANONICAL_EVALUATION_STATES: CanonicalStateEntry[] = [
 export const LEADERSHIP_ACCESS_IDENTIFIER = 'LEADERSHIP-ALL';
 export const ADMIN_ACCESS_IDENTIFIER = 'ADMIN-SYSTEM';
 
+export const EVALUATION_CREDENTIALS_COLLECTION = 'evaluation_credentials';
+export const AUTH_ATTEMPTS_COLLECTION = 'auth_attempts';
+
 /**
- * Sliding window rate limiter for authentication attempts.
+ * Sliding window rate limiter configuration for authentication attempts.
  * Prevents brute force guessing without permanent account lockout.
  */
 interface RateLimitWindow {
@@ -56,12 +60,164 @@ const MAX_ATTEMPTS_PER_CREDENTIAL = 5;
 const MAX_ATTEMPTS_PER_IP = 20;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
+// In-memory testing override for Firestore client
+let activeFirestoreDb: any = null;
+
+export function setFirestoreDbForTesting(mockDb: any): void {
+  activeFirestoreDb = mockDb;
+}
+
+export function resetFirestoreDb(): void {
+  activeFirestoreDb = null;
+}
+
+/**
+ * Creates an in-memory mock Firestore store supporting transactions, collections, doc gets/sets/deletes,
+ * queries, and limits for isolated unit and concurrency testing without live GCP credentials.
+ */
+export function createMockFirestore() {
+  const collections = new Map<string, Map<string, any>>();
+
+  function getCol(name: string) {
+    if (!collections.has(name)) collections.set(name, new Map());
+    return collections.get(name)!;
+  }
+
+  return {
+    collection(colName: string) {
+      const col = getCol(colName);
+      return {
+        doc(docId: string) {
+          return {
+            id: docId,
+            async get() {
+              const data = col.get(docId);
+              return {
+                id: docId,
+                exists: data !== undefined,
+                data: () => (data ? { ...data } : undefined),
+              };
+            },
+            async set(data: any) {
+              col.set(docId, { ...data });
+            },
+            async update(data: any) {
+              const prev = col.get(docId) || {};
+              col.set(docId, { ...prev, ...data });
+            },
+            async delete() {
+              col.delete(docId);
+            },
+          };
+        },
+        where(field: string, op: string, val: any) {
+          return {
+            limit(n: number) {
+              return {
+                async get() {
+                  const matching: any[] = [];
+                  for (const [id, d] of col.entries()) {
+                    if (op === '==' && d[field] === val) {
+                      matching.push({ id, exists: true, data: () => ({ ...d }) });
+                      if (matching.length >= n) break;
+                    }
+                  }
+                  return {
+                    empty: matching.length === 0,
+                    docs: matching,
+                  };
+                },
+              };
+            },
+            async get() {
+              const matching: any[] = [];
+              for (const [id, d] of col.entries()) {
+                if (op === '==' && d[field] === val) {
+                  matching.push({ id, exists: true, data: () => ({ ...d }) });
+                }
+              }
+              return {
+                empty: matching.length === 0,
+                docs: matching,
+              };
+            },
+          };
+        },
+      };
+    },
+    async runTransaction(cb: (t: any) => Promise<any>) {
+      const transaction = {
+        async get(docRef: any) {
+          return docRef.get();
+        },
+        async set(docRef: any, data: any) {
+          return docRef.set(data);
+        },
+        async delete(docRef: any) {
+          return docRef.delete();
+        },
+      };
+      return await cb(transaction);
+    },
+    _clear() {
+      collections.clear();
+    },
+  };
+}
+
+/**
+ * Returns the active Firestore client.
+ * Enforces FIRESTORE_DATABASE_ID environment isolation guard.
+ */
+export async function getFirestoreDb(customDb?: any) {
+  if (customDb) return customDb;
+  if (activeFirestoreDb) return activeFirestoreDb;
+
+  const appEnv = process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development';
+  const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+  validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+  if (process.env.NODE_ENV === 'test' && !process.env.FORCE_LIVE_FIRESTORE) {
+    activeFirestoreDb = createMockFirestore();
+    return activeFirestoreDb;
+  }
+
+  const { Firestore } = await import('@google-cloud/firestore');
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'cs-p3-production';
+  activeFirestoreDb = new Firestore({
+    projectId,
+    databaseId: databaseId === '(default)' ? undefined : databaseId,
+  });
+  return activeFirestoreDb;
+}
+
 export function resetRateLimits(): void {
   credentialAttempts.clear();
   ipAttempts.clear();
+  if (activeFirestoreDb && typeof activeFirestoreDb._clear === 'function') {
+    activeFirestoreDb._clear();
+  }
 }
 
-export function checkRateLimit(identifier: string, ip: string): { allowed: boolean; retryAfterSeconds?: number; reason?: string } {
+function sanitizeDocKey(s: string): string {
+  return s.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+}
+
+export function getAuthAttemptCredDocId(identifier: string, ip: string): string {
+  return `cred_${sanitizeDocKey(identifier)}_${sanitizeDocKey(ip)}`;
+}
+
+export function getAuthAttemptIpDocId(ip: string): string {
+  return `ip_${sanitizeDocKey(ip)}`;
+}
+
+/**
+ * In-memory sliding window rate limit check.
+ */
+export function checkRateLimitInMemory(
+  identifier: string,
+  ip: string
+): { allowed: boolean; retryAfterSeconds?: number; reason?: string } {
   const now = Date.now();
   const credKey = `${identifier.trim().toUpperCase()}:${ip.trim()}`;
   const ipKey = ip.trim();
@@ -73,7 +229,9 @@ export function checkRateLimit(identifier: string, ip: string): { allowed: boole
     return {
       allowed: false,
       retryAfterSeconds,
-      reason: `Too many failed attempts for this access identifier. Access is temporarily locked. Please wait ${Math.ceil(retryAfterSeconds / 60)} minute(s) before retrying.`,
+      reason: `Too many failed attempts for this access identifier. Access is temporarily locked. Please wait ${Math.ceil(
+        retryAfterSeconds / 60
+      )} minute(s) before retrying.`,
     };
   }
 
@@ -84,25 +242,109 @@ export function checkRateLimit(identifier: string, ip: string): { allowed: boole
     return {
       allowed: false,
       retryAfterSeconds,
-      reason: `Too many attempts from your network. Access is temporarily locked. Please wait ${Math.ceil(retryAfterSeconds / 60)} minute(s) before retrying.`,
+      reason: `Too many attempts from your network. Access is temporarily locked. Please wait ${Math.ceil(
+        retryAfterSeconds / 60
+      )} minute(s) before retrying.`,
     };
   }
 
   return { allowed: true };
 }
 
-export function recordAuthAttempt(identifier: string, ip: string, success: boolean): void {
+/**
+ * Firestore distributed sliding window rate limit check.
+ * Evaluates shared lockout timestamps stored across Cloud Run instances in `auth_attempts`.
+ */
+async function checkRateLimitFirestore(
+  identifier: string,
+  ip: string
+): Promise<{ allowed: boolean; retryAfterSeconds?: number; reason?: string }> {
+  const appEnv = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development').toLowerCase();
+  const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+  validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+  const now = Date.now();
+  const credDocId = getAuthAttemptCredDocId(identifier, ip);
+  const ipDocId = getAuthAttemptIpDocId(ip);
+
+  try {
+    const db = await getFirestoreDb();
+    const [credSnap, ipSnap] = await Promise.all([
+      db.collection(AUTH_ATTEMPTS_COLLECTION).doc(credDocId).get(),
+      db.collection(AUTH_ATTEMPTS_COLLECTION).doc(ipDocId).get(),
+    ]);
+
+    if (credSnap.exists) {
+      const data = credSnap.data();
+      if (data?.lockoutUntil && now < data.lockoutUntil) {
+        const retryAfterSeconds = Math.ceil((data.lockoutUntil - now) / 1000);
+        return {
+          allowed: false,
+          retryAfterSeconds,
+          reason: `Too many failed attempts for this access identifier. Access is temporarily locked. Please wait ${Math.ceil(
+            retryAfterSeconds / 60
+          )} minute(s) before retrying.`,
+        };
+      }
+    }
+
+    if (ipSnap.exists) {
+      const data = ipSnap.data();
+      if (data?.lockoutUntil && now < data.lockoutUntil) {
+        const retryAfterSeconds = Math.ceil((data.lockoutUntil - now) / 1000);
+        return {
+          allowed: false,
+          retryAfterSeconds,
+          reason: `Too many attempts from your network. Access is temporarily locked. Please wait ${Math.ceil(
+            retryAfterSeconds / 60
+          )} minute(s) before retrying.`,
+        };
+      }
+    }
+
+    return { allowed: true };
+  } catch (err: any) {
+    if (err.message?.includes('CONFIGURATION_ERROR')) {
+      throw err;
+    }
+    if (appEnv === 'production') {
+      console.error('[RateLimitFirestore] Failed to check rate limits in production (failing closed):', err.message);
+      const failClosedError: any = new Error('DATABASE_UNAVAILABLE');
+      failClosedError.statusCode = 503;
+      throw failClosedError;
+    }
+    console.warn('[RateLimitFirestore] Falling back to in-memory check in non-production environment:', err.message);
+    return checkRateLimitInMemory(identifier, ip);
+  }
+}
+
+/**
+ * Universal rate limit check: chooses Firestore (when DATA_ENGINE=firestore)
+ * or in-memory (when DATA_ENGINE=sheets or unset).
+ */
+export async function checkRateLimit(
+  identifier: string,
+  ip: string
+): Promise<{ allowed: boolean; retryAfterSeconds?: number; reason?: string }> {
+  if (process.env.DATA_ENGINE === 'firestore') {
+    return checkRateLimitFirestore(identifier, ip);
+  }
+  return checkRateLimitInMemory(identifier, ip);
+}
+
+/**
+ * In-memory failed attempt recorder.
+ */
+export function recordAuthAttemptInMemory(identifier: string, ip: string, success: boolean): void {
   const now = Date.now();
   const credKey = `${identifier.trim().toUpperCase()}:${ip.trim()}`;
   const ipKey = ip.trim();
 
   if (success) {
     credentialAttempts.delete(credKey);
-    // Do not clear overall IP attempts on single success to mitigate distributed credential stuffing
     return;
   }
 
-  // Record failed attempt for credential + IP
   let credWindow = credentialAttempts.get(credKey);
   if (!credWindow) {
     credWindow = { attempts: [], lockoutUntil: null };
@@ -115,7 +357,6 @@ export function recordAuthAttempt(identifier: string, ip: string, success: boole
     credWindow.lockoutUntil = now + LOCKOUT_DURATION_MS;
   }
 
-  // Record failed attempt for IP
   let ipWindow = ipAttempts.get(ipKey);
   if (!ipWindow) {
     ipWindow = { attempts: [], lockoutUntil: null };
@@ -127,6 +368,111 @@ export function recordAuthAttempt(identifier: string, ip: string, success: boole
   if (ipWindow.attempts.length >= MAX_ATTEMPTS_PER_IP) {
     ipWindow.lockoutUntil = now + LOCKOUT_DURATION_MS;
   }
+}
+
+/**
+ * Firestore distributed attempt recorder using atomic transactions.
+ * Sets TTL field `expiresAt` for automatic Firestore TTL pruning.
+ */
+async function recordAuthAttemptFirestore(
+  identifier: string,
+  ip: string,
+  success: boolean
+): Promise<void> {
+  const now = Date.now();
+  const credDocId = getAuthAttemptCredDocId(identifier, ip);
+  const ipDocId = getAuthAttemptIpDocId(ip);
+
+  try {
+    const db = await getFirestoreDb();
+    const credRef = db.collection(AUTH_ATTEMPTS_COLLECTION).doc(credDocId);
+    const ipRef = db.collection(AUTH_ATTEMPTS_COLLECTION).doc(ipDocId);
+
+    if (success) {
+      await credRef.delete().catch(() => {});
+      return;
+    }
+
+    await db.runTransaction(async (transaction: any) => {
+      const [credSnap, ipSnap] = await Promise.all([
+        transaction.get(credRef),
+        transaction.get(ipRef),
+      ]);
+
+      // 1. Process Credential + IP attempt window
+      const credData = credSnap.exists ? credSnap.data() : null;
+      const credAttempts: number[] = (credData?.attempts || []).filter(
+        (t: number) => now - t < ATTEMPT_WINDOW_MS
+      );
+      credAttempts.push(now);
+
+      let credLockout: number | null = null;
+      if (credAttempts.length >= MAX_ATTEMPTS_PER_CREDENTIAL) {
+        credLockout = now + LOCKOUT_DURATION_MS;
+      }
+
+      const credTtlMs = Math.max(credLockout || 0, now) + LOCKOUT_DURATION_MS + 5 * 60 * 1000;
+      const credTtlDate = new Date(credTtlMs);
+
+      transaction.set(credRef, {
+        key: `${identifier.trim().toUpperCase()}:${ip.trim()}`,
+        type: 'credential_ip',
+        attempts: credAttempts,
+        attemptsCount: credAttempts.length,
+        lastAttemptAt: new Date(now).toISOString(),
+        lockoutUntil: credLockout,
+        expiresAt: credTtlDate,
+      });
+
+      // 2. Process global IP attempt window
+      const ipData = ipSnap.exists ? ipSnap.data() : null;
+      const ipAttemptsList: number[] = (ipData?.attempts || []).filter(
+        (t: number) => now - t < ATTEMPT_WINDOW_MS
+      );
+      ipAttemptsList.push(now);
+
+      let ipLockout: number | null = null;
+      if (ipAttemptsList.length >= MAX_ATTEMPTS_PER_IP) {
+        ipLockout = now + LOCKOUT_DURATION_MS;
+      }
+
+      const ipTtlMs = Math.max(ipLockout || 0, now) + LOCKOUT_DURATION_MS + 5 * 60 * 1000;
+      const ipTtlDate = new Date(ipTtlMs);
+
+      transaction.set(ipRef, {
+        key: ip.trim(),
+        type: 'ip_global',
+        attempts: ipAttemptsList,
+        attemptsCount: ipAttemptsList.length,
+        lastAttemptAt: new Date(now).toISOString(),
+        lockoutUntil: ipLockout,
+        expiresAt: ipTtlDate,
+      });
+    });
+  } catch (err: any) {
+    const appEnv = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development').toLowerCase();
+    if (appEnv === 'production') {
+      console.error('[RateLimitFirestore] Failed to record auth attempt in production:', err.message);
+    } else {
+      console.warn('[RateLimitFirestore] Recording attempt in-memory fallback:', err.message);
+      recordAuthAttemptInMemory(identifier, ip, success);
+    }
+  }
+}
+
+/**
+ * Universal auth attempt recorder: chooses Firestore (when DATA_ENGINE=firestore)
+ * or in-memory (when DATA_ENGINE=sheets or unset).
+ */
+export async function recordAuthAttempt(
+  identifier: string,
+  ip: string,
+  success: boolean
+): Promise<void> {
+  if (process.env.DATA_ENGINE === 'firestore') {
+    return recordAuthAttemptFirestore(identifier, ip, success);
+  }
+  return recordAuthAttemptInMemory(identifier, ip, success);
 }
 
 /**
@@ -182,24 +528,111 @@ export function resolveAccessIdentifier(input: string): string | null {
   return null;
 }
 
+function mapFirestoreDocToCredential(data: any): EvaluationCredential {
+  return {
+    id: data.id || data.accessIdentifier,
+    accessIdentifier: data.accessIdentifier,
+    displayName: data.displayName || data.accessIdentifier,
+    credentialKind: data.credentialKind || 'STATE_EVALUATION',
+    stateCode: data.stateCode || null,
+    programmeScope: data.programmeScope || ['alliance-childcare-phase3'],
+    passwordHash: data.passwordHash,
+    credentialVersion: typeof data.credentialVersion === 'number' ? data.credentialVersion : 1,
+    isActive: data.isActive !== false,
+    createdAt: data.createdAt || new Date().toISOString(),
+    updatedAt: data.updatedAt || new Date().toISOString(),
+    rotatedAt: data.rotatedAt || null,
+    expiresAt: data.expiresAt || null,
+    deliveryRef: data.deliveryRef || null,
+    notes: data.notes || null,
+  };
+}
+
 /**
  * Look up a credential by identifier or state name.
+ * Supports Firestore (DATA_ENGINE=firestore), falling closed with 503 on production database errors.
  */
 export async function getCredentialByIdentifier(identifierOrState: string): Promise<EvaluationCredential | null> {
   const resolvedId = resolveAccessIdentifier(identifierOrState) || identifierOrState.trim();
+  const isFirestore = process.env.DATA_ENGINE === 'firestore';
 
-  // Auto-initialize fixtures in test environment if empty
-  if (inMemoryRegistry.size === 0 && process.env.NODE_ENV === 'test') {
+  // 1. Check Firestore backing if configured
+  if (isFirestore) {
+    const appEnv = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development').toLowerCase();
+    const databaseId = process.env.FIRESTORE_DATABASE_ID || '(default)';
+    validateFirestoreDatabaseEnvironment(appEnv, databaseId);
+
+    try {
+      const db = await getFirestoreDb();
+      // Fast path: direct doc lookup by uppercase accessIdentifier
+      const docRef = db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(resolvedId.toUpperCase());
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        if (data && data.isActive !== false) {
+          return mapFirestoreDocToCredential(data);
+        }
+        return null;
+      }
+
+      // Query by accessIdentifier field
+      const querySnap = await db
+        .collection(EVALUATION_CREDENTIALS_COLLECTION)
+        .where('accessIdentifier', '==', resolvedId.toUpperCase())
+        .limit(1)
+        .get();
+      if (!querySnap.empty) {
+        const data = querySnap.docs[0].data();
+        if (data && data.isActive !== false) {
+          return mapFirestoreDocToCredential(data);
+        }
+        return null;
+      }
+
+      // Query by stateCode field
+      const stateSnap = await db
+        .collection(EVALUATION_CREDENTIALS_COLLECTION)
+        .where('stateCode', '==', identifierOrState.trim())
+        .limit(1)
+        .get();
+      if (!stateSnap.empty) {
+        const data = stateSnap.docs[0].data();
+        if (data && data.isActive !== false) {
+          return mapFirestoreDocToCredential(data);
+        }
+        return null;
+      }
+
+      // If document was not found in Firestore, do not fall through to memory in production
+      if (appEnv === 'production') {
+        return null;
+      }
+    } catch (err: any) {
+      if (err.message?.includes('CONFIGURATION_ERROR')) {
+        throw err;
+      }
+      if (appEnv === 'production') {
+        console.error('[CredentialRegistry] Firestore lookup failed in production (failing closed):', err.message);
+        const failClosedError: any = new Error('DATABASE_UNAVAILABLE');
+        failClosedError.statusCode = 503;
+        throw failClosedError;
+      }
+      console.warn('[CredentialRegistry] Firestore lookup error in non-prod, continuing fallback:', err.message);
+    }
+  }
+
+  // Auto-initialize fixtures in test environment if empty (non-firestore or dev test)
+  if (inMemoryRegistry.size === 0 && process.env.NODE_ENV === 'test' && !isFirestore) {
     await initializeTestFixtures();
   }
 
-  // 1. Check in-memory store first
+  // 2. Check in-memory store
   const memoryRecord = inMemoryRegistry.get(resolvedId.toUpperCase());
   if (memoryRecord) {
     return memoryRecord;
   }
 
-  // Also check by stateCode or aliases in inMemoryRegistry
+  // Check by stateCode or aliases in inMemoryRegistry
   for (const cred of inMemoryRegistry.values()) {
     if (
       cred.accessIdentifier.toUpperCase() === resolvedId.toUpperCase() ||
@@ -209,7 +642,7 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
     }
   }
 
-  // 2. Query Supabase registry table via PostgREST if service-role credentials exist
+  // 3. Query legacy Supabase registry table via PostgREST if service-role credentials exist
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (supabaseUrl && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NODE_ENV !== 'test') {
     try {
@@ -225,7 +658,6 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
       });
 
       if (!res.ok) {
-        // Table or row not found - fall through gracefully to configured environment accounts
         return null;
       }
 
@@ -279,7 +711,7 @@ export function isCredentialActiveSync(accessIdentifier: string, expectedVersion
 
 /**
  * Validates that an active credential matching the given identifier and version exists.
- * Used for session token revocation upon rotation or deactivation.
+ * Queries Firestore when DATA_ENGINE=firestore.
  */
 export async function isCredentialActive(accessIdentifier: string, expectedVersion?: number): Promise<boolean> {
   const cred = await getCredentialByIdentifier(accessIdentifier);
@@ -295,6 +727,31 @@ export async function isCredentialActive(accessIdentifier: string, expectedVersi
  */
 export function registerCredential(credential: EvaluationCredential): void {
   inMemoryRegistry.set(credential.accessIdentifier.toUpperCase(), credential);
+}
+
+/**
+ * Writes or updates an evaluation credential in Firestore.
+ */
+export async function saveCredentialToFirestore(credential: EvaluationCredential, customDb?: any): Promise<void> {
+  const db = customDb || (await getFirestoreDb());
+  const docRef = db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(credential.accessIdentifier.toUpperCase());
+  await docRef.set({
+    id: credential.id,
+    accessIdentifier: credential.accessIdentifier,
+    displayName: credential.displayName,
+    credentialKind: credential.credentialKind,
+    stateCode: credential.stateCode || null,
+    programmeScope: credential.programmeScope || ['alliance-childcare-phase3'],
+    passwordHash: credential.passwordHash,
+    credentialVersion: credential.credentialVersion || 1,
+    isActive: credential.isActive !== false,
+    createdAt: credential.createdAt || new Date().toISOString(),
+    updatedAt: credential.updatedAt || new Date().toISOString(),
+    rotatedAt: credential.rotatedAt || null,
+    expiresAt: credential.expiresAt || null,
+    deliveryRef: credential.deliveryRef || null,
+    notes: credential.notes || null,
+  });
 }
 
 /**
@@ -318,6 +775,36 @@ export function rotateCredential(accessIdentifier: string, newPasswordHash: stri
 }
 
 /**
+ * Rotates a credential in Firestore by incrementing version and updating hash.
+ */
+export async function rotateCredentialInFirestore(
+  accessIdentifier: string,
+  newPasswordHash: string,
+  customDb?: any
+): Promise<EvaluationCredential | null> {
+  const db = customDb || (await getFirestoreDb());
+  const resolved = resolveAccessIdentifier(accessIdentifier) || accessIdentifier;
+  const docRef = db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(resolved.toUpperCase());
+  const docSnap = await docRef.get();
+  if (!docSnap.exists) return null;
+
+  const current = docSnap.data();
+  const newVersion = (current.credentialVersion || 1) + 1;
+  const nowIso = new Date().toISOString();
+
+  const updated: EvaluationCredential = {
+    ...mapFirestoreDocToCredential(current),
+    passwordHash: newPasswordHash,
+    credentialVersion: newVersion,
+    updatedAt: nowIso,
+    rotatedAt: nowIso,
+  };
+
+  await docRef.set(updated);
+  return updated;
+}
+
+/**
  * Deactivates a credential in memory.
  */
 export function deactivateCredential(accessIdentifier: string): boolean {
@@ -332,6 +819,23 @@ export function deactivateCredential(accessIdentifier: string): boolean {
 }
 
 /**
+ * Deactivates a credential in Firestore.
+ */
+export async function deactivateCredentialInFirestore(accessIdentifier: string, customDb?: any): Promise<boolean> {
+  const db = customDb || (await getFirestoreDb());
+  const resolved = resolveAccessIdentifier(accessIdentifier) || accessIdentifier;
+  const docRef = db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(resolved.toUpperCase());
+  const docSnap = await docRef.get();
+  if (!docSnap.exists) return false;
+
+  await docRef.update({
+    isActive: false,
+    updatedAt: new Date().toISOString(),
+  });
+  return true;
+}
+
+/**
  * Clears the in-memory registry (for tests).
  */
 export function clearRegistry(): void {
@@ -339,10 +843,6 @@ export function clearRegistry(): void {
   resetRateLimits();
 }
 
-/**
- * Initializes test fixture credentials.
- * Generates synthetic password hashes adhering to OWASP Argon2id parameters.
- */
 /**
  * Synthetic password generator for automated test fixtures only.
  * Avoids complex entropy patterns that trip automated repository secret scanners.
