@@ -63,5 +63,6 @@ scratch/
 .staging*
 
 *manifest*.json
+!public/manifest.json
 supabase/.temp/
 probe_register.json

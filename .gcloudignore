@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.gitignore
+node_modules/
+.next/
+dist-client/
+coverage/
+*.log
+.env*.local
+*.tsbuildinfo
+scratch/
+supabase/.temp/
+!public/
+!public/manifest.json
