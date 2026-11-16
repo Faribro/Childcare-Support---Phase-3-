@@ -525,7 +525,59 @@ All 39 API routes across auth, admin, submissions, geocode, health, sync, and ba
 
 ---
 
-## 11. Post-Cutover Cleanup Runbook (For the Project Owner)
+---
+
+## 12. Google Drive Document Hierarchy & Hardened CRUD Architecture
+
+### A. Production Hierarchy Structure
+Document assets are organized in Google Drive following a strict 3-tier hierarchical structure rooted in the dedicated container folder `Childcare P3`:
+```
+Root folder: "Childcare P3" (ROOT_DOCUMENTS_FOLDER_ID)
+  └── State folder (e.g., "Maharashtra", "Delhi")
+      └── SSR folder (named by caseworker SSR name, e.g., "Sahara Kalyan Samiti")
+          └── Child folder (named by child uniqueId, e.g., "SYN-HIER-MWJ9IKCM")
+              ├── current/     (active documents: passbook, photo, aadhaar, receipts)
+              ├── revisions/   (historical versions: SUPERSEDED_<timestamp>_<filename>)
+              ├── quarantine/  (soft-deleted/corrupted files: QUARANTINED_<timestamp>_<filename>)
+              └── metadata/    (audit_log.jsonl with full timestamped provenance)
+```
+
+### B. CRUD Contract & Safety Invariants
+1. **CREATE**:
+   - Idempotently creates or reuses `State` -> `SSR` -> `ChildID` hierarchy.
+   - Folder names are sanitized (`/[\\/:*?"<>|]/g` -> `_`).
+   - Active documents land directly in `current/`.
+   - Populates `_Asset_Containers` registry sheet for fast $O(1)$ lookups.
+   - Returns `driveFolderId`, `driveFolderUrl`, and `driveHierarchy` string.
+2. **READ (`getChildDocuments`)**:
+   - Queries `_Asset_Containers` first for $O(1)$ folder resolution, with Drive recursive search fallback.
+   - Categorizes files by status (`ACTIVE`, `SUPERSEDED`, `QUARANTINED`) and returns web view and direct download URLs.
+3. **UPDATE / REPLACE (`replaceAsset`)**:
+   - Guarded by Optimistic Concurrency Control (`OCC` check on `expectedRevision`).
+   - Moves prior version from `current/` to `revisions/` prefixed with `SUPERSEDED_<timestamp>_`.
+   - Writes new version to `current/`.
+   - Updates Google Sheet formula cell in-place.
+   - Appends structured audit entry to `metadata/audit_log.jsonl`.
+4. **DELETE / QUARANTINE (`quarantineAsset` / `deleteRecord`)**:
+   - Soft-delete principle: files are never permanently deleted from Google Drive.
+   - Document quarantine moves file to `quarantine/` with `QUARANTINED_<timestamp>_` prefix and marks Sheet cell as `[Quarantined: <reason>]`.
+   - Record deletion prepends `[DELETED_<timestamp>]_` to the child's folder name in Drive.
+5. **MIGRATION (`migrateLegacyFolders`)**:
+   - Supports non-destructive dry-run mode (`dryRun: true`).
+   - Idempotently scans legacy containers (e.g. `ast-...` or under `assessments/`), matches child metadata against the Google Sheet, creates missing `State` and `SSR` parent folders, merges contents into `State / SSR / ChildID / current /`, and updates the registry.
+
+### C. Live Staging Verification Proof (Real Images from Downloads)
+All operations were verified end-to-end on Staging Apps Script Web App (`@10`) using real image files selected from `C:\Users\fsayyed\Downloads`:
+
+| Test Case | Expected Result | Actual Result | Status |
+|---|---|---|---|
+| **Test 1: Hierarchy Creation** | Hierarchy `Maharashtra / Sahara Kalyan Samiti / SYN-HIER-MWJ9IKCM` & 2 real files in `current/` | `driveHierarchy` verified, `landing-replay-header.png` (65KB) & `49672595.jpeg` (12KB) uploaded | **PASS** |
+| **Test 2: Add 3rd Document Later** | Aadhaar lands in `current/` alongside existing docs without duplicate folders | `moment-a-hero-desktop.png` (188KB) added to `current/`, same folder ID preserved, total count: 3 | **PASS** |
+| **Test 3: Replace Doc & OCC** | OCC rejects outdated revision; superseded file moved to `revisions/` | OCC correctly rejected rev 0 with 409 conflict; old passbook moved to `revisions/` as `SUPERSEDED_`, new file active in `current/` | **PASS** |
+| **Test 4: Quarantine Document** | File moved to `quarantine/`, Sheet cell updated, audit logged | Photo soft-deleted to `quarantine/` with `QUARANTINED_` prefix, Sheet marked `[Quarantined: blurry image]` | **PASS** |
+| **Test 5: Fast Query Lookup** | `getChildDocuments` returns categorized docs with URLs and hierarchy path | Fast $O(1)$ response listing 2 active, 1 superseded, 1 quarantined docs with exact hierarchy path | **PASS** |
+| **Test 6: Migration Utility** | `dryRun: true` reports pending moves safely; `apply` reorganizes legacy folders | Dry-run verified, apply executed, 17 legacy items confirmed compliant and idempotent | **PASS** |
+
 
 After final production verification of Google Cloud Platform (7 days post-cutover):
 

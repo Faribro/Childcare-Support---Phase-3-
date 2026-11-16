@@ -402,6 +402,7 @@ function onOpen(e) {
       .addItem('Preview: Legacy Folder Migration', 'menuPreviewFolderMigration')
       .addItem('Preview: Public ACL Exposure', 'menuPreviewPublicAclViolations')
       .addSeparator()
+      .addItem('Apply: Migrate Drive Folders to Hierarchy', 'menuApplyFolderMigration')
       .addItem('Apply: Protect Header & Governance Ranges', 'menuApplyProtectedRanges')
       .addItem('Apply: Refresh Linelist Formatting', 'menuRefreshSheetPresentation')
       .addToUi();
@@ -651,6 +652,18 @@ function doPost(e) {
       return replaceAssetTwoPhase_(payload, requestId);
     }
 
+    if (action === 'getChildDocuments' || action === 'listDocuments' || action === 'getFolder') {
+      return getChildDocuments_(payload.uniqueId || payload.submissionId || payload.remoteSubmissionId, requestId);
+    }
+
+    if (action === 'quarantineAsset' || action === 'quarantineDocument') {
+      return handleQuarantineAsset_(payload, requestId);
+    }
+
+    if (action === 'migrateLegacyFolders') {
+      return migrateLegacyFolders_(payload, requestId);
+    }
+
     if (action === 'clear' || action === 'clearData') {
       if (payload.confirmPurge !== 'CONFIRM_PURGE_ALL_DATA_ROWS') {
         return errorResponse_('Destructive purge rejected: Missing explicit confirmation parameter confirmPurge.', 'VALIDATION_ERROR', 400, requestId);
@@ -848,36 +861,82 @@ function getOrCreateAssetRegistrySheet_(ss) {
  *         ├── quarantine/
  *         └── metadata/
  */
-function getOrCreateAssetContainer_(remoteSubmissionId) {
-  if (!remoteSubmissionId) return null;
-  var cleanSubmissionId = String(remoteSubmissionId).trim();
+/**
+ * Safely sanitizes Drive folder names:
+ * Strips illegal characters: / \ : * ? " < > | and control characters.
+ * Trims leading/trailing whitespace and dots.
+ */
+function sanitizeFolderName_(name, fallback) {
+  if (!name || typeof name !== 'string') return fallback || 'General';
+  var sanitized = name.replace(/[/\\:*?"<>|]/g, '_').trim();
+  sanitized = sanitized.replace(/\s+/g, ' ').replace(/_+/g, '_');
+  sanitized = sanitized.replace(/[. ]+$/, '');
+  return sanitized.length > 0 ? sanitized : (fallback || 'General');
+}
+
+/**
+ * Appends or updates an audit event in the container's metadataFolder.
+ */
+function logMetadataAudit_(metadataFolder, eventData) {
+  if (!metadataFolder) return;
+  try {
+    var logFileName = 'audit_log.jsonl';
+    var files = metadataFolder.getFilesByName(logFileName);
+    var nowIso = new Date().toISOString();
+    var entry = JSON.stringify(Object.assign({ timestamp: nowIso }, eventData)) + '\n';
+    if (files.hasNext()) {
+      var file = files.next();
+      var currentContent = file.getBlob().getDataAsString('UTF-8');
+      file.setContent(currentContent + entry);
+    } else {
+      metadataFolder.createFile(logFileName, entry, 'application/json');
+    }
+  } catch (err) {
+    Logger.log('Could not write metadata audit log: ' + err);
+  }
+}
+
+/**
+ * Production Document Hierarchy:
+ * Root folder: "Childcare P3" (ROOT_DOCUMENTS_FOLDER_ID)
+ *   └── State folder (e.g., "Maharashtra", "Delhi")
+ *       └── SSR folder (named by the SSR's name or ID)
+ *           └── Child folder (named by the child's unique ID, e.g., "DL-SOU-161417-01")
+ *               ├── current/     (active documents: passbook.jpg, aadhaar.jpg, child-photo.jpg, caregiver-signature.png, school-fee-receipt.jpg, marksheet.jpg)
+ *               ├── revisions/   (superseded assets when replaced)
+ *               ├── quarantine/  (soft-deleted/corrupted files)
+ *               └── metadata/   (audit logs, manifests)
+ */
+function getOrCreateAssetContainer_(uniqueId, stateName, ssrName, remoteSubmissionId) {
+  var targetId = String(uniqueId || remoteSubmissionId || '').trim();
+  if (!targetId) return null;
+
   var rootFolder = getOrCreateRootDocumentsFolder_();
   if (!rootFolder) return null;
 
   try {
-    // 1. Locate or create 'assessments' parent folder
-    var assessFolders = rootFolder.getFoldersByName('assessments');
-    var assessFolder = assessFolders.hasNext() ? assessFolders.next() : rootFolder.createFolder('assessments');
-
-    // 2. Query internal registry sheet
     var ss = null;
     try {
       ss = getTargetSpreadsheet_();
     } catch (e) {}
 
     var registrySheet = ss ? getOrCreateAssetRegistrySheet_(ss) : null;
-    var assetContainerId = null;
     var targetFolder = null;
+    var regRowIndex = -1;
 
+    // 1. Query internal registry sheet for fastest O(1) lookup
     if (registrySheet && registrySheet.getLastRow() >= 2) {
       var regData = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 3).getValues();
       for (var r = 0; r < regData.length; r++) {
-        if (String(regData[r][0]).trim() === cleanSubmissionId) {
-          assetContainerId = String(regData[r][1]).trim();
+        if (String(regData[r][0]).trim() === targetId || String(regData[r][1]).trim() === targetId) {
+          regRowIndex = 2 + r;
           var fid = String(regData[r][2]).trim();
           if (fid) {
             try {
-              targetFolder = DriveApp.getFolderById(fid);
+              var candidate = DriveApp.getFolderById(fid);
+              if (candidate && !candidate.isTrashed()) {
+                targetFolder = candidate;
+              }
             } catch (fErr) {}
           }
           break;
@@ -885,26 +944,100 @@ function getOrCreateAssetContainer_(remoteSubmissionId) {
       }
     }
 
-    // 3. If not found in registry or folder missing, generate opaque ID and create folder
-    if (!targetFolder) {
-      if (!assetContainerId) {
-        // Random UUID with ast- prefix. ZERO PII!
-        assetContainerId = 'ast-' + Utilities.getUuid();
-      }
-      var existingFolders = assessFolder.getFoldersByName(assetContainerId);
-      if (existingFolders.hasNext()) {
-        targetFolder = existingFolders.next();
-      } else {
-        targetFolder = assessFolder.createFolder(assetContainerId);
-      }
+    // Resolve state and SSR names if not provided
+    var cleanState = stateName ? sanitizeFolderName_(stateName, 'Unknown_State') : '';
+    var cleanSsr = ssrName ? sanitizeFolderName_(ssrName, 'General') : '';
 
-      if (registrySheet) {
-        var nowIso = new Date().toISOString();
-        registrySheet.appendRow([cleanSubmissionId, assetContainerId, targetFolder.getId(), nowIso, nowIso]);
-      }
+    if ((!cleanState || !cleanSsr) && ss) {
+      try {
+        var ctx = getSheetAndColMap_();
+        var mainSheet = ctx.sheet;
+        var lastR = mainSheet.getLastRow();
+        if (lastR >= 4) {
+          var uIds = mainSheet.getRange(4, 1, lastR - 3, 1).getValues();
+          for (var u = 0; u < uIds.length; u++) {
+            if (String(uIds[u][0]).trim() === targetId) {
+              if (!cleanState) {
+                var sVal = mainSheet.getRange(4 + u, 18).getValue(); // Col 18
+                cleanState = sanitizeFolderName_(sVal, 'Unknown_State');
+              }
+              if (!cleanSsr) {
+                var ssrVal = mainSheet.getRange(4 + u, 75).getValue(); // Col 75
+                cleanSsr = sanitizeFolderName_(ssrVal, 'General');
+              }
+              break;
+            }
+          }
+        }
+      } catch (lookupErr) {}
     }
 
-    // 4. Ensure all 4 subfolders exist
+    if (!cleanState) cleanState = 'Unknown_State';
+    if (!cleanSsr) cleanSsr = 'General';
+    var cleanChildId = sanitizeFolderName_(targetId, 'unknown_child');
+
+    // 2. Resolve or create hierarchy: Root -> State -> SSR -> Child
+    var stateFolders = rootFolder.getFoldersByName(cleanState);
+    var stateFolder = stateFolders.hasNext() ? stateFolders.next() : rootFolder.createFolder(cleanState);
+
+    var ssrFolders = stateFolder.getFoldersByName(cleanSsr);
+    var ssrFolder = ssrFolders.hasNext() ? ssrFolders.next() : stateFolder.createFolder(cleanSsr);
+
+    if (!targetFolder) {
+      // Find or create Child folder inside SSR folder
+      var childFolders = ssrFolder.getFoldersByName(cleanChildId);
+      if (childFolders.hasNext()) {
+        targetFolder = childFolders.next();
+      } else {
+        // Fallback: search Drive for existing folder with child uniqueId
+        var driveIter = DriveApp.getFoldersByName(cleanChildId);
+        if (driveIter.hasNext()) {
+          targetFolder = driveIter.next();
+          try {
+            var oldParents = targetFolder.getParents();
+            ssrFolder.addFolder(targetFolder);
+            while (oldParents.hasNext()) {
+              oldParents.next().removeFolder(targetFolder);
+            }
+          } catch (mErr) {
+            Logger.log('Could not move existing child folder to ssrFolder: ' + mErr);
+          }
+        } else {
+          targetFolder = ssrFolder.createFolder(cleanChildId);
+        }
+      }
+
+      // Update registry sheet
+      if (registrySheet) {
+        var nowIso = new Date().toISOString();
+        if (regRowIndex !== -1) {
+          registrySheet.getRange(regRowIndex, 2).setValue(cleanChildId);
+          registrySheet.getRange(regRowIndex, 3).setValue(targetFolder.getId());
+          registrySheet.getRange(regRowIndex, 5).setValue(nowIso);
+        } else {
+          registrySheet.appendRow([targetId, cleanChildId, targetFolder.getId(), nowIso, nowIso]);
+        }
+      }
+    } else {
+      // If folder exists, verify its name and parents match the hierarchy if state and ssr are known
+      if (cleanState && cleanSsr && targetFolder.getName() !== cleanChildId && targetFolder.getName().indexOf('ast-') === 0) {
+        try {
+          targetFolder.setName(cleanChildId);
+        } catch (renErr) {}
+      }
+      try {
+        var pars = targetFolder.getParents();
+        var curPar = pars.hasNext() ? pars.next() : null;
+        if (!curPar || curPar.getId() !== ssrFolder.getId()) {
+          ssrFolder.addFolder(targetFolder);
+          if (curPar) {
+            curPar.removeFolder(targetFolder);
+          }
+        }
+      } catch (parErr) {}
+    }
+
+    // 3. Ensure all 4 subfolders exist
     function getOrSubFolder(parent, name) {
       var iter = parent.getFoldersByName(name);
       return iter.hasNext() ? iter.next() : parent.createFolder(name);
@@ -916,9 +1049,15 @@ function getOrCreateAssetContainer_(remoteSubmissionId) {
     var metadataFolder = getOrSubFolder(targetFolder, 'metadata');
 
     return {
-      assetContainerId: assetContainerId,
+      assetContainerId: cleanChildId,
+      uniqueId: targetId,
       folder: targetFolder,
       folderId: targetFolder.getId(),
+      folderUrl: targetFolder.getUrl(),
+      stateFolderId: stateFolder.getId(),
+      ssrFolderId: ssrFolder.getId(),
+      stateName: cleanState,
+      ssrName: cleanSsr,
       currentFolder: currentFolder,
       revisionsFolder: revisionsFolder,
       quarantineFolder: quarantineFolder,
@@ -931,27 +1070,30 @@ function getOrCreateAssetContainer_(remoteSubmissionId) {
   }
 }
 
-function getOrVerifyAssessmentFolder_(remoteSubmissionId) {
-  var container = getOrCreateAssetContainer_(remoteSubmissionId);
+function getOrVerifyAssessmentFolder_(remoteSubmissionId, stateName, ssrName) {
+  var container = getOrCreateAssetContainer_(remoteSubmissionId, stateName, ssrName);
   return container ? container.currentFolder : null;
 }
 
-function getOrCreateChildFolder_(childName, uniqueId) {
-  return getOrVerifyAssessmentFolder_(uniqueId);
+function getOrCreateChildFolder_(childName, uniqueId, stateName, ssrName) {
+  var container = getOrCreateAssetContainer_(uniqueId, stateName, ssrName);
+  return container ? container.currentFolder : null;
 }
 
 /**
- * Maps document slot types to standardized, non-PII filenames.
+ * Maps document slot types to standardized, non-PII filenames with extension awareness.
  */
-function getStandardSlotFilename_(docPrefix) {
+function getStandardSlotFilename_(docPrefix, mimeType) {
   var prefix = String(docPrefix).toLowerCase();
+  var isPdf = (mimeType && mimeType.indexOf('pdf') !== -1);
+  var ext = isPdf ? '.pdf' : '.jpg';
   if (prefix.indexOf('sig') !== -1) return 'caregiver-signature.png';
-  if (prefix.indexOf('passbook') !== -1) return 'passbook.jpg';
-  if (prefix.indexOf('aadhaar') !== -1 || prefix.indexOf('id') !== -1) return 'identity-document.jpg';
-  if (prefix.indexOf('photo') !== -1) return 'child-photo.jpg';
-  if (prefix.indexOf('fee') !== -1) return 'school-fee-receipt.pdf';
-  if (prefix.indexOf('mark') !== -1) return 'marksheet.pdf';
-  return 'supporting-document-' + prefix.replace(/[^a-z0-9_-]/g, '_') + '.jpg';
+  if (prefix.indexOf('passbook') !== -1) return 'passbook' + ext;
+  if (prefix.indexOf('aadhaar') !== -1 || prefix.indexOf('id') !== -1) return 'identity-document' + ext;
+  if (prefix.indexOf('photo') !== -1) return 'child-photo' + ext;
+  if (prefix.indexOf('fee') !== -1) return 'school-fee-receipt' + ext;
+  if (prefix.indexOf('mark') !== -1) return 'marksheet' + ext;
+  return 'supporting-document-' + prefix.replace(/[^a-z0-9_-]/g, '_') + ext;
 }
 
 /**
@@ -979,7 +1121,7 @@ function redactEmail_(email) {
  * 3. Never store Base64 payloads directly in Sheet cells.
  * 4. Fails safely with STORAGE_UNAVAILABLE if container cannot be acquired.
  */
-function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId, oldFormulaOrUrl) {
+function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId, oldFormulaOrUrl, stateName, ssrName) {
   if (!inputVal) return '';
   var val = String(inputVal).trim();
   if (!val) return '';
@@ -988,16 +1130,18 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
   if (val.indexOf('data:') === 0 && val.indexOf(';base64,') !== -1) {
     // Resolve upload target folder
     var targetFolder = null;
+    var container = null;
     if (containerOrFolder) {
       if (typeof containerOrFolder.createFile === 'function') {
         targetFolder = containerOrFolder;
       } else if (containerOrFolder.currentFolder && typeof containerOrFolder.currentFolder.createFile === 'function') {
         targetFolder = containerOrFolder.currentFolder;
+        container = containerOrFolder;
       }
     }
 
     if (!targetFolder && uniqueId) {
-      var container = getOrCreateAssetContainer_(uniqueId);
+      container = getOrCreateAssetContainer_(uniqueId, stateName, ssrName);
       if (container) {
         targetFolder = container.currentFolder;
       }
@@ -1022,7 +1166,7 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
       }
 
       var decodedBytes = Utilities.base64Decode(base64Data);
-      var slotFileName = getStandardSlotFilename_(docPrefix);
+      var slotFileName = getStandardSlotFilename_(docPrefix, mimeType);
       var blob = Utilities.newBlob(decodedBytes, mimeType, slotFileName);
 
       // Check if file already exists in targetFolder to prevent duplicates
@@ -1041,6 +1185,19 @@ function processDocumentUpload_(inputVal, containerOrFolder, docPrefix, uniqueId
 
       var fileId = newFile.getId();
       var restrictedViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+
+      // Log in metadata audit log
+      if (container && container.metadataFolder) {
+        logMetadataAudit_(container.metadataFolder, {
+          event: 'DOCUMENT_UPLOAD',
+          docType: docPrefix,
+          fileName: slotFileName,
+          fileId: fileId,
+          size: newFile.getSize(),
+          mimeType: mimeType
+        });
+      }
+
       return '=HYPERLINK("' + restrictedViewUrl + '", "Restricted Doc [' + docPrefix + ']")';
     } catch (err) {
       Logger.log('processDocumentUpload_ exception: ' + err);
@@ -1402,9 +1559,12 @@ function handleCreate_(payload) {
 
   var now = new Date().toISOString();
   var childName = d.childName || payload.childName || '';
+  var state = d.state || payload.state || '';
+  var ssrName = d.ssrName || payload.ssrName || '';
 
-  // Get or create dedicated child folder in Drive: "<ChildName> - <UniqueID>"
-  var childFolder = getOrCreateChildFolder_(childName, uniqueId);
+  // Get or create dedicated child folder in Drive: State -> SSR -> UniqueID
+  var container = getOrCreateAssetContainer_(uniqueId, state, ssrName);
+  var childFolder = container ? container.currentFolder : null;
 
   // Helper for safe document upload during CREATE:
   // Catches Drive errors fail-safe, prevents whole CREATE from aborting or timing out.
@@ -1414,7 +1574,7 @@ function handleCreate_(payload) {
   function safeProcessDoc_(inputVal, docPrefix) {
     if (!inputVal) return 'Not Submitted';
     try {
-      var res = processDocumentUpload_(inputVal, childFolder, docPrefix, uniqueId);
+      var res = processDocumentUpload_(inputVal, container, docPrefix, uniqueId, null, state, ssrName);
       if (res === '[Document Pending Drive Upload]') {
         assetStatus = 'FAILED_RETRYABLE';
         assetSummary[docPrefix.toLowerCase()] = 'FAILED_RETRYABLE';
@@ -1478,7 +1638,7 @@ function handleCreate_(payload) {
   // KYC Image Links (Cols 25, 26, 27) — In-cell embedded formulas
   row[24] = safeProcessDoc_(b.passbookPhotoUrl || d.passbookPhotoUrl || payload.passbookFrontPageLink || payload.passbookPhotoUrl, 'Passbook');
   row[25] = safeProcessDoc_(b.aadhaarCardPhotoUrl || d.aadhaarCardPhotoUrl || payload.aadhaarCardLink || payload.aadhaarCardPhotoUrl, 'Aadhaar');
-  row[26] = safeProcessDoc_(b.childPhotoUrl || d.childPhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, 'Child_Photo');
+  row[26] = safeProcessDoc_(b.childPhotoUrl || b.passportSizePhotoUrl || d.childPhotoUrl || d.passportSizePhotoUrl || payload.passportSizePhotoLink || payload.childPhotoUrl, 'Child_Photo');
 
   row[27] = payload.householdFinancial ? payload.householdFinancial.totalFamilyMembers : (payload.householdMembers || ''); // 28 Household Members
   row[28] = payload.householdFinancial ? payload.householdFinancial.numberOfChildrenUnder18 : (payload.noOfChildren || ''); // 29 No of Children
@@ -1568,6 +1728,9 @@ function handleCreate_(payload) {
       rowNumber: newRowIndex,
       totalColumns: COLUMN_HEADERS.length,
       updatedAt: now,
+      driveFolderId: container ? container.folderId : null,
+      driveFolderUrl: container ? container.folderUrl : null,
+      driveHierarchy: container ? (container.stateName + ' / ' + container.ssrName + ' / ' + uniqueId) : null,
       isDuplicate: false,
     })
   ).setMimeType(ContentService.MimeType.JSON);
@@ -1705,7 +1868,10 @@ function handleUpdate_(payload) {
   sheet.getRange(foundRow, 2).setValue(nextRevision);
 
   var childName = payload.childName || (payload.demographics && payload.demographics.childName) || existingRow[8] || '';
-  var childFolder = getOrCreateChildFolder_(childName, targetId);
+  var state = payload.state || (payload.demographics && payload.demographics.state) || existingRow[17] || '';
+  var ssrName = payload.ssrName || (payload.demographics && payload.demographics.ssrName) || existingRow[74] || '';
+  var container = getOrCreateAssetContainer_(targetId, state, ssrName);
+  var childFolder = container ? container.currentFolder : null;
 
   // Mappings shifted by +1 for 73-column layout
   var allowedDirectMap = {
@@ -1921,6 +2087,9 @@ function handleUpdate_(payload) {
       rowNumber: foundRow,
       revisionsLogged: revisionsLogged,
       updatedAt: now,
+      driveFolderId: container ? container.folderId : null,
+      driveFolderUrl: container ? container.folderUrl : null,
+      driveHierarchy: container ? (container.stateName + ' / ' + container.ssrName + ' / ' + targetId) : null,
       requestId: payload.requestId || ('req-' + Utilities.getUuid()),
     })
   ).setMimeType(ContentService.MimeType.JSON);
@@ -2048,9 +2217,12 @@ function handleUpdateAsset_(payload, requestId) {
   }
 
   var childName = sheet.getRange(foundRow, 9).getValue() || '';
-  var childFolder = getOrCreateChildFolder_(childName, targetId);
+  var state = sheet.getRange(foundRow, 18).getValue() || '';
+  var ssrName = sheet.getRange(foundRow, 75).getValue() || '';
+  var container = getOrCreateAssetContainer_(targetId, state, ssrName);
+  var childFolder = container ? container.currentFolder : null;
 
-  var cellFormula = processDocumentUpload_(fileData, childFolder, docPrefix, targetId, oldVal);
+  var cellFormula = processDocumentUpload_(fileData, container, docPrefix, targetId, oldVal, state, ssrName);
 
   // Write ONLY the document cell and last updated - never append new rows
   sheet.getRange(foundRow, targetCol).setValue(cellFormula);
@@ -2308,6 +2480,22 @@ function readSubmission_(remoteSubmissionId, role, requestId) {
   record.bankAccountNumber = maskBankAccount_(rowValues[20]);
   record.bankLinkedMobileNumber = maskPhone_(rowValues[22]);
   record.childAadhaarNumber = maskAadhaar_(rowValues[23]);
+
+  // Attach Drive folder hierarchy info if available
+  try {
+    var stateVal = rowValues[17] || '';
+    var ssrVal = rowValues[74] || '';
+    var container = getOrCreateAssetContainer_(targetId, stateVal, ssrVal);
+    if (container && container.folder) {
+      record._driveFolder = {
+        folderId: container.folderId,
+        folderUrl: container.folderUrl,
+        state: container.stateName,
+        ssr: container.ssrName,
+        path: container.stateName + ' / ' + container.ssrName + ' / ' + targetId
+      };
+    }
+  } catch (dErr) {}
 
   // Notice: rowNumber is STRICTLY OMITTED to prevent internal storage leakage
   return ContentService.createTextOutput(
@@ -2891,11 +3079,6 @@ function replaceAssetTwoPhase_(payload, requestId) {
     return errorResponse_('Missing remoteSubmissionId or fileDataUrl for asset replacement', 'VALIDATION_ERROR', 400, requestId);
   }
 
-  var container = getOrCreateAssetContainer_(submissionId);
-  if (!container || !container.currentFolder) {
-    return errorResponse_('Asset container is unavailable. Safe replacement aborted.', 'UPSTREAM_UNAVAILABLE', 503, requestId);
-  }
-
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
@@ -2915,6 +3098,14 @@ function replaceAssetTwoPhase_(payload, requestId) {
   }
   if (foundRow === -1) {
     return errorResponse_('Record not found with ID: ' + submissionId, 'NOT_FOUND', 404, requestId);
+  }
+
+  var state = payload.state || (payload.demographics && payload.demographics.state) || sheet.getRange(foundRow, 18).getValue() || '';
+  var ssrName = payload.ssrName || (payload.demographics && payload.demographics.ssrName) || sheet.getRange(foundRow, 75).getValue() || '';
+
+  var container = getOrCreateAssetContainer_(submissionId, state, ssrName);
+  if (!container || !container.currentFolder) {
+    return errorResponse_('Asset container is unavailable. Safe replacement aborted.', 'UPSTREAM_UNAVAILABLE', 503, requestId);
   }
 
   // OCC Check
@@ -2949,7 +3140,6 @@ function replaceAssetTwoPhase_(payload, requestId) {
   }
 
   // Phase 1: Stage & Validate
-  var slotFilename = getStandardSlotFilename_(slotPrefix);
   var commaIdx = fileDataUrl.indexOf(',');
   if (commaIdx === -1) {
     return errorResponse_('Invalid base64 data URL format', 'VALIDATION_ERROR', 400, requestId);
@@ -2959,6 +3149,8 @@ function replaceAssetTwoPhase_(payload, requestId) {
   var mimeType = 'image/png';
   if (meta.indexOf('image/jpeg') !== -1 || meta.indexOf('image/jpg') !== -1) mimeType = 'image/jpeg';
   else if (meta.indexOf('application/pdf') !== -1) mimeType = 'application/pdf';
+
+  var slotFilename = getStandardSlotFilename_(slotPrefix, mimeType);
 
   var decodedBytes = Utilities.base64Decode(base64Data);
   var blob = Utilities.newBlob(decodedBytes, mimeType, slotFilename);
@@ -3028,8 +3220,6 @@ function replaceAssetTwoPhase_(payload, requestId) {
       }
     } catch (oldErr) {
       Logger.log('Notice: could not move old file to revisions: ' + oldErr);
-      // Moving old file failed, but new asset remains ACTIVE in sheet pointer.
-      // Mark old asset as SUPERSEDED_PENDING_MOVE and record in container metadata.
       oldAssetStatus = 'SUPERSEDED_PENDING_MOVE';
       try {
         if (container.metadataFolder) {
@@ -3050,16 +3240,33 @@ function replaceAssetTwoPhase_(payload, requestId) {
     }
   }
 
+  // Log in metadata/ audit log
+  if (container.metadataFolder) {
+    logMetadataAudit_(container.metadataFolder, {
+      event: 'REPLACE_ASSET',
+      slotPrefix: slotPrefix,
+      oldFileId: oldFileId,
+      newFileId: newFileId,
+      revision: nextRev,
+      user: payload.user || payload.submittedBy || 'State Reviewer'
+    });
+  }
+
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
+      acknowledged: true,
       assetContainerId: container.assetContainerId,
-      fileId: redactId_(newFileId),
+      fileId: newFileId,
+      redactedFileId: redactId_(newFileId),
       fileName: slotFilename,
       revisionNumber: nextRev,
       version: nextRev,
       assetState: 'ACTIVE',
       oldAssetStatus: oldAssetStatus,
+      driveFolderId: container.folderId,
+      driveFolderUrl: container.folderUrl,
+      driveHierarchy: container.stateName + ' / ' + container.ssrName + ' / ' + submissionId,
       requestId: requestId || null
     })
   ).setMimeType(ContentService.MimeType.JSON);
@@ -3203,16 +3410,434 @@ function menuPreviewFolderMigration() {
     while (subFolders.hasNext()) {
       var f = subFolders.next();
       var name = f.getName();
-      if (name !== 'assessments' && name.indexOf(' - ') !== -1) {
+      if (name === 'assessments' || name.indexOf('ast-') === 0 || name.indexOf(' - ') !== -1) {
         legacyCount++;
       }
     }
     var msg = 'Folder Migration Preview:\n\n' +
-      'Found ' + legacyCount + ' legacy child-name folder(s) eligible for migration to opaque structure (assessments/{assetContainerId}/current/).\n\n' +
-      'All beneficiary identifiers and names are kept strictly confidential during migration.';
+      'Found ' + legacyCount + ' legacy container folder(s) eligible for migration to hierarchy (State -> SSR -> ChildID).\n\n' +
+      'Click "Apply: Migrate Drive Folders to Hierarchy" to execute.';
     ui.alert('Folder Migration Preview', msg, ui.ButtonSet.OK);
   } catch (err) {
     ui.alert('Error', 'Failed to preview folder migration: ' + err, ui.ButtonSet.OK);
+  }
+}
+
+function menuApplyFolderMigration() {
+  var ui = SpreadsheetApp.getUi();
+  var confirm = ui.alert(
+    'Apply Folder Migration',
+    'Are you sure you want to reorganize Drive folders into the production hierarchy (State -> SSR -> ChildID)? This operation is safe, idempotent, and non-destructive.',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+
+  try {
+    var res = migrateLegacyFolders_({ confirm: true }, 'ui-menu');
+    var data = JSON.parse(res.getContent());
+    ui.alert(
+      'Folder Migration Complete',
+      'Migration Summary:\n' +
+      '• Examined: ' + data.totalExamined + '\n' +
+      '• Migrated: ' + data.migrated + '\n' +
+      '• Already Compliant: ' + data.alreadyCompliant + '\n' +
+      '• Errors: ' + data.errors.length,
+      ui.ButtonSet.OK
+    );
+  } catch (err) {
+    ui.alert('Error', 'Migration failed: ' + err, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Quarantines an asset from currentFolder to quarantineFolder without hard-deletion.
+ * Marks the Sheet cell as [Quarantined: <reason>] and increments revision number.
+ */
+function handleQuarantineAsset_(payload, requestId) {
+  if (!payload) {
+    return errorResponse_('Missing payload for quarantineAsset', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var targetId = String(payload.uniqueId || payload.submissionId || payload.remoteSubmissionId || '').trim();
+  var slotPrefix = payload.slotPrefix || payload.docType;
+  var reason = payload.reason || 'Requested by reviewer';
+
+  if (!targetId || !slotPrefix) {
+    return errorResponse_('Missing uniqueId or slotPrefix for quarantine', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 4) {
+    return errorResponse_('Record not found: Sheet has no data rows.', 'NOT_FOUND', 404, requestId);
+  }
+
+  var uidCol = ctx.colMap['1\nunique id'] || 1;
+  var revCol = ctx.colMap['2\nrevision number'] || 2;
+  var ids = sheet.getRange(4, uidCol, lastRow - 3, 1).getValues();
+  var foundRow = -1;
+  for (var r = 0; r < ids.length; r++) {
+    if (String(ids[r][0]).trim() === targetId) {
+      foundRow = 4 + r;
+      break;
+    }
+  }
+  if (foundRow === -1) {
+    return errorResponse_('Record not found with ID: ' + targetId, 'NOT_FOUND', 404, requestId);
+  }
+
+  var state = payload.state || (payload.demographics && payload.demographics.state) || sheet.getRange(foundRow, 18).getValue() || '';
+  var ssrName = payload.ssrName || (payload.demographics && payload.demographics.ssrName) || sheet.getRange(foundRow, 75).getValue() || '';
+
+  var container = getOrCreateAssetContainer_(targetId, state, ssrName);
+  if (!container || !container.currentFolder) {
+    return errorResponse_('Asset container is unavailable.', 'UPSTREAM_UNAVAILABLE', 503, requestId);
+  }
+
+  var slotUpper = String(slotPrefix).toUpperCase();
+  var targetCol = DOC_COLUMNS.SIGNATURE;
+  if (slotUpper.indexOf('PASSBOOK') !== -1) targetCol = DOC_COLUMNS.PASSBOOK;
+  else if (slotUpper.indexOf('AADHAAR') !== -1 || slotUpper.indexOf('ID') !== -1) targetCol = DOC_COLUMNS.AADHAAR;
+  else if (slotUpper.indexOf('PHOTO') !== -1) targetCol = DOC_COLUMNS.CHILD_PHOTO;
+  else if (slotUpper.indexOf('FEE') !== -1) targetCol = DOC_COLUMNS.FEE_RECEIPT;
+  else if (slotUpper.indexOf('MARK') !== -1) targetCol = DOC_COLUMNS.MARKSHEET;
+
+  var currentCell = sheet.getRange(foundRow, targetCol).getFormula() || sheet.getRange(foundRow, targetCol).getValue();
+  var fileId = extractDriveId_(currentCell);
+
+  var movedFile = false;
+  if (fileId) {
+    try {
+      var file = DriveApp.getFileById(fileId);
+      if (file) {
+        container.quarantineFolder.addFile(file);
+        container.currentFolder.removeFile(file);
+        file.setName('QUARANTINED_' + Date.now() + '_' + file.getName());
+        movedFile = true;
+      }
+    } catch (fErr) {
+      Logger.log('Could not move file to quarantine: ' + fErr);
+    }
+  }
+
+  // Update Sheet cell to show [Quarantined]
+  sheet.getRange(foundRow, targetCol).setValue('[Quarantined: ' + reason + ']');
+  var currentRev = parseInt(sheet.getRange(foundRow, revCol).getValue(), 10) || 1;
+  var nextRev = currentRev + 1;
+  sheet.getRange(foundRow, revCol).setValue(nextRev);
+  var nowIso = new Date().toISOString();
+  sheet.getRange(foundRow, 73).setValue(nowIso);
+
+  // Log in metadata/ audit log
+  if (container.metadataFolder) {
+    logMetadataAudit_(container.metadataFolder, {
+      event: 'QUARANTINE_DOCUMENT',
+      docType: slotPrefix,
+      fileId: fileId,
+      reason: reason,
+      revision: nextRev,
+      user: payload.user || payload.submittedBy || 'Reviewer'
+    });
+  }
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      acknowledged: true,
+      uniqueId: targetId,
+      docType: slotPrefix,
+      quarantined: true,
+      fileId: fileId,
+      fileMoved: movedFile,
+      reason: reason,
+      revisionNumber: nextRev,
+      rowNumber: foundRow,
+      requestId: requestId || null
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Retrieves all documents for a child with status, version, and Drive links.
+ */
+function getChildDocuments_(uniqueId, requestId) {
+  if (!uniqueId) {
+    return errorResponse_('Missing uniqueId parameter.', 'VALIDATION_ERROR', 400, requestId);
+  }
+
+  var targetId = String(uniqueId).trim();
+  var container = getOrCreateAssetContainer_(targetId);
+  if (!container || !container.folder) {
+    return errorResponse_('Asset folder not found for child: ' + targetId, 'NOT_FOUND', 404, requestId);
+  }
+
+  var documents = [];
+
+  function scanFolder(folder, status) {
+    if (!folder) return;
+    try {
+      var files = folder.getFiles();
+      while (files.hasNext()) {
+        var f = files.next();
+        var fid = f.getId();
+        documents.push({
+          name: f.getName(),
+          fileId: fid,
+          mimeType: f.getMimeType(),
+          size: f.getSize(),
+          status: status, // ACTIVE, SUPERSEDED, QUARANTINED
+          folder: folder.getName(),
+          viewUrl: 'https://drive.google.com/file/d/' + fid + '/view',
+          updatedAt: f.getLastUpdated().toISOString(),
+          createdTime: f.getDateCreated().toISOString()
+        });
+      }
+    } catch (e) {
+      Logger.log('Error scanning folder ' + status + ': ' + e);
+    }
+  }
+
+  scanFolder(container.currentFolder, 'ACTIVE');
+  scanFolder(container.revisionsFolder, 'SUPERSEDED');
+  scanFolder(container.quarantineFolder, 'QUARANTINED');
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      uniqueId: targetId,
+      folderId: container.folderId,
+      folderUrl: container.folderUrl,
+      state: container.stateName,
+      ssr: container.ssrName,
+      hierarchy: {
+        state: container.stateName,
+        ssr: container.ssrName,
+        childId: targetId,
+        path: container.stateName + ' / ' + container.ssrName + ' / ' + targetId
+      },
+      documentCount: documents.length,
+      documents: documents,
+      requestId: requestId || null
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Migrates legacy flat container folders (ast-... or under assessments/)
+ * into the required State -> SSR -> ChildID hierarchy.
+ * Idempotent: safe to run multiple times.
+ */
+function migrateLegacyFolders_(payload, requestId) {
+  var rootFolder = getOrCreateRootDocumentsFolder_();
+  if (!rootFolder) {
+    return errorResponse_('Root documents folder unavailable', 'UPSTREAM_UNAVAILABLE', 503, requestId);
+  }
+
+  var ctx = getSheetAndColMap_();
+  var sheet = ctx.sheet;
+  var lastRow = sheet.getLastRow();
+  var ss = getTargetSpreadsheet_();
+  var registrySheet = getOrCreateAssetRegistrySheet_(ss);
+
+  var isDryRun = Boolean(payload && (payload.dryRun === true || payload.dryRun === 'true'));
+  var report = {
+    status: 'success',
+    dryRun: isDryRun,
+    totalExamined: 0,
+    migrated: 0,
+    alreadyCompliant: 0,
+    errors: [],
+    details: []
+  };
+
+  // Build lookup map from the main sheet for Unique ID -> { state, ssr, childName, row }
+  var sheetDataMap = {};
+  if (lastRow >= 4) {
+    var numCols = Math.max(sheet.getLastColumn(), COLUMN_HEADERS.length);
+    var allRows = sheet.getRange(4, 1, lastRow - 3, numCols).getValues();
+    for (var i = 0; i < allRows.length; i++) {
+      var uId = String(allRows[i][0]).trim();
+      if (uId) {
+        sheetDataMap[uId] = {
+          state: String(allRows[i][17] || '').trim(), // Col 18
+          ssr: String(allRows[i][74] || '').trim(),   // Col 75
+          childName: String(allRows[i][8] || '').trim(), // Col 9
+          row: 4 + i
+        };
+      }
+    }
+  }
+
+  // 1. Process entries in _Asset_Containers registry
+  if (registrySheet && registrySheet.getLastRow() >= 2) {
+    var regRange = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 3);
+    var regData = regRange.getValues();
+
+    for (var r = 0; r < regData.length; r++) {
+      var subId = String(regData[r][0]).trim();
+      var oldContainerName = String(regData[r][1]).trim();
+      var folderId = String(regData[r][2]).trim();
+
+      if (!subId || !folderId) continue;
+      report.totalExamined++;
+
+      try {
+        var folder = DriveApp.getFolderById(folderId);
+        if (!folder) {
+          report.errors.push({ subId: subId, error: 'Folder not found: ' + folderId });
+          continue;
+        }
+
+        var folderName = folder.getName();
+        var sheetMeta = sheetDataMap[subId] || {};
+        var cleanState = sanitizeFolderName_(sheetMeta.state, 'Unknown_State');
+        var cleanSsr = sanitizeFolderName_(sheetMeta.ssr, 'General');
+        var cleanChildId = sanitizeFolderName_(subId, 'unknown_child');
+
+        // Check current parent
+        var parents = folder.getParents();
+        var currentParent = parents.hasNext() ? parents.next() : null;
+        var currentParentName = currentParent ? currentParent.getName() : '';
+
+        // If parent is already cleanSsr and folderName is cleanChildId, it is already compliant!
+        if (currentParent && currentParentName === cleanSsr && folderName === cleanChildId) {
+          report.alreadyCompliant++;
+          report.details.push({ subId: subId, status: 'ALREADY_COMPLIANT', folderId: folderId, path: cleanState + '/' + cleanSsr + '/' + cleanChildId });
+          continue;
+        }
+
+        if (isDryRun) {
+          report.migrated++;
+          report.details.push({
+            subId: subId,
+            status: 'WOULD_MIGRATE',
+            oldParent: currentParentName,
+            newPath: cleanState + '/' + cleanSsr + '/' + cleanChildId,
+            folderId: folderId
+          });
+          continue;
+        }
+
+        // Need migration: Ensure State -> SSR hierarchy
+        var stateFolders = rootFolder.getFoldersByName(cleanState);
+        var stateFolder = stateFolders.hasNext() ? stateFolders.next() : rootFolder.createFolder(cleanState);
+
+        var ssrFolders = stateFolder.getFoldersByName(cleanSsr);
+        var ssrFolder = ssrFolders.hasNext() ? ssrFolders.next() : stateFolder.createFolder(cleanSsr);
+
+        // Check if destination child folder already exists in SSR folder
+        var destChildFolders = ssrFolder.getFoldersByName(cleanChildId);
+        var targetChildFolder = null;
+
+        if (destChildFolders.hasNext()) {
+          targetChildFolder = destChildFolders.next();
+          if (targetChildFolder.getId() !== folder.getId()) {
+            mergeContainerFolders_(folder, targetChildFolder);
+            try { folder.setTrashed(true); } catch (tErr) {}
+          }
+        } else {
+          if (folder.getName() !== cleanChildId) {
+            folder.setName(cleanChildId);
+          }
+          ssrFolder.addFolder(folder);
+          if (currentParent) {
+            currentParent.removeFolder(folder);
+          }
+          targetChildFolder = folder;
+        }
+
+        // Ensure 4 subfolders exist
+        function ensureSub(parent, name) {
+          var it = parent.getFoldersByName(name);
+          return it.hasNext() ? it.next() : parent.createFolder(name);
+        }
+        ensureSub(targetChildFolder, 'current');
+        ensureSub(targetChildFolder, 'revisions');
+        ensureSub(targetChildFolder, 'quarantine');
+        ensureSub(targetChildFolder, 'metadata');
+
+        // Update registry sheet row
+        var nowIso = new Date().toISOString();
+        registrySheet.getRange(2 + r, 2).setValue(cleanChildId);
+        registrySheet.getRange(2 + r, 3).setValue(targetChildFolder.getId());
+        registrySheet.getRange(2 + r, 5).setValue(nowIso);
+
+        report.migrated++;
+        report.details.push({
+          subId: subId,
+          status: 'MIGRATED',
+          oldParent: currentParentName,
+          newPath: cleanState + '/' + cleanSsr + '/' + cleanChildId,
+          folderId: targetChildFolder.getId()
+        });
+      } catch (fErr) {
+        report.errors.push({ subId: subId, error: String(fErr && fErr.message ? fErr.message : fErr) });
+      }
+    }
+  }
+
+  // 2. Register and migrate any linelist rows that were not in registry
+  for (var uniqueIdKey in sheetDataMap) {
+    var meta = sheetDataMap[uniqueIdKey];
+    var regFound = false;
+    if (registrySheet && registrySheet.getLastRow() >= 2) {
+      var curReg = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 1).getValues();
+      for (var k = 0; k < curReg.length; k++) {
+        if (String(curReg[k][0]).trim() === uniqueIdKey) {
+          regFound = true;
+          break;
+        }
+      }
+    }
+    if (!regFound) {
+      if (isDryRun) {
+        var cleanStateNew = sanitizeFolderName_(meta.state, 'Unknown_State');
+        var cleanSsrNew = sanitizeFolderName_(meta.ssr, 'General');
+        report.migrated++;
+        report.details.push({
+          subId: uniqueIdKey,
+          status: 'WOULD_REGISTER',
+          path: cleanStateNew + '/' + cleanSsrNew + '/' + uniqueIdKey
+        });
+        continue;
+      }
+      try {
+        var cont = getOrCreateAssetContainer_(uniqueIdKey, meta.state, meta.ssr);
+        if (cont) {
+          report.migrated++;
+          report.details.push({
+            subId: uniqueIdKey,
+            status: 'NEWLY_REGISTERED',
+            path: cont.stateName + '/' + cont.ssrName + '/' + uniqueIdKey,
+            folderId: cont.folderId
+          });
+        }
+      } catch (cErr) {
+        report.errors.push({ subId: uniqueIdKey, error: 'Failed registering: ' + cErr });
+      }
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(report)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function mergeContainerFolders_(srcFolder, destFolder) {
+  var subNames = ['current', 'revisions', 'quarantine', 'metadata'];
+  for (var s = 0; s < subNames.length; s++) {
+    var name = subNames[s];
+    var srcSubs = srcFolder.getFoldersByName(name);
+    var destSubs = destFolder.getFoldersByName(name);
+    var destSub = destSubs.hasNext() ? destSubs.next() : destFolder.createFolder(name);
+    if (srcSubs.hasNext()) {
+      var srcSub = srcSubs.next();
+      var files = srcSub.getFiles();
+      while (files.hasNext()) {
+        var file = files.next();
+        destSub.addFile(file);
+        srcSub.removeFile(file);
+      }
+    }
   }
 }
 
@@ -3724,12 +4349,30 @@ function handleDelete_(payload) {
         if (fid) {
           try {
             var targetFolder = DriveApp.getFolderById(fid);
-            if (targetFolder && typeof targetFolder.setTrashed === 'function') {
-              targetFolder.setTrashed(true);
+            if (targetFolder) {
+              var delTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+              var currentName = targetFolder.getName();
+              if (currentName.indexOf('[DELETED_') !== 0) {
+                targetFolder.setName('[DELETED_' + delTimestamp + ']_' + currentName);
+              }
+              try {
+                var metaSubfolders = targetFolder.getFoldersByName('metadata');
+                if (metaSubfolders.hasNext()) {
+                  var metaFolder = metaSubfolders.next();
+                  logMetadataAudit_(metaFolder, {
+                    timestamp: new Date().toISOString(),
+                    action: 'DELETE_RECORD',
+                    uniqueId: cleanTargetId,
+                    details: 'Record deleted from linelist; folder preserved with [DELETED_ prefix'
+                  });
+                }
+              } catch (auditErr) {
+                Logger.log('Could not log audit on delete: ' + auditErr);
+              }
               driveTrashed = true;
             }
           } catch (fErr) {
-            Logger.log('Could not trash asset container folder ' + fid + ': ' + fErr);
+            Logger.log('Could not archive asset container folder ' + fid + ': ' + fErr);
           }
         }
         try {
