@@ -242,6 +242,39 @@ describe('Firestore Submission Adapter & Data Engine (Task 2)', () => {
       expect(updatedDoc.sheetRowNumber).toBe(42);
     });
 
+    it('should send unpacked uniqueId, data, and top-level fields to gatewayClient on create', async () => {
+      let capturedPayload: any = null;
+      const capturingGateway = {
+        callGateway: vi.fn().mockImplementation(async (payload: any) => {
+          capturedPayload = payload;
+          return { status: 'success', statusCode: 200, resolvedRow: 19 };
+        }),
+      };
+
+      const adapter = new FirestoreSubmissionAdapter({
+        appEnv: 'development',
+        databaseId: '(default)',
+        gatewayClient: capturingGateway,
+      });
+
+      const clientSubmissionId = 'GATEWAY-UNPACK-001';
+      await adapter.createSubmission({
+        payload: {
+          clientSubmissionId,
+          uniqueId: 'SYN-TEST-UNPACK',
+          demographics: { childName: 'Test Unpack Child', state: 'Maharashtra' },
+        } as any,
+        idempotencyKey: 'unpack-key-1',
+        requestId: 'req-unpack-1',
+      });
+
+      expect(capturingGateway.callGateway).toHaveBeenCalledTimes(1);
+      expect(capturedPayload.action).toBe('create');
+      expect(capturedPayload.uniqueId).toBe('SYN-TEST-UNPACK');
+      expect(capturedPayload.data).toBeDefined();
+      expect(capturedPayload.demographics.childName).toBe('Test Unpack Child');
+    });
+
     it('should mark retry as DEAD_LETTER after 5 failed attempts with exponential backoff', async () => {
       const failingGateway = {
         callGateway: vi.fn().mockRejectedValue(new Error('Persistent Upstream Outage')),

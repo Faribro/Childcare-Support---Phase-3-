@@ -226,7 +226,10 @@ export class FirestoreSubmissionAdapter {
       try {
         const mirrorRes = await this.gatewayClient.callGateway({
           action: 'create',
+          data: payload,
           payload: { ...payload, clientSubmissionId },
+          uniqueId: payload.uniqueId || payload.artNumber || payload.demographics?.artNumber || payload.uuid || clientSubmissionId,
+          ...payload,
           idempotencyKey: input.idempotencyKey,
           clientSubmissionId,
         });
@@ -355,9 +358,12 @@ export class FirestoreSubmissionAdapter {
 
         const res = await this.gatewayClient.callGateway({
           action: 'create',
+          data: job.payload,
           payload: job.payload,
+          uniqueId: job.payload?.uniqueId || job.payload?.artNumber || job.payload?.demographics?.artNumber || job.payload?.uuid || job.submissionId,
+          ...(job.payload || {}),
           idempotencyKey: job.idempotencyKey,
-          clientSubmissionId: job.clientSubmissionId,
+          clientSubmissionId: job.clientSubmissionId || job.submissionId,
         });
 
         if (res && (res.status === 'success' || res.statusCode === 200)) {
@@ -483,7 +489,9 @@ export class FirestoreSubmissionAdapter {
         await this.gatewayClient.callGateway({
           action: 'update',
           uniqueId: submissionId,
+          data: patch,
           payload: patch,
+          patch,
           idempotencyKey: input.idempotencyKey,
         });
       } catch (mirrorErr) {
