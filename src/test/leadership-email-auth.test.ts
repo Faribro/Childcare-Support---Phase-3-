@@ -1476,5 +1476,27 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         else delete process.env.LEADERSHIP_EMAIL_AUTH_ENABLED;
       }
     });
+
+    it('loadInitialLeaders parses LEADERSHIP_ALLOWLIST_JSON with leading UTF-8 BOM without throwing', () => {
+      const prevEnv = process.env.LEADERSHIP_ALLOWLIST_JSON;
+      try {
+        process.env.LEADERSHIP_ALLOWLIST_JSON = '\uFEFF' + JSON.stringify([
+          {
+            id: 'lead-bom-test',
+            email: 'bom.test@allianceindia.org',
+            name: 'BOM Test Leader',
+            title: 'Technical Director',
+            role: 'LEADERSHIP',
+            isActive: true,
+          },
+        ]);
+        const leaders = loadInitialLeaders();
+        expect(leaders.length).toBeGreaterThan(0);
+        expect(leaders.some((l) => l.email === 'bom.test@allianceindia.org')).toBe(true);
+      } finally {
+        if (prevEnv) process.env.LEADERSHIP_ALLOWLIST_JSON = prevEnv;
+        else delete process.env.LEADERSHIP_ALLOWLIST_JSON;
+      }
+    });
   });
 });

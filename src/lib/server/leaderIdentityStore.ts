@@ -115,7 +115,8 @@ export function loadInitialLeaders(): LeaderIdentity[] {
 
   if (rawJson && typeof rawJson === 'string' && rawJson.trim().length > 0) {
     try {
-      const parsed = JSON.parse(rawJson);
+      const sanitizedJson = rawJson.replace(/^\uFEFF/, '').trim();
+      const parsed = JSON.parse(sanitizedJson);
       if (!Array.isArray(parsed) || parsed.length === 0) {
         if (isProduction) {
           console.error('[LEADER_IDENTITY_STORE:FATAL] LEADERSHIP_ALLOWLIST_JSON is empty in production. Disabling leadership email authentication.');
