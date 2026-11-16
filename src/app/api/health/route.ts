@@ -28,12 +28,15 @@ export async function GET() {
 
   // Subsystem Reachability Checks
   let firestoreReachable = false;
+  let firestoreError: string | null = null;
   if (dataEngine === 'firestore') {
     try {
       const db = await getFirestoreDb();
       firestoreReachable = Boolean(db);
-    } catch {
+    } catch (err: any) {
       firestoreReachable = false;
+      firestoreError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      console.error('[HEALTH_CHECK:FIRESTORE_ERROR]', err);
     }
   }
 
@@ -78,6 +81,7 @@ export async function GET() {
       firestoreDatabaseId,
       reachability: {
         firestore: firestoreReachable,
+        firestoreError,
         storageBucket: storageBucketReachable,
         appsScript: appsScriptReachable,
       },
