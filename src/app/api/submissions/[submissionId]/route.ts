@@ -180,7 +180,8 @@ export async function PATCH(
       );
     }
 
-    if (scope.role !== 'ADMIN' && scope.role !== 'LEADERSHIP') {
+    const isStateEvaluatorWithEdit = scope.role === 'STATE_REVIEWER' && scope.canEdit === true;
+    if (scope.role !== 'ADMIN' && scope.role !== 'LEADERSHIP' && !isStateEvaluatorWithEdit) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
@@ -208,6 +209,29 @@ export async function PATCH(
         { status: 'error', code: 'MALFORMED_JSON', message: 'Malformed JSON body' },
         { status: 400 }
       );
+    }
+
+    // State evaluators can edit record fields within their state, but CANNOT modify leadership grant approval
+    if (scope.role === 'STATE_REVIEWER') {
+      if (rawBody.approval !== undefined || rawBody.approvedAllianceIndia !== undefined) {
+        logSecurityEvent({
+          actor: scope.userId,
+          actorRole: scope.role,
+          eventType: 'ACCESS_DENIED',
+          outcome: 'DENY',
+          targetResource: submissionId,
+          details: 'State Evaluation role forbidden to modify grant approval status. Approval is restricted to Leadership and Admin.',
+        });
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'FORBIDDEN',
+            message: 'State evaluators are forbidden from approving or modifying grant status. Approvals are restricted to Leadership and Admin.',
+            requestId,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Parse If-Match header
@@ -318,8 +342,11 @@ export async function PATCH(
       req.headers.get('idempotency-key') ||
       `update-${submissionId}-${patchPayload.expectedVersion || 1}`;
 
-    // Geographic scope enforcement for Leadership callers without global wildcard
-    if (scope.role === 'LEADERSHIP' && (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*'))) {
+    // Geographic scope enforcement for scoped callers (STATE_REVIEWER or LEADERSHIP without global wildcard)
+    if (
+      (scope.role === 'STATE_REVIEWER' || scope.role === 'LEADERSHIP') &&
+      (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*'))
+    ) {
       const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'caseworker');
       if (existing.status === 'success' && existing.data) {
         const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
@@ -332,7 +359,7 @@ export async function PATCH(
             outcome: 'DENY',
             targetResource: submissionId,
             scope: `state=${recordState},district=${recordDistrict || ''}`,
-            details: `Leadership caller forbidden to edit record outside authorized scope ('${recordState}')`,
+            details: `${scope.role} caller forbidden to edit record outside authorized scope ('${recordState}')`,
           });
           return NextResponse.json(
             {
@@ -381,6 +408,9 @@ export async function PATCH(
         { status: result.statusCode || 502 }
       );
     }
+
+    // Trigger best-effort Firestore mirror drain to sync updated row to Google Sheets
+    canonicalSubmissionAdapter.triggerBestEffortFirestoreMirrorDrain?.();
 
     const isApprovalChange = patchPayload.approvedAllianceIndia !== undefined;
     logSecurityEvent({

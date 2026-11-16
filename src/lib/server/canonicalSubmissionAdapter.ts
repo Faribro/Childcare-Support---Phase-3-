@@ -803,6 +803,40 @@ class CanonicalSubmissionAdapterService {
     }
   }
 
+  /**
+   * Best-effort Firestore mirror drain.
+   * Triggers after successful POST /api/submissions when DATA_ENGINE=firestore.
+   * Replays up to 10 PENDING_SHEET_SYNC records once the gateway URL is configured.
+   * Fire-and-forget: never throws; failures are logged but do not affect the response.
+   */
+  public triggerBestEffortFirestoreMirrorDrain(): void {
+    const drainFn = async () => {
+      try {
+        const firestoreAdapter = await this.getFirestoreAdapter();
+        if (!firestoreAdapter) return;
+        const appsScriptUrl = this.getAppsScriptUrl();
+        if (!appsScriptUrl || !this.isConfigured()) {
+          // Gateway not yet configured — records stay in PENDING_SHEET_SYNC; will drain on next submission.
+          return;
+        }
+        const summary = await firestoreAdapter.drainSheetsMirrorRetryQueue(10);
+        if (summary && (summary.processed > 0 || summary.completed > 0)) {
+          console.info(`[MIRROR_DRAIN] Firestore drain complete: processed=${summary.processed}, completed=${summary.completed}, failed=${summary.failed}`);
+        }
+      } catch (drainErr) {
+        console.warn('[MIRROR_DRAIN] Best-effort Firestore mirror drain exception (records remain pending):', drainErr);
+      }
+    };
+
+    if (typeof (globalThis as any).waitUntil === 'function') {
+      (globalThis as any).waitUntil(drainFn());
+    } else {
+      setImmediate(() => {
+        drainFn().catch((err) => console.warn('[MIRROR_DRAIN] setImmediate Firestore drain error:', err));
+      });
+    }
+  }
+
   public getAppsScriptUrl(): string | undefined {
     const env = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || '').toLowerCase().trim();
     const stagingUrl = (process.env.STAGING_APPS_SCRIPT_URL || '').trim();

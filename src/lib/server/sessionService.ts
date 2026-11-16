@@ -29,6 +29,10 @@ export interface SessionPayload {
   allowedProgrammes?: string[];
   credentialVersion?: number;
   credentialKind?: 'STATE_EVALUATION' | 'LEADERSHIP_EVALUATION' | 'ADMIN';
+  srName?: string;
+  ssrName?: string;
+  canEdit?: boolean;
+  authMethod?: string;
   createdAt: number;
   expiresAt: number;
 }

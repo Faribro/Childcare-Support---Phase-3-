@@ -21,7 +21,6 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ConsentAudioNotice } from '@/components/ui/ConsentAudioNotice';
 import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { BilingualAddressBlock } from '@/components/forms/BilingualAddressBlock';
-import { ProfileSrCompletionModal } from '@/components/auth/ProfileSrCompletionModal';
 import { Fingerprint, Users } from 'lucide-react';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
@@ -106,7 +105,6 @@ export default function NewSinglePageAssessment() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
-  const [isSrModalOpen, setIsSrModalOpen] = useState(false);
 
   const errorsByField = useMemo(() => {
     const map: Record<string, FormValidationError> = {};
@@ -386,12 +384,38 @@ export default function NewSinglePageAssessment() {
     }
   }, [validationErrors.length, formError]);
 
-  // Client init: UUID & Reference ID
+  // Client init: UUID & Reference ID + Auto-fill persistent Caseworker profile (SR/SSR names collected at onboarding)
   useEffect(() => {
     const uuid = crypto.randomUUID();
     setClientUuid(uuid);
     const refId = generateAssessmentId('Maharashtra', 'Pune');
     setFormData((prev) => ({ ...prev, artNumber: refId, koboId: refId }));
+
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedProfile = localStorage.getItem('field_user_profile');
+        if (cachedProfile) {
+          const p = JSON.parse(cachedProfile);
+          setFormData((prev) => ({
+            ...prev,
+            srName: prev.srName || p.srName || '',
+            ssrName: prev.ssrName || p.ssrName || '',
+            formSubmittedBy: prev.formSubmittedBy || p.name || (p.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : prev.formSubmittedBy),
+            state: p.assignedState || prev.state,
+            district: p.assignedDistrict || prev.district,
+          }));
+        }
+        const cachedSr = localStorage.getItem('field_user_sr');
+        if (cachedSr) {
+          const s = JSON.parse(cachedSr);
+          setFormData((prev) => ({
+            ...prev,
+            srName: prev.srName || s.srName || '',
+            ssrName: prev.ssrName || s.ssrName || '',
+          }));
+        }
+      } catch (_) {}
+    }
   }, []);
 
   // Synchronize state and district changes with Unique ID
@@ -703,25 +727,42 @@ export default function NewSinglePageAssessment() {
     setFormError(null);
     setIsSubmitting(true);
 
-    // One-time check: user must have an SR assigned before submitting
+    // Auto-fill SR & SSR name from stored field user profile or session cache if not already set.
+    // REMOVED BLOCKING PROMPT: Per production specification, SR and SSR names are collected ONCE
+    // during initial caseworker registration/onboarding, NEVER interrupting the final submit action.
     let effectiveSrName = formData.srName;
-    if (!effectiveSrName && typeof window !== 'undefined') {
+    let effectiveSsrName = formData.ssrName;
+    if (typeof window !== 'undefined') {
       try {
-        const cachedSr = localStorage.getItem('field_user_sr');
-        if (cachedSr) {
-          const parsed = JSON.parse(cachedSr);
-          if (parsed?.srName) {
-            effectiveSrName = parsed.srName;
-            setFormData((prev) => ({ ...prev, srName: parsed.srName }));
+        if (!effectiveSrName || !effectiveSsrName) {
+          const cachedProfile = localStorage.getItem('field_user_profile');
+          if (cachedProfile) {
+            const parsed = JSON.parse(cachedProfile);
+            if (!effectiveSrName && parsed?.srName) {
+              effectiveSrName = parsed.srName;
+              setFormData((prev) => ({ ...prev, srName: parsed.srName }));
+            }
+            if (!effectiveSsrName && parsed?.ssrName) {
+              effectiveSsrName = parsed.ssrName;
+              setFormData((prev) => ({ ...prev, ssrName: parsed.ssrName }));
+            }
+          }
+        }
+        if (!effectiveSrName || !effectiveSsrName) {
+          const cachedSr = localStorage.getItem('field_user_sr');
+          if (cachedSr) {
+            const parsed = JSON.parse(cachedSr);
+            if (!effectiveSrName && parsed?.srName) {
+              effectiveSrName = parsed.srName;
+              setFormData((prev) => ({ ...prev, srName: parsed.srName }));
+            }
+            if (!effectiveSsrName && parsed?.ssrName) {
+              effectiveSsrName = parsed.ssrName;
+              setFormData((prev) => ({ ...prev, ssrName: parsed.ssrName }));
+            }
           }
         }
       } catch (_) {}
-    }
-
-    if (!effectiveSrName) {
-      setIsSubmitting(false);
-      setIsSrModalOpen(true);
-      return;
     }
 
     try {
@@ -777,8 +818,8 @@ export default function NewSinglePageAssessment() {
           state: formData.state,
           district: formData.district,
           childAadhaarNumber: formData.childAadhaarNumber,
-          srName: formData.srName,
-          ssrName: formData.ssrName,
+          srName: effectiveSrName || formData.srName || '',
+          ssrName: effectiveSsrName || formData.ssrName || '',
           guardianStatus: formData.guardianStatus,
         },
         consent: {
@@ -2794,6 +2835,26 @@ export default function NewSinglePageAssessment() {
                 placeholder="fieldworker@allianceindia.org"
               />
             </div>
+
+            {/* Program Sub-Recipient & District SSR Assignment (Auto-attached from Caseworker Profile) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3 pt-3 border-t border-slate-100">
+              <Input
+                id="review-srName"
+                name="srName"
+                label="State Sub-Recipient (SR)"
+                value={formData.srName}
+                onChange={(e) => setFormData({ ...formData, srName: e.target.value })}
+                placeholder="State SR (from profile)"
+              />
+              <Input
+                id="review-ssrName"
+                name="ssrName"
+                label="Sub-Sub-Recipient (SSR)"
+                value={formData.ssrName}
+                onChange={(e) => setFormData({ ...formData, ssrName: e.target.value })}
+                placeholder="District SSR / Facility"
+              />
+            </div>
           </div>
         </section>
         </div>
@@ -2876,15 +2937,6 @@ export default function NewSinglePageAssessment() {
           </div>
           </div>
         </div>
-        <ProfileSrCompletionModal
-          isOpen={isSrModalOpen}
-          onClose={() => setIsSrModalOpen(false)}
-          currentState={formData.state}
-          onSave={({ name }) => {
-            setFormData((prev) => ({ ...prev, srName: name }));
-            setIsSrModalOpen(false);
-          }}
-        />
       </div>
     </AppShell>
   );

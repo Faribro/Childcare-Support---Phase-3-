@@ -49,6 +49,8 @@ export interface FieldUserProfile {
   assignedDistrict: string;
   invitationId: string; // Associated invitation reference
   status: FieldUserStatus;
+  srName?: string;      // State Sub-Recipient (SR) Name collected at onboarding
+  ssrName?: string;     // Sub-Sub-Recipient (SSR) Name collected at onboarding
   createdAt: number;
   updatedAt: number;
 }

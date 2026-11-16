@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveUserAccessScope } from '@/lib/server/authorisation';
+import { resolveUserAccessScope, shouldClearLeaderSessionCookie } from '@/lib/server/authorisation';
+import { clearLeaderSessionCookie } from '@/lib/server/leaderSessionStore';
 
 export const dynamic = 'force-dynamic';
 
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+};
+
 export async function GET(req: NextRequest) {
   const scope = await resolveUserAccessScope(req);
-  return NextResponse.json(
+
+  const response = NextResponse.json(
     {
       status: 'success',
       data: {
@@ -15,13 +22,20 @@ export async function GET(req: NextRequest) {
         allowedStates: scope.allowedStates,
         allowedDistricts: scope.allowedDistricts,
         isVerified: scope.isVerified,
+        srName: scope.srName,
+        ssrName: scope.ssrName,
       },
     },
     {
-      headers: {
-        'Cache-Control': 'private, no-store, no-cache, max-age=0, must-revalidate',
-        Pragma: 'no-cache',
-      },
+      headers: NO_STORE_HEADERS,
     }
   );
+
+  // Clear stale leader session cookie only when the rejection is definitive (not transient).
+  // This breaks the 401 loop where a browser with a stale pre-cutover cookie never gets cleared.
+  if (shouldClearLeaderSessionCookie(scope, req)) {
+    clearLeaderSessionCookie(response, req);
+  }
+
+  return response;
 }

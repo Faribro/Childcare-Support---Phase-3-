@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { firstName, lastName, state, district, invitationCode } = body || {};
+  const { firstName, lastName, state, district, invitationCode, srName, ssrName } = body || {};
 
   if (!firstName?.trim()) {
     return NextResponse.json({ status: 'error', error: 'First name is required.' }, { status: 400 });
@@ -102,6 +102,8 @@ export async function POST(req: NextRequest) {
   // Note: assignedState is derived from the verified invitation, NOT client state override!
   const finalFirstName = firstName.trim();
   const finalLastName = (lastName || '').trim();
+  const finalSrName = typeof srName === 'string' ? srName.trim() : '';
+  const finalSsrName = typeof ssrName === 'string' ? ssrName.trim() : '';
 
   const profile = await store.createFieldUserProfile({
     googleSub: ticket.googleSub,
@@ -111,6 +113,8 @@ export async function POST(req: NextRequest) {
     assignedState: invitation.state,
     assignedDistrict: district.trim(),
     invitationId: invitation.id,
+    srName: finalSrName,
+    ssrName: finalSsrName,
   });
 
   // Issue session token bound to FIELD_USER role
@@ -121,6 +125,8 @@ export async function POST(req: NextRequest) {
     role: 'FIELD_USER',
     allowedStates: [profile.assignedState],
     allowedDistricts: [profile.assignedDistrict],
+    srName: profile.srName,
+    ssrName: profile.ssrName,
   });
 
   const response = NextResponse.json(
@@ -133,6 +139,8 @@ export async function POST(req: NextRequest) {
         name: `${profile.firstName} ${profile.lastName}`.trim(),
         assignedState: profile.assignedState,
         assignedDistrict: profile.assignedDistrict,
+        srName: profile.srName,
+        ssrName: profile.ssrName,
       },
       data: {
         profile,

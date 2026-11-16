@@ -12,8 +12,10 @@ import {
   isProgrammeAuthorized,
   filterRecordsByScope,
   logSecurityEvent,
+  shouldClearLeaderSessionCookie,
   UserAccessScope,
 } from '@/lib/server/authorisation';
+import { clearLeaderSessionCookie } from '@/lib/server/leaderSessionStore';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
         outcome: 'DENY',
         details: 'Unauthenticated request denied on GET /api/submissions',
       });
-      return NextResponse.json(
+      const unauthorizedResponse = NextResponse.json(
         {
           status: 'error',
           code: 'UNAUTHORIZED',
@@ -59,6 +61,12 @@ export async function GET(req: NextRequest) {
           },
         }
       );
+      // Clear stale leader session cookie so the browser exits the 401 loop.
+      // Only when the rejection is definitive (not a transient error).
+      if (shouldClearLeaderSessionCookie(scope, req)) {
+        clearLeaderSessionCookie(unauthorizedResponse, req);
+      }
+      return unauthorizedResponse;
     }
 
     const effectiveScope: UserAccessScope = syntheticDemoAllowed
@@ -541,6 +549,11 @@ export async function POST(req: NextRequest) {
         { status: result.statusCode || 502 }
       );
     }
+
+    // After a successful submission, trigger a best-effort drain of PENDING_SHEET_SYNC records.
+    // Fire-and-forget: errors are logged but never affect the response.
+    // When the gateway is not yet configured, this is a no-op.
+    canonicalSubmissionAdapter.triggerBestEffortFirestoreMirrorDrain?.();
 
     const resolvedClientSubmissionId = validation.data.clientSubmissionId || validation.data.uuid;
     return NextResponse.json(

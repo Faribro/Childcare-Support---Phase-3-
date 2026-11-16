@@ -143,6 +143,7 @@ export async function POST(req: NextRequest) {
     { headers: NO_STORE_HEADERS }
   );
 
-  attachLeaderSessionCookie(response, result.session.sessionId);
+  // Pass req so the unified __session envelope merges existing fields (e.g. leaderDeviceSecret)
+  attachLeaderSessionCookie(response, result.session.sessionId, req);
   return response;
 }

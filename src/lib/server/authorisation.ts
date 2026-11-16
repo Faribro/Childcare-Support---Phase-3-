@@ -26,6 +26,9 @@ export interface UserAccessScope {
   allowedProgrammes?: string[];
   isVerified: boolean;
   reason: string;
+  srName?: string;
+  ssrName?: string;
+  canEdit?: boolean;
 }
 
 export interface SecurityAuditEvent {
@@ -390,6 +393,9 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
           allowedProgrammes: session.allowedProgrammes || ['alliance-childcare-phase3'],
           isVerified: true,
           reason: 'verified_session_token',
+          srName: session.srName,
+          ssrName: session.ssrName,
+          canEdit: session.canEdit,
         };
       }
     }
@@ -442,6 +448,35 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
     isVerified: false,
     reason: 'untrusted_fallback',
   };
+}
+
+/**
+ * Determines whether the __session / leader session cookie should be actively cleared
+ * from the browser in the current response.
+ *
+ * Policy (approved 2026-11-16):
+ * - CLEAR only when the session was definitively unauthenticated (`reason === 'untrusted_fallback'`).
+ *   This covers: expired sessions, revoked sessions, legacy shared-password sessions under email_only.
+ * - NEVER clear on transient errors (Firestore timeouts, rate-limit back-off, partial auth failure).
+ *   Those produce reasons like `verified_leader_session`, `verified_session_cookie`, `test_environment`.
+ * - NEVER clear if the incoming request had no session cookie at all (nothing to clear).
+ *
+ * This helper is intentionally side-effect-free — the caller decides how to use the signal.
+ */
+export function shouldClearLeaderSessionCookie(
+  scope: UserAccessScope,
+  req: NextRequest
+): boolean {
+  // Only clear on definitively unauthenticated scope
+  if (scope.isVerified || scope.reason !== 'untrusted_fallback') return false;
+
+  // Only clear if there is actually a session cookie to clear (avoid spurious Set-Cookie headers)
+  const hasSessionCookie =
+    req.cookies.has('__session') ||
+    req.cookies.has('leader_session_id') ||
+    req.cookies.has('leader_session_token') ||
+    req.headers.has('x-leader-session-id');
+  return hasSessionCookie;
 }
 
 /**

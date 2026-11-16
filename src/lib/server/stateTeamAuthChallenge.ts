@@ -333,6 +333,8 @@ export async function verifyStateTeamOtp(params: {
       allowedStates: [registration.requestedState],
       allowedDistricts: ['*'],
       credentialKind: 'STATE_EVALUATION',
+      canEdit: true,
+      authMethod: 'email_otp',
     });
 
     const session = {

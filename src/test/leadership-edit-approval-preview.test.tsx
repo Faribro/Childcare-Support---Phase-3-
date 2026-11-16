@@ -22,6 +22,7 @@ vi.mock('@/lib/server/canonicalSubmissionAdapter', () => ({
     getSubmission: vi.fn(),
     updateSubmission: vi.fn(),
     updateAsset: vi.fn(),
+    triggerBestEffortFirestoreMirrorDrain: vi.fn(),
   },
 }));
 

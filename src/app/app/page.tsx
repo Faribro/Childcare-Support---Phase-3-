@@ -314,18 +314,15 @@ export default function FieldWorkspacePage() {
         return;
       }
 
-      // 2. Only intercept if field onboarding gate is explicitly enabled
-      const isOnboardingEnabled = process.env.NEXT_PUBLIC_FIELD_ONBOARDING_ENABLED === 'true';
-      if (!isOnboardingEnabled) {
+      // 2. Returning user with valid verified session or existing stored profile proceeds directly
+      const hasStoredProfile = typeof window !== 'undefined' && Boolean(
+        localStorage.getItem('field_user_profile') || localStorage.getItem('field_user_sr')
+      );
+      if (hasStoredProfile || user?.isVerified) {
         return;
       }
 
-      // 3. Returning user with valid verified session proceeds directly
-      if (user?.isVerified) {
-        return;
-      }
-
-      // 4. First-time unverified online user: open Welcome Kite onboarding
+      // 3. First-time unverified online user: open Welcome Kite onboarding to register once
       e.preventDefault();
       setIsOnboardingOpen(true);
     },

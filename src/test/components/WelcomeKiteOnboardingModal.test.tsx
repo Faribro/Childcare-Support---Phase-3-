@@ -73,6 +73,8 @@ describe('WelcomeKiteOnboardingModal Component', () => {
     // Check presence of state and district inputs
     expect(screen.getByLabelText(/State \/ UT/i)).toBeDefined();
     expect(screen.getByLabelText(/District/i)).toBeDefined();
+    expect(screen.getByLabelText(/State Sub-Recipient/i)).toBeDefined();
+    expect(screen.getByLabelText(/Sub-Sub-Recipient/i)).toBeDefined();
     expect(screen.getByLabelText(/State-Team Invitation Code/i)).toBeDefined();
   });
 
@@ -95,6 +97,98 @@ describe('WelcomeKiteOnboardingModal Component', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeDefined();
       expect(screen.getByText(/Please enter your first name/i)).toBeDefined();
+    });
+  });
+
+  it('6. validates required SR Name on profile submit', async () => {
+    render(
+      <WelcomeKiteOnboardingModal
+        isOpen={true}
+        onClose={vi.fn()}
+        initialTicketData={{
+          googleEmail: 'caseworker@gmail.com',
+          firstName: 'Kavita',
+          lastName: 'Sharma',
+        }}
+      />
+    );
+
+    // Enter district
+    const districtInput = screen.getByLabelText(/District/i);
+    fireEvent.change(districtInput, { target: { value: 'Pune' } });
+
+    // Clear SR Name input if any
+    const srInput = screen.getByLabelText(/State Sub-Recipient/i);
+    fireEvent.change(srInput, { target: { value: '' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Complete Registration/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined();
+      expect(screen.getByText(/Please enter or select your State Sub-Recipient \(SR\) Name/i)).toBeDefined();
+    });
+  });
+
+  it('7. saves SR and SSR names to localStorage on successful profile completion', async () => {
+    const mockOnSuccess = vi.fn();
+    const mockOnClose = vi.fn();
+
+    // Mock successful onboarding API
+    (global.fetch as any).mockImplementation((url: string) => {
+      if (url === '/api/auth/field-user/complete-onboarding') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              status: 'success',
+              profile: {
+                id: 'fld_123',
+                name: 'Kavita Sharma',
+                srName: 'Alliance India Maharashtra SR',
+                ssrName: 'Pune Care Center',
+              },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ hasTicket: false }),
+      });
+    });
+
+    render(
+      <WelcomeKiteOnboardingModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        initialTicketData={{
+          googleEmail: 'caseworker@gmail.com',
+          firstName: 'Kavita',
+          lastName: 'Sharma',
+        }}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/District/i), { target: { value: 'Pune' } });
+    fireEvent.change(screen.getByLabelText(/State Sub-Recipient/i), {
+      target: { value: 'Alliance India Maharashtra SR' },
+    });
+    fireEvent.change(screen.getByLabelText(/Sub-Sub-Recipient/i), {
+      target: { value: 'Pune Care Center' },
+    });
+    fireEvent.change(screen.getByLabelText(/State-Team Invitation Code/i), {
+      target: { value: 'ALN-MH-TEST-1234' },
+    });
+
+    const submitBtn = screen.getByRole('button', { name: /Complete Registration/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      const storedSr = JSON.parse(localStorage.getItem('field_user_sr') || '{}');
+      expect(storedSr.srName).toBe('Alliance India Maharashtra SR');
+      expect(storedSr.ssrName).toBe('Pune Care Center');
+      expect(mockOnClose).toHaveBeenCalled();
     });
   });
 });

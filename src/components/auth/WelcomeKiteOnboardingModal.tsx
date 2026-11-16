@@ -40,12 +40,40 @@ export function WelcomeKiteOnboardingModal({
   const [lastName, setLastName] = useState(() => initialTicketData?.lastName || '');
   const [state, setState] = useState('Maharashtra');
   const [district, setDistrict] = useState('');
+  const [srName, setSrName] = useState('');
+  const [ssrName, setSsrName] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
+  const [stateSrs, setStateSrs] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedSrId, setSelectedSrId] = useState('');
+  const [isCustomSr, setIsCustomSr] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const firstNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Load active State SRs for the selected state
+  useEffect(() => {
+    if (isOpen && state) {
+      fetch(`/api/reference-data/state-srs?state=${encodeURIComponent(state)}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json?.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+            setStateSrs(json.data);
+            setSelectedSrId(json.data[0].id);
+            setSrName((prev) => prev || json.data[0].name);
+            setIsCustomSr(false);
+          } else {
+            setStateSrs([]);
+            setIsCustomSr(true);
+          }
+        })
+        .catch(() => {
+          setStateSrs([]);
+          setIsCustomSr(true);
+        });
+    }
+  }, [state]);
 
   // Check if onboarding ticket already exists in cookie
   useEffect(() => {
@@ -116,7 +144,12 @@ export function WelcomeKiteOnboardingModal({
       setErrorMessage('Please enter your assigned district.');
       return;
     }
-    if (!invitationCode.trim()) {
+    const finalSr = srName.trim();
+    if (!finalSr) {
+      setErrorMessage('Please enter or select your State Sub-Recipient (SR) Name.');
+      return;
+    }
+    if (googleEmail && !invitationCode.trim()) {
       setErrorMessage('Please enter your state-team invitation code.');
       return;
     }
@@ -124,33 +157,64 @@ export function WelcomeKiteOnboardingModal({
     setIsLoading(true);
     setErrorMessage(null);
 
-    try {
-      const res = await fetch('/api/auth/field-user/complete-onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    const persistLocal = (profileId?: string, profileName?: string) => {
+      if (typeof window !== 'undefined') {
+        const profileObj = {
+          id: profileId || `fld_local_${Date.now()}`,
+          name: profileName || `${firstName.trim()} ${lastName.trim()}`.trim(),
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          state: state.trim(),
-          district: district.trim(),
-          invitationCode: invitationCode.trim(),
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || data.status === 'error') {
-        setErrorMessage(data.error || 'Failed to complete onboarding. Please check your invitation code.');
-        setIsLoading(false);
-        return;
+          assignedState: state.trim(),
+          assignedDistrict: district.trim(),
+          srName: finalSr,
+          ssrName: ssrName.trim(),
+        };
+        localStorage.setItem('field_user_profile', JSON.stringify(profileObj));
+        localStorage.setItem('field_user_sr', JSON.stringify({
+          srName: finalSr,
+          ssrName: ssrName.trim(),
+        }));
       }
+    };
 
+    if (googleEmail || invitationCode.trim()) {
+      try {
+        const res = await fetch('/api/auth/field-user/complete-onboarding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            state: state.trim(),
+            district: district.trim(),
+            invitationCode: invitationCode.trim(),
+            srName: finalSr,
+            ssrName: ssrName.trim(),
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || data.status === 'error') {
+          setErrorMessage(data.error || 'Failed to complete onboarding. Please check your invitation code.');
+          setIsLoading(false);
+          return;
+        }
+
+        persistLocal(data.profile?.id, data.profile?.name);
+        onSuccess?.();
+        onClose();
+        router.push(data.redirectUrl || '/assessment/new');
+      } catch {
+        setErrorMessage('Network or server error completing profile. Please try again.');
+        setIsLoading(false);
+      }
+    } else {
+      persistLocal();
+      setIsLoading(false);
       onSuccess?.();
       onClose();
-      router.push(data.redirectUrl || '/assessment/new');
-    } catch {
-      setErrorMessage('Network or server error completing profile. Please try again.');
-      setIsLoading(false);
+      router.push('/assessment/new');
     }
   };
 
@@ -275,6 +339,20 @@ export function WelcomeKiteOnboardingModal({
                 <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-0.5 transition-transform" />
               </button>
 
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink mx-3 text-slate-400 text-[11px] uppercase tracking-wider">or</span>
+                <div className="flex-grow border-t border-slate-200"></div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setStep('profile')}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-semibold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Direct Caseworker Profile Setup (Offline / Fast Start)</span>
+              </button>
+
               <div className="text-center">
                 <button
                   type="button"
@@ -369,9 +447,82 @@ export function WelcomeKiteOnboardingModal({
                 </div>
               </div>
 
+              {/* SR & SSR Name Fields (Collected ONCE during onboarding/registration) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="field-sr-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                    State Sub-Recipient (SR) *
+                  </label>
+                  {stateSrs.length > 0 && !isCustomSr ? (
+                    <select
+                      id="field-sr-select"
+                      aria-label="State Sub-Recipient (SR)"
+                      value={selectedSrId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '__custom__') {
+                          setIsCustomSr(true);
+                          setSrName('');
+                        } else {
+                          setSelectedSrId(val);
+                          const matched = stateSrs.find((s) => s.id === val);
+                          setSrName(matched?.name || '');
+                        }
+                      }}
+                      required
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all cursor-pointer"
+                    >
+                      {stateSrs.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                      <option value="__custom__">+ Enter custom SR Name</option>
+                    </select>
+                  ) : (
+                    <div>
+                      <input
+                        id="field-sr-name"
+                        aria-label="State Sub-Recipient (SR)"
+                        type="text"
+                        value={srName}
+                        onChange={(e) => setSrName(e.target.value)}
+                        required
+                        placeholder="e.g. Alliance India State Partner"
+                        className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                      />
+                      {stateSrs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomSr(false)}
+                          className="mt-1 text-[11px] text-teal-700 hover:underline"
+                        >
+                          Select from authorized SR list
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="field-ssr-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Sub-Sub-Recipient (SSR)
+                  </label>
+                  <input
+                    id="field-ssr-name"
+                    aria-label="Sub-Sub-Recipient (SSR)"
+                    type="text"
+                    value={ssrName}
+                    onChange={(e) => setSsrName(e.target.value)}
+                    placeholder="e.g. Pune Care Center / NGO"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label htmlFor="field-invitation-code" className="block text-xs font-semibold text-slate-700 mb-1">
-                  State-Team Invitation Code *
+                  State-Team Invitation Code {googleEmail ? '*' : '(Optional for offline)'}
                 </label>
                 <div className="relative">
                   <input
@@ -379,7 +530,7 @@ export function WelcomeKiteOnboardingModal({
                     type="text"
                     value={invitationCode}
                     onChange={(e) => setInvitationCode(e.target.value.toUpperCase())}
-                    required
+                    required={Boolean(googleEmail)}
                     placeholder="e.g. ALN-MH-7K9W-4P2R"
                     className="w-full px-3 py-2.5 text-sm font-mono tracking-wider bg-emerald-50/40 border border-emerald-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none uppercase transition-all"
                   />

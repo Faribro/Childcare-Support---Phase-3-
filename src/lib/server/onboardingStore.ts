@@ -104,6 +104,8 @@ export interface OnboardingStore {
     assignedState: string;
     assignedDistrict: string;
     invitationId: string;
+    srName?: string;
+    ssrName?: string;
   }): Promise<FieldUserProfile>;
   getFieldUserProfileByGoogleSub(googleSub: string): Promise<FieldUserProfile | null>;
   getFieldUserProfileByEmail(googleEmail: string): Promise<FieldUserProfile | null>;
@@ -519,9 +521,18 @@ export class MemoryOnboardingStore implements OnboardingStore {
     assignedState: string;
     assignedDistrict: string;
     invitationId: string;
+    srName?: string;
+    ssrName?: string;
   }): Promise<FieldUserProfile> {
     const existing = await this.getFieldUserProfileByGoogleSub(data.googleSub);
     if (existing) {
+      if (data.srName !== undefined || data.ssrName !== undefined) {
+        const updated = await this.updateFieldUserProfile(existing.id, {
+          srName: data.srName ?? existing.srName,
+          ssrName: data.ssrName ?? existing.ssrName,
+        });
+        if (updated) return updated;
+      }
       return existing;
     }
 
@@ -536,6 +547,8 @@ export class MemoryOnboardingStore implements OnboardingStore {
       assignedDistrict: data.assignedDistrict.trim(),
       invitationId: data.invitationId,
       status: 'ACTIVE',
+      srName: (data.srName || '').trim(),
+      ssrName: (data.ssrName || '').trim(),
       createdAt: now,
       updatedAt: now,
     };
@@ -1255,6 +1268,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     assignedState: string;
     assignedDistrict: string;
     invitationId: string;
+    srName?: string;
+    ssrName?: string;
   }): Promise<FieldUserProfile> {
     const url = `${this.baseUrl}/rest/v1/field_user_profiles`;
     const res = await fetch(url, {
@@ -1268,6 +1283,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         assigned_state: data.assignedState.trim(),
         assigned_district: data.assignedDistrict.trim(),
         invitation_id: data.invitationId,
+        sr_name: (data.srName || '').trim(),
+        ssr_name: (data.ssrName || '').trim(),
       }),
     });
 
@@ -1288,6 +1305,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       assignedDistrict: row.assigned_district,
       invitationId: row.invitation_id,
       status: row.status,
+      srName: row.sr_name || row.srName || '',
+      ssrName: row.ssr_name || row.ssrName || '',
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
     };
@@ -1310,6 +1329,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       assignedDistrict: row.assigned_district,
       invitationId: row.invitation_id,
       status: row.status,
+      srName: row.sr_name || row.srName || '',
+      ssrName: row.ssr_name || row.ssrName || '',
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
     };
@@ -1332,6 +1353,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       assignedDistrict: row.assigned_district,
       invitationId: row.invitation_id,
       status: row.status,
+      srName: row.sr_name || row.srName || '',
+      ssrName: row.ssr_name || row.ssrName || '',
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
     };
@@ -1354,6 +1377,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       assignedDistrict: row.assigned_district,
       invitationId: row.invitation_id,
       status: row.status,
+      srName: row.sr_name || row.srName || '',
+      ssrName: row.ssr_name || row.ssrName || '',
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
     };
@@ -1369,6 +1394,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     if (updates.assignedState !== undefined) body.assigned_state = updates.assignedState;
     if (updates.assignedDistrict !== undefined) body.assigned_district = updates.assignedDistrict;
     if (updates.status !== undefined) body.status = updates.status;
+    if (updates.srName !== undefined) body.sr_name = updates.srName;
+    if (updates.ssrName !== undefined) body.ssr_name = updates.ssrName;
 
     const url = `${this.baseUrl}/rest/v1/field_user_profiles?id=eq.${encodeURIComponent(id)}`;
     const res = await fetch(url, {
@@ -1889,6 +1916,8 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     assignedState: string;
     assignedDistrict: string;
     invitationId: string;
+    srName?: string;
+    ssrName?: string;
   }): Promise<FieldUserProfile> {
     const db = await this.getDb();
     const id = `fld_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
@@ -1903,6 +1932,8 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       assignedDistrict: data.assignedDistrict.trim(),
       invitationId: data.invitationId,
       status: 'ACTIVE',
+      srName: (data.srName || '').trim(),
+      ssrName: (data.ssrName || '').trim(),
       createdAt: now,
       updatedAt: now,
     };

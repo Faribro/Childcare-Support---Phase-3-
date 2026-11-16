@@ -14,6 +14,8 @@ export interface EvaluationUser {
   allowedStates: string[];
   allowedDistricts: string[];
   isVerified?: boolean;
+  srName?: string;
+  ssrName?: string;
 }
 
 /**
