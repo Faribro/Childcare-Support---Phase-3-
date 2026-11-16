@@ -21,13 +21,18 @@
 | 2026-11-13 19:23 | Item 4 (Fix) | Resilience Contract Alignment | `8dc4048` | 1,594 passed | Passed (20 static + 7 dynamic) | Aligned test inputs with CanonicalCreateInput contract |
 | 2026-11-13 19:32 | Item 4/6 | Graceful Degradation Suite | `5330bd8` | 1,604 passed | Passed (20 static + 7 dynamic) | GCS bucket environment guard, mockDb fix, graceful degradation test suite |
 | 2026-11-13 19:38 | Item 5 | Local Container Check | N/A (Skipped) | 1,604 passed | Passed (20 static + 7 dynamic) | Docker not installed on Windows host environment (documented & skipped) |
-| 2026-11-13 19:45 | Items 6 & 7 | Phase E Final Verification | Pending | In Progress | In Progress | Final MIGRATION.md, RISK_REGISTER.md, OWNER_CHECKLIST.md, README.md index, .env.example |
+| 2026-11-13 19:45 | Items 6 & 7 | Phase E Final Verification | `8a346f1` | 1,604 passed | Passed (20 static + 7 dynamic) | Final MIGRATION.md, RISK_REGISTER.md, OWNER_CHECKLIST.md, README.md index, .env.example |
+| 2026-11-16 14:45 | Auth Restoration | Dynamic 6-Digit OTP & Password Decommission | `09db393` | 1,660 passed | Passed (20 static + 7 dynamic) | 6-digit numeric OTP, single-use, 5-attempt lockout, decommissioned static password fallback |
+| 2026-11-16 15:56 | SR Onboarding & State Edit | Field Onboarding SR Collection & State Team Edit | `4ad6219` | 1,673 passed | Passed (20 static + 7 dynamic) | SR/SSR collected once on onboarding, removed submit popup, enabled State Reviewer record edits, fixed 401 cookie clearing |
+| 2026-11-16 16:05 | Cloud Run Staging | Deploy Revision csc-staging-00009-78h | `3b605be` | 1,673 passed | Passed (20 static + 7 dynamic) | UTF-8 BOM strip on LEADERSHIP_ALLOWLIST_JSON, staging Apps Script web app connected, live verified |
+| 2026-11-16 16:30 | Release Gates & UAT | Production Release Gates Checklist & UAT Protocol | Working | Passed | Passed (20 static + 7 dynamic) | RELEASE_GATES.md with 60 step-by-step test cases across 4 roles and bug report template |
 
 ---
 
 ## Baseline Verification Tracker
-- **Unit & Integration Suite**: Baseline 1,462 -> 1,604 tests passing (26 skipped, 0 failed across 120 test files).
-- **TypeScript Typecheck**: 0 errors (`bun x tsc --noEmit`).
+- **Unit & Integration Suite**: Baseline 1,462 -> 1,673 tests passing (26 skipped, 0 failed across 124 test files).
+- **TypeScript Typecheck**: 0 errors (`bun x tsc --noEmit` / `npx tsc --noEmit`).
 - **Production Build (bun)**: Standalone output verified, 20 static pages (`○`) and 7 dynamic pages (`ƒ`) plus 39 API routes.
 - **Production Build (npm)**: Standalone output verified, 20 static pages (`○`) and 7 dynamic pages (`ƒ`) plus 39 API routes.
 - **Route Inventory Integrity**: 100% route retention (0 routes lost).
+- **Active Cloud Run Revision**: `csc-staging-00009-78h` (100% traffic, healthy).
