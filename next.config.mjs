@@ -38,7 +38,13 @@ if (targetEnv === 'production' && publicAppEnv && publicAppEnv !== 'production')
 const nextConfig = {
   output: 'standalone',
   experimental: {
-    serverComponentsExternalPackages: ['argon2', 'hash-wasm', 'nodemailer'],
+    serverComponentsExternalPackages: [
+      'argon2',
+      'hash-wasm',
+      'nodemailer',
+      '@google-cloud/firestore',
+      '@google-cloud/storage',
+    ],
     outputFileTracingIncludes: {
       '/api/geocode/reverse': ['./public/data/india-pincodes.json.gz'],
     },
