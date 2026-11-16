@@ -196,9 +196,13 @@ export async function getFirestoreDb(customDb?: any) {
     return activeFirestoreDb;
   }
 
-  const { Firestore } = await import('@google-cloud/firestore');
+  const firestoreMod = await import('@google-cloud/firestore');
+  const FirestoreClass =
+    (firestoreMod as any).Firestore ||
+    (firestoreMod as any).default ||
+    firestoreMod;
   const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'cs-p3-production';
-  activeFirestoreDb = new Firestore({
+  activeFirestoreDb = new FirestoreClass({
     projectId,
     databaseId: databaseId === '(default)' ? undefined : databaseId,
   });

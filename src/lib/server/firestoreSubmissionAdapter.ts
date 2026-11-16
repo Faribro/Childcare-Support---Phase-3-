@@ -98,8 +98,12 @@ export class FirestoreSubmissionAdapter {
   private async getDb() {
     if (this.db) return this.db;
     if (this.isMock) return null;
-    const { Firestore } = await import('@google-cloud/firestore');
-    this.db = new Firestore({
+    const firestoreMod = await import('@google-cloud/firestore');
+    const FirestoreClass =
+      (firestoreMod as any).Firestore ||
+      (firestoreMod as any).default ||
+      firestoreMod;
+    this.db = new FirestoreClass({
       projectId: this.projectId,
       databaseId: this.databaseId === '(default)' ? undefined : this.databaseId,
     });

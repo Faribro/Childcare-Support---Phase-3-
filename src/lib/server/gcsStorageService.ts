@@ -154,8 +154,12 @@ export class GcsStorageService {
   private async getStorage() {
     if (this.isMock) return null;
     if (!this.storageClient) {
-      const { Storage } = await import('@google-cloud/storage');
-      this.storageClient = new Storage({
+      const storageMod = await import('@google-cloud/storage');
+      const StorageClass =
+        (storageMod as any).Storage ||
+        (storageMod as any).default ||
+        storageMod;
+      this.storageClient = new StorageClass({
         projectId: this.config.projectId,
       });
     }
