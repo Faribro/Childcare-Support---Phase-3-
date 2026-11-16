@@ -36,6 +36,7 @@ if (targetEnv === 'production' && publicAppEnv && publicAppEnv !== 'production')
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['argon2', 'hash-wasm', 'nodemailer'],
     outputFileTracingIncludes: {
