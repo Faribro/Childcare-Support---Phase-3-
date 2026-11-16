@@ -36,7 +36,7 @@ const EVALUATION_STATES = [
 export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationLoginModalProps) {
   const { isUnlocked, user, login, logout } = useEvaluationAccess();
   const [activeTab, setActiveTab] = useState<'state' | 'leadership'>('state');
-  const [stateAuthMode, setStateAuthMode] = useState<'password' | 'email_otp'>('password');
+  const [stateAuthMode, setStateAuthMode] = useState<'password' | 'email_otp'>('email_otp');
   const [selectedState, setSelectedState] = useState('Maharashtra');
   const [customAccessId, setCustomAccessId] = useState('');
   const [password, setPassword] = useState('');

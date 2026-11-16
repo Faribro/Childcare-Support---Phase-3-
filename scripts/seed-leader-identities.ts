@@ -73,14 +73,14 @@ function loadLeaders(filePath?: string): InputLeader[] {
     }
   }
 
-  // Fallback demo/evaluation leaders for initial testing
-  console.log('[SEED_LEADERS] Using default initial leadership directory.');
+  // Fallback default authorized leadership directory
+  console.log('[SEED_LEADERS] Using authorized leadership roster.');
   return [
     {
-      id: 'lead-ananya-roy',
-      email: 'ananya.roy@allianceindia.org',
-      name: 'Dr. Ananya Roy',
-      title: 'National Programme Director',
+      id: 'lead-faridsayyed1010',
+      email: 'faridsayyed1010@gmail.com',
+      name: 'faridsayyed1010',
+      title: 'faridsayyed1010',
       role: 'LEADERSHIP',
       allowedStates: ['*'],
       allowedDistricts: ['*'],
@@ -88,10 +88,43 @@ function loadLeaders(filePath?: string): InputLeader[] {
       authVersion: 1,
     },
     {
-      id: 'lead-rajiv-menon',
-      email: 'rajiv.menon@allianceindia.org',
-      name: 'Rajiv Menon',
-      title: 'Senior M&E Specialist',
+      id: 'lead-mbalani',
+      email: 'mbalani@allianceindia.org',
+      name: 'mbalani',
+      title: 'mbalani',
+      role: 'LEADERSHIP',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+      isActive: true,
+      authVersion: 1,
+    },
+    {
+      id: 'lead-pramodk',
+      email: 'pramodk@allianceindia.org',
+      name: 'pramodk',
+      title: 'pramodk',
+      role: 'LEADERSHIP',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+      isActive: true,
+      authVersion: 1,
+    },
+    {
+      id: 'lead-agusain',
+      email: 'agusain@allianceindia.org',
+      name: 'agusain',
+      title: 'agusain',
+      role: 'LEADERSHIP',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+      isActive: true,
+      authVersion: 1,
+    },
+    {
+      id: 'lead-mbamrotiya',
+      email: 'mbamrotiya@allianceindia.org',
+      name: 'mbamrotiya',
+      title: 'mbamrotiya',
       role: 'LEADERSHIP',
       allowedStates: ['*'],
       allowedDistricts: ['*'],
@@ -99,6 +132,62 @@ function loadLeaders(filePath?: string): InputLeader[] {
       authVersion: 1,
     },
   ];
+}
+
+function getGcloudAccessToken(): string | null {
+  try {
+    const { execSync } = require('child_process');
+    const token = execSync('gcloud auth print-access-token', { encoding: 'utf-8' }).trim();
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeFirestoreDoc(
+  token: string,
+  projectId: string,
+  databaseId: string,
+  collection: string,
+  docId: string,
+  fields: Record<string, any>
+) {
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/${collection}/${encodeURIComponent(docId)}`;
+  
+  const formattedFields: Record<string, any> = {};
+  for (const [key, val] of Object.entries(fields)) {
+    if (val === null || val === undefined) {
+      formattedFields[key] = { nullValue: null };
+    } else if (typeof val === 'string') {
+      formattedFields[key] = { stringValue: val };
+    } else if (typeof val === 'boolean') {
+      formattedFields[key] = { booleanValue: val };
+    } else if (typeof val === 'number') {
+      formattedFields[key] = { integerValue: String(Math.floor(val)) };
+    } else if (Array.isArray(val)) {
+      formattedFields[key] = {
+        arrayValue: {
+          values: val.map((v) => ({ stringValue: String(v) })),
+        },
+      };
+    }
+  }
+
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields: formattedFields }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Firestore REST write failed for ${collection}/${docId} [${res.status}]: ${errorText}`);
+  }
+
+  return await res.json();
 }
 
 async function main() {
@@ -120,6 +209,7 @@ async function main() {
 
   const appEnv = (process.env.APP_ENV || 'staging').toLowerCase();
   const dbId = process.env.FIRESTORE_DATABASE_ID || (appEnv === 'production' ? '(default)' : 'staging');
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'cs-p3-production';
 
   console.log(`Target Environment : ${appEnv}`);
   console.log(`Firestore Database : ${dbId}`);
@@ -149,8 +239,11 @@ async function main() {
     return;
   }
 
-  const db = await getFirestoreDb();
-  const collectionRef = db.collection(LEADER_IDENTITIES_COLLECTION);
+  const gcloudToken = getGcloudAccessToken();
+  let db: any = null;
+  if (!gcloudToken) {
+    db = await getFirestoreDb();
+  }
 
   let committedCount = 0;
   for (const l of leaders) {
@@ -167,9 +260,26 @@ async function main() {
       authVersion: l.authVersion || 1,
     };
 
-    await collectionRef.doc(docId).set(docData);
+    if (gcloudToken) {
+      await writeFirestoreDoc(gcloudToken, projectId, dbId, LEADER_IDENTITIES_COLLECTION, docId, {
+        id: docData.id,
+        email: docData.email,
+        name: docData.name,
+        title: docData.title,
+        role: docData.role,
+        allowedStates: docData.allowedStates,
+        allowedDistricts: docData.allowedDistricts,
+        isActive: docData.isActive,
+        authVersion: docData.authVersion,
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      const collectionRef = db.collection(LEADER_IDENTITIES_COLLECTION);
+      await collectionRef.doc(docId).set(docData);
+    }
+
     committedCount++;
-    console.log(`  + [COMMITTED] ID: ${docId.padEnd(20)} | Email: ${docData.email}`);
+    console.log(`  + [COMMITTED] ID: ${docId.padEnd(25)} | Email: ${docData.email}`);
   }
 
   console.log('================================================================');

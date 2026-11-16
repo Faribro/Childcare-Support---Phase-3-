@@ -111,7 +111,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: 'ananya.roy@example.org',
-          code: 'a'.repeat(32),
+          code: '000000',
         }),
       });
 
@@ -163,7 +163,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
         },
         body: JSON.stringify({
           email: 'ananya.roy@example.org',
-          code: 'a'.repeat(32),
+          code: '000000',
         }),
       });
       const resVerify = await verifyCodeRoute(reqVerify);
@@ -317,10 +317,10 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(emails[0].to).toBe('ananya.roy@example.org');
       expect(emails[0].subject).toBe('Your Leadership sign-in code'); // Zero OTP in subject
 
-      // Verify code in email body is 32-character hexadecimal (128-bit)
-      const codeMatch = emails[0].text.match(/[0-9a-f]{32}/i);
+      // Verify code in email body is 6-digit numeric OTP
+      const codeMatch = emails[0].text.match(/\b\d{6}\b/);
       expect(codeMatch).not.toBeNull();
-      expect(codeMatch![0]).toHaveLength(32);
+      expect(codeMatch![0]).toHaveLength(6);
     });
 
     it('supports requesting code via leaderId without client sending email address', async () => {
@@ -356,7 +356,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -484,12 +484,12 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       // 1st request
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
       const firstEmail = MockEmailStore.getLastFor(email);
-      const firstCode = firstEmail!.text.match(/[0-9a-f]{32}/i)![0];
+      const firstCode = firstEmail!.text.match(/\b\d{6}\b/)![0];
 
       // 2nd request
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
       const secondEmail = MockEmailStore.getLastFor(email);
-      const secondCode = secondEmail!.text.match(/[0-9a-f]{32}/i)![0];
+      const secondCode = secondEmail!.text.match(/\b\d{6}\b/)![0];
 
       expect(firstCode).not.toBe(secondCode);
 
@@ -508,7 +508,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'samuel.k@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
       // Missing device binding
       const resNoDevice = await verifyLeadershipAuthCode({
@@ -539,7 +539,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
 
-      const wrongCode = '0'.repeat(32);
+      const wrongCode = '000000';
       const verifyResult = await verifyLeadershipAuthCode({ email, code: wrongCode, deviceBindingSecret: deviceBindingSecret });
       expect(verifyResult.success).toBe(false);
       if (!verifyResult.success) {
@@ -552,9 +552,9 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'samuel.k@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
-      const rightCode = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const rightCode = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
-      const wrongCode = 'f'.repeat(32);
+      const wrongCode = '999999';
 
       // 4 wrong attempts
       for (let i = 0; i < 4; i++) {
@@ -581,7 +581,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const deviceBindingSecret = generateDeviceBindingSecret();
 
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
       // Advance time by 10 minutes + 1 second
       vi.advanceTimersByTime(CHALLENGE_TTL_MS + 1000);
@@ -607,7 +607,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const reqPostRes = await requestCodeRoute(reqPost);
       const deviceCookie = reqPostRes.cookies.get(LEADER_DEVICE_COOKIE_NAME)!.value;
 
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
       // 2. Verify
       const verifyReq = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
@@ -656,7 +656,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
       // Simulate 2 instances attempting to verify concurrently
       const [res1, res2] = await Promise.all([
@@ -678,7 +678,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'rajiv.menon@example.org';
       const deviceBindingSecret1 = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret1 });
-      const code1 = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code1 = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
       // Instance 1 login
       const login1 = await verifyLeadershipAuthCode({ email, code: code1, deviceBindingSecret: deviceBindingSecret1 });
@@ -691,7 +691,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       // Instance 2 login for same leader
       const deviceBindingSecret2 = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret: deviceBindingSecret2 });
-      const code2 = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code2 = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
 
       const login2 = await verifyLeadershipAuthCode({ email, code: code2, deviceBindingSecret: deviceBindingSecret2 });
       expect(login2.success).toBe(true);
@@ -709,7 +709,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -738,7 +738,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'rajiv.menon@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -761,7 +761,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -782,7 +782,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'priya.sharma@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -799,7 +799,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -816,7 +816,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -1020,7 +1020,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -1045,7 +1045,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -1067,7 +1067,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -1091,7 +1091,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -1142,7 +1142,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
           'Content-Type': 'application/json',
           origin: 'https://attacker-origin.example.com',
         },
-        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '0'.repeat(32) }),
+        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '000000' }),
       });
 
       const res = await verifyCodeRoute(req);
@@ -1196,7 +1196,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const reqVerify = new NextRequest('http://localhost:3000/api/auth/leader/verify-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', origin: 'http://localhost:3000' },
-        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '0'.repeat(32) }),
+        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '000000' }),
       });
       const resVerify = await verifyCodeRoute(reqVerify);
       expect(resVerify.headers.get('Cache-Control')).toBe('private, no-store, no-cache, max-age=0, must-revalidate');
@@ -1290,7 +1290,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const individualSessionId = (login as any).session.sessionId;
 
@@ -1325,7 +1325,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const email = 'rajiv.menon@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
-      const code = MockEmailStore.getLastFor(email)!.text.match(/[0-9a-f]{32}/i)![0];
+      const code = MockEmailStore.getLastFor(email)!.text.match(/\b\d{6}\b/)![0];
       const login = await verifyLeadershipAuthCode({ email, code, deviceBindingSecret });
       const sessionId = (login as any).session.sessionId;
 
@@ -1372,7 +1372,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
           'Content-Type': 'application/json',
           cookie: `${LEADER_DEVICE_COOKIE_NAME}=test-device-secret`,
         },
-        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '0'.repeat(32) }),
+        body: JSON.stringify({ email: 'ananya.roy@example.org', code: '000000' }),
       });
       const resVerify = await verifyCodeRoute(reqVerify);
       expect(resVerify.status).toBe(503);

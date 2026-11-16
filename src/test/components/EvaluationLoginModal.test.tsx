@@ -41,7 +41,7 @@ describe('EvaluationLoginModal Component', () => {
     localStorage.clear();
   });
 
-  it('1. renders modal header, caseworker notice, and State Evaluation tab by default', async () => {
+  it('1. renders modal header, caseworker notice, and defaults to State Evaluation in email OTP mode', async () => {
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toBeDefined();
@@ -57,7 +57,19 @@ describe('EvaluationLoginModal Component', () => {
     expect(screen.getByRole('tab', { name: /State Evaluation/i })).toBeDefined();
     expect(screen.getByRole('tab', { name: /Leadership/i })).toBeDefined();
 
-    // State Evaluation form inputs
+    // Defaults to email OTP submode (StateTeamAuthFlow is mounted by default)
+    expect(screen.getByText(/Work Email OTP \/ Sign Up/i)).toBeDefined();
+    expect(screen.getByLabelText(/Email address/i)).toBeDefined();
+    expect(screen.getByLabelText(/First Name/i)).toBeDefined();
+  });
+
+  it('1b. switches to Shared Password sub-mode when Shared Password button is clicked', async () => {
+    render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
+
+    const sharedPasswordBtn = screen.getByRole('button', { name: /Shared Password/i });
+    fireEvent.click(sharedPasswordBtn);
+
+    // State Evaluation form inputs should now appear
     expect(screen.getByLabelText(/Assigned State/i)).toBeDefined();
     expect(screen.getByLabelText(/State Evaluation Password/i)).toBeDefined();
     expect(screen.getByRole('button', { name: /Sign In & Unlock Evaluation/i })).toBeDefined();

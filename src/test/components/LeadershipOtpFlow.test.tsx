@@ -198,7 +198,7 @@ describe('LeadershipOtpFlow Component', () => {
 
     // Transition to Step 2
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
     expect(screen.getByText(/Sent code to:/i)).toBeDefined();
@@ -235,18 +235,20 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const codeInput = screen.getByLabelText(/32-Character Verification Code/i) as HTMLInputElement;
+    const codeInput = screen.getByLabelText(/6-Digit Verification Code/i) as HTMLInputElement;
 
-    // Paste with spaces and non-hex symbols
-    fireEvent.change(codeInput, { target: { value: ' 4a-8f 9c-zz!! ' } });
-    // Strips non-hex, becomes '4a8f9c' (length 6)
-    expect(codeInput.value).toBe('4a8f9c');
-    expect(screen.getByText('6 / 32')).toBeDefined();
+    // Paste with spaces and non-digit symbols
+    fireEvent.change(codeInput, { target: { value: ' 12-34 56-zz!! ' } });
+    // Strips non-digits, becomes '123456' (length 6)
+    expect(codeInput.value).toBe('123456');
+    expect(screen.getByText('6 / 6')).toBeDefined();
 
-    // Verify button remains disabled
+    // Partial input: verify button remains disabled
+    fireEvent.change(codeInput, { target: { value: '123' } });
+    expect(screen.getByText('3 / 6')).toBeDefined();
     const verifyBtn = screen.getByRole('button', { name: /Verify & Open Evaluation/i });
     expect(verifyBtn).toBeDisabled();
   });
@@ -320,11 +322,11 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const codeInput = screen.getByLabelText(/32-Character Verification Code/i);
-    const valid32Hex = '0123456789abcdef0123456789abcdef';
+    const codeInput = screen.getByLabelText(/6-Digit Verification Code/i);
+    const valid32Hex = '123456';
     fireEvent.change(codeInput, { target: { value: valid32Hex } });
 
     const verifyBtn = screen.getByRole('button', { name: /Verify & Open Evaluation/i });
@@ -405,11 +407,11 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const codeInput = screen.getByLabelText(/32-Character Verification Code/i);
-    fireEvent.change(codeInput, { target: { value: '0123456789abcdef0123456789abcdef' } });
+    const codeInput = screen.getByLabelText(/6-Digit Verification Code/i);
+    fireEvent.change(codeInput, { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: /Verify & Open Evaluation/i }));
 
     // Should display recoverable session sync pending UI
@@ -515,7 +517,7 @@ describe('LeadershipOtpFlow Component', () => {
 
     // Verify in mock mode: moves to Step 2 without hitting live endpoint
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
     expect(liveRequestCodeCalled).toBe(false);
@@ -601,12 +603,12 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const codeInput = screen.getByLabelText(/32-Character Verification Code/i) as HTMLInputElement;
-    fireEvent.change(codeInput, { target: { value: '11112222333344445555666677778888' } });
-    expect(codeInput.value).toBe('11112222333344445555666677778888');
+    const codeInput = screen.getByLabelText(/6-Digit Verification Code/i) as HTMLInputElement;
+    fireEvent.change(codeInput, { target: { value: '123456' } });
+    expect(codeInput.value).toBe('123456');
 
     // Click Change
     fireEvent.click(screen.getByRole('button', { name: /Change/i }));
@@ -619,12 +621,12 @@ describe('LeadershipOtpFlow Component', () => {
     // Re-enter step 2: Code must be empty (cleared)
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const nextCodeInput = screen.getByLabelText(/32-Character Verification Code/i) as HTMLInputElement;
+    const nextCodeInput = screen.getByLabelText(/6-Digit Verification Code/i) as HTMLInputElement;
     expect(nextCodeInput.value).toBe('');
-    expect(screen.getByText('0 / 32')).toBeDefined();
+    expect(screen.getByText('0 / 6')).toBeDefined();
   });
 
   it('13. strict status validation: rejects missing, null, string, numeric, array, object emailAuthEnabled and invalid authMode', async () => {
@@ -709,11 +711,11 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const codeInput = screen.getByLabelText(/32-Character Verification Code/i);
-    fireEvent.change(codeInput, { target: { value: '0123456789abcdef0123456789abcdef' } });
+    const codeInput = screen.getByLabelText(/6-Digit Verification Code/i);
+    fireEvent.change(codeInput, { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: /Verify & Open Evaluation/i }));
 
     // Expect identity mismatch rejection
@@ -798,11 +800,11 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/32-Character Verification Code/i)).toBeDefined();
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
     });
 
-    const codeInput = screen.getByLabelText(/32-Character Verification Code/i);
-    fireEvent.change(codeInput, { target: { value: '0123456789abcdef0123456789abcdef' } });
+    const codeInput = screen.getByLabelText(/6-Digit Verification Code/i);
+    fireEvent.change(codeInput, { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: /Verify & Open Evaluation/i }));
 
     await waitFor(() => {

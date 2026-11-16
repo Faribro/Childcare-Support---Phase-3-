@@ -89,6 +89,11 @@ async function main() {
   const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'cs-p3-production';
   const databaseId = process.env.FIRESTORE_DATABASE_ID || 'staging';
 
+  if (databaseId === '(default)' || process.env.APP_ENV === 'production') {
+    console.error('[SEED_REST:REFUSAL] Static password seeding is permanently disabled. Cannot target production.');
+    process.exit(1);
+  }
+
   console.log(`Target Project  : ${projectId}`);
   console.log(`Database ID     : ${databaseId}`);
   console.log('Obtaining gcloud auth access token...');

@@ -95,7 +95,7 @@ const DEV_SYNTHETIC_FIXTURES: ApprovedLeaderProfile[] = [
   },
 ];
 
-const MOCK_SYNTHETIC_CODE = '0123456789abcdef0123456789abcdef';
+const MOCK_SYNTHETIC_CODE = '123456';
 const VALID_AUTH_MODES = ['hybrid', 'email_only', 'password_only'] as const;
 
 export function LeadershipOtpFlow({
@@ -536,18 +536,18 @@ export function LeadershipOtpFlow({
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Clean and normalize 32-hex character code
-    const cleanCode = code.trim().toLowerCase().replace(/[^0-9a-f]/g, '');
+    // Clean and normalize 6-digit numeric code
+    const cleanCode = code.trim().replace(/[^0-9]/g, '');
 
     if (!cleanCode) {
-      setErrorMessage('Please enter the 32-character verification code from your email.');
+      setErrorMessage('Please enter the 6-digit verification code from your email.');
       codeInputRef.current?.focus();
       return;
     }
 
-    if (cleanCode.length !== 32) {
+    if (cleanCode.length !== 6) {
       setErrorMessage(
-        `Verification code must be exactly 32 hex characters (currently ${cleanCode.length} / 32).`
+        `Verification code must be exactly 6 digits (currently ${cleanCode.length} / 6).`
       );
       codeInputRef.current?.focus();
       return;
@@ -678,12 +678,12 @@ export function LeadershipOtpFlow({
     }
   };
 
-  // Clean code input on change: keep hex only, max 32 (Never persisted to disk)
+  // Clean code input on change: keep digits only, max 6 (Never persisted to disk)
   const handleCodeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    const sanitized = raw.replace(/[^0-9a-fA-F]/g, '').slice(0, 32);
+    const sanitized = raw.replace(/[^0-9]/g, '').slice(0, 6);
     setCode(sanitized);
-    if (errorMessage && sanitized.length === 32) {
+    if (errorMessage && sanitized.length === 6) {
       setErrorMessage(null);
     }
   };
@@ -1157,16 +1157,16 @@ export function LeadershipOtpFlow({
                 htmlFor="leader-code-input"
                 className="block text-xs font-semibold text-slate-700"
               >
-                32-Character Verification Code
+                6-Digit Verification Code
               </label>
               <span
                 className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-full ${
-                  code.length === 32
+                  code.length === 6
                     ? 'bg-emerald-100 text-emerald-800 font-bold'
                     : 'bg-slate-100 text-slate-600'
                 }`}
               >
-                {code.length} / 32
+                {code.length} / 6
               </span>
             </div>
 
@@ -1175,12 +1175,13 @@ export function LeadershipOtpFlow({
                 ref={codeInputRef}
                 id="leader-code-input"
                 type="text"
-                inputMode="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 autoComplete="one-time-code"
                 value={code}
                 onChange={handleCodeInputChange}
-                placeholder="e.g. 4a8f9c... (32 hex characters)"
-                maxLength={32}
+                placeholder="e.g. 123456 (6 digits)"
+                maxLength={6}
                 disabled={isLoading || isSyncingSession}
                 className="w-full pl-9 pr-3.5 py-2.5 text-sm font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent transition-all uppercase placeholder:font-sans placeholder:tracking-normal placeholder:normal-case placeholder:text-slate-400 disabled:opacity-50 text-slate-900 text-center sm:text-left"
                 required
@@ -1188,13 +1189,13 @@ export function LeadershipOtpFlow({
               <Key className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             </div>
             <p className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
-              Check your inbox for the single-use 128-bit verification code dispatched by Alliance India.
+              Check your inbox for the single-use 6-digit verification code dispatched by Alliance India.
             </p>
           </div>
 
           <button
             type="submit"
-            disabled={isLoading || isSyncingSession || code.length !== 32}
+            disabled={isLoading || isSyncingSession || code.length !== 6}
             className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading || isSyncingSession ? (

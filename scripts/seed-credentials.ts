@@ -128,6 +128,13 @@ async function main() {
   console.log(`Execution Mode     : ${isDryRun ? 'DRY-RUN (Simulated)' : 'LIVE COMMIT'}`);
   console.log('----------------------------------------------------------------');
 
+  // Hard block against production password seeding
+  if (appEnv === 'production' || dbId === '(default)' || confirmProduction) {
+    console.error('[SEED_CREDENTIALS:REFUSAL] Static password seeding is permanently decommissioned and strictly forbidden against production.');
+    console.error('All authentication in production and staging must rely on dynamic OTP.');
+    process.exit(1);
+  }
+
   // Hard production refusal guard
   if ((appEnv === 'production' || dbId === '(default)') && !confirmProduction) {
     console.error('[SEED:REFUSAL] Refusing to seed production database "(default)" without explicit --confirm-production flag.');

@@ -2,7 +2,7 @@
  * Leadership Auth Challenge & OTP Lifecycle
  * 
  * Implements:
- * - 128-bit hex OTP generation (32 hex characters)
+ * - 6-digit numeric OTP generation
  * - SHA-256 verifier storage (zero plain OTP persistence)
  * - Server-issued HttpOnly device binding token verification
  * - 10-minute expiry window
@@ -167,8 +167,8 @@ export async function requestLeadershipAuthCode({
     return { success: true, statusCode: 200 };
   }
 
-  // Generate 128-bit hex OTP (16 random bytes = 32 hex chars)
-  const plainOtp = crypto.randomBytes(16).toString('hex');
+  // Generate 6-digit cryptographically secure numeric OTP
+  const plainOtp = crypto.randomInt(100000, 1000000).toString();
   const codeHash = hashString(plainOtp);
   const deviceBindingHash = hashString(deviceBindingSecret);
   const userAgentHash = hashString(userAgent || '');
@@ -279,11 +279,11 @@ export async function verifyLeadershipAuthCode({
     };
   }
 
-  // 128-bit hex OTP is exactly 32 hex characters
-  if (cleanCode.length !== 32 || !/^[0-9a-f]{32}$/i.test(cleanCode)) {
+  // 6-digit numeric OTP is exactly 6 digits
+  if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
     return {
       success: false,
-      error: 'Invalid verification code format. Code must be 32 hexadecimal characters.',
+      error: 'Invalid verification code format. Code must be 6 digits.',
       statusCode: 400,
     };
   }

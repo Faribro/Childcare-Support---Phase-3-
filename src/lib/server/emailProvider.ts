@@ -259,7 +259,7 @@ export class AppsScriptEmailProvider implements EmailProvider {
       };
     }
 
-    const otp = (params.otp || params.text.match(/[0-9a-f]{32}/i)?.[0] || '').trim();
+    const otp = (params.otp || params.text.match(/\b\d{6}\b/)?.[0] || params.text.match(/[0-9a-f]{32}/i)?.[0] || '').trim();
     if (!otp) {
       const err = 'OTP verification code is missing from dispatch payload.';
       console.error('[EMAIL_DISPATCH:APPS_SCRIPT_VALIDATION_ERROR] Missing OTP');

@@ -210,7 +210,7 @@ function extractHostFromUrl(rawUrl?: string | null): string | null {
  */
 export function getExpectedHosts(): string[] {
   const envHosts = process.env.ALLOWED_HOSTS
-    ? process.env.ALLOWED_HOSTS.split(',').map((h) => h.trim().toLowerCase())
+    ? process.env.ALLOWED_HOSTS.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)
     : [];
   const appEnv = (
     process.env.APP_ENV ||
@@ -219,11 +219,23 @@ export function getExpectedHosts(): string[] {
     'development'
   ).toLowerCase();
 
+  // If explicit ALLOWED_HOSTS is configured, enforce it strictly as the authoritative list
+  if (envHosts.length > 0) {
+    if (appEnv !== 'production') {
+      return [...new Set([...envHosts, 'localhost', '127.0.0.1'])];
+    }
+    return [...new Set(envHosts)];
+  }
+
   const defaults: string[] = [
-    'childcare.allianceindia.org',
     'cs-p3-production.web.app',
     'cs-p3-production.firebaseapp.com',
   ];
+
+  // Staging must NOT list the production domain unless in production or explicitly configured
+  if (appEnv === 'production') {
+    defaults.push('childcare.allianceindia.org');
+  }
 
   // Exact service URLs from environment
   const envUrls = [
@@ -241,7 +253,7 @@ export function getExpectedHosts(): string[] {
     defaults.push('localhost', '127.0.0.1');
   }
 
-  return [...new Set([...defaults, ...envHosts])];
+  return [...new Set(defaults)];
 }
 
 /**
