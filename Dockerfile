@@ -65,15 +65,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy public static directory
-COPY --from=builder /app/public ./public
-
 # Ensure directory permissions for nextjs user cache & standalone files
 RUN mkdir .next && chown nextjs:nodejs .next
 
-# Copy standalone server outputs and static assets with correct ownership
+# Copy standalone server outputs, static assets, and full public directory with correct ownership
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 # Switch to non-root user
 USER nextjs
