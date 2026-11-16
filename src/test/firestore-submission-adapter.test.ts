@@ -353,4 +353,42 @@ describe('Firestore Submission Adapter & Data Engine (Task 2)', () => {
       expect(readRes.uniqueId).toBe(clientSubmissionId);
     });
   });
+
+  describe('7. Mirror Handling & Undefined sheetRowNumber Resilience', () => {
+    it('should cleanly transition to SYNCED without error when gateway returns success without resolvedRow', async () => {
+      const mockGateway = {
+        callGateway: vi.fn().mockResolvedValue({
+          status: 'success',
+          statusCode: 200,
+          // Note: resolvedRow is intentionally undefined to test resilience
+        }),
+      };
+
+      const adapter = new FirestoreSubmissionAdapter({
+        appEnv: 'development',
+        databaseId: '(default)',
+        gatewayClient: mockGateway,
+      });
+
+      const clientSubmissionId = 'CANONICAL-MIRROR-UNDEF-001';
+      const result = await adapter.createSubmission({
+        payload: {
+          clientSubmissionId,
+          uniqueId: clientSubmissionId,
+          demographics: { childName: 'Aanya', state: 'Delhi', district: 'South' },
+        } as any,
+        idempotencyKey: 'canon-key-undef-01',
+        requestId: 'req-canon-undef-01',
+      });
+
+      expect(result.status).toBe('success');
+      expect(mockGateway.callGateway).toHaveBeenCalledTimes(1);
+
+      // Verify the record was saved with SYNCED mirrorStatus and no undefined error
+      const readRes = await adapter.getSubmission(clientSubmissionId);
+      expect(readRes).toBeDefined();
+      expect(readRes.mirrorStatus).toBe('SYNCED');
+      expect(readRes.sheetRowNumber).toBeUndefined();
+    });
+  });
 });

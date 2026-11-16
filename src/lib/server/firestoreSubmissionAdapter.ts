@@ -106,6 +106,7 @@ export class FirestoreSubmissionAdapter {
     this.db = new FirestoreClass({
       projectId: this.projectId,
       databaseId: this.databaseId === '(default)' ? undefined : this.databaseId,
+      ignoreUndefinedProperties: true,
     });
     return this.db;
   }
@@ -235,16 +236,21 @@ export class FirestoreSubmissionAdapter {
           syncStatus = 'SYNCED';
           // Update mirror status in Firestore
           if (db) {
-            await db.collection('submissions').doc(clientSubmissionId).update({
+            const updatePayload: Record<string, any> = {
               mirrorStatus: 'SYNCED',
-              sheetRowNumber: mirrorRes.resolvedRow,
               mirroredAt: new Date().toISOString(),
-            });
+            };
+            if (mirrorRes.resolvedRow !== undefined) {
+              updatePayload.sheetRowNumber = mirrorRes.resolvedRow;
+            }
+            await db.collection('submissions').doc(clientSubmissionId).update(updatePayload);
           } else {
             const m = this.mockSubmissions.get(clientSubmissionId);
             if (m) {
               m.mirrorStatus = 'SYNCED';
-              m.sheetRowNumber = mirrorRes.resolvedRow;
+              if (mirrorRes.resolvedRow !== undefined) {
+                m.sheetRowNumber = mirrorRes.resolvedRow;
+              }
             }
           }
         } else {
@@ -361,18 +367,23 @@ export class FirestoreSubmissionAdapter {
               status: 'SYNCED',
               updatedAt: new Date().toISOString(),
             });
-            await db.collection('submissions').doc(job.clientSubmissionId).update({
+            const updatePayload: Record<string, any> = {
               mirrorStatus: 'SYNCED',
-              sheetRowNumber: res.resolvedRow,
               mirroredAt: new Date().toISOString(),
-            });
+            };
+            if (res.resolvedRow !== undefined) {
+              updatePayload.sheetRowNumber = res.resolvedRow;
+            }
+            await db.collection('submissions').doc(job.clientSubmissionId).update(updatePayload);
           } else {
             job.status = 'SYNCED';
             job.updatedAt = new Date().toISOString();
             const sub = this.mockSubmissions.get(job.clientSubmissionId);
             if (sub) {
               sub.mirrorStatus = 'SYNCED';
-              sub.sheetRowNumber = res.resolvedRow;
+              if (res.resolvedRow !== undefined) {
+                sub.sheetRowNumber = res.resolvedRow;
+              }
               sub.mirroredAt = new Date().toISOString();
             }
           }
