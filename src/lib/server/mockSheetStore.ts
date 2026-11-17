@@ -78,6 +78,9 @@ export interface StoredSheetRecord {
   caseworker_name: string;
   declaration_date: string;
   sync_state: 'SYNCED';
+  authorId?: string;
+  submittedByWorkerId?: string;
+  authorIdentifier?: string;
   raw_payload?: CompleteSubmissionPayload;
   assetHistory?: Array<{
     slot: string;
@@ -309,6 +312,9 @@ export const MockSheetStore = {
       approved_alliance_india: payload.finalReview?.approvedAllianceIndia || (payload as any).approvedAllianceIndia || 'Pending',
       approvedAllianceIndia: payload.finalReview?.approvedAllianceIndia || (payload as any).approvedAllianceIndia || 'Pending',
       caseworker_name: payload.finalReview?.formSubmittedBy || payload.declaration?.caseworkerName || payload.interviewerName || 'Caseworker',
+      authorId: (payload as any).authorId || (payload as any).submittedByWorkerId || (payload as any).authorIdentifier || 'caseworker',
+      submittedByWorkerId: (payload as any).submittedByWorkerId || (payload as any).authorId || (payload as any).authorIdentifier || 'caseworker',
+      authorIdentifier: (payload as any).authorIdentifier || (payload as any).authorId || (payload as any).submittedByWorkerId || 'caseworker',
       declaration_date: payload.declaration?.declarationDate || now.split('T')[0],
       sync_state: 'SYNCED',
       raw_payload: payload,
@@ -1138,6 +1144,7 @@ export const MockSheetStore = {
     const baseRecords = [
       {
         uniqueId: 'WB-KOL-081200-01',
+        authorId: 'worker-juli',
         childName: 'Rohit Yadav',
         interviewer: 'Juli Yadav',
         visitDate: '2026-06-25',
@@ -1183,6 +1190,7 @@ export const MockSheetStore = {
       },
       {
         uniqueId: 'MH-PUN-081200-02',
+        authorId: 'worker-anil',
         childName: 'Puja Saha',
         interviewer: 'Anil Deshmukh',
         visitDate: '2026-06-26',
@@ -1228,6 +1236,7 @@ export const MockSheetStore = {
       },
       {
         uniqueId: 'DL-CEN-081200-03',
+        authorId: 'worker-pooja',
         childName: 'Aarav Jadhav',
         interviewer: 'Pooja Verma',
         visitDate: '2026-06-27',
@@ -1273,6 +1282,7 @@ export const MockSheetStore = {
       },
       {
         uniqueId: 'KA-BLR-081200-04',
+        authorId: 'worker-suresh',
         childName: 'Siddharth Patil',
         interviewer: 'Ramesh Gowda',
         visitDate: '2026-06-28',
@@ -1318,6 +1328,7 @@ export const MockSheetStore = {
       },
       {
         uniqueId: 'TN-CHE-081200-05',
+        authorId: 'worker-lakshmi',
         childName: 'Ananya Shinde',
         interviewer: 'Lakshmi Narayanan',
         visitDate: '2026-06-29',
@@ -1422,6 +1433,9 @@ export const MockSheetStore = {
         approved_alliance_india: b.approved,
         approvedAllianceIndia: b.approved,
         caseworker_name: b.interviewer,
+        authorId: b.authorId || `worker-${b.interviewer.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        submittedByWorkerId: b.authorId || `worker-${b.interviewer.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        authorIdentifier: b.authorId || `worker-${b.interviewer.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
         declaration_date: b.visitDate,
         sync_state: 'SYNCED',
         // Exact 73-Column Sheet Fields for full compatibility

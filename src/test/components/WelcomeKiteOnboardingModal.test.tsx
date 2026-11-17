@@ -36,13 +36,13 @@ describe('WelcomeKiteOnboardingModal Component', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('2. renders dialog, title, and initial Google onboarding step when isOpen is true', async () => {
+  it('2. renders dialog, title, and initial direct onboarding step when isOpen is true', async () => {
     render(<WelcomeKiteOnboardingModal isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toBeDefined();
     expect(screen.getByText('Field Caseworker Onboarding')).toBeDefined();
-    expect(screen.getByText(/Ready to begin a new survey\?/i)).toBeDefined();
-    expect(screen.getByText('Continue with Google')).toBeDefined();
+    expect(screen.getByText('Welcome to Child Care Support')).toBeDefined();
+    expect(screen.getByText('Complete Field Profile')).toBeDefined();
   });
 
   it('3. calls onClose when Escape key is pressed', async () => {
@@ -113,9 +113,10 @@ describe('WelcomeKiteOnboardingModal Component', () => {
       />
     );
 
-    // Enter district
-    const districtInput = screen.getByLabelText(/District/i);
-    fireEvent.change(districtInput, { target: { value: 'Pune' } });
+    // Enter district via combobox
+    const districtInput = screen.getByPlaceholderText(/Search or select district/i);
+    fireEvent.focus(districtInput);
+    fireEvent.click(screen.getByRole('option', { name: /Pune/i }));
 
     // Clear SR Name input if any
     const srInput = screen.getByLabelText(/State Sub-Recipient/i);
@@ -170,7 +171,11 @@ describe('WelcomeKiteOnboardingModal Component', () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText(/District/i), { target: { value: 'Pune' } });
+    // Select district via combobox
+    const districtInput = screen.getByPlaceholderText(/Search or select district/i);
+    fireEvent.focus(districtInput);
+    fireEvent.click(screen.getByRole('option', { name: /Pune/i }));
+
     fireEvent.change(screen.getByLabelText(/State Sub-Recipient/i), {
       target: { value: 'Alliance India Maharashtra SR' },
     });

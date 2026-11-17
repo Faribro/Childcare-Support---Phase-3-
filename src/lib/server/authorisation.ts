@@ -542,7 +542,7 @@ export function isProgrammeAuthorized(
 /**
  * Filters a linelist record collection strictly to authorized geographic and programme bounds.
  */
-export function filterRecordsByScope<T extends { state?: string; district?: string; programme_id?: string; programmeId?: string }>(
+export function filterRecordsByScope<T extends { state?: string; district?: string; programme_id?: string; programmeId?: string; authorId?: string; submittedByWorkerId?: string; authorIdentifier?: string; userId?: string }>(
   scope: UserAccessScope,
   records: T[]
 ): T[] {
@@ -551,6 +551,14 @@ export function filterRecordsByScope<T extends { state?: string; district?: stri
   }
 
   return records.filter((r: any) => {
+    // If caller is a FIELD_USER, author ownership is strictly required
+    if (scope.role === 'FIELD_USER') {
+      const recordAuthorId = r.authorId || r.submittedByWorkerId || r.authorIdentifier || r.userId;
+      if (!recordAuthorId || recordAuthorId !== scope.userId) {
+        return false;
+      }
+    }
+
     if (scope.allowedProgrammes && !scope.allowedProgrammes.includes('*')) {
       const rProg = (r.programme_id || r.programmeId || 'alliance-childcare-phase3').toString().trim().toLowerCase();
       if (!scope.allowedProgrammes.some((p) => p.toLowerCase() === rProg)) return false;

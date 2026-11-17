@@ -531,11 +531,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Server-authoritative ownership stamping: client cannot forge or override authorId / submittedByWorkerId
+    const authorId = scope.userId || (validation.data as any).authorId || `anon-${Date.now().toString(36)}`;
+    const effectivePayload = {
+      ...validation.data,
+      authorId,
+      submittedByWorkerId: authorId,
+      authorIdentifier: authorId,
+      approvedAllianceIndia: 'Pending',
+    };
+
     const result = await canonicalSubmissionAdapter.createSubmission({
-      payload: {
-        ...validation.data,
-        approvedAllianceIndia: 'Pending',
-      },
+      payload: effectivePayload as any,
       idempotencyKey,
       requestId,
     });

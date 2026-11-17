@@ -106,64 +106,112 @@ export async function GET(
       record?.['67\nApproved Alliance India'] === 'APPROVED'
     );
 
+    const recordAuthorId = record?.authorId || record?.submittedByWorkerId || record?.authorIdentifier || record?.userId;
+    const isAuthor = Boolean(
+      (recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
+      (!recordAuthorId && record?.submittedBy && scope.userId && record.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
+      (!recordAuthorId && syntheticDemoAllowed)
+    );
+
     let canEdit = false;
+    let canEditAssessment = false;
+    let canUploadOutstandingDocuments = false;
+    let canReplaceDocuments = false;
+    let canChangeApproval = false;
     let canDelete = false;
     let capabilityReason: string | undefined = undefined;
 
     if (!scope.isVerified && !syntheticDemoAllowed) {
       canEdit = false;
+      canEditAssessment = false;
+      canUploadOutstandingDocuments = false;
+      canReplaceDocuments = false;
+      canChangeApproval = false;
       canDelete = false;
       capabilityReason = 'Authentication required to edit assessments.';
     } else if (scope.role === 'ADMIN') {
       canEdit = true;
+      canEditAssessment = true;
+      canUploadOutstandingDocuments = true;
+      canReplaceDocuments = true;
+      canChangeApproval = true;
       canDelete = true;
     } else if (scope.role === 'LEADERSHIP') {
       canEdit = true;
+      canEditAssessment = true;
+      canUploadOutstandingDocuments = true;
+      canReplaceDocuments = true;
+      canChangeApproval = true;
       canDelete = false;
     } else if (scope.role === 'STATE_REVIEWER') {
       const recordState = record?.state || record?.['18\nState'] || record?.demographics?.state || 'Maharashtra';
       if (!isStateAuthorized(scope, recordState)) {
         canEdit = false;
+        canEditAssessment = false;
+        canUploadOutstandingDocuments = false;
+        canReplaceDocuments = false;
+        canChangeApproval = false;
         canDelete = false;
         capabilityReason = `State reviewers can only edit records within their assigned state (${scope.allowedStates.join(', ')}).`;
       } else if (scope.canEdit === false) {
         canEdit = false;
+        canEditAssessment = false;
+        canUploadOutstandingDocuments = false;
+        canReplaceDocuments = false;
+        canChangeApproval = false;
         canDelete = false;
         capabilityReason = 'Your current State Reviewer session operates under a read-only policy.';
       } else {
         canEdit = true;
+        canEditAssessment = true;
+        canUploadOutstandingDocuments = true;
+        canReplaceDocuments = true;
+        canChangeApproval = false;
         canDelete = false;
       }
     } else if (scope.role === 'FIELD_USER') {
-      if (isApproved) {
-        canEdit = false;
-        canDelete = false;
-        capabilityReason = 'This assessment has been approved by Leadership and is locked against field-worker edits. Contact your State Team coordinator for revision requests.';
-      } else {
-        const authorIdentifier = record?.submittedBy || record?.['4\nSubmitted By'] || record?.userId;
-        const authorName = record?.interviewer || record?.interviewerName || record?.payload?.interviewerName || authorIdentifier;
-        const isAuthor = Boolean(
-          (authorIdentifier && (authorIdentifier === scope.userId || (scope.name && authorIdentifier.trim().toLowerCase() === scope.name.trim().toLowerCase()))) ||
-          (authorName && scope.name && authorName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-          (!authorIdentifier && !authorName && syntheticDemoAllowed)
-        );
-        if (isAuthor) {
-          canEdit = true;
-          canDelete = false;
-        } else {
+      if (isAuthor) {
+        if (isApproved) {
           canEdit = false;
+          canEditAssessment = false;
+          canUploadOutstandingDocuments = true;
+          canReplaceDocuments = false;
+          canChangeApproval = false;
           canDelete = false;
-          capabilityReason = 'Only the originating field worker or an authorized State Team reviewer can edit this assessment.';
+          capabilityReason = 'This assessment has been approved by Leadership and is locked against field-worker edits. Post-approval bank documents may still be uploaded.';
+        } else {
+          canEdit = true;
+          canEditAssessment = true;
+          canUploadOutstandingDocuments = true;
+          canReplaceDocuments = true;
+          canChangeApproval = false;
+          canDelete = false;
         }
+      } else {
+        canEdit = false;
+        canEditAssessment = false;
+        canUploadOutstandingDocuments = false;
+        canReplaceDocuments = false;
+        canChangeApproval = false;
+        canDelete = false;
+        capabilityReason = 'Only the originating field worker or an authorized State Team reviewer can edit this assessment.';
       }
     } else {
       canEdit = false;
+      canEditAssessment = false;
+      canUploadOutstandingDocuments = false;
+      canReplaceDocuments = false;
+      canChangeApproval = false;
       canDelete = false;
       capabilityReason = 'Editing not permitted for your current role.';
     }
 
     const capabilities = {
       canEdit,
+      canEditAssessment,
+      canUploadOutstandingDocuments,
+      canReplaceDocuments,
+      canChangeApproval,
       canDelete,
       reason: capabilityReason,
     };
@@ -419,38 +467,9 @@ export async function PATCH(
     if (scope.role === 'FIELD_USER') {
       const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'caseworker');
       if (existing.status === 'success' && existing.data) {
-        const isApproved = Boolean(
-          existing.data.isApproved === true ||
-          existing.data.approvedAllianceIndia === 'APPROVED' ||
-          existing.data.approvalStatus === 'APPROVED' ||
-          existing.data['67\nApproved Alliance India'] === 'APPROVED'
-        );
-        if (isApproved) {
-          logSecurityEvent({
-            actor: scope.userId,
-            actorRole: scope.role,
-            eventType: 'ACCESS_DENIED',
-            outcome: 'DENY',
-            targetResource: submissionId,
-            details: 'Field worker attempted to edit a Leadership-approved record.',
-          });
-          return NextResponse.json(
-            {
-              status: 'error',
-              code: 'RECORD_LOCKED_APPROVED',
-              message: 'This assessment has been approved by Leadership and is locked against field-worker edits. Contact your State Team coordinator for revision requests.',
-              requestId,
-            },
-            { status: 403 }
-          );
-        }
+        const recordAuthorId = existing.data.authorId || existing.data.submittedByWorkerId || existing.data.authorIdentifier || existing.data.userId;
+        const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
 
-        const authorIdentifier = existing.data.submittedBy || existing.data['4\nSubmitted By'] || existing.data.userId;
-        const authorName = existing.data.interviewer || existing.data.interviewerName || existing.data.payload?.interviewerName || authorIdentifier;
-        const isAuthor = Boolean(
-          (authorIdentifier && (authorIdentifier === scope.userId || (scope.name && authorIdentifier.trim().toLowerCase() === scope.name.trim().toLowerCase()))) ||
-          (authorName && scope.name && authorName.trim().toLowerCase() === scope.name.trim().toLowerCase())
-        );
         if (!isAuthor) {
           logSecurityEvent({
             actor: scope.userId,
@@ -469,6 +488,55 @@ export async function PATCH(
             },
             { status: 403 }
           );
+        }
+
+        const isApproved = Boolean(
+          existing.data.isApproved === true ||
+          existing.data.approvedAllianceIndia === 'APPROVED' ||
+          existing.data.approvalStatus === 'APPROVED' ||
+          existing.data['67\nApproved Alliance India'] === 'APPROVED'
+        );
+
+        if (isApproved) {
+          // If approved, field caseworkers can only submit post-approval banking corrections.
+          // General intake, demographics, and clinical fields remain strictly locked.
+          const allowedBankPatchKeys = new Set([
+            'expectedVersion',
+            'bankAccountHolderName',
+            'bankAccountNumber',
+            'bankIfscCode',
+            'bankName',
+            'branchName',
+            'accountHolderName',
+            'bankAccountNumberMasked',
+            'bankIfsc',
+            'bankMobile',
+            'bankAccountNo',
+            'ifsc',
+          ]);
+
+          const patchKeys = Object.keys(patchPayload);
+          const hasNonBankEdits = patchKeys.some((k) => !allowedBankPatchKeys.has(k));
+
+          if (hasNonBankEdits) {
+            logSecurityEvent({
+              actor: scope.userId,
+              actorRole: scope.role,
+              eventType: 'ACCESS_DENIED',
+              outcome: 'DENY',
+              targetResource: submissionId,
+              details: 'Field worker attempted to edit intake fields on a Leadership-approved record.',
+            });
+            return NextResponse.json(
+              {
+                status: 'error',
+                code: 'RECORD_LOCKED_APPROVED',
+                message: 'This assessment has been approved by Leadership and is locked against field-worker intake edits. Contact your State Team coordinator for revision requests.',
+                requestId,
+              },
+              { status: 403 }
+            );
+          }
         }
       }
     } else if (
@@ -547,7 +615,7 @@ export async function PATCH(
       eventType: isApprovalChange ? 'APPROVAL_CHANGED' : 'RECORD_MODIFIED',
       outcome: 'ALLOW',
       targetResource: submissionId,
-      details: `Record ${submissionId} updated by ${scope.name} (${scope.role}). Fields: ${Object.keys(patchPayload).filter((k) => k !== 'expectedVersion').join(', ')}. Version: ${result.version || patchPayload.expectedVersion + 1}`,
+      details: `Record ${submissionId} updated by ${scope.name || scope.userId} (${scope.role}). Fields: ${Object.keys(patchPayload).filter((k) => k !== 'expectedVersion').join(', ')}. Version: ${result.version || patchPayload.expectedVersion + 1}`,
     });
 
     const finalSyncStatus = result.syncStatus || (result.sheetSyncCompleted ? 'SYNCED' : 'PENDING_SHEET_SYNC');

@@ -218,9 +218,9 @@ describe('Dashboard Count Loading Performance (/app)', () => {
     it('paints stale local count before remote response to eliminate loading gap (issue #41)', async () => {
       // localSyncedCount = 5 (from beforeEach mock)
       // Remote fetch is artificially delayed – simulates the 1-12s GAS round-trip
-      let resolveFetch: (val: any) => void;
+      const resolves: Array<(val: any) => void> = [];
       global.fetch = vi.fn().mockImplementation(
-        () => new Promise((resolve) => { resolveFetch = resolve; })
+        () => new Promise((resolve) => { resolves.push(resolve); })
       );
 
       render(<FieldWorkspacePage />);
@@ -240,11 +240,12 @@ describe('Dashboard Count Loading Performance (/app)', () => {
 
       // Resolve and verify the count is updated to the server total
       await act(async () => {
-        resolveFetch!({
+        const res = {
           ok: true,
           status: 200,
           json: async () => ({ pagination: { totalCount: 88 } }),
-        });
+        };
+        resolves.forEach((r) => r(res));
         await new Promise((r) => setTimeout(r, 50));
       });
 

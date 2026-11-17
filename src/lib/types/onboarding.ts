@@ -43,6 +43,8 @@ export interface FieldUserProfile {
   id: string;
   googleSub: string;    // Stable Google account identifier
   googleEmail: string;  // Verified Google email
+  mobileNumber?: string; // Canonical E.164 verified mobile (+91XXXXXXXXXX)
+  isMobileVerified?: boolean;
   firstName: string;
   lastName: string;     // Supports single-name handling
   assignedState: string; // Strict server-derived state from invitation

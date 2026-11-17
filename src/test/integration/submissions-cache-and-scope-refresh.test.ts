@@ -140,7 +140,7 @@ describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolat
       process.env.E2E_ALLOW_LOCAL_MOCK = 'true';
 
       const fieldToken = createSessionToken({
-        userId: 'field-mh-01',
+        userId: 'worker-anil',
         name: 'Maharashtra Field Caseworker (Pune)',
         role: 'FIELD_USER',
         allowedStates: ['Maharashtra'],

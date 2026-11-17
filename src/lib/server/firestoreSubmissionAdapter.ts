@@ -151,6 +151,7 @@ export class FirestoreSubmissionAdapter {
     const rawState = payload.demographics?.state || payload.state || '';
     const state = canonicalizeStateName(rawState) || rawState;
 
+    const authorId = payload.authorId || payload.submittedByWorkerId || payload.authorIdentifier || '';
     const docData = {
       id: clientSubmissionId,
       clientSubmissionId,
@@ -164,10 +165,13 @@ export class FirestoreSubmissionAdapter {
       village: payload.demographics?.village || payload.village || '',
       childName: payload.demographics?.childName || payload.childName || '',
       submittedBy: payload.interviewerName || payload.submittedBy || 'Field Worker',
+      authorId,
+      submittedByWorkerId: authorId,
+      authorIdentifier: authorId,
       artStatus: payload.clinical?.artStatus || payload.artStatus || '',
       vlStatus: payload.clinical?.vlStatus || payload.vlStatus || '',
       attendanceStatus: payload.education?.attendance || payload.attendanceStatus || '',
-      payload: { ...payload, clientSubmissionId },
+      payload: { ...payload, clientSubmissionId, authorId, submittedByWorkerId: authorId, authorIdentifier: authorId },
       attachments: payload.attachments || [],
       idempotencyKey: input.idempotencyKey,
       submissionTime: payload.submissionTime || now,
@@ -507,10 +511,11 @@ export class FirestoreSubmissionAdapter {
         const snap = q.docs[0];
         return { ref: snap.ref, data: { id: snap.id, ...snap.data() } };
       }
+      return null;
     } catch (err) {
       console.error(`[FIRESTORE] Error resolving submission doc for ${id}:`, err);
+      throw err;
     }
-    return null;
   }
 
   public resolveMockSubmission(id: string): any {

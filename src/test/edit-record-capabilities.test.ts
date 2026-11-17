@@ -160,6 +160,8 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
         status: 'success',
         data: {
           uniqueId: 'MH-PUN-APPROVED-01',
+          authorId: 'worker-anil',
+          submittedByWorkerId: 'worker-anil',
           state: 'Maharashtra',
           district: 'Pune',
           submittedBy: 'Anil Deshmukh',
@@ -231,6 +233,8 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
         status: 'success',
         data: {
           uniqueId: 'MH-PUN-APPROVED-01',
+          authorId: 'worker-anil',
+          submittedByWorkerId: 'worker-anil',
           state: 'Maharashtra',
           district: 'Pune',
           submittedBy: 'Anil Deshmukh',
@@ -301,12 +305,14 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
   });
 
   describe('3. Server Guard on PUT /api/submissions/[id]/asset', () => {
-    it('blocks field worker from replacing assets on a Leadership-approved record with 403 RECORD_LOCKED_APPROVED', async () => {
+    it('blocks field worker from replacing intake assets on a Leadership-approved record with 403 RECORD_LOCKED_APPROVED', async () => {
       vi.spyOn(canonicalSubmissionAdapter, 'getSubmission').mockResolvedValueOnce({
         statusCode: 200,
         status: 'success',
         data: {
           uniqueId: 'MH-PUN-APPROVED-01',
+          authorId: 'worker-anil',
+          submittedByWorkerId: 'worker-anil',
           state: 'Maharashtra',
           district: 'Pune',
           submittedBy: 'Anil Deshmukh',
@@ -334,7 +340,7 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
           origin: 'http://localhost:3000',
         },
         body: JSON.stringify({
-          docType: 'passbookPhoto',
+          docType: 'childPhoto',
           fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
           expectedRevision: 2,
         }),
@@ -344,6 +350,66 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
       expect(res.status).toBe(403);
       const data = await res.json();
       expect(data.code).toBe('RECORD_LOCKED_APPROVED');
+    });
+
+    it('allows field worker who authored the record to replace outstanding bank passbook on a Leadership-approved record', async () => {
+      vi.spyOn(canonicalSubmissionAdapter, 'getSubmission').mockResolvedValueOnce({
+        statusCode: 200,
+        status: 'success',
+        data: {
+          uniqueId: 'MH-PUN-APPROVED-01',
+          authorId: 'worker-anil',
+          submittedByWorkerId: 'worker-anil',
+          state: 'Maharashtra',
+          district: 'Pune',
+          submittedBy: 'Anil Deshmukh',
+          interviewerName: 'Anil Deshmukh',
+          isApproved: true,
+          approvedAllianceIndia: 'APPROVED',
+          version: 2,
+        },
+        version: 2,
+      });
+
+      vi.spyOn(canonicalSubmissionAdapter, 'replaceAsset').mockResolvedValueOnce({
+        status: 'success',
+        statusCode: 200,
+        acknowledged: true,
+        remoteSubmissionId: 'MH-PUN-APPROVED-01',
+        uniqueId: 'MH-PUN-APPROVED-01',
+        docType: 'passbookPhoto',
+        cellFormula: '=HYPERLINK("https://drive.google.com/passbook-1", "Passbook")',
+        assetStatus: 'UPLOADED',
+        updatedAt: new Date().toISOString(),
+      });
+
+      const fieldUserToken = await createSessionToken({
+        userId: 'worker-anil',
+        role: 'FIELD_USER',
+        name: 'Anil Deshmukh',
+        allowedStates: ['Maharashtra'],
+        allowedDistricts: ['Pune'],
+      });
+
+      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-APPROVED-01/asset', {
+        method: 'PUT',
+        headers: {
+          cookie: `evaluation_session_token=${fieldUserToken}`,
+          'Content-Type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({
+          docType: 'passbookPhoto',
+          fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          expectedRevision: 2,
+        }),
+      });
+
+      const res = await putAssetRoute(req, { params: { submissionId: 'MH-PUN-APPROVED-01' } });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.status).toBe('success');
+      expect(data.acknowledged).toBe(true);
     });
   });
 });

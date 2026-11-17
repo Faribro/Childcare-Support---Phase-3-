@@ -157,15 +157,30 @@ export async function POST(
       if (existing.status === 'success' && existing.data) {
         const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
         const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
-        const isAuthor = Boolean(
-          (existing.data.submittedBy && scope.name && existing.data.submittedBy.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-          (existing.data.submittedBy && scope.userId && existing.data.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
-          (existing.data.userId && scope.userId && existing.data.userId === scope.userId) ||
-          (existing.data.payload?.interviewerName && scope.name && existing.data.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-          (existing.data.interviewerName && scope.name && existing.data.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
-        );
+        const recordAuthorId = existing.data.authorId || existing.data.submittedByWorkerId || existing.data.authorIdentifier || existing.data.userId;
+        const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
 
         if (scope.role === 'FIELD_USER') {
+          if (!isAuthor) {
+            logSecurityEvent({
+              actor: scope.userId,
+              actorRole: scope.role,
+              eventType: 'ACCESS_DENIED',
+              outcome: 'DENY',
+              targetResource: submissionId,
+              details: 'Field worker attempted to upload asset on a record authored by another worker.',
+            });
+            return NextResponse.json(
+              {
+                status: 'error',
+                code: 'FORBIDDEN_AUTHOR_MISMATCH',
+                message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can upload documents to this assessment.',
+                requestId,
+              },
+              { status: 403, headers: ASSET_NO_STORE_HEADERS }
+            );
+          }
+
           const isApproved = Boolean(
             existing.data.isApproved === true ||
             existing.data.approvedAllianceIndia === 'APPROVED' ||
@@ -173,23 +188,28 @@ export async function POST(
             existing.data['67\nApproved Alliance India'] === 'APPROVED'
           );
           if (isApproved) {
-            logSecurityEvent({
-              actor: scope.userId,
-              actorRole: scope.role,
-              eventType: 'ACCESS_DENIED',
-              outcome: 'DENY',
-              targetResource: submissionId,
-              details: 'Field worker attempted to replace asset on a Leadership-approved record.',
-            });
-            return NextResponse.json(
-              {
-                status: 'error',
-                code: 'RECORD_LOCKED_APPROVED',
-                message: 'This assessment has been approved by Leadership and is locked against field-worker document replacement. Contact your State Team coordinator for replacement requests.',
-                requestId,
-              },
-              { status: 403, headers: ASSET_NO_STORE_HEADERS }
-            );
+            // Field worker can upload outstanding banking documents (passbook / passbookPhoto),
+            // but cannot overwrite intake documents (childPhoto, aadhaarDoc, consent signature).
+            const isBankDoc = docType.toLowerCase().includes('passbook');
+            if (!isBankDoc) {
+              logSecurityEvent({
+                actor: scope.userId,
+                actorRole: scope.role,
+                eventType: 'ACCESS_DENIED',
+                outcome: 'DENY',
+                targetResource: submissionId,
+                details: 'Field worker attempted to upload intake document on a Leadership-approved record.',
+              });
+              return NextResponse.json(
+                {
+                  status: 'error',
+                  code: 'RECORD_LOCKED_APPROVED',
+                  message: 'This assessment has been approved by Leadership and intake documents are permanently locked. Post-approval bank passbook documents may still be uploaded.',
+                  requestId,
+                },
+                { status: 403, headers: ASSET_NO_STORE_HEADERS }
+              );
+            }
           }
         }
 
@@ -351,13 +371,27 @@ export async function GET(
   const recordState = record.state || record['18\nState'] || record.demographics?.state || 'Maharashtra';
   const recordDistrict = record.district || record['19\nDistrict'] || record.demographics?.district || undefined;
 
-  const isAuthor = Boolean(
-    (record.submittedBy && scope.name && record.submittedBy.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-    (record.submittedBy && scope.userId && record.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
-    (record.userId && scope.userId && record.userId === scope.userId) ||
-    (record.payload?.interviewerName && scope.name && record.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-    (record.interviewerName && scope.name && record.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
-  );
+  const recordAuthorId = record.authorId || record.submittedByWorkerId || record.authorIdentifier || record.userId;
+  const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
+
+  if (scope.role === 'FIELD_USER' && !isAuthor) {
+    logSecurityEvent({
+      actor: scope.userId,
+      actorRole: scope.role,
+      eventType: 'ACCESS_DENIED',
+      outcome: 'DENY',
+      targetResource: `${submissionId}:${rawDocType}`,
+      details: 'Field worker attempted to read document attachment of a record authored by another worker.',
+    });
+    return NextResponse.json(
+      {
+        status: 'error',
+        code: 'FORBIDDEN_AUTHOR_MISMATCH',
+        message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can view documents on this assessment.',
+      },
+      { status: 403, headers: ASSET_NO_STORE_HEADERS }
+    );
+  }
 
   if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
     logSecurityEvent({
@@ -428,7 +462,7 @@ export async function GET(
     eventType: 'RECORD_ACCESSED',
     outcome: 'ALLOW',
     targetResource: `${submissionId}:${rawDocType}`,
-    details: `Document ${rawDocType} served to ${scope.name} (${scope.role})`,
+    details: `Document ${rawDocType} served to ${scope.name || scope.userId} (${scope.role})`,
   });
 
   let targetRef = typeof docValue === 'string' ? docValue.trim() : JSON.stringify(docValue);
@@ -1108,15 +1142,30 @@ export async function PUT(
       if (existing.status === 'success' && existing.data) {
         const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
         const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
-        const isAuthor = Boolean(
-          (existing.data.submittedBy && scope.name && existing.data.submittedBy.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-          (existing.data.submittedBy && scope.userId && existing.data.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
-          (existing.data.userId && scope.userId && existing.data.userId === scope.userId) ||
-          (existing.data.payload?.interviewerName && scope.name && existing.data.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
-          (existing.data.interviewerName && scope.name && existing.data.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
-        );
+        const recordAuthorId = existing.data.authorId || existing.data.submittedByWorkerId || existing.data.authorIdentifier || existing.data.userId;
+        const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
 
         if (scope.role === 'FIELD_USER') {
+          if (!isAuthor) {
+            logSecurityEvent({
+              actor: scope.userId,
+              actorRole: scope.role,
+              eventType: 'ACCESS_DENIED',
+              outcome: 'DENY',
+              targetResource: submissionId,
+              details: 'Field worker attempted to replace asset on a record authored by another worker.',
+            });
+            return NextResponse.json(
+              {
+                status: 'error',
+                code: 'FORBIDDEN_AUTHOR_MISMATCH',
+                message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can replace documents on this assessment.',
+                requestId,
+              },
+              { status: 403, headers: ASSET_NO_STORE_HEADERS }
+            );
+          }
+
           const isApproved = Boolean(
             existing.data.isApproved === true ||
             existing.data.approvedAllianceIndia === 'APPROVED' ||
@@ -1124,23 +1173,28 @@ export async function PUT(
             existing.data['67\nApproved Alliance India'] === 'APPROVED'
           );
           if (isApproved) {
-            logSecurityEvent({
-              actor: scope.userId,
-              actorRole: scope.role,
-              eventType: 'ACCESS_DENIED',
-              outcome: 'DENY',
-              targetResource: submissionId,
-              details: 'Field worker attempted to replace asset on a Leadership-approved record.',
-            });
-            return NextResponse.json(
-              {
-                status: 'error',
-                code: 'RECORD_LOCKED_APPROVED',
-                message: 'This assessment has been approved by Leadership and is locked against field-worker document replacement. Contact your State Team coordinator for replacement requests.',
-                requestId,
-              },
-              { status: 403, headers: ASSET_NO_STORE_HEADERS }
-            );
+            // Field worker can replace outstanding banking documents (passbook / passbookPhoto),
+            // but cannot overwrite intake documents (childPhoto, aadhaarDoc, consent signature).
+            const isBankDoc = targetDocType.toLowerCase().includes('passbook');
+            if (!isBankDoc) {
+              logSecurityEvent({
+                actor: scope.userId,
+                actorRole: scope.role,
+                eventType: 'ACCESS_DENIED',
+                outcome: 'DENY',
+                targetResource: submissionId,
+                details: 'Field worker attempted to replace intake document on a Leadership-approved record.',
+              });
+              return NextResponse.json(
+                {
+                  status: 'error',
+                  code: 'RECORD_LOCKED_APPROVED',
+                  message: 'This assessment has been approved by Leadership and intake documents are permanently locked against replacement. Post-approval bank passbook documents may still be replaced.',
+                  requestId,
+                },
+                { status: 403, headers: ASSET_NO_STORE_HEADERS }
+              );
+            }
           }
         }
 

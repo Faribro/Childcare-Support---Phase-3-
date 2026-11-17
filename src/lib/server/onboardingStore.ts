@@ -100,6 +100,8 @@ export interface OnboardingStore {
   createFieldUserProfile(data: {
     googleSub: string;
     googleEmail: string;
+    mobileNumber?: string;
+    isMobileVerified?: boolean;
     firstName: string;
     lastName: string;
     assignedState: string;
@@ -110,6 +112,7 @@ export interface OnboardingStore {
   }): Promise<FieldUserProfile>;
   getFieldUserProfileByGoogleSub(googleSub: string): Promise<FieldUserProfile | null>;
   getFieldUserProfileByEmail(googleEmail: string): Promise<FieldUserProfile | null>;
+  getFieldUserProfileByMobile(canonicalMobile: string): Promise<FieldUserProfile | null>;
   getFieldUserProfileById(id: string): Promise<FieldUserProfile | null>;
   listFieldUserProfiles(state?: string): Promise<FieldUserProfile[]>;
   updateFieldUserProfile(
@@ -518,6 +521,8 @@ export class MemoryOnboardingStore implements OnboardingStore {
   async createFieldUserProfile(data: {
     googleSub: string;
     googleEmail: string;
+    mobileNumber?: string;
+    isMobileVerified?: boolean;
     firstName: string;
     lastName: string;
     assignedState: string;
@@ -528,10 +533,12 @@ export class MemoryOnboardingStore implements OnboardingStore {
   }): Promise<FieldUserProfile> {
     const existing = await this.getFieldUserProfileByGoogleSub(data.googleSub);
     if (existing) {
-      if (data.srName !== undefined || data.ssrName !== undefined) {
+      if (data.srName !== undefined || data.ssrName !== undefined || data.mobileNumber !== undefined) {
         const updated = await this.updateFieldUserProfile(existing.id, {
           srName: data.srName ?? existing.srName,
           ssrName: data.ssrName ?? existing.ssrName,
+          mobileNumber: data.mobileNumber ?? existing.mobileNumber,
+          isMobileVerified: data.isMobileVerified ?? existing.isMobileVerified,
         });
         if (updated) return updated;
       }
@@ -543,6 +550,8 @@ export class MemoryOnboardingStore implements OnboardingStore {
       id: crypto.randomUUID(),
       googleSub: data.googleSub,
       googleEmail: data.googleEmail.trim().toLowerCase(),
+      mobileNumber: data.mobileNumber ? data.mobileNumber.trim() : undefined,
+      isMobileVerified: Boolean(data.isMobileVerified),
       firstName: data.firstName.trim(),
       lastName: (data.lastName || '').trim(),
       assignedState: data.assignedState.trim(),
@@ -569,6 +578,14 @@ export class MemoryOnboardingStore implements OnboardingStore {
     const norm = googleEmail.trim().toLowerCase();
     for (const p of this.fieldProfiles.values()) {
       if (p.googleEmail === norm) return p;
+    }
+    return null;
+  }
+
+  async getFieldUserProfileByMobile(canonicalMobile: string): Promise<FieldUserProfile | null> {
+    const norm = canonicalMobile.trim();
+    for (const p of this.fieldProfiles.values()) {
+      if (p.mobileNumber === norm) return p;
     }
     return null;
   }
@@ -666,6 +683,7 @@ export class UnavailableOnboardingStore implements OnboardingStore {
   async createFieldUserProfile(): Promise<FieldUserProfile> { throw new Error(this.reason); }
   async getFieldUserProfileByGoogleSub(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
   async getFieldUserProfileByEmail(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
+  async getFieldUserProfileByMobile(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
   async getFieldUserProfileById(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
   async listFieldUserProfiles(): Promise<FieldUserProfile[]> { throw new Error(this.reason); }
   async updateFieldUserProfile(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
@@ -1275,6 +1293,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
   async createFieldUserProfile(data: {
     googleSub: string;
     googleEmail: string;
+    mobileNumber?: string;
+    isMobileVerified?: boolean;
     firstName: string;
     lastName: string;
     assignedState: string;
@@ -1290,6 +1310,8 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       body: JSON.stringify({
         google_sub: data.googleSub.trim(),
         google_email: data.googleEmail.trim().toLowerCase(),
+        mobile_number: data.mobileNumber ? data.mobileNumber.trim() : null,
+        is_mobile_verified: Boolean(data.isMobileVerified),
         first_name: data.firstName.trim(),
         last_name: (data.lastName || '').trim(),
         assigned_state: data.assignedState.trim(),
@@ -1359,6 +1381,32 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       id: row.id,
       googleSub: row.google_sub,
       googleEmail: row.google_email,
+      firstName: row.first_name,
+      lastName: row.last_name || '',
+      assignedState: row.assigned_state,
+      assignedDistrict: row.assigned_district,
+      invitationId: row.invitation_id,
+      status: row.status,
+      srName: row.sr_name || row.srName || '',
+      ssrName: row.ssr_name || row.ssrName || '',
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+    };
+  }
+
+  async getFieldUserProfileByMobile(canonicalMobile: string): Promise<FieldUserProfile | null> {
+    const url = `${this.baseUrl}/rest/v1/field_user_profiles?mobile_number=eq.${encodeURIComponent(canonicalMobile.trim())}&select=*`;
+    const res = await fetch(url, { headers: this.headers });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      id: row.id,
+      googleSub: row.google_sub,
+      googleEmail: row.google_email,
+      mobileNumber: row.mobile_number,
+      isMobileVerified: row.is_mobile_verified,
       firstName: row.first_name,
       lastName: row.last_name || '',
       assignedState: row.assigned_state,
@@ -1949,6 +1997,8 @@ export class FirestoreOnboardingStore implements OnboardingStore {
   async createFieldUserProfile(data: {
     googleSub: string;
     googleEmail: string;
+    mobileNumber?: string;
+    isMobileVerified?: boolean;
     firstName: string;
     lastName: string;
     assignedState: string;
@@ -1964,6 +2014,8 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       id,
       googleSub: data.googleSub,
       googleEmail: data.googleEmail.toLowerCase().trim(),
+      mobileNumber: data.mobileNumber ? data.mobileNumber.trim() : undefined,
+      isMobileVerified: Boolean(data.isMobileVerified),
       firstName: data.firstName.trim(),
       lastName: data.lastName.trim(),
       assignedState: canonicalizeStateName(data.assignedState) || data.assignedState.trim(),
@@ -2016,6 +2068,17 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     const norm = googleEmail.toLowerCase().trim();
     const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
       .where('googleEmail', '==', norm)
+      .get();
+    if (!snap.docs || snap.docs.length === 0) return null;
+    return snap.docs[0].data() as FieldUserProfile;
+  }
+
+  async getFieldUserProfileByMobile(canonicalMobile: string): Promise<FieldUserProfile | null> {
+    const db = await this.getDb();
+    const norm = canonicalMobile.trim();
+    const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+      .where('mobileNumber', '==', norm)
+      .limit(1)
       .get();
     if (!snap.docs || snap.docs.length === 0) return null;
     return snap.docs[0].data() as FieldUserProfile;

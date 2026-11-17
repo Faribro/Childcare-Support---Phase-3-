@@ -135,6 +135,7 @@ describe('Supabase Schema Foundation & Migration Readiness Review (PR #73 Audit)
         state: 'Maharashtra',
         district: 'Pune',
         childName: 'Synthetic Child One',
+        authorId: 'synth-field-pune',
       },
       {
         uniqueId: 'SYNTH-MH-NGP-0002',

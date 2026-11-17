@@ -8,6 +8,7 @@ import {
 import { getOnboardingStore } from '@/lib/server/onboardingStore';
 import { createSessionToken, setSessionCookie } from '@/lib/server/sessionService';
 import { validateMutationOrigin } from '@/lib/server/authorisation';
+import { verifyMobileTicket, validateAndFormatIndianMobile } from '@/lib/server/phoneValidation';
 
 export async function POST(req: NextRequest) {
   const originCheck = validateMutationOrigin(req);
@@ -25,7 +26,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { firstName, lastName, state, district, invitationCode, srName, ssrName, email } = body || {};
+  const { firstName, lastName, state, district, invitationCode, srName, ssrName, email, mobileNumber, mobileTicket } = body || {};
+
+  let verifiedMobile: string | undefined = undefined;
+  let isMobileVerified = false;
+
+  if (mobileTicket) {
+    const ticketCheck = verifyMobileTicket(mobileTicket);
+    if (!ticketCheck.valid || !ticketCheck.mobile) {
+      return NextResponse.json(
+        { status: 'error', error: ticketCheck.error || 'Invalid or expired mobile verification ticket. Please verify your phone number via OTP again.' },
+        { status: 400 }
+      );
+    }
+    verifiedMobile = ticketCheck.mobile;
+    isMobileVerified = true;
+  } else if (mobileNumber && typeof mobileNumber === 'string') {
+    const phoneCheck = validateAndFormatIndianMobile(mobileNumber);
+    if (phoneCheck.valid && phoneCheck.canonical) {
+      verifiedMobile = phoneCheck.canonical;
+    }
+  }
 
   const ticketCookie = extractOnboardingTicketCookie(req);
   const ticket = verifyOnboardingTicket(ticketCookie);
@@ -123,6 +144,8 @@ export async function POST(req: NextRequest) {
   const profile = await store.createFieldUserProfile({
     googleSub,
     googleEmail,
+    mobileNumber: verifiedMobile,
+    isMobileVerified,
     firstName: finalFirstName,
     lastName: finalLastName,
     assignedState: invitation.state,

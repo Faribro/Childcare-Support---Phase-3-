@@ -58,6 +58,7 @@ Thumbs.db
 *.dump
 *.sql.dump
 *.backup
+*audit-report.json
 *backup*.json
 scratch/
 .staging*
