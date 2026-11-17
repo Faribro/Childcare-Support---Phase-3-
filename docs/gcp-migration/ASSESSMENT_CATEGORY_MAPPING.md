@@ -215,18 +215,39 @@ When `nutrition` is selected without `hiv_support`, anthropometric fields (`weig
 
 ---
 
-## 5. Ambiguous Programme Rules — Owner Decision Required
+## 5. Architectural & Programme Policy Decisions — Owner Decision Gates
 
-1. **Child Disability (`hasDisability`):**  
-   *Current Placement:* Health & Clinical (`sec-health`).  
-   *Question:* Should disability status remain exclusive to HIV-related support, or should it be elevated to Section 2 (Common Demographics) so education and nutrition caseworkers can flag assistive device requirements?  
-   *Recommendation:* Keep in Section 5 (Clinical) for now to minimize changes, pending owner decision.
+### 5.1 Decision 1: Banking & KYC Placement (Socio-Demographic Common vs Support-Specific)
+- **Programme Context:** Banking details (`accountHolderName`, `accountNumber`, `ifscCode`, `bankMobileNumber`, `passbookPhotoUrl`) are necessary for direct benefit transfer (DBT).
+- **Architectural Position:** Banking belongs structurally under **Socio-Demographic (Common)** rather than category-specific support, because any approved financial grant—whether for education fees, nutrition supplements, or HIV transport allowances—disburses through the caregiver's bank account.
+- **Operational Reality:** Field caseworkers frequently conduct intake interviews before the caregiver has opened a bank account or located their passbook. Making bank details mandatory at intake blocks survey submission.
+- **Contract Rule:** Banking fields and documents remain in Section 3 (Common), but are strictly **optional at initial intake**, becoming **mandatory post-approval** before fund disbursement.
 
-2. **Orphan Status & Household Vulnerability:**  
-   *Current Placement:* Common (`sec-child` and `sec-household`).  
-   *Question:* Should `orphanStatus` and `monthlyIncomeRs` be requested for all beneficiaries?  
-   *Recommendation:* Yes. Financial and parental vulnerability criteria govern eligibility across all Alliance India grant streams.
+### 5.2 Decision 2: Disability & Comorbidities (Decoupling from HIV Exclusivity)
+- **Clinical Trap:** Prior implementation placed disability (`hasDisability`, `disabilityType`, `disabilityCertificateStatus`) and comorbidities (`otherHealthConditions`) exclusively under `hiv_support`.
+- **Programme Reality:** A child applying solely for Education or Nutrition support may suffer from locomotor, visual, hearing, intellectual, or developmental disabilities, or severe non-HIV medical conditions (e.g. tuberculosis, sickle cell, chronic asthma, severe malnutrition complications). Col 82 (`receivingEducationSchemeBenefit`) specifically links to disability scholarships.
+- **Decoupled Architecture:** 
+  1. `hasDisability`, `disabilityType`, and `disabilityCertificateStatus` are decoupled from HIV exclusivity and made accessible across all categories (Education, Nutrition, and HIV-related support).
+  2. `otherHealthConditions` and `otherHealthConditionSpecify` are available for Nutrition and HIV-related support (or common health evaluation).
+  3. No child or caregiver is required to make HIV-specific disclosures to receive disability accommodation or education benefits.
 
-3. **Post-Submission Category Modifications:**  
-   *Question:* Can a State Team reviewer or Field Caseworker add an additional support category (e.g., adding Nutrition to an approved Education grant)?  
-   *Recommendation:* Adding or changing categories to an already-submitted/approved record should require an explicit Leadership re-evaluation rather than direct inline edit.
+### 5.3 Decision 3: Anthropometrics (Weight, Height, Hb)
+- **Clinical Scope:** Anthropometrics (`weightKg`, `heightCm`, `bmi`, `haemoglobinGdl`) directly calculate malnutrition (wasting/stunting) and anemia.
+- **Mapping Policy:**
+  1. **Nutrition Support:** Anthropometrics are **required** to compute WHO BMI-for-age percentiles, malnutrition severity, and dietary support eligibility.
+  2. **HIV Support:** Anthropometrics are **required** as core clinical tracking markers alongside CD4 and viral load.
+  3. **Education Only:** Anthropometrics remain optional or omitted, reducing caseworker time when assessing purely educational fee support.
+
+### 5.4 Decision 4: Financial Documents (Pre-Approval vs Post-Approval)
+- **Document Segregation:**
+  1. **Pre-Approval (Intake):**
+     - `feeReceiptPhotoUrl` & `marksheetPhotoUrl`: **Education-specific**. Collected during initial assessment to substantiate education grant requests.
+     - `signatureDataUrl`: **Common**. Mandatory caregiver informed consent.
+  2. **Post-Approval (Disbursement Verification):**
+     - `passbookPhotoUrl` & `aadhaarCardPhotoUrl`: **Disbursement KYC**. Collected/verified after Leadership approves the grant, prior to financial transfer. Missing bank documents must NEVER hide a submitted assessment from the State Team's "Submitted Surveys" list.
+
+### 5.5 Decision 5: Post-Submission Category Modifications
+- **Question:** Can a field worker or reviewer add or remove a support category after submission?
+- **Recommendation:**
+  1. If the record is still in `PENDING_REVIEW`, an authorized State Reviewer or originating caseworker may modify categories.
+  2. Once approved by Leadership (`isApproved: true`), categories are **locked against inline field modification**. Changing support categories on an approved record requires submitting a formal amendment or requesting Leadership re-evaluation.

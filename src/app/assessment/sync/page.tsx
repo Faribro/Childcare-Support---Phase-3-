@@ -168,6 +168,37 @@ function SubmissionStatusBanner({
 }) {
   const effectiveStatus = status || (isOnline ? 'syncing' : 'offline');
 
+  if (effectiveStatus === 'local_saved' || effectiveStatus === 'waiting_to_sync') {
+    return (
+      <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0 mt-0.5">
+            <Clock className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-amber-950">Saved on this device</h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                Waiting to sync
+              </span>
+            </div>
+            <p className="text-xs text-amber-800 mt-1">
+              Reference: <strong className="font-mono font-bold text-amber-950">{submittedRef || 'Local'}</strong>. Your changes are safely preserved in local storage and queued to synchronize with the central server.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-amber-700 hover:text-amber-900 p-1 rounded-lg touch-target min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+          aria-label="Dismiss banner"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
   if (effectiveStatus === 'synced') {
     return (
       <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
@@ -199,7 +230,7 @@ function SubmissionStatusBanner({
     );
   }
 
-  if (effectiveStatus === 'sheet_pending') {
+  if (effectiveStatus === 'sheet_pending' || effectiveStatus === 'saved_to_server') {
     return (
       <div className="bg-sky-50 border border-sky-300 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-xs">
         <div className="flex items-start gap-3">
@@ -208,13 +239,13 @@ function SubmissionStatusBanner({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h4 className="text-sm font-bold text-sky-950">Saved. Sheet sync pending…</h4>
+              <h4 className="text-sm font-bold text-sky-950">Saved to central server</h4>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-300">
-                Sync Pending
+                Sheet Mirror Pending
               </span>
             </div>
             <p className="text-xs text-sky-800 mt-1">
-              Reference: <strong className="font-mono font-bold text-sky-950">{submittedRef || 'Recorded'}</strong>. Your revision is safely committed to the central database. Replication to Google Sheets and Revisions log is queued.
+              Reference: <strong className="font-mono font-bold text-sky-950">{submittedRef || 'Recorded'}</strong>. Your revision is safely committed to the central database. Replication to Google Sheets and document mirrors is queued.
             </p>
             {submittedRef && (
               <div className="mt-2.5">
@@ -543,8 +574,37 @@ function SyncCentreContent() {
       await migrateLegacyItems();
       await migrateLegacyQueueItems();
       const [q, d] = await Promise.all([getAllQueueItems(), getAllDrafts()]);
-      setQueueItems(q || []);
-      setDrafts(d || []);
+
+      // Scope outbox queue items and drafts to the currently signed-in field worker account
+      let currentWorkerName: string | null = null;
+      let currentWorkerId: string | null = null;
+      if (typeof window !== 'undefined') {
+        try {
+          const rawProfile = localStorage.getItem('field_user_profile');
+          if (rawProfile) {
+            const parsed = JSON.parse(rawProfile);
+            currentWorkerName = parsed.name?.trim().toLowerCase() || null;
+            currentWorkerId = parsed.workerId?.trim().toLowerCase() || null;
+          }
+        } catch (_) {}
+      }
+
+      const isScopedToWorker = (item: any) => {
+        if (!currentWorkerName && !currentWorkerId) return true; // No profile active
+        const payload = item.payload || item;
+        const submittedBy = (payload.submittedBy || payload['4\nSubmitted By'] || payload.interviewerName || payload.demographics?.interviewerName || '')
+          .trim()
+          .toLowerCase();
+        const userId = (payload.userId || '').trim().toLowerCase();
+        if (!submittedBy && !userId) return true; // Legacy/unassigned draft on device
+        return (
+          (currentWorkerName && submittedBy === currentWorkerName) ||
+          (currentWorkerId && (submittedBy === currentWorkerId || userId === currentWorkerId))
+        );
+      };
+
+      setQueueItems((q || []).filter(isScopedToWorker));
+      setDrafts((d || []).filter(isScopedToWorker));
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(online);
     } catch (err) {

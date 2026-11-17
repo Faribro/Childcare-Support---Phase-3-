@@ -334,7 +334,7 @@ Perform these sequential, end-to-end verifications once `csc-staging` is deploye
   - Initiate report export from supervisor portal -> verify confirmation token generated.
   - Confirm export download -> verify event logged permanently to `export_audit_events`.
 - [ ] **10. Secondary Sheets Mirror & Resilient Outage Replay**:
-  - Check Google Sheet mirror -> verify new row appears with all 85 columns populated.
+  - Check Google Sheet mirror -> verify new row appears with all 83 columns populated.
   - Temporarily disable Apps Script webhook -> submit new survey -> verify submission returns HTTP 200 `acknowledged: true` with `PENDING_SHEET_SYNC` status.
   - Verify failed mirror job is queued in Firestore `sheets_mirror_retry_queue`.
   - Re-enable Apps Script webhook -> invoke `POST /api/workers/cron` with `x-cron-auth: <CRON_SECRET>` -> verify retry queue drains to `SYNCED`.
@@ -583,7 +583,7 @@ After final production verification of Google Cloud Platform (7 days post-cutove
 
 1. **Safety Backup**: Run `bun scripts/export-sheets-backup.ts` to archive a final read-only snapshot of legacy Google Sheets data.
 2. **Pause Supabase**: In Supabase Project Dashboard (`rjrctsxdvkfkssqvmhbz`), go to **Settings -> General** and select **Pause Project** to cease database usage and prevent accidental modifications.
-3. **Reset Legacy Google Sheet**: Clear test data rows from the historical Google Sheet, leaving all **85 canonical column headers intact**.
+3. **Reset Legacy Google Sheet**: Clear test data rows from the historical Google Sheet, leaving all **83 canonical column headers intact**.
 4. **Empty Legacy Tigris Bucket**: Empty and delete the Tigris S3 bucket, then revoke the corresponding AWS access keys.
 5. **Deactivate Legacy Vercel Deployment**: In Vercel Project Dashboard, cancel active builds and archive the project.
 6. **Rotate Secrets**: Rotate `SESSION_SECRET`, `WEBHOOK_SECRET`, `APPS_SCRIPT_DISPATCH_SECRET`, and `CRON_SECRET` in Google Cloud Secret Manager.

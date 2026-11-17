@@ -98,12 +98,83 @@ export async function GET(
       }
     }
 
+    const record = result.data;
+    const isApproved = Boolean(
+      record?.isApproved === true ||
+      record?.approvedAllianceIndia === 'APPROVED' ||
+      record?.approvalStatus === 'APPROVED' ||
+      record?.['67\nApproved Alliance India'] === 'APPROVED'
+    );
+
+    let canEdit = false;
+    let canDelete = false;
+    let capabilityReason: string | undefined = undefined;
+
+    if (!scope.isVerified && !syntheticDemoAllowed) {
+      canEdit = false;
+      canDelete = false;
+      capabilityReason = 'Authentication required to edit assessments.';
+    } else if (scope.role === 'ADMIN') {
+      canEdit = true;
+      canDelete = true;
+    } else if (scope.role === 'LEADERSHIP') {
+      canEdit = true;
+      canDelete = false;
+    } else if (scope.role === 'STATE_REVIEWER') {
+      const recordState = record?.state || record?.['18\nState'] || record?.demographics?.state || 'Maharashtra';
+      if (!isStateAuthorized(scope, recordState)) {
+        canEdit = false;
+        canDelete = false;
+        capabilityReason = `State reviewers can only edit records within their assigned state (${scope.allowedStates.join(', ')}).`;
+      } else if (scope.canEdit === false) {
+        canEdit = false;
+        canDelete = false;
+        capabilityReason = 'Your current State Reviewer session operates under a read-only policy.';
+      } else {
+        canEdit = true;
+        canDelete = false;
+      }
+    } else if (scope.role === 'FIELD_USER') {
+      if (isApproved) {
+        canEdit = false;
+        canDelete = false;
+        capabilityReason = 'This assessment has been approved by Leadership and is locked against field-worker edits. Contact your State Team coordinator for revision requests.';
+      } else {
+        const authorIdentifier = record?.submittedBy || record?.['4\nSubmitted By'] || record?.userId;
+        const authorName = record?.interviewer || record?.interviewerName || record?.payload?.interviewerName || authorIdentifier;
+        const isAuthor = Boolean(
+          (authorIdentifier && (authorIdentifier === scope.userId || (scope.name && authorIdentifier.trim().toLowerCase() === scope.name.trim().toLowerCase()))) ||
+          (authorName && scope.name && authorName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+          (!authorIdentifier && !authorName && syntheticDemoAllowed)
+        );
+        if (isAuthor) {
+          canEdit = true;
+          canDelete = false;
+        } else {
+          canEdit = false;
+          canDelete = false;
+          capabilityReason = 'Only the originating field worker or an authorized State Team reviewer can edit this assessment.';
+        }
+      }
+    } else {
+      canEdit = false;
+      canDelete = false;
+      capabilityReason = 'Editing not permitted for your current role.';
+    }
+
+    const capabilities = {
+      canEdit,
+      canDelete,
+      reason: capabilityReason,
+    };
+
     return NextResponse.json(
       {
         status: 'success',
         data: result.data,
         remoteSubmissionId: result.remoteSubmissionId,
         version: result.version,
+        capabilities,
       },
       { status: 200, headers: NO_STORE_HEADERS }
     );
@@ -344,8 +415,63 @@ export async function PATCH(
       req.headers.get('idempotency-key') ||
       `update-${submissionId}-${patchPayload.expectedVersion || 1}`;
 
-    // Geographic scope enforcement for scoped callers (STATE_REVIEWER or LEADERSHIP without global wildcard)
-    if (
+    // Geographic and permission scope enforcement
+    if (scope.role === 'FIELD_USER') {
+      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'caseworker');
+      if (existing.status === 'success' && existing.data) {
+        const isApproved = Boolean(
+          existing.data.isApproved === true ||
+          existing.data.approvedAllianceIndia === 'APPROVED' ||
+          existing.data.approvalStatus === 'APPROVED' ||
+          existing.data['67\nApproved Alliance India'] === 'APPROVED'
+        );
+        if (isApproved) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: 'ACCESS_DENIED',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            details: 'Field worker attempted to edit a Leadership-approved record.',
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: 'RECORD_LOCKED_APPROVED',
+              message: 'This assessment has been approved by Leadership and is locked against field-worker edits. Contact your State Team coordinator for revision requests.',
+              requestId,
+            },
+            { status: 403 }
+          );
+        }
+
+        const authorIdentifier = existing.data.submittedBy || existing.data['4\nSubmitted By'] || existing.data.userId;
+        const authorName = existing.data.interviewer || existing.data.interviewerName || existing.data.payload?.interviewerName || authorIdentifier;
+        const isAuthor = Boolean(
+          (authorIdentifier && (authorIdentifier === scope.userId || (scope.name && authorIdentifier.trim().toLowerCase() === scope.name.trim().toLowerCase()))) ||
+          (authorName && scope.name && authorName.trim().toLowerCase() === scope.name.trim().toLowerCase())
+        );
+        if (!isAuthor) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: 'ACCESS_DENIED',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            details: 'Field worker attempted to edit a record authored by another worker.',
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: 'FORBIDDEN_AUTHOR_MISMATCH',
+              message: 'Only the originating field worker or an authorized State Team reviewer can edit this assessment.',
+              requestId,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    } else if (
       (scope.role === 'STATE_REVIEWER' || scope.role === 'LEADERSHIP') &&
       (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*'))
     ) {

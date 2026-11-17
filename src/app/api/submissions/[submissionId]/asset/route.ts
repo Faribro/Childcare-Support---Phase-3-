@@ -164,6 +164,35 @@ export async function POST(
           (existing.data.payload?.interviewerName && scope.name && existing.data.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
           (existing.data.interviewerName && scope.name && existing.data.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
         );
+
+        if (scope.role === 'FIELD_USER') {
+          const isApproved = Boolean(
+            existing.data.isApproved === true ||
+            existing.data.approvedAllianceIndia === 'APPROVED' ||
+            existing.data.approvalStatus === 'APPROVED' ||
+            existing.data['67\nApproved Alliance India'] === 'APPROVED'
+          );
+          if (isApproved) {
+            logSecurityEvent({
+              actor: scope.userId,
+              actorRole: scope.role,
+              eventType: 'ACCESS_DENIED',
+              outcome: 'DENY',
+              targetResource: submissionId,
+              details: 'Field worker attempted to replace asset on a Leadership-approved record.',
+            });
+            return NextResponse.json(
+              {
+                status: 'error',
+                code: 'RECORD_LOCKED_APPROVED',
+                message: 'This assessment has been approved by Leadership and is locked against field-worker document replacement. Contact your State Team coordinator for replacement requests.',
+                requestId,
+              },
+              { status: 403, headers: ASSET_NO_STORE_HEADERS }
+            );
+          }
+        }
+
         if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
           logSecurityEvent({
             actor: scope.userId,
@@ -1086,6 +1115,35 @@ export async function PUT(
           (existing.data.payload?.interviewerName && scope.name && existing.data.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
           (existing.data.interviewerName && scope.name && existing.data.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
         );
+
+        if (scope.role === 'FIELD_USER') {
+          const isApproved = Boolean(
+            existing.data.isApproved === true ||
+            existing.data.approvedAllianceIndia === 'APPROVED' ||
+            existing.data.approvalStatus === 'APPROVED' ||
+            existing.data['67\nApproved Alliance India'] === 'APPROVED'
+          );
+          if (isApproved) {
+            logSecurityEvent({
+              actor: scope.userId,
+              actorRole: scope.role,
+              eventType: 'ACCESS_DENIED',
+              outcome: 'DENY',
+              targetResource: submissionId,
+              details: 'Field worker attempted to replace asset on a Leadership-approved record.',
+            });
+            return NextResponse.json(
+              {
+                status: 'error',
+                code: 'RECORD_LOCKED_APPROVED',
+                message: 'This assessment has been approved by Leadership and is locked against field-worker document replacement. Contact your State Team coordinator for replacement requests.',
+                requestId,
+              },
+              { status: 403, headers: ASSET_NO_STORE_HEADERS }
+            );
+          }
+        }
+
         if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
           logSecurityEvent({
             actor: scope.userId,

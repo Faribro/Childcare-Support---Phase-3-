@@ -171,7 +171,7 @@
 2. **UAT-PL-02 (OTP Verification):** Receive email OTP, submit verification code. Verify session unlocks national access.
 3. **UAT-PL-03 (National Surveillance):** Inspect national dashboard showing aggregate count of all states and total nutritional risk breakdown.
 4. **UAT-PL-04 (Multi-State Filter):** Filter dashboard by Maharashtra, West Bengal, and Delhi. Confirm statistics adjust reactively.
-5. **UAT-PL-05 (Export Reports):** Click "Export Linelist to CSV". Confirm downloaded CSV has complete 85 columns.
+5. **UAT-PL-05 (Export Reports):** Click "Export Linelist to CSV". Confirm downloaded CSV has complete 83 canonical columns.
 6. **UAT-PL-06 (Beneficiary Grant Approval):** Open pending SAM child record, click "Approve Childcare Nutrition Grant".
 7. **UAT-PL-07 (Approval Audit):** Confirm audit entry `APPROVAL_CHANGED` written to Firestore and Google Sheet column `Alliance India Approval`.
 8. **UAT-PL-08 (Photo Viewer):** Click beneficiary growth chart photo; verify modal opens full-resolution preview.

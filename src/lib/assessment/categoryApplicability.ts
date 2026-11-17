@@ -122,15 +122,17 @@ const FIELD_CATEGORY_MAP: Record<string, SupportCategory[] | 'always'> = {
   'health.vlStatus': ['hiv_support'],
   'health.vlDate': ['hiv_support'],
   'health.viralLoad': ['hiv_support'],
-  'health.otherHealthConditions': ['hiv_support'],
-  'health.otherHealthConditionSpecify': ['hiv_support'],
+  // General Health & Comorbidities
+  'health.otherHealthConditions': ['nutrition', 'hiv_support'],
+  'health.otherHealthConditionSpecify': ['nutrition', 'hiv_support'],
   // Anthropometrics: shown when nutrition OR hiv_support selected
   'health.weightKg': ['nutrition', 'hiv_support'],
   'health.heightCm': ['nutrition', 'hiv_support'],
   'health.haemoglobinGdl': ['nutrition', 'hiv_support'],
-  'health.hasDisability': ['hiv_support'],
-  'health.disabilityType': ['hiv_support'],
-  'health.disabilityCertificateStatus': ['hiv_support'],
+  // Child Disability: decoupled from HIV exclusivity — accessible across all support categories
+  'health.hasDisability': ['education', 'nutrition', 'hiv_support'],
+  'health.disabilityType': ['education', 'nutrition', 'hiv_support'],
+  'health.disabilityCertificateStatus': ['education', 'nutrition', 'hiv_support'],
   // Nutrition section
   'nutrition.appetite': ['nutrition'],
   'nutrition.mealsPerDay': ['nutrition'],

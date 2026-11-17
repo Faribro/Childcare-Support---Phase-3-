@@ -34,14 +34,8 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const { isUnlocked, user } = useEvaluationAccess();
   const summary = useSubmissionSummary({ enabled: submittedCount === undefined });
 
-  // Field caseworkers are permanently locked and cannot access the Evaluation portal
-  const isFieldWorker =
-    user?.role === 'FIELD_USER' ||
-    (typeof window !== 'undefined' &&
-      Boolean(localStorage.getItem('field_user_profile')) &&
-      user?.role !== 'STATE_REVIEWER' &&
-      user?.role !== 'LEADERSHIP' &&
-      user?.role !== 'ADMIN');
+  // Evaluation portal access is governed by session authentication state (isUnlocked).
+  // Shared devices can safely access the Evaluation sign-in modal without artificial permanent locks.
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -137,17 +131,8 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
               );
             })}
 
-            {/* Evaluation Tab - Permanently locked for Field Workers; unlocked for State Reviewers & Leadership */}
-            {isFieldWorker ? (
-              <div
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 bg-slate-100/70 border border-slate-200/60 cursor-not-allowed select-none opacity-80"
-                title="Evaluation Portal is permanently secured and restricted to State Reviewers and Leadership."
-                aria-label="Evaluation Portal Locked"
-              >
-                <Lock className="h-3 w-3 text-slate-400 shrink-0" />
-                <span>Evaluation</span>
-              </div>
-            ) : isUnlocked ? (
+            {/* Evaluation Tab - Unlocked for authenticated evaluators; opens login modal for unauthenticated users */}
+            {isUnlocked ? (
               <Link
                 href="/supervisor"
                 className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
@@ -176,12 +161,10 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                 <span>Evaluation</span>
               </button>
             )}
-            {!isFieldWorker && (
-              <EvaluationLoginModal
-                isOpen={isLoginModalOpen}
-                onClose={() => setIsLoginModalOpen(false)}
-              />
-            )}
+            <EvaluationLoginModal
+              isOpen={isLoginModalOpen}
+              onClose={() => setIsLoginModalOpen(false)}
+            />
           </nav>
 
           {/* Status & Mobile Actions */}

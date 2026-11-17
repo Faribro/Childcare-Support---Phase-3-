@@ -18,7 +18,7 @@ Phase D implemented the complete fresh-start provisioning, safety backup, and en
 
 ### D1. Read-Only Safety Backup (`scripts/export-sheets-backup.ts`)
 - **Safety Guarantee**: Read-only extraction of existing Google Sheets data. Makes zero writes, edits, or deletes to any remote store.
-- **Header Fidelity**: Preserves all 85 canonical columns.
+- **Header Fidelity**: Preserves all 83 canonical columns.
 - **Output**: Exports a local timestamped snapshot (`backups/sheets-backup-<timestamp>.csv` and `.json`).
 - Added npm/bun script shortcut: `bun run backup:sheets`.
 

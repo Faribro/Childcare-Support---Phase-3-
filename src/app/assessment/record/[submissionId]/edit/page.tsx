@@ -147,6 +147,9 @@ export default function EditRecordPage() {
   const [conflictError, setConflictError] = useState<any>(null);
   const [currentVersion, setCurrentVersion] = useState<number>(1);
   const [confirmedRemoteSubmissionId, setConfirmedRemoteSubmissionId] = useState<string | undefined>(undefined);
+  // Server-evaluated capabilities model (canEdit, canDelete, reason)
+  const [capabilities, setCapabilities] = useState<{ canEdit: boolean; canDelete: boolean; reason?: string } | null>(null);
+  const [isLoadingCapabilities, setIsLoadingCapabilities] = useState<boolean>(true);
   // Captures the form values exactly as loaded from DB — used to diff edits before enqueueUpdate.
   const [originalSnapshot, setOriginalSnapshot] = useState<Record<string, any> | null>(null);
   // Preserves the original consent snapshot separately from editable fields
@@ -433,9 +436,15 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           const res = await fetch(`/api/submissions/${encodeURIComponent(candidateRemoteId)}`);
           if (res.ok) {
             const body = await res.json();
-            if (body.data) {
-              remoteRecord = body.data;
-            }
+            if (body.data) remoteRecord = body.data;
+            if (body.capabilities) setCapabilities(body.capabilities);
+          } else if (res.status === 401 || res.status === 403) {
+            const errBody = await res.json().catch(() => ({}));
+            setCapabilities({
+              canEdit: false,
+              canDelete: false,
+              reason: errBody.message || 'You do not have authorization to edit this assessment.',
+            });
           }
         } catch (_) {}
       } else if (!localRecord && submissionId && typeof submissionId === 'string' && submissionId.trim().length > 0) {
@@ -444,9 +453,15 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId.trim())}`);
           if (res.ok) {
             const body = await res.json();
-            if (body.data) {
-              remoteRecord = body.data;
-            }
+            if (body.data) remoteRecord = body.data;
+            if (body.capabilities) setCapabilities(body.capabilities);
+          } else if (res.status === 401 || res.status === 403) {
+            const errBody = await res.json().catch(() => ({}));
+            setCapabilities({
+              canEdit: false,
+              canDelete: false,
+              reason: errBody.message || 'You do not have authorization to edit this assessment.',
+            });
           }
         } catch (_) {}
       }
@@ -912,10 +927,39 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           }
         } catch (_) {}
       }
+
+      if (foundRecord) {
+        const isApproved = Boolean(
+          foundRecord.isApproved === true ||
+          foundRecord.approvedAllianceIndia === 'APPROVED' ||
+          foundRecord.approvalStatus === 'APPROVED' ||
+          foundRecord['67\nApproved Alliance India'] === 'APPROVED' ||
+          foundRecord.approvedStatus === 'APPROVED'
+        );
+        setCapabilities((prev) => {
+          if (prev) return prev;
+          if (user?.role === 'STATE_REVIEWER' && user?.canEdit === false) {
+            return {
+              canEdit: false,
+              canDelete: false,
+              reason: 'Your current State Evaluator session operates under a read-only policy.',
+            };
+          }
+          if (isApproved && user?.role === 'FIELD_USER') {
+            return {
+              canEdit: false,
+              canDelete: false,
+              reason: 'This assessment has been approved by Leadership and is locked against field-worker edits. Contact your State Team coordinator for revision requests.',
+            };
+          }
+          return { canEdit: true, canDelete: false };
+        });
+      }
     } catch (err) {
       console.error('[EditRecordPage] Error loading record:', err);
     } finally {
       setIsLoading(false);
+      setIsLoadingCapabilities(false);
     }
   }, [submissionId]);
 
@@ -1510,12 +1554,11 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
       const refId = formData.artNumber || submissionId;
       const targetClientId = confirmedRemoteId ? submissionId : (queuePayload?.clientSubmissionId || submissionId);
 
-      // ── NON-BLOCKING LOCAL PERSISTENCE ──
-      // Record revision is durably committed to IndexedDB. Immediately transition
-      // the UI so caseworkers and evaluators do not wait 15 seconds for upstream replication.
+      // ── DURABLE LOCAL PERSISTENCE & TRUTHFUL QUEUE STATUS ──
+      // Record revision is saved safely to IndexedDB.
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         processQueue('form_update').catch(() => {/* background errors handled by worker */});
-        router.push(`/assessment/sync?status=sheet_pending&ref=${encodeURIComponent(refId)}&submitted=true`);
+        router.push(`/assessment/sync?status=local_saved&ref=${encodeURIComponent(refId)}`);
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }
@@ -1526,23 +1569,20 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isLoadingCapabilities) {
     return (
       <AppShell>
         <div className="max-w-md mx-auto py-24 text-center space-y-3">
           <div className="w-8 h-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-slate-500 font-medium">Loading full assessment for editing...</p>
+          <p className="text-xs text-slate-500 font-medium">Checking permissions and loading full assessment...</p>
         </div>
       </AppShell>
     );
   }
 
-  // Under updated policy:
-  // - Verified Administrators and Leadership are authorized to edit existing records.
-  // - State Reviewers with in-state edit permissions can edit records in their state.
-  // - Field Caseworkers can always edit records anytime.
-  // - Read-only banner is ONLY for STATE_REVIEWER when canEdit is explicitly false.
-  if (user?.role === 'STATE_REVIEWER' && user?.canEdit === false) {
+  // Server-evaluated edit capabilities guard:
+  // Evaluated by /api/submissions/[submissionId] based on role, state scope, author match, and approval status.
+  if (capabilities && capabilities.canEdit === false) {
     return (
       <AppShell>
         <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">
@@ -1552,10 +1592,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Read-Only Evaluation Session
+                Edit Access Restricted
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mt-2 max-w-md mx-auto leading-relaxed">
-                Your current State Evaluator session operates under a read-only policy. Existing beneficiary records cannot be edited without editing clearance.
+                {capabilities.reason || 'You do not have authorization to edit this record.'}
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
@@ -1564,9 +1604,9 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                   View Record Details
                 </Button>
               </Link>
-              <Link href="/supervisor/assessments">
+              <Link href="/assessment/sync">
                 <Button variant="secondary" size="sm" className="text-xs">
-                  Return to Assessments Line-List
+                  Return to Dashboard
                 </Button>
               </Link>
             </div>
