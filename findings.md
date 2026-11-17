@@ -1,26 +1,26 @@
-# Findings & Architecture Invariants: State-Team and Field-User Onboarding
+# Findings & Discoveries: Fix 0.0.0.0:8080 Leak in Onboarding Flow
 
-## 1. Prior Work Recovery Analysis
-- **Git History Forensics:**
-  - Audited commits from PR #79 (`af102be9b041c5da179eade34e62747344a7d92c`): introduced password-free forms for field caseworkers, state-scoped credentials for `STATE_REVIEWER`, and `EvaluationLoginModal`.
-  - Audited `feat/identity-access-readiness` (`a44fac4`): hardened session service with HMAC signed tokens, multi-programme scope, and fail-closed production guards.
-  - Audited `MiniatureGardenPlayground.tsx` (`cae35d0`): features kite flying animation in canvas.
-  - Audited `docs/landing-page-reference-storyboard.md` (`b2f485f`): references editorial narrative invitations.
-  - **Audit Verdict:** The owner's recollection of Welcome Kite onboarding was DESIGN ONLY / CONCEPTUAL INTENT. Zero code, components, or API routes for Welcome Kite or Google OAuth onboarding exist in any branch, stash, worktree, or transcript.
-  - **Resolution:** Build the clean, hardened implementation natively upon the existing authentication and session infrastructure.
+## 1. Root Cause Analysis
+The leak of `https://0.0.0.0:8080` occurs because of three interconnected factors:
+1. **Container Binding Host Leak**: Cloud Run runs the Node container listening on `0.0.0.0:8080`. When route handlers (`/api/auth/google/login`, `/api/auth/google/callback`) call `new URL(path, req.url)` or `req.nextUrl.host`, the host header internal to the container is `0.0.0.0:8080` instead of the public host header (`x-forwarded-host` or `x-fh-requested-host`).
+2. **Missing Runtime Environment Variables**: `NEXT_PUBLIC_APP_URL` was defined as an ARG in `Dockerfile` Stage 2 (`builder`), but was completely missing from Stage 3 (`runner`). Furthermore, `csc-staging` Cloud Run service did not have `NEXT_PUBLIC_APP_URL` or `APP_URL` defined in its container environment variables. At runtime on the server, `process.env.NEXT_PUBLIC_APP_URL` evaluated to `undefined`, so fallbacks to `req.url` were invoked.
+3. **Google OAuth 400 Root Cause**: `buildGoogleAuthUrl()` in `src/lib/server/googleAuth.ts` used `const url = new URL(req.url); const origin = ${url.protocol}//${url.host}; const redirectUri = ...;` which generated `redirect_uri=http://0.0.0.0:8080/api/auth/google/callback`. Google OAuth rejects `0.0.0.0` as a malformed redirect URI (HTTP 400).
+4. **Google OAuth Callback Leak**: In `src/app/api/auth/google/callback/route.ts`, line 21 had `const appBaseUrl = ${url.protocol}//${url.host}/app;`, meaning any auth cancellation, error, or completion would redirect to `http://0.0.0.0:8080/app`.
 
-## 2. Security Boundaries & Authorization Rules
-- **No Shared State Team Password:** Each state-team staff member must have an individual identity, verified work email, and individual session.
-- **Email Verification != State Authority:** Verifying control of an email address does NOT grant state-wide access. An administrator approval step or pre-configured allowlist is required before state-level access is granted.
-- **No Plaintext Invitation Storage:** Invitation codes must be hashed (SHA-256 with cryptographic salt) before storage. The plaintext code is delivered once via approved private email and never returned via API or logged.
-- **Atomic Multi-User Redemption:** State team invitation codes support multi-user redemption (default max 50 redemptions, 30 days validity) with atomic incrementing to prevent race conditions.
-- **Zero Role Escalation from Google Sign-In:** Google sign-in creates or accesses a `FIELD_USER` account only. It must NEVER grant `LEADERSHIP`, `STATE_REVIEWER`, or `ADMIN` roles.
-- **Server-Derived Geographic Scope:** Field user state is bound strictly to the state team that issued the invitation code. Client-provided state or role overrides are rejected.
-- **Preservation of Existing Data & Drafts:** The onboarding gate must not clear local storage or delete Dexie IndexedDB drafts. Offline workers must retain full access to their local data.
-
-## 3. Configuration & Secrets Register
-- `GOOGLE_CLIENT_ID`: OAuth 2.0 client ID for Google sign-in.
-- `GOOGLE_CLIENT_SECRET`: OAuth 2.0 client secret.
-- `GOOGLE_REDIRECT_URI`: Production and Preview callback URLs (e.g. `https://childcare-support-phase-3.vercel.app/api/auth/google/callback`).
-- `SESSION_SECRET`: Minimum 32-character secret for HMAC session signing (already live in production).
-- `APPS_SCRIPT_WEBAPP_URL` & `APPS_SCRIPT_DISPATCH_SECRET`: Operational email gateway for dispatching OTPs and invitation codes (already live in production).
+## 2. Solution Architecture
+1. **Centralized Base URL Resolver**: Create a robust `getPublicAppBaseUrl(req?: NextRequest)` in `src/lib/server/appUrl.ts` (or `googleAuth.ts`) that:
+   - Reads `x-forwarded-host` or `x-fh-requested-host` (from Firebase Hosting / Cloud Load Balancing).
+   - Validates that the host is NOT an internal container listener (`0.0.0.0`, `127.0.0.1`, `localhost` in non-dev).
+   - If internal host or missing, falls back to `process.env.APP_URL` || `process.env.NEXT_PUBLIC_APP_URL` || `'https://childcare.allianceindia.org'`.
+   - Forces `https` protocol in deployed environments.
+2. **Update Route Handlers**:
+   - `src/app/api/auth/google/login/route.ts`: use `getPublicAppBaseUrl(req)`.
+   - `src/app/api/auth/google/callback/route.ts`: use `getPublicAppBaseUrl(req)`.
+   - `src/lib/server/googleAuth.ts` (`buildGoogleAuthUrl`): use `getPublicAppBaseUrl(req)` for `redirectUri`.
+   - `src/app/api/auth/field-user/complete-onboarding/route.ts`: ensure `redirectUrl` is clean relative `/assessment/new` or uses `getPublicAppBaseUrl(req)`.
+3. **Dockerfile & Cloud Build Configuration**:
+   - In `Dockerfile`, pass `ARG NEXT_PUBLIC_APP_URL` into Stage 3 (`runner`) and set `ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL`, `ENV APP_URL=$NEXT_PUBLIC_APP_URL`.
+   - In `cloudbuild.staging.yaml`, set `_NEXT_PUBLIC_APP_URL: 'https://childcare.allianceindia.org'`.
+   - In `csc-staging` Cloud Run service, set `NEXT_PUBLIC_APP_URL=https://childcare.allianceindia.org`, `APP_URL=https://childcare.allianceindia.org`, and ensure `ALLOWED_HOSTS` includes `childcare.allianceindia.org`.
+4. **Regression Testing**:
+   - Write comprehensive tests asserting that `getPublicAppBaseUrl()` and all redirect endpoints NEVER emit `0.0.0.0` or `:8080` even when simulated behind Cloud Run with internal `req.url`.

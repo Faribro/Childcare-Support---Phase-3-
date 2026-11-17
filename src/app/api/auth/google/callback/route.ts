@@ -9,6 +9,7 @@ import {
 } from '@/lib/server/googleAuth';
 import { getOnboardingStore } from '@/lib/server/onboardingStore';
 import { createSessionToken, setSessionCookie } from '@/lib/server/sessionService';
+import { getPublicAppBaseUrl, resolveSafeRedirectUrl } from '@/lib/server/appUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
 
-  const appBaseUrl = `${url.protocol}//${url.host}/app`;
+  const appBaseUrl = `${getPublicAppBaseUrl(req)}/app`;
 
   // 1. Safe handling for user cancellation
   if (errorParam === 'access_denied' || errorParam === 'consent_required') {
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
     });
 
     const destination = verifiedState.returnTo || '/assessment/new';
-    const redirectUrl = `${url.protocol}//${url.host}${destination}`;
+    const redirectUrl = resolveSafeRedirectUrl(destination, req).toString();
     const response = NextResponse.redirect(redirectUrl);
 
     clearOAuthStateCookie(response, req);

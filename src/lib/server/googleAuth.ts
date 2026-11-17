@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionSecret } from './sessionService';
 import { getOnboardingStore } from './onboardingStore';
+import { getPublicAppBaseUrl } from './appUrl';
 import type { FieldUserProfile } from '@/lib/types/onboarding';
 
 import {
@@ -271,8 +272,7 @@ export function buildGoogleAuthUrl(req: NextRequest, returnTo: string = '/assess
   stateToken: string;
 } {
   const clientId = process.env.GOOGLE_CLIENT_ID || 'mock-google-client-id';
-  const url = new URL(req.url);
-  const origin = `${url.protocol}//${url.host}`;
+  const origin = getPublicAppBaseUrl(req);
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
 
   const nonce = crypto.randomBytes(16).toString('hex');
@@ -394,8 +394,7 @@ async function performGoogleCodeExchange(
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const url = new URL(req.url);
-  const origin = `${url.protocol}//${url.host}`;
+  const origin = getPublicAppBaseUrl(req);
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
 
   if (!clientId || !clientSecret) {
