@@ -198,10 +198,10 @@ export default function EditRecordPage() {
             setConflictError({ code: 'OCC_CONFLICT', message: conflictMsg });
             throw new Error(conflictMsg);
           }
-          if (res.status === 401 || res.status === 403 || data.code === 'FORBIDDEN' || data.code === 'UNAUTHORIZED') {
+          if (res.status === 401 || res.status === 403 || data.code === 'FORBIDDEN' || data.code === 'UNAUTHORIZED' || data.code === 'FORBIDDEN_SCOPE') {
             const permMsg = data.message || 'Permission Denied: You do not have authorization to replace documents on this record.';
-            setFormError(permMsg);
-            throw new Error(permMsg);
+            setFormError(`Permission Denied: ${permMsg}`);
+            throw new Error(`Permission Denied: ${permMsg}`);
           }
           const errDetail = data.message || 'Failed to replace document on the server.';
           setFormError(`Document Replacement Failed: ${errDetail}`);

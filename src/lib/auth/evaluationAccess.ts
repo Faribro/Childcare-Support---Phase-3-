@@ -31,7 +31,11 @@ export function isEvaluationUnlocked(): boolean {
     const cachedUser = localStorage.getItem(SESSION_CACHE_KEY);
     if (!cachedUser) return false;
     const parsed = JSON.parse(cachedUser);
-    return Boolean(parsed && parsed.isVerified === true);
+    if (!parsed || parsed.isVerified !== true) return false;
+    // Field caseworkers are FOREVER locked and excluded from Evaluation access
+    if (parsed.role === 'FIELD_USER') return false;
+    const allowedEvalRoles = ['STATE_REVIEWER', 'LEADERSHIP', 'ADMIN', 'AUDITOR'];
+    return allowedEvalRoles.includes(parsed.role);
   } catch {
     return false;
   }
@@ -43,18 +47,23 @@ export function isEvaluationUnlocked(): boolean {
 export function setEvaluationUnlocked(unlocked: boolean, user?: EvaluationUser | null): void {
   if (typeof window === 'undefined') return;
   try {
-    if (unlocked && user?.isVerified) {
+    const isFieldWorker = user?.role === 'FIELD_USER';
+    if (unlocked && user?.isVerified && !isFieldWorker) {
       localStorage.setItem(STORAGE_KEY, 'true');
       localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(user));
     } else {
       localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(SESSION_CACHE_KEY);
+      if (user?.role === 'FIELD_USER') {
+        localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(user));
+      } else {
+        localStorage.removeItem(SESSION_CACHE_KEY);
+      }
     }
     window.dispatchEvent(
       new CustomEvent(EVENT_NAME, {
         detail: {
-          unlocked: Boolean(unlocked && user?.isVerified),
-          user: user?.isVerified ? user : null,
+          unlocked: Boolean(unlocked && user?.isVerified && !isFieldWorker),
+          user: user || null,
         },
       })
     );
@@ -111,8 +120,13 @@ export function useEvaluationAccess() {
               isVerified: true,
             };
             setUser(authedUser);
-            setUnlocked(true);
-            setEvaluationUnlocked(true, authedUser);
+            if (authedUser.role === 'FIELD_USER') {
+              setUnlocked(false);
+              setEvaluationUnlocked(false, authedUser);
+            } else {
+              setUnlocked(true);
+              setEvaluationUnlocked(true, authedUser);
+            }
           } else if (active) {
             // Unauthenticated response (e.g. isVerified: false): clear cached credentials
             setUser(null);
@@ -248,7 +262,8 @@ export function useEvaluationAccess() {
     }
   }, [logout, unlock]);
 
-  const effectiveUnlocked = Boolean(unlocked && user?.isVerified);
+  const isEvaluationRole = user?.role === 'STATE_REVIEWER' || user?.role === 'LEADERSHIP' || user?.role === 'ADMIN' || user?.role === 'AUDITOR';
+  const effectiveUnlocked = Boolean(unlocked && user?.isVerified && isEvaluationRole && user?.role !== 'FIELD_USER');
 
   return {
     isUnlocked: effectiveUnlocked,

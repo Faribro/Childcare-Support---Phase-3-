@@ -755,6 +755,7 @@ export default function SupervisorAssessmentsPage() {
 
   // Authentication gate for unauthenticated users
   if (isLoaded && !isUnlocked && !isUnauthorized) {
+    const isFieldWorker = user?.role === 'FIELD_USER';
     return (
       <AppShell>
         <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
@@ -762,20 +763,26 @@ export default function SupervisorAssessmentsPage() {
             <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
-            <h2 className="text-base font-bold text-slate-900">Authentication Required</h2>
+            <h2 className="text-base font-bold text-slate-900">
+              {isFieldWorker ? 'Access Restricted' : 'Authentication Required'}
+            </h2>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Beneficiary evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.
+              {isFieldWorker
+                ? 'The Evaluation portal is permanently restricted to State Reviewers and Leadership. Field caseworkers cannot access clinical surveillance or evaluation linelists.'
+                : 'Beneficiary evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.'}
             </p>
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setIsLoginModalOpen(true)}
-                className="w-full sm:w-auto text-xs bg-teal-800 hover:bg-teal-900 text-white"
-              >
-                <Lock className="w-3.5 h-3.5 mr-1.5" />
-                Sign In to Access
-              </Button>
+              {!isFieldWorker && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="w-full sm:w-auto text-xs bg-teal-800 hover:bg-teal-900 text-white"
+                >
+                  <Lock className="w-3.5 h-3.5 mr-1.5" />
+                  Sign In to Access
+                </Button>
+              )}
               <Link href="/app" className="w-full sm:w-auto">
                 <Button variant="secondary" size="sm" className="w-full text-xs">
                   Return to Forms
@@ -784,10 +791,12 @@ export default function SupervisorAssessmentsPage() {
             </div>
           </div>
         </div>
-        <EvaluationLoginModal
-          isOpen={isLoginModalOpen}
-          onClose={() => setIsLoginModalOpen(false)}
-        />
+        {!isFieldWorker && (
+          <EvaluationLoginModal
+            isOpen={isLoginModalOpen}
+            onClose={() => setIsLoginModalOpen(false)}
+          />
+        )}
       </AppShell>
     );
   }

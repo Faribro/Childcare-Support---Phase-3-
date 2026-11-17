@@ -3,9 +3,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
 import { useSupervisorData } from '@/hooks/useSupervisorData';
-import { useEvaluationAccess, setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
+import { useEvaluationAccess, setEvaluationUnlocked, isEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
 import SupervisorDashboardPage from '@/app/supervisor/page';
+import { CompactMasthead } from '@/components/layout/CompactMasthead';
 
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
@@ -194,6 +195,89 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
       expect(screen.getByTestId('is-unlocked').textContent).toBe('false');
       expect(screen.getByTestId('user').textContent).toBe('none');
       expect(localStorage.getItem('child_nutrition_evaluation_unlocked')).toBeNull();
+    });
+
+    it('permanently locks evaluation access for authenticated FIELD_USER sessions', async () => {
+      (globalThis as any).__TEST_ENABLE_SESSION_FETCH__ = true;
+      localStorage.setItem('child_nutrition_evaluation_unlocked', 'true');
+      localStorage.setItem(
+        'child_nutrition:user_session_v1',
+        JSON.stringify({ userId: 'fld-123', name: 'Caseworker Joe', role: 'FIELD_USER', isVerified: true })
+      );
+
+      // Verify synchronous check immediately rejects FIELD_USER
+      expect(isEvaluationUnlocked()).toBe(false);
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'success',
+          data: {
+            userId: 'fld-123',
+            name: 'Caseworker Joe',
+            role: 'FIELD_USER',
+            allowedStates: ['Maharashtra'],
+            allowedDistricts: ['Pune'],
+            isVerified: true,
+          },
+        }),
+      });
+
+      function TestAccessConsumer() {
+        const { isUnlocked, isLoaded, user } = useEvaluationAccess();
+        return (
+          <div>
+            <span data-testid="is-loaded">{String(isLoaded)}</span>
+            <span data-testid="is-unlocked">{String(isUnlocked)}</span>
+            <span data-testid="user-role">{user ? user.role : 'none'}</span>
+          </div>
+        );
+      }
+
+      render(<TestAccessConsumer />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('is-loaded').textContent).toBe('true');
+      });
+
+      expect(screen.getByTestId('is-unlocked').textContent).toBe('false');
+      expect(screen.getByTestId('user-role').textContent).toBe('FIELD_USER');
+      expect(localStorage.getItem('child_nutrition_evaluation_unlocked')).toBeNull();
+    });
+
+    it('renders Evaluation tab as permanently locked and non-interactive for field workers in CompactMasthead', async () => {
+      // Set field user session
+      localStorage.setItem(
+        'child_nutrition:user_session_v1',
+        JSON.stringify({ userId: 'fld-123', name: 'Caseworker Joe', role: 'FIELD_USER', isVerified: true })
+      );
+
+      render(<CompactMasthead />);
+
+      const lockedTab = screen.getByLabelText('Evaluation Portal Locked');
+      expect(lockedTab).toBeDefined();
+      expect(lockedTab.textContent).toContain('Evaluation');
+      expect(lockedTab.getAttribute('title')).toContain('permanently secured');
+      // Should NOT render unlocked supervisor link
+      expect(screen.queryByTitle('Evaluation Portal (Unlocked)')).toBeNull();
+      // Should NOT render unlock login button
+      expect(screen.queryByTitle('Sign in to unlock Evaluation Portal')).toBeNull();
+    });
+
+    it('renders Access Restricted when a FIELD_USER visits /supervisor directly', async () => {
+      localStorage.setItem(
+        'child_nutrition:user_session_v1',
+        JSON.stringify({ userId: 'fld-123', name: 'Caseworker Joe', role: 'FIELD_USER', isVerified: true })
+      );
+
+      render(<SupervisorDashboardPage />);
+
+      expect(screen.getByText('Access Restricted')).toBeDefined();
+      expect(screen.getByText(/permanently restricted to State Reviewers and Leadership/i)).toBeDefined();
+      expect(screen.getByText('Return to Forms')).toBeDefined();
+      // Must NOT show Sign In to Access button to field users
+      expect(screen.queryByText('Sign In to Access')).toBeNull();
     });
   });
 

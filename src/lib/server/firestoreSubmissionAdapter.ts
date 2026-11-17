@@ -837,11 +837,15 @@ export class FirestoreSubmissionAdapter {
   }
 
   /**
-   * UPDATE ASSET: Updates document attachment metadata.
+   * UPDATE ASSET: Updates document attachment metadata and mirrors replacement to Google Apps Script / Google Drive.
    */
   public async updateAsset(input: CanonicalReplaceAssetInput): Promise<CanonicalSubmissionResult> {
     const { submissionId, docType, fileData } = input;
     const db = await this.getDb();
+    const now = new Date().toISOString();
+
+    let existing: any = null;
+    let resolvedRef: any = null;
 
     if (db) {
       const resolved = await this.resolveSubmissionDoc(submissionId, db);
@@ -853,16 +857,10 @@ export class FirestoreSubmissionAdapter {
           message: `Submission ${submissionId} not found.`,
         };
       }
-      const data = resolved.data;
-      const attachments = data.attachments || [];
-      attachments.push({
-        docType,
-        fileDataPreview: fileData.substring(0, 32),
-        updatedAt: new Date().toISOString(),
-      });
-      await resolved.ref.update({ attachments, updatedAt: new Date().toISOString() });
+      existing = resolved.data;
+      resolvedRef = resolved.ref;
     } else {
-      const existing = this.resolveMockSubmission(submissionId);
+      existing = this.resolveMockSubmission(submissionId);
       if (!existing) {
         return {
           status: 'error',
@@ -871,20 +869,104 @@ export class FirestoreSubmissionAdapter {
           message: `Submission ${submissionId} not found.`,
         };
       }
-      existing.attachments = existing.attachments || [];
-      existing.attachments.push({
-        docType,
-        fileDataPreview: fileData.substring(0, 32),
-        updatedAt: new Date().toISOString(),
-      });
+    }
+
+    const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || submissionId;
+    const fieldMap: Record<string, string> = {
+      passbookPhoto: 'passbookPhotoUrl',
+      aadhaarCardPhoto: 'aadhaarCardPhotoUrl',
+      childPhoto: 'childPhotoUrl',
+      feeReceiptPhoto: 'feeReceiptPhotoUrl',
+      marksheetPhoto: 'marksheetPhotoUrl',
+    };
+    const fieldKey = fieldMap[docType];
+
+    let cellFormula: string | undefined;
+    let newFileId: string | undefined;
+    let newRevision: number = (existing.version || existing.revisionNumber || 1) + 1;
+
+    // Mirror replacement to Google Apps Script / Drive
+    if (this.gatewayClient) {
+      try {
+        const gasRes = await this.gatewayClient.callGateway({
+          action: 'replaceAsset',
+          remoteSubmissionId: existing.id || submissionId,
+          submissionId: resolvedUniqueId,
+          uniqueId: resolvedUniqueId,
+          slotPrefix: docType,
+          docType,
+          fileDataUrl: fileData,
+          fileData,
+          expectedRevision: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+          expectedVersion: input.expectedRevision !== undefined ? input.expectedRevision : input.expectedVersion,
+          expectedCurrentCellStateHash: input.expectedCurrentCellStateHash,
+          requestId: input.requestId,
+        });
+
+        if (gasRes && (gasRes.status === 'success' || gasRes.statusCode === 200)) {
+          cellFormula = gasRes.cellFormula;
+          newFileId = gasRes.newFileId;
+          if (gasRes.newRevision) newRevision = gasRes.newRevision;
+        } else if (gasRes && gasRes.code === 'OCC_CONFLICT') {
+          return {
+            status: 'conflict',
+            statusCode: 409,
+            code: 'OCC_CONFLICT',
+            message: gasRes.message || 'OCC conflict during asset replacement.',
+            requestId: input.requestId,
+          };
+        }
+      } catch (err: any) {
+        console.warn(`[FIRESTORE_MIRROR] replaceAsset mirror failed for ${resolvedUniqueId}:`, err?.message);
+      }
+    }
+
+    const attachments = existing.attachments || [];
+    attachments.push({
+      docType,
+      fileDataPreview: fileData.substring(0, 64),
+      newFileId,
+      cellFormula,
+      updatedAt: now,
+    });
+
+    const updatePayload: Record<string, any> = {
+      version: newRevision,
+      revisionNumber: newRevision,
+      attachments,
+      updatedAt: now,
+    };
+
+    if (fieldKey) {
+      const storedVal = cellFormula || fileData;
+      updatePayload[fieldKey] = storedVal;
+      if (existing.payload) {
+        updatePayload.payload = {
+          ...existing.payload,
+          [fieldKey]: storedVal,
+        };
+      }
+    }
+
+    if (db && resolvedRef) {
+      await resolvedRef.update(updatePayload);
+    } else if (existing) {
+      Object.assign(existing, updatePayload);
     }
 
     return {
       status: 'success',
       statusCode: 200,
       acknowledged: true,
-      uniqueId: submissionId,
+      remoteSubmissionId: existing.id || submissionId,
+      uniqueId: resolvedUniqueId,
       docType,
+      cellFormula,
+      newFileId,
+      newRevision,
+      version: newRevision,
+      revisionNumber: newRevision,
+      updatedAt: now,
       requestId: input.requestId,
     };
   }

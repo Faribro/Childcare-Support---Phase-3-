@@ -78,20 +78,22 @@ export async function POST(
 
     const isStateEvaluatorWithEdit = scope.role === 'STATE_REVIEWER' && scope.canEdit === true;
     const isFieldWorker = scope.role === 'FIELD_USER';
-    if (scope.role !== 'ADMIN' && !isStateEvaluatorWithEdit && !isFieldWorker) {
+    const isLeadership = scope.role === 'LEADERSHIP';
+    const isAdmin = scope.role === 'ADMIN';
+    if (!isAdmin && !isLeadership && !isStateEvaluatorWithEdit && !isFieldWorker) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'ACCESS_DENIED',
         outcome: 'DENY',
         targetResource: submissionId,
-        details: `Caller role '${scope.role}' forbidden to upload assets (requires ADMIN, authorized STATE_REVIEWER with edit, or FIELD_USER)`,
+        details: `Caller role '${scope.role}' forbidden to upload assets (requires ADMIN, LEADERSHIP, authorized STATE_REVIEWER with edit, or FIELD_USER)`,
       });
       return NextResponse.json(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Asset upload is restricted to verified Administrator role. State Evaluators and Leadership operate under read-only or non-upload policies.',
+          message: 'Asset upload is restricted to verified Administrator, Leadership, authorized in-state reviewers, or field caseworkers.',
           requestId,
         },
         { status: 403, headers: ASSET_NO_STORE_HEADERS }
@@ -157,7 +159,14 @@ export async function POST(
       if (existing.status === 'success' && existing.data) {
         const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
         const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
-        if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+        const isAuthor = Boolean(
+          (existing.data.submittedBy && scope.name && existing.data.submittedBy.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+          (existing.data.submittedBy && scope.userId && existing.data.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
+          (existing.data.userId && scope.userId && existing.data.userId === scope.userId) ||
+          (existing.data.payload?.interviewerName && scope.name && existing.data.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+          (existing.data.interviewerName && scope.name && existing.data.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
+        );
+        if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
           logSecurityEvent({
             actor: scope.userId,
             actorRole: scope.role,
@@ -315,7 +324,15 @@ export async function GET(
   const recordState = record.state || record['18\nState'] || record.demographics?.state || 'Maharashtra';
   const recordDistrict = record.district || record['19\nDistrict'] || record.demographics?.district || undefined;
 
-  if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+  const isAuthor = Boolean(
+    (record.submittedBy && scope.name && record.submittedBy.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+    (record.submittedBy && scope.userId && record.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
+    (record.userId && scope.userId && record.userId === scope.userId) ||
+    (record.payload?.interviewerName && scope.name && record.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+    (record.interviewerName && scope.name && record.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
+  );
+
+  if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
     logSecurityEvent({
       actor: scope.userId,
       actorRole: scope.role,
@@ -975,20 +992,25 @@ export async function PUT(
       );
     }
 
-    if (scope.role !== 'ADMIN') {
+    const isStateEvaluatorWithEdit = scope.role === 'STATE_REVIEWER' && scope.canEdit === true;
+    const isFieldWorker = scope.role === 'FIELD_USER';
+    const isLeadership = scope.role === 'LEADERSHIP';
+    const isAdmin = scope.role === 'ADMIN';
+
+    if (!isAdmin && !isLeadership && !isStateEvaluatorWithEdit && !isFieldWorker) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'ACCESS_DENIED',
         outcome: 'DENY',
         targetResource: submissionId,
-        details: `Caller role '${scope.role}' forbidden to replace assets under Model A policy`,
+        details: `Caller role '${scope.role}' forbidden to replace assets`,
       });
       return NextResponse.json(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Asset replacement is restricted to verified Administrator role.',
+          message: 'Asset replacement is restricted to verified Administrator, Leadership, authorized in-state reviewers, or field caseworkers.',
           requestId,
         },
         { status: 403, headers: ASSET_NO_STORE_HEADERS }
@@ -1059,7 +1081,14 @@ export async function PUT(
       if (existing.status === 'success' && existing.data) {
         const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
         const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
-        if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+        const isAuthor = Boolean(
+          (existing.data.submittedBy && scope.name && existing.data.submittedBy.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+          (existing.data.submittedBy && scope.userId && existing.data.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
+          (existing.data.userId && scope.userId && existing.data.userId === scope.userId) ||
+          (existing.data.payload?.interviewerName && scope.name && existing.data.payload.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase()) ||
+          (existing.data.interviewerName && scope.name && existing.data.interviewerName.trim().toLowerCase() === scope.name.trim().toLowerCase())
+        );
+        if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
           logSecurityEvent({
             actor: scope.userId,
             actorRole: scope.role,
