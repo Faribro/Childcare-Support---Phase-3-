@@ -20,6 +20,7 @@ import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
 import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
+import { ProfileMenu } from '@/components/layout/ProfileMenu';
 
 interface CompactMastheadProps {
   pendingSyncCount?: number;
@@ -34,7 +35,13 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const summary = useSubmissionSummary({ enabled: submittedCount === undefined });
 
   // Field caseworkers are permanently locked and cannot access the Evaluation portal
-  const isFieldWorker = user?.role === 'FIELD_USER' || (typeof window !== 'undefined' && Boolean(localStorage.getItem('field_user_profile')) && !isUnlocked);
+  const isFieldWorker =
+    user?.role === 'FIELD_USER' ||
+    (typeof window !== 'undefined' &&
+      Boolean(localStorage.getItem('field_user_profile')) &&
+      user?.role !== 'STATE_REVIEWER' &&
+      user?.role !== 'LEADERSHIP' &&
+      user?.role !== 'ADMIN');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -186,6 +193,9 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
               showText={false}
               className="w-8 h-8 p-0 justify-center rounded-full"
             />
+
+            {/* Profile Menu (Top-Right beside Wi-Fi indicator) */}
+            <ProfileMenu />
 
             {/* Mobile Sync Centre Shortcut */}
             <Link

@@ -155,6 +155,7 @@ export function StateTeamAuthFlow({
           allowedStates: session.allowedStates || [requestedState],
           allowedDistricts: [],
           isVerified: true,
+          canEdit: session.canEdit ?? true,
         };
         setEvaluationUnlocked(true, authedUser);
         setSuccessMessage('Email verified successfully! Redirecting to state dashboard…');

@@ -3,13 +3,19 @@
  *
  * Single Source of Truth for Intake Form Required Fields,
  * Clinical Skip Logic, and Payload Sanitization.
- * Version: 2 (Intake Form Schema V2)
+ * Version: 2 (Intake Form Schema V2) | Version 3 adds category-awareness
  */
 
 import { FormValidationError, FIELD_REGISTRY } from './formValidationRegistry';
 import { isCurrentRegimenApplicable } from '../clinical/artStatusLogic';
+import {
+  type SupportCategory,
+  isFieldApplicableForCategories,
+  isSectionApplicable,
+} from '../assessment/categoryApplicability';
 
 export const CURRENT_SCHEMA_VERSION = 2;
+export const CATEGORY_SCHEMA_VERSION = 3;
 
 /**
  * Universal Value Resolver: Seamlessly extracts values from BOTH flat objects (e.g., formData)
@@ -76,9 +82,22 @@ export function getFieldValue(data: Record<string, any>, fieldKey: string): any 
 
 /**
  * Returns true if the given fieldKey is currently applicable/visible
- * based on skip logic and parent answer conditions.
+ * based on skip logic, parent answer conditions, AND (optionally) selected support categories.
+ *
+ * Pass `categories` from categoryApplicability.ts to enable category-aware validation.
+ * Pass `undefined` or `[]` for legacy schema-v2 mode (all fields applicable).
  */
-export function isFieldApplicable(fieldKey: string, data: Record<string, any>): boolean {
+export function isFieldApplicable(
+  fieldKey: string,
+  data: Record<string, any>,
+  categories?: SupportCategory[]
+): boolean {
+  // Category-level gate: if categories provided, check category applicability first
+  if (categories && categories.length > 0) {
+    if (!isFieldApplicableForCategories(fieldKey, categories)) {
+      return false;
+    }
+  }
   const artStatus = getFieldValue(data, 'health.artStatus') || '';
   const currentlyOnArt = getFieldValue(data, 'health.currentlyOnArt');
   const vlStatus = getFieldValue(data, 'health.vlStatus') || '';
@@ -309,10 +328,11 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
 export function validateField(
   fieldKey: string,
   data: Record<string, any>,
-  hasSavedSignature: boolean = false
+  hasSavedSignature: boolean = false,
+  categories?: SupportCategory[]
 ): FormValidationError | null {
-  // If field is not applicable due to skip logic, it is never invalid
-  if (!isFieldApplicable(fieldKey, data)) {
+  // If field is not applicable due to skip logic or category gate, it is never invalid
+  if (!isFieldApplicable(fieldKey, data, categories)) {
     return null;
   }
 
@@ -690,12 +710,19 @@ export function validateField(
 
 /**
  * Validates an entire section when the user scrolls past it.
+ * Pass `categories` to skip validation for sections not applicable to the current assessment.
  */
 export function validateSection(
   sectionKey: string,
   data: Record<string, any>,
-  hasSavedSignature: boolean = false
+  hasSavedSignature: boolean = false,
+  categories?: SupportCategory[]
 ): FormValidationError[] {
+  // If the whole section is not applicable for selected categories, return no errors
+  if (categories && categories.length > 0 && !isSectionApplicable(sectionKey, categories)) {
+    return [];
+  }
+
   const errors: FormValidationError[] = [];
 
   const sectionFields: Record<string, string[]> = {
@@ -762,7 +789,7 @@ export function validateSection(
 
   const fields = sectionFields[sectionKey] || [];
   for (const field of fields) {
-    const err = validateField(field, data, hasSavedSignature);
+    const err = validateField(field, data, hasSavedSignature, categories);
     if (err) {
       errors.push(err);
     }
@@ -773,11 +800,13 @@ export function validateSection(
 
 /**
  * Full validation check for SUBMIT.
+ * Pass `categories` for schema-v3 category-aware submissions.
  * Returns { valid: boolean; errors: FormValidationError[] }
  */
 export function validateEntireForm(
   data: Record<string, any>,
-  hasSavedSignature: boolean = false
+  hasSavedSignature: boolean = false,
+  categories?: SupportCategory[]
 ): { valid: boolean; errors: FormValidationError[] } {
   const errors: FormValidationError[] = [];
   const sections = [
@@ -792,7 +821,7 @@ export function validateEntireForm(
   ];
 
   for (const sec of sections) {
-    const secErrors = validateSection(sec, data, hasSavedSignature);
+    const secErrors = validateSection(sec, data, hasSavedSignature, categories);
     errors.push(...secErrors);
   }
 

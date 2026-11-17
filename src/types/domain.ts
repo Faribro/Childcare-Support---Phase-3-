@@ -381,6 +381,7 @@ export interface AssessmentRecord {
   bankingAndKyc?: BankingAndKycData;
   koboId?: string;
   schemaVersion?: number;
+  supportCategories?: ('education' | 'nutrition' | 'hiv_support')[];
   approvedAllianceIndia?: string;
   reviewConfirmed?: boolean;
   syncNeeded?: 'YES' | 'NO';

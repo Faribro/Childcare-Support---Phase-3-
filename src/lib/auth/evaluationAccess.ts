@@ -118,6 +118,7 @@ export function useEvaluationAccess() {
               allowedStates: json.data.allowedStates || [],
               allowedDistricts: json.data.allowedDistricts || [],
               isVerified: true,
+              canEdit: json.data.canEdit ?? (json.data.role === 'STATE_REVIEWER' || json.data.role === 'ADMIN' || json.data.role === 'LEADERSHIP' || json.data.role === 'FIELD_USER'),
             };
             setUser(authedUser);
             if (authedUser.role === 'FIELD_USER') {

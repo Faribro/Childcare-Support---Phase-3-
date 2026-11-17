@@ -345,6 +345,7 @@ export async function verifyStateTeamOtp(params: {
       role: 'STATE_REVIEWER' as const,
       allowedStates: [canonicalState],
       allowedDistricts: ['*'],
+      canEdit: true,
       token,
     };
 

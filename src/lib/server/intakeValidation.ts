@@ -1,4 +1,5 @@
 import { validateSubmissionAttachments } from './assetValidation';
+import { validateCategories, type SupportCategory } from '../assessment/categoryApplicability';
 
 export interface ServerIntakeValidationError {
   field: string;
@@ -144,16 +145,42 @@ export function validateServerSubmissionIntake(
       });
     }
 
-    // 5. Strict Document Verification Proofs rule:
-    // Every Phase 3 submission must include at least one of feeReceiptPhotoUrl, marksheetPhotoUrl,
-    // or remarks of 3+ characters (no bypassing via omitted educationExpenses block).
-    if (!hasValidDocumentVerificationProof(rawBody)) {
-      errors.push({
-        field: 'educationExpenses.feeReceiptPhotoUrl',
-        issue:
-          'Document verification proof is required: upload a school fee receipt or marksheet photo, or provide remarks (at least 3 characters).',
-        code: 'DOCUMENT_PROOF_REQUIRED',
-      });
+    // Support Categories Validation (Schema V3)
+    const isV3 = rawBody.schemaVersion === 3 || rawBody.supportCategories !== undefined;
+    let validatedCategories: SupportCategory[] = [];
+    if (isV3) {
+      if (!Array.isArray(rawBody.supportCategories) || rawBody.supportCategories.length === 0) {
+        errors.push({
+          field: 'supportCategories',
+          issue: 'Select at least one support category to continue.',
+          code: 'CATEGORY_REQUIRED',
+        });
+      } else {
+        const valid = validateCategories(rawBody.supportCategories);
+        if (!valid) {
+          errors.push({
+            field: 'supportCategories',
+            issue: 'Invalid or unknown support category in submission payload.',
+            code: 'INVALID_CATEGORY',
+          });
+        } else {
+          validatedCategories = valid;
+        }
+      }
+    }
+
+    // 5. Document Verification Proofs rule:
+    // Enforced ONLY when Education support is requested (or in legacy schema v2).
+    const isEducationApplicable = !isV3 || validatedCategories.includes('education');
+    if (isEducationApplicable) {
+      if (!hasValidDocumentVerificationProof(rawBody)) {
+        errors.push({
+          field: 'educationExpenses.feeReceiptPhotoUrl',
+          issue:
+            'Document verification proof is required: upload a school fee receipt or marksheet photo, or provide remarks (at least 3 characters).',
+          code: 'DOCUMENT_PROOF_REQUIRED',
+        });
+      }
     }
 
     // 6. Paper Form A12 structured address required fields (when modern structured address fields are present or finalReview exists without legacy mock state)

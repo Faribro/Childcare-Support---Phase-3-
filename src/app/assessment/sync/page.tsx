@@ -479,7 +479,7 @@ function SyncCentreContent() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [queueItems, setQueueItems] = useState<SyncQueueItem[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [isOnline, setIsOnline] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [viewingItem, setViewingItem] = useState<UnifiedAssessmentItem | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);

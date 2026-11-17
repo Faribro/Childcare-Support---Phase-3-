@@ -1510,28 +1510,12 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
       const refId = formData.artNumber || submissionId;
       const targetClientId = confirmedRemoteId ? submissionId : (queuePayload?.clientSubmissionId || submissionId);
 
-      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
-      // Button is already disabled via isSaving. Redirect only on confirmed event.
+      // ── NON-BLOCKING LOCAL PERSISTENCE ──
+      // Record revision is durably committed to IndexedDB. Immediately transition
+      // the UI so caseworkers and evaluators do not wait 15 seconds for upstream replication.
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        const outcomePromise = waitForSubmissionOutcome(targetClientId);
-
-        // Start worker AFTER listeners are registered synchronously
         processQueue('form_update').catch(() => {/* background errors handled by worker */});
-
-        const outcome = await outcomePromise;
-        if (outcome.status === 'success') {
-          const syncStatus = (outcome as any)?.data?.syncStatus || (outcome as any)?.syncStatus;
-          if (syncStatus === 'SYNCED') {
-            router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}&submitted=true`);
-          } else {
-            router.push(`/assessment/sync?status=sheet_pending&ref=${encodeURIComponent(refId)}&submitted=true`);
-          }
-        } else if (outcome.status === 'failed') {
-          router.push(`/assessment/sync?status=sheet_failed&ref=${encodeURIComponent(refId)}&submitted=true`);
-        } else {
-          // Timeout -> non-success tracking state
-          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}&submitted=true`);
-        }
+        router.push(`/assessment/sync?status=sheet_pending&ref=${encodeURIComponent(refId)}&submitted=true`);
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }
@@ -1555,10 +1539,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
 
   // Under updated policy:
   // - Verified Administrators and Leadership are authorized to edit existing records.
-  // - State Reviewers with edit clearance can edit records in their state.
-  // - Field Caseworkers can always edit records.
-  // - Read-only banner is ONLY for STATE_REVIEWER when canEdit === false.
-  if (user?.role === 'STATE_REVIEWER' && !user?.canEdit) {
+  // - State Reviewers with in-state edit permissions can edit records in their state.
+  // - Field Caseworkers can always edit records anytime.
+  // - Read-only banner is ONLY for STATE_REVIEWER when canEdit is explicitly false.
+  if (user?.role === 'STATE_REVIEWER' && user?.canEdit === false) {
     return (
       <AppShell>
         <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">

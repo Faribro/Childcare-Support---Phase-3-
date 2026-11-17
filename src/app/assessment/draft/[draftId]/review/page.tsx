@@ -202,31 +202,14 @@ export default function DraftReviewPage() {
       const refId = finalPayload.demographics?.artNumber || finalPayload.uniqueId || 'Record';
       const targetClientId = canonicalUuid;
 
-      // ── BLOCKER B FIX: Subscribe BEFORE starting processQueue() ──
-      setSubmitStatus('saving');
+      // ── NON-BLOCKING LOCAL PERSISTENCE ──
+      // Record is durably stored in Dexie IndexedDB. Immediately transition
+      // the UI so caseworkers do not wait 15 seconds for upstream replication.
+      setSubmitStatus('success');
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        setSubmitStatus('sending');
-
-        const outcomePromise = waitForSubmissionOutcome(targetClientId, {
-          onSending: () => setSubmitStatus('sending'),
-          onRetrying: () => setSubmitStatus('retrying'),
-        });
-
-        // Start worker AFTER listeners are registered synchronously
         processQueue('form_submit').catch(() => {/* worker handles its own errors */});
-
-        const outcome = await outcomePromise;
-        if (outcome.status === 'success') {
-          setSubmitStatus('success');
-          router.push(`/assessment/sync?status=synced&ref=${encodeURIComponent(refId)}`);
-        } else if (outcome.status === 'failed') {
-          setSubmitStatus('failed');
-          router.push(`/assessment/sync?status=action_required&ref=${encodeURIComponent(refId)}`);
-        } else {
-          // Timeout -> non-success tracking state
-          router.push(`/assessment/sync?status=syncing&ref=${encodeURIComponent(refId)}`);
-        }
+        router.push(`/assessment/sync?status=saved_queued&ref=${encodeURIComponent(refId)}`);
       } else {
         router.push(`/assessment/sync?status=offline&ref=${encodeURIComponent(refId)}`);
       }

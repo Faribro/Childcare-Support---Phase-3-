@@ -622,6 +622,8 @@ export const completeSubmissionSchema = z.object({
   finalReview: finalReviewSchema.optional(),
   bankingAndKyc: bankingAndKycSchema.optional(),
   koboId: z.string().optional(),
+  schemaVersion: z.number().int().optional(),
+  supportCategories: z.array(z.enum(['education', 'nutrition', 'hiv_support'])).min(1, 'At least one support category is required').optional(),
   approvedAllianceIndia: z.string().optional(),
   reviewConfirmed: z.boolean().optional(),
   syncNeeded: z.enum(['YES', 'NO']).optional(),

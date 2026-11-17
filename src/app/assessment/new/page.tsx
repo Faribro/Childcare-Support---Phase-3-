@@ -7,7 +7,14 @@ import {
   validateEntireForm,
   sanitizeSubmissionPayload,
   CURRENT_SCHEMA_VERSION,
+  CATEGORY_SCHEMA_VERSION,
 } from '@/lib/validations/formRules';
+import {
+  type SupportCategory,
+  isSectionApplicable,
+  getApplicableSections,
+} from '@/lib/assessment/categoryApplicability';
+import { CategorySelectionStep } from '@/components/assessment/CategorySelectionStep';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -105,6 +112,29 @@ export default function NewSinglePageAssessment() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+
+  // ── Category-Selection Step (Schema V3) ──────────────────────────────────
+  // showCategoryStep: true  → render CategorySelectionStep before the form sections
+  // selectedCategories: []  → legacy mode (all sections visible, schema v2 compat)
+  const [showCategoryStep, setShowCategoryStep] = useState(true);
+  const [selectedCategories, setSelectedCategories] = useState<SupportCategory[]>([]);
+  const [categoryStepError, setCategoryStepError] = useState<string | null>(null);
+
+  const isHivApplicable = useMemo(() => {
+    return selectedCategories.length === 0 || selectedCategories.includes('hiv_support');
+  }, [selectedCategories]);
+
+  const applicableSections = useMemo(() => {
+    return getApplicableSections(selectedCategories);
+  }, [selectedCategories]);
+
+  const sectionStepNumbers = useMemo(() => {
+    const map: Record<string, string> = {};
+    applicableSections.forEach((sec, idx) => {
+      map[sec] = String(idx + 1).padStart(2, '0');
+    });
+    return map;
+  }, [applicableSections]);
 
   const errorsByField = useMemo(() => {
     const map: Record<string, FormValidationError> = {};
@@ -935,9 +965,11 @@ export default function NewSinglePageAssessment() {
 
       // Single Source of Truth Form Rules & Clinical Skip Logic Validation
       const validationPayload = { ...formData, ...finalRecord };
+      const activeCategories = selectedCategories.length > 0 ? selectedCategories : undefined;
       const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
         validationPayload,
-        hasSavedSignature || !!signatureDataUrl
+        hasSavedSignature || !!signatureDataUrl,
+        activeCategories
       );
 
       if (!isFormValid || fullFormErrors.length > 0) {
@@ -954,7 +986,11 @@ export default function NewSinglePageAssessment() {
       }
 
       // Sanitize payload: strip hidden skip-logic fields & set schemaVersion
-      finalRecord.schemaVersion = CURRENT_SCHEMA_VERSION;
+      // Use schema v3 for category-aware submissions, v2 for legacy
+      finalRecord.schemaVersion = selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION;
+      if (selectedCategories.length > 0) {
+        (finalRecord as any).supportCategories = selectedCategories;
+      }
       const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
 
 
@@ -1060,11 +1096,59 @@ export default function NewSinglePageAssessment() {
           </div>
         )}
 
+        {/* ── Category Selection Step (Schema V3) ── */}
+        {showCategoryStep && (
+          <div className="max-w-xl mx-auto w-full">
+            <CategorySelectionStep
+              selected={selectedCategories}
+              onChange={(cats) => {
+                setSelectedCategories(cats);
+                if (cats.length > 0) setCategoryStepError(null);
+              }}
+              error={categoryStepError}
+              onContinue={() => {
+                if (selectedCategories.length === 0) {
+                  setCategoryStepError('Select at least one support category to continue.');
+                  return;
+                }
+                setCategoryStepError(null);
+                setShowCategoryStep(false);
+              }}
+            />
+          </div>
+        )}
+
+        {/* ── Assessment Form Sections (shown after category selection) ── */}
+        {!showCategoryStep && (
+          <>
+            {/* Change categories banner */}
+            {selectedCategories.length > 0 && (
+              <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 border border-purple-200 text-xs">
+                <span className="text-purple-800 font-medium">
+                  Showing sections for:{' '}
+                  <strong>
+                    {selectedCategories
+                      .map((c) =>
+                        c === 'education' ? 'Education' : c === 'nutrition' ? 'Nutrition' : 'HIV-related support'
+                      )
+                      .join(', ')}
+                  </strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowCategoryStep(true)}
+                  className="ml-3 text-purple-700 font-semibold underline underline-offset-2 hover:text-purple-900"
+                >
+                  Change
+                </button>
+              </div>
+            )}
+
         {/* Unified Single Survey Entity Container (Zero Gaps) */}
         <div className="flex flex-col gap-3">
           {/* SECTION 1: Caregiver Consent & Signature Gate */}
         <section id="sec-consent" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.consent.bg}`} style={{"--neon-mid":SC.consent.neonMid,"--neon-far":SC.consent.neonFar,"--neon-border":SC.consent.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="01" title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
+          <SectionVerticalTitle number={sectionStepNumbers['consent'] || '01'} title={t('sec_consent', currentLanguage)} colorScheme={SC.consent} />
           
           <ConsentAudioNotice
             currentLanguage={currentLanguage}
@@ -1277,7 +1361,7 @@ export default function NewSinglePageAssessment() {
 
         {/* SECTION 2: Child Demographics */}
         <section id="sec-child" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.demo.bg}`} style={{"--neon-mid":SC.demo.neonMid,"--neon-far":SC.demo.neonFar,"--neon-border":SC.demo.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="02" title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
+          <SectionVerticalTitle number={sectionStepNumbers['demographics'] || '02'} title={t('sec_demographics', currentLanguage)} colorScheme={SC.demo} />
           <SectionHeader prefix="Who is the " emphasis="child" suffix=" we're supporting" emphasisColor="text-indigo-600" borderColor="border-indigo-100/80" eyebrowColor="text-indigo-400/90" errorCount={errorsBySection['demographics']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -1552,7 +1636,7 @@ export default function NewSinglePageAssessment() {
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
         <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
+          <SectionVerticalTitle number={sectionStepNumbers['banking'] || '03'} title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
           <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" errorCount={errorsBySection['banking']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1621,7 +1705,7 @@ export default function NewSinglePageAssessment() {
 
         {/* SECTION 4: Household & Financial Details */}
         <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
+          <SectionVerticalTitle number={sectionStepNumbers['household'] || '04'} title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
           <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1728,8 +1812,9 @@ export default function NewSinglePageAssessment() {
         </section>
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
+        {isSectionApplicable('health', selectedCategories) && (
         <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
+          <SectionVerticalTitle number={sectionStepNumbers['health'] || '05'} title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" errorCount={errorsBySection['health']?.length || 0} />
 
           <div className="space-y-4">
@@ -1854,6 +1939,7 @@ export default function NewSinglePageAssessment() {
             </div>
 
             {/* Sub-Card 2: Antiretroviral Therapy (ART) Care */}
+            {isHivApplicable && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-indigo-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-20">
               <div className="flex items-center justify-between border-b border-indigo-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -1983,6 +2069,7 @@ export default function NewSinglePageAssessment() {
                 />
               </div>
             </div>
+            )}
 
             {/* Sub-Card 3: Diagnostics Lab Monitoring (Hb & Viral Load) */}
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-purple-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-10">
@@ -1999,7 +2086,7 @@ export default function NewSinglePageAssessment() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className={`grid grid-cols-1 ${isHivApplicable ? 'lg:grid-cols-2' : ''} gap-4`}>
                 {/* Part A: Hemoglobin & Anemia Staging */}
                 <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between">
@@ -2052,6 +2139,7 @@ export default function NewSinglePageAssessment() {
                 </div>
 
                 {/* Part B: Viral Load & Suppression */}
+                {isHivApplicable && (
                 <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
@@ -2133,10 +2221,12 @@ export default function NewSinglePageAssessment() {
                     </div>
                   )}
                 </div>
+                )}
               </div>
             </div>
 
             {/* Sub-Card 4: Comorbidities & Co-infections */}
+            {isHivApplicable && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -2202,8 +2292,10 @@ export default function NewSinglePageAssessment() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Sub-Card 5: Disability Details */}
+            {isHivApplicable && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -2270,12 +2362,15 @@ export default function NewSinglePageAssessment() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </section>
+        )}
 
         {/* SECTION 6: Nutrition Habits */}
+        {isSectionApplicable('nutrition', selectedCategories) && (
         <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
+          <SectionVerticalTitle number={sectionStepNumbers['nutrition'] || '06'} title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
           <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" errorCount={errorsBySection['nutrition']?.length || 0} />
 
           <div className="pt-1">
@@ -2304,10 +2399,12 @@ export default function NewSinglePageAssessment() {
             </div>
           </div>
         </section>
+        )}
 
         {/* SECTION 7: Education Status */}
+        {isSectionApplicable('education', selectedCategories) && (
         <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
+          <SectionVerticalTitle number={sectionStepNumbers['education'] || '07'} title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
           <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" errorCount={errorsBySection['education']?.length || 0} />
 
           <div className="space-y-4">
@@ -2663,10 +2760,12 @@ export default function NewSinglePageAssessment() {
             )}
           </div>
         </section>
+        )}
 
         {/* SECTION 8: Expenses & Programme Support */}
+        {isSectionApplicable('expenses', selectedCategories) && (
         <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
+          <SectionVerticalTitle number={sectionStepNumbers['expenses'] || '08'} title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
           <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" errorCount={errorsBySection['expenses']?.length || 0} />
 
           <ExpensesAndApprovalGrid
@@ -2707,10 +2806,11 @@ export default function NewSinglePageAssessment() {
             }}
           />
         </section>
+        )}
 
         {/* SECTION 9: Programme Approval & Final Review */}
         <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
+          <SectionVerticalTitle number={sectionStepNumbers['review'] || '09'} title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
           <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" errorCount={errorsBySection['review']?.length || 0} />
 
           <div className="space-y-4">
@@ -2937,6 +3037,8 @@ export default function NewSinglePageAssessment() {
           </div>
           </div>
         </div>
+        </>
+        )}
       </div>
     </AppShell>
   );
