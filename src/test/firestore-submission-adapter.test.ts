@@ -423,5 +423,54 @@ describe('Firestore Submission Adapter & Data Engine (Task 2)', () => {
       expect(readRes.mirrorStatus).toBe('SYNCED');
       expect(readRes.sheetRowNumber).toBeUndefined();
     });
+
+    it('resolves submission by uniqueId (DL-SOU-171149-01) when stored under client UUID', async () => {
+      const adapter = new FirestoreSubmissionAdapter({
+        appEnv: 'development',
+        databaseId: '(default)',
+      });
+
+      const clientUuid = '4fb227df-8b46-4e12-a6d0-712747afa44d';
+      const uniqueId = 'DL-SOU-171149-01';
+
+      await adapter.createSubmission({
+        payload: {
+          clientSubmissionId: clientUuid,
+          uniqueId: uniqueId,
+          childName: 'Priya Shinde',
+          state: 'Delhi',
+          district: 'South Delhi',
+          bankAccountHolderName: 'Priya Shinde',
+          bankAccountNumber: '987654321',
+        } as any,
+        idempotencyKey: 'idemp-uuid-test-1',
+        requestId: 'req-uuid-1',
+      });
+
+      // 1. Lookup by uniqueId
+      const foundByUniqueId = await adapter.getSubmission(uniqueId);
+      expect(foundByUniqueId).toBeDefined();
+      expect(foundByUniqueId.uniqueId).toBe(uniqueId);
+      expect(foundByUniqueId.childName).toBe('Priya Shinde');
+
+      // 2. Update by uniqueId
+      const updateRes = await adapter.updateSubmission({
+        submissionId: uniqueId,
+        patch: {
+          bankAccountNumber: '111222333444',
+          bankIfscCode: 'SBIN0001234',
+        } as any,
+        requestId: 'req-update-1',
+      });
+      expect(updateRes.status).toBe('success');
+      expect(updateRes.uniqueId).toBe(uniqueId);
+
+      // 3. Mark synced
+      await adapter.markSubmissionSynced(uniqueId, { sheetRowNumber: 42 });
+      const updated = await adapter.getSubmission(uniqueId);
+      expect(updated.mirrorStatus).toBe('SYNCED');
+      expect(updated.sheetRowNumber).toBe(42);
+      expect(updated.payload.bankAccountNumber).toBe('111222333444');
+    });
   });
 });

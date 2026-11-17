@@ -1404,14 +1404,34 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           // during a clinical follow-up visit. Identity fields (artNumber, uuid,
           // remoteSubmissionId) are NEVER part of changes.
           const EDITABLE_FIELDS: Array<keyof typeof formData> = [
-            'weightKg', 'heightCm', 'haemoglobinGdl',
-            'monthlyIncomeRs', 'totalFamilyMembers', 'numberOfChildrenUnder18', 'mainSourceOfIncome',
-            'appetite', 'mealsPerDay',
-            'educationStatus', 'schoolName', 'schoolType', 'currentClass', 'currentClassSpecify', 'attendance',
+            // Section 1: Demographics, Caregiver & Address
+            'childName', 'dob', 'gender', 'orphanStatus', 'caregiverName', 'caregiverRelationship',
+            'contactNumber', 'noPhoneAvailable', 'alternateContactNumber', 'residenceType',
+            'doorAndColony', 'street', 'villageCity', 'talukMandalBlock', 'landmark', 'fullAddress',
+            'state', 'district', 'pinCode', 'childAadhaarNumber', 'srName', 'ssrName', 'guardianStatus',
+            // Section 3: Banking & Identification (KYC) Details
+            'bankAccountHolderName', 'bankAccountNumber', 'bankIfscCode', 'bankLinkedMobileNumber',
+            'passbookPhotoUrl', 'aadhaarCardPhotoUrl', 'childPhotoUrl',
+            // Section 4: Household & Financial Details
+            'totalFamilyMembers', 'numberOfChildrenUnder18', 'monthlyIncomeRs', 'mainSourceOfIncome',
+            // Section 5: Health, Clinical, ART & Viral Load
+            'weightKg', 'heightCm', 'haemoglobinGdl', 'otherHealthConditionSpecify',
+            'artStatus', 'artRegistrationDate', 'artInitiationDate', 'artIdNumber', 'artMedicineType',
+            'currentlyOnArt', 'cd4Count', 'vlStatus', 'vlDate', 'viralLoad',
+            'hasDisability', 'disabilityType', 'disabilityCertificateStatus',
+            // Section 6: Nutrition Habits
+            'appetite', 'mealsPerDay', 'malnutritionSymptoms',
+            // Section 7: Education Status
+            'educationStatus', 'educationStatusSpecify', 'schoolName', 'schoolSessionStartDate',
+            'schoolType', 'currentClass', 'currentClassSpecify', 'attendance', 'receivingEducationSchemeBenefit',
+            // Section 8: Current Expenses & Documents
             'schoolFees', 'tuitionFees', 'books', 'stationery', 'uniform', 'transport', 'otherExpenses',
+            'feeReceiptPhotoUrl', 'marksheetPhotoUrl', 'remarks',
+            // Section 8: Support Required
             'requiredSchoolFees', 'requiredTuitionFees', 'requiredBooks', 'requiredStationery',
             'requiredUniform', 'requiredTransport', 'requiredOtherSupport',
-            'approvedAllianceIndia', 'remarks',
+            // Section 9: Programme Approval
+            'approvedAllianceIndia', 'organizationName', 'formSubmittedBy', 'organizationEmail',
           ];
 
           const changes: Record<string, { previous: any; current: any }> = {};

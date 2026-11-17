@@ -70,7 +70,7 @@ export class FirestoreSubmissionAdapter {
   private db: any = null;
   private readonly projectId: string;
   private readonly databaseId: string;
-  private readonly gatewayClient?: { callGateway: (payload: Record<string, any>) => Promise<any> };
+  public readonly gatewayClient?: { callGateway: (payload: Record<string, any>) => Promise<any> };
 
   // In-memory fallback / mock store for offline unit tests
   private readonly isMock: boolean;
@@ -96,7 +96,7 @@ export class FirestoreSubmissionAdapter {
     }
   }
 
-  private async getDb() {
+  public async getDb() {
     if (this.db) return this.db;
     if (this.isMock) return null;
     const firestoreMod = await import('@google-cloud/firestore');
@@ -478,6 +478,86 @@ export class FirestoreSubmissionAdapter {
   }
 
   /**
+   * Helper: Resolves Firestore document reference and data across document ID, uniqueId, and clientSubmissionId.
+   */
+  public async resolveSubmissionDoc(id: string, db: any): Promise<{ ref: any; data: any } | null> {
+    if (!db) return null;
+    try {
+      // 1. Direct document ID lookup
+      const directDoc = db.collection('submissions').doc(id);
+      const directSnap = await directDoc.get();
+      if (directSnap.exists) {
+        return { ref: directDoc, data: { id: directSnap.id, ...directSnap.data() } };
+      }
+      // 2. Query by uniqueId
+      let q = await db.collection('submissions').where('uniqueId', '==', id).limit(1).get();
+      if (!q.empty) {
+        const snap = q.docs[0];
+        return { ref: snap.ref, data: { id: snap.id, ...snap.data() } };
+      }
+      // 3. Query by '1\nUnique Identifier'
+      q = await db.collection('submissions').where('1\nUnique Identifier', '==', id).limit(1).get();
+      if (!q.empty) {
+        const snap = q.docs[0];
+        return { ref: snap.ref, data: { id: snap.id, ...snap.data() } };
+      }
+      // 4. Query by clientSubmissionId
+      q = await db.collection('submissions').where('clientSubmissionId', '==', id).limit(1).get();
+      if (!q.empty) {
+        const snap = q.docs[0];
+        return { ref: snap.ref, data: { id: snap.id, ...snap.data() } };
+      }
+    } catch (err) {
+      console.error(`[FIRESTORE] Error resolving submission doc for ${id}:`, err);
+    }
+    return null;
+  }
+
+  public resolveMockSubmission(id: string): any {
+    if (this.mockSubmissions.has(id)) {
+      return this.mockSubmissions.get(id);
+    }
+    for (const [, item] of this.mockSubmissions.entries()) {
+      if (
+        item.uniqueId === id ||
+        item['1\nUnique Identifier'] === id ||
+        item.clientSubmissionId === id ||
+        item.id === id ||
+        item.payload?.uniqueId === id ||
+        item.payload?.clientSubmissionId === id
+      ) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Updates mirrorStatus to SYNCED in Firestore and records sheetRowNumber if provided.
+   */
+  public async markSubmissionSynced(id: string, details?: { sheetRowNumber?: number }): Promise<void> {
+    const db = await this.getDb();
+    const updatePayload: Record<string, any> = {
+      mirrorStatus: 'SYNCED',
+      mirroredAt: new Date().toISOString(),
+    };
+    if (details?.sheetRowNumber !== undefined) {
+      updatePayload.sheetRowNumber = details.sheetRowNumber;
+    }
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(id, db);
+      if (resolved) {
+        await resolved.ref.update(updatePayload);
+      }
+    } else {
+      const existing = this.resolveMockSubmission(id);
+      if (existing) {
+        Object.assign(existing, updatePayload);
+      }
+    }
+  }
+
+  /**
    * UPDATE: Updates submission in Firestore and mirrors patch to Sheets.
    */
   public async updateSubmission(
@@ -489,9 +569,10 @@ export class FirestoreSubmissionAdapter {
     const db = await this.getDb();
 
     let existing: any = null;
+    let actualDocRef: any = null;
     if (db) {
-      const snap = await db.collection('submissions').doc(submissionId).get();
-      if (!snap.exists) {
+      const resolved = await this.resolveSubmissionDoc(submissionId, db);
+      if (!resolved) {
         return {
           status: 'error',
           statusCode: 404,
@@ -499,9 +580,10 @@ export class FirestoreSubmissionAdapter {
           message: `Submission ${submissionId} not found in Firestore.`,
         };
       }
-      existing = snap.data();
+      existing = resolved.data;
+      actualDocRef = resolved.ref;
     } else {
-      existing = this.mockSubmissions.get(submissionId);
+      existing = this.resolveMockSubmission(submissionId);
       if (!existing) {
         return {
           status: 'error',
@@ -513,33 +595,46 @@ export class FirestoreSubmissionAdapter {
     }
 
     const nextVersion = (existing.version || 1) + 1;
-    const updatedPayload = { ...existing.payload, ...patch };
-    const updates = {
+    const updatedPayload = { ...(existing.payload || existing), ...patch };
+    const updates: Record<string, any> = {
       version: nextVersion,
       revisionNumber: nextVersion,
       payload: updatedPayload,
       updatedAt: now,
     };
 
-    if (db) {
-      await db.collection('submissions').doc(submissionId).update(updates);
-    } else {
+    if (patch.status) updates.status = patch.status;
+    if (patch.childName || (patch as any).demographics?.childName) {
+      updates.childName = patch.childName || (patch as any).demographics?.childName;
+    }
+    if (patch.state || (patch as any).demographics?.state) {
+      updates.state = patch.state || (patch as any).demographics?.state;
+    }
+    if (patch.district || (patch as any).demographics?.district) {
+      updates.district = patch.district || (patch as any).demographics?.district;
+    }
+
+    if (db && actualDocRef) {
+      await actualDocRef.update(updates);
+    } else if (existing) {
       Object.assign(existing, updates);
     }
+
+    const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || submissionId;
 
     // Mirror update to Google Sheets
     if (this.gatewayClient) {
       try {
         await this.gatewayClient.callGateway({
           action: 'update',
-          uniqueId: submissionId,
+          uniqueId: resolvedUniqueId,
           data: patch,
           payload: patch,
           patch,
           idempotencyKey: input.idempotencyKey,
         });
       } catch (mirrorErr) {
-        console.warn(`[FIRESTORE_MIRROR] Update mirror failed for ${submissionId}:`, mirrorErr);
+        console.warn(`[FIRESTORE_MIRROR] Update mirror failed for ${resolvedUniqueId}:`, mirrorErr);
       }
     }
 
@@ -547,26 +642,25 @@ export class FirestoreSubmissionAdapter {
       status: 'success',
       statusCode: 200,
       acknowledged: true,
-      uniqueId: submissionId,
-      remoteSubmissionId: submissionId,
+      uniqueId: resolvedUniqueId,
+      remoteSubmissionId: existing.id || submissionId,
       version: nextVersion,
       revisionNumber: nextVersion,
-      submissionStatus: existing.status,
+      submissionStatus: updates.status || existing.status,
       requestId: input.requestId,
     };
   }
 
   /**
-   * GET: Retrieves submission by ID from Firestore.
+   * GET: Retrieves submission by ID from Firestore (supporting docId, uniqueId, or clientSubmissionId).
    */
   public async getSubmission(id: string, session?: any): Promise<any> {
     const db = await this.getDb();
     if (db) {
-      const snap = await db.collection('submissions').doc(id).get();
-      if (!snap.exists) return null;
-      return snap.data();
+      const resolved = await this.resolveSubmissionDoc(id, db);
+      return resolved ? resolved.data : null;
     }
-    return this.mockSubmissions.get(id) || null;
+    return this.resolveMockSubmission(id);
   }
 
   /**
@@ -750,9 +844,8 @@ export class FirestoreSubmissionAdapter {
     const db = await this.getDb();
 
     if (db) {
-      const docRef = db.collection('submissions').doc(submissionId);
-      const snap = await docRef.get();
-      if (!snap.exists) {
+      const resolved = await this.resolveSubmissionDoc(submissionId, db);
+      if (!resolved) {
         return {
           status: 'error',
           statusCode: 404,
@@ -760,16 +853,16 @@ export class FirestoreSubmissionAdapter {
           message: `Submission ${submissionId} not found.`,
         };
       }
-      const data = snap.data();
+      const data = resolved.data;
       const attachments = data.attachments || [];
       attachments.push({
         docType,
         fileDataPreview: fileData.substring(0, 32),
         updatedAt: new Date().toISOString(),
       });
-      await docRef.update({ attachments, updatedAt: new Date().toISOString() });
+      await resolved.ref.update({ attachments, updatedAt: new Date().toISOString() });
     } else {
-      const existing = this.mockSubmissions.get(submissionId);
+      const existing = this.resolveMockSubmission(submissionId);
       if (!existing) {
         return {
           status: 'error',

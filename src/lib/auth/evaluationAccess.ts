@@ -67,18 +67,8 @@ export function setEvaluationUnlocked(unlocked: boolean, user?: EvaluationUser |
  * React hook for reactive evaluation access and attributable session identity.
  */
 export function useEvaluationAccess() {
-  const [unlocked, setUnlocked] = useState<boolean>(() => isEvaluationUnlocked());
-  const [user, setUser] = useState<EvaluationUser | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const cached = localStorage.getItem(SESSION_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        return parsed?.isVerified ? parsed : null;
-      }
-    } catch (_) {}
-    return null;
-  });
+  const [unlocked, setUnlocked] = useState<boolean>(false);
+  const [user, setUser] = useState<EvaluationUser | null>(null);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
 
   // Sync session on mount

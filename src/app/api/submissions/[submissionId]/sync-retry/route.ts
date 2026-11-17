@@ -38,6 +38,84 @@ export async function POST(
       );
     }
 
+    if (canonicalSubmissionAdapter.getDataEngine() === 'firestore') {
+      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+      if (existing.status !== 'success' || !existing.data) {
+        return NextResponse.json(
+          { status: 'error', code: 'NOT_FOUND', message: `Record ${submissionId} not found in Firestore.`, requestId },
+          { status: 404 }
+        );
+      }
+      const firestoreAdapter = await canonicalSubmissionAdapter.getFirestoreAdapter();
+      const existingRecord = existing.data;
+      const payload = existingRecord.payload || existingRecord;
+      const resolvedUniqueId = existingRecord.uniqueId || existingRecord['1\nUnique Identifier'] || submissionId;
+      const clientSubmissionId = existingRecord.id || existingRecord.clientSubmissionId || submissionId;
+
+      let syncSucceeded = false;
+      let syncErrorMsg = '';
+
+      if (firestoreAdapter.gatewayClient) {
+        try {
+          const res = await firestoreAdapter.gatewayClient.callGateway({
+            action: existingRecord.sheetRowNumber ? 'update' : 'create',
+            data: payload,
+            payload,
+            uniqueId: resolvedUniqueId,
+            ...(payload || {}),
+            idempotencyKey: `retry-${submissionId}-${Date.now()}`,
+            clientSubmissionId,
+          });
+
+          if (res && (res.status === 'success' || res.statusCode === 200 || (res.statusCode >= 200 && res.statusCode < 300))) {
+            syncSucceeded = true;
+            await firestoreAdapter.markSubmissionSynced(clientSubmissionId, {
+              sheetRowNumber: res.resolvedRow,
+            });
+          } else {
+            syncErrorMsg = res?.message || 'Google Sheets gateway returned error on sync retry';
+          }
+        } catch (callErr: any) {
+          syncErrorMsg = callErr?.message || 'Failed connecting to Google Sheets gateway';
+        }
+      }
+
+      const drainSummary = await firestoreAdapter.drainMirrorRetryQueue(10).catch(() => ({ processed: 0, succeeded: 0, failed: 0 }));
+
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: 'RECORD_MODIFIED',
+        outcome: syncSucceeded || drainSummary.succeeded > 0 ? 'ALLOW' : 'DENY',
+        targetResource: submissionId,
+        details: `Manual Firestore sync-retry triggered for ${submissionId} (UniqueId: ${resolvedUniqueId}). DirectSync: ${syncSucceeded}, Drained: ${drainSummary.succeeded}`,
+      });
+
+      if (!syncSucceeded && drainSummary.succeeded === 0) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            syncStatus: 'FAILED',
+            message: syncErrorMsg || 'Google Sheets sync retry failed. Please try again or contact support.',
+            summary: drainSummary,
+            requestId,
+          },
+          { status: 502 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          status: 'success',
+          syncStatus: 'SYNCED',
+          message: 'Record successfully synced to Google Sheets and Revisions log.',
+          summary: drainSummary,
+          requestId,
+        },
+        { status: 200 }
+      );
+    }
+
     if (canonicalSubmissionAdapter.getStorageEngine() === 'supabase') {
       const adapter = await canonicalSubmissionAdapter.getSupabaseAdapter();
       const mirrorRepo = adapter.getMirrorRepo ? adapter.getMirrorRepo() : null;
