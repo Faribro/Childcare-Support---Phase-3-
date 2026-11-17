@@ -345,6 +345,34 @@ export class FirestoreSubmissionAdapter {
         .get();
 
       pendingJobs = snap.docs.map((d: any) => d.data() as SheetsMirrorRetryRecord);
+
+      // Also drain any submissions stuck in PENDING_SHEET_SYNC
+      if (pendingJobs.length < batchSize) {
+        const remainingQuota = batchSize - pendingJobs.length;
+        const pendingSubSnap = await db
+          .collection('submissions')
+          .where('mirrorStatus', '==', 'PENDING_SHEET_SYNC')
+          .limit(remainingQuota)
+          .get();
+
+        for (const doc of pendingSubSnap.docs) {
+          const subData = doc.data();
+          if (!pendingJobs.some((j) => j.clientSubmissionId === subData.id || j.submissionId === subData.id)) {
+            pendingJobs.push({
+              id: `retry_${subData.id}`,
+              submissionId: subData.id,
+              clientSubmissionId: subData.id,
+              payload: subData.payload || subData,
+              idempotencyKey: subData.idempotencyKey || `retry_${subData.id}`,
+              retryCount: 0,
+              status: 'PENDING',
+              nextRetryAt: nowIso,
+              createdAt: subData.createdAt || nowIso,
+              updatedAt: nowIso,
+            });
+          }
+        }
+      }
     } else {
       pendingJobs = Array.from(this.mockRetryQueue.values())
         .filter((j) => j.status === 'PENDING' && j.nextRetryAt <= nowIso)

@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyOnboardingTicket, extractOnboardingTicketCookie, NO_STORE_CACHE_HEADERS } from '@/lib/server/googleAuth';
+import {
+  verifyOnboardingTicket,
+  extractOnboardingTicketCookie,
+  isGoogleOAuthConfigured,
+  NO_STORE_CACHE_HEADERS,
+} from '@/lib/server/googleAuth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const isGoogleConfigured = isGoogleOAuthConfigured();
   const ticketCookie = extractOnboardingTicketCookie(req);
   const ticket = verifyOnboardingTicket(ticketCookie);
 
@@ -12,6 +18,7 @@ export async function GET(req: NextRequest) {
       {
         status: 'success',
         hasTicket: false,
+        isGoogleConfigured,
       },
       { status: 200, headers: NO_STORE_CACHE_HEADERS }
     );
@@ -21,6 +28,7 @@ export async function GET(req: NextRequest) {
     {
       status: 'success',
       hasTicket: true,
+      isGoogleConfigured,
       data: {
         googleEmail: ticket.googleEmail,
         firstName: ticket.firstName,

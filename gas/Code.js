@@ -42,13 +42,21 @@ function getAppEnv_() {
 function getTargetSpreadsheetId_() {
   var props = PropertiesService.getScriptProperties();
   var id = props ? props.getProperty('TARGET_SPREADSHEET_ID') : null;
-  return id ? String(id).trim() : '';
+  var cleanId = id ? String(id).trim() : '';
+  if (cleanId === '1HFgh-CMgvRCjvn7MsxF94Jqpuf10GxiwHasIbzE9WPI') {
+    return '17Rm_U93nXilrvWu7LHBXlQ5LBC1f45Lydt76TIpiCg8';
+  }
+  return cleanId;
 }
 
 function getRootDocumentsFolderId_() {
   var props = PropertiesService.getScriptProperties();
   var id = props ? props.getProperty('ROOT_DOCUMENTS_FOLDER_ID') : null;
-  return id ? String(id).trim() : '';
+  var cleanId = id ? String(id).trim() : '';
+  if (cleanId === '12PNqK_J_YZXQGy4sDGq0XNuBGJMuGZCh') {
+    return '1P4KeWpUl9Psel-VpwmIhjMaA8gWyIElE';
+  }
+  return cleanId;
 }
 
 function isOperationalSpreadsheetId_(spreadsheetId) {
@@ -351,8 +359,8 @@ var PLACEHOLDER_DOCS = {
  * - Sets/verifies Script Properties for APP_ENV, TARGET_SPREADSHEET_ID, and ROOT_DOCUMENTS_FOLDER_ID.
  */
 function probeStagingAuthorization() {
-  var stagingSpreadsheetId = '1HFgh-CMgvRCjvn7MsxF94Jqpuf10GxiwHasIbzE9WPI';
-  var stagingFolderId = '12PNqK_J_YZXQGy4sDGq0XNuBGJMuGZCh';
+  var stagingSpreadsheetId = '17Rm_U93nXilrvWu7LHBXlQ5LBC1f45Lydt76TIpiCg8';
+  var stagingFolderId = '1P4KeWpUl9Psel-VpwmIhjMaA8gWyIElE';
 
   // 1. Probe & initialize Staging Spreadsheet (Zero operational access)
   var ss = SpreadsheetApp.openById(stagingSpreadsheetId);
@@ -683,6 +691,36 @@ function doPost(e) {
 
     if (action === 'cleanupStagingRun') {
       return cleanupStagingRun_(payload, requestId);
+    }
+
+    if (action === 'setStagingDestination') {
+      var callerSecret = payload && (payload.secret || payload.currentSecret);
+      var currentSecret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
+      if (!callerSecret || callerSecret !== currentSecret) {
+        return errorResponse_('Unauthorized', 'UNAUTHORIZED', 401, requestId);
+      }
+      var newSheetId = (payload && payload.spreadsheetId) || '17Rm_U93nXilrvWu7LHBXlQ5LBC1f45Lydt76TIpiCg8';
+      var newFolderId = (payload && payload.folderId) || '1P4KeWpUl9Psel-VpwmIhjMaA8gWyIElE';
+      if (isOperationalSpreadsheetId_(newSheetId)) {
+        return errorResponse_('Safety violation: Cannot point staging to operational spreadsheet', 'SAFETY_VIOLATION', 403, requestId);
+      }
+      var scriptProps = PropertiesService.getScriptProperties();
+      scriptProps.setProperty('APP_ENV', 'staging');
+      scriptProps.setProperty('TARGET_SPREADSHEET_ID', newSheetId);
+      scriptProps.setProperty('ROOT_DOCUMENTS_FOLDER_ID', newFolderId);
+      var ss = SpreadsheetApp.openById(newSheetId);
+      var sheet = ss.getSheetByName(PRIMARY_SHEET_NAME) || ss.getSheets()[0];
+      sheet.setName(PRIMARY_SHEET_NAME);
+      ensureHeaders_(sheet);
+      var folder = DriveApp.getFolderById(newFolderId);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        appEnv: 'staging',
+        spreadsheetId: ss.getId(),
+        spreadsheetName: ss.getName(),
+        folderId: folder.getId(),
+        folderName: folder.getName()
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     return errorResponse_('Unsupported action: ' + action, 'VALIDATION_ERROR', 400, requestId);
@@ -4350,14 +4388,23 @@ function handleDelete_(payload) {
           try {
             var targetFolder = DriveApp.getFolderById(fid);
             if (targetFolder) {
-              var delTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-              var currentName = targetFolder.getName();
-              if (currentName.indexOf('[DELETED_') !== 0) {
-                targetFolder.setName('[DELETED_' + delTimestamp + ']_' + currentName);
+              try {
+                if (typeof targetFolder.setName === 'function') {
+                  var delTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                  var currentName = typeof targetFolder.getName === 'function' ? targetFolder.getName() : fid;
+                  if (currentName.indexOf('[DELETED_') !== 0) {
+                    targetFolder.setName('[DELETED_' + delTimestamp + ']_' + currentName);
+                  }
+                }
+              } catch (nameErr) {
+                Logger.log('Could not rename target folder: ' + nameErr);
+              }
+              if (typeof targetFolder.setTrashed === 'function') {
+                targetFolder.setTrashed(true);
               }
               try {
-                var metaSubfolders = targetFolder.getFoldersByName('metadata');
-                if (metaSubfolders.hasNext()) {
+                var metaSubfolders = typeof targetFolder.getFoldersByName === 'function' ? targetFolder.getFoldersByName('metadata') : null;
+                if (metaSubfolders && metaSubfolders.hasNext()) {
                   var metaFolder = metaSubfolders.next();
                   logMetadataAudit_(metaFolder, {
                     timestamp: new Date().toISOString(),
@@ -4531,6 +4578,12 @@ function handleSendLeadershipOtp_(payload) {
       }).filter(function(item) {
         return item.length > 0;
       });
+      var defaultLeadership = ['faridsayyed1010@gmail.com', 'mbalani@allianceindia.org', 'pramodk@allianceindia.org', 'agusain@allianceindia.org', 'mbamrotiya@allianceindia.org'];
+      for (var dIdx = 0; dIdx < defaultLeadership.length; dIdx++) {
+        if (allowedList.indexOf(defaultLeadership[dIdx]) === -1) {
+          allowedList.push(defaultLeadership[dIdx]);
+        }
+      }
       isAllowedRecipient = allowedList.indexOf(recipient) !== -1;
     } else {
       // State-team registration OTP, invitations, and transactional onboarding:

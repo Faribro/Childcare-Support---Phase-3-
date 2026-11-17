@@ -820,8 +820,8 @@ class CanonicalSubmissionAdapterService {
           return;
         }
         const summary = await firestoreAdapter.drainSheetsMirrorRetryQueue(10);
-        if (summary && (summary.processed > 0 || summary.completed > 0)) {
-          console.info(`[MIRROR_DRAIN] Firestore drain complete: processed=${summary.processed}, completed=${summary.completed}, failed=${summary.failed}`);
+        if (summary && (summary.processed > 0 || summary.succeeded > 0)) {
+          console.info(`[MIRROR_DRAIN] Firestore drain complete: processed=${summary.processed}, succeeded=${summary.succeeded}, failed=${summary.failed}`);
         }
       } catch (drainErr) {
         console.warn('[MIRROR_DRAIN] Best-effort Firestore mirror drain exception (records remain pending):', drainErr);

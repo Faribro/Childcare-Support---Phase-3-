@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Shield,
   Lock,
@@ -11,6 +12,7 @@ import {
   Info,
   MapPin,
   Building2,
+  ArrowRight,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { LeadershipOtpFlow } from './LeadershipOtpFlow';
@@ -34,6 +36,7 @@ const EVALUATION_STATES = [
 ];
 
 export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationLoginModalProps) {
+  const router = useRouter();
   const { isUnlocked, user, login, logout } = useEvaluationAccess();
   const [activeTab, setActiveTab] = useState<'state' | 'leadership'>('state');
   const [stateAuthMode, setStateAuthMode] = useState<'password' | 'email_otp'>('email_otp');
@@ -174,14 +177,32 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   </span>
                 </p>
               </div>
-              <button
-                onClick={handleLogout}
-                disabled={isLoading}
-                className="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                Sign Out / Lock Session
-              </button>
+
+              <div className="pt-2 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSuccess?.();
+                    onClose();
+                    router.push(user.role === 'LEADERSHIP' ? '/supervisor' : '/supervisor');
+                  }}
+                  className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Shield className="w-3.5 h-3.5 text-teal-200" />
+                  <span>Continue to Supervisor Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={isLoading}
+                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Switch Account / Sign Out</span>
+                </button>
+              </div>
             </div>
           ) : (
             <>

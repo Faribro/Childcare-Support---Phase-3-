@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import {
   verifyOnboardingTicket,
   extractOnboardingTicketCookie,
@@ -17,19 +18,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const ticketCookie = extractOnboardingTicketCookie(req);
-  const ticket = verifyOnboardingTicket(ticketCookie);
-
-  if (!ticket) {
-    return NextResponse.json(
-      {
-        status: 'error',
-        error: 'Your onboarding session has expired. Please sign in with Google again.',
-      },
-      { status: 401 }
-    );
-  }
-
   let body: any;
   try {
     body = await req.json();
@@ -37,7 +25,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { firstName, lastName, state, district, invitationCode, srName, ssrName } = body || {};
+  const { firstName, lastName, state, district, invitationCode, srName, ssrName, email } = body || {};
+
+  const ticketCookie = extractOnboardingTicketCookie(req);
+  const ticket = verifyOnboardingTicket(ticketCookie);
+
+  if (!ticket && !invitationCode?.trim()) {
+    return NextResponse.json(
+      {
+        status: 'error',
+        error: 'Your onboarding session has expired. Please sign in or provide a valid state-team invitation code.',
+      },
+      { status: 401 }
+    );
+  }
 
   if (!firstName?.trim()) {
     return NextResponse.json({ status: 'error', error: 'First name is required.' }, { status: 400 });
@@ -58,9 +59,13 @@ export async function POST(req: NextRequest) {
   const store = getOnboardingStore();
   const now = Date.now();
 
-  // Rate limit: 10 attempts per 15 minutes per googleSub to prevent brute forcing codes
+  // Rate limit: 10 attempts per 15 minutes to prevent brute forcing codes
+  const rateLimitKey = ticket
+    ? `field-onboarding-attempt:${ticket.googleSub}`
+    : `field-onboarding-attempt:inv:${invitationCode.trim().toUpperCase()}`;
+
   const rateCheck = await store.checkRateLimit(
-    `field-onboarding-attempt:${ticket.googleSub}`,
+    rateLimitKey,
     now,
     10,
     15 * 60 * 1000
@@ -105,9 +110,19 @@ export async function POST(req: NextRequest) {
   const finalSrName = typeof srName === 'string' ? srName.trim() : '';
   const finalSsrName = typeof ssrName === 'string' ? ssrName.trim() : '';
 
+  const googleSub = ticket
+    ? ticket.googleSub
+    : `direct_inv_${invitation.id}_${crypto.randomBytes(4).toString('hex')}`;
+
+  const googleEmail = ticket
+    ? ticket.googleEmail
+    : (email && typeof email === 'string' && email.includes('@')
+        ? email.trim().toLowerCase()
+        : `${finalFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${invitation.id.slice(0, 6)}@allianceindia.local`);
+
   const profile = await store.createFieldUserProfile({
-    googleSub: ticket.googleSub,
-    googleEmail: ticket.googleEmail,
+    googleSub,
+    googleEmail,
     firstName: finalFirstName,
     lastName: finalLastName,
     assignedState: invitation.state,

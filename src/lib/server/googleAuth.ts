@@ -297,6 +297,19 @@ export function isAuthBypassFormEnabled(): boolean {
   return process.env.AUTH_BYPASS_FORM === 'true' || process.env.NEXT_PUBLIC_AUTH_BYPASS_FORM === 'true';
 }
 
+/**
+ * Checks if real Google OAuth credentials are configured.
+ */
+export function isGoogleOAuthConfigured(): boolean {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  return Boolean(
+    clientId &&
+    clientId.trim() &&
+    clientId !== 'mock-google-client-id' &&
+    !clientId.startsWith('mock-')
+  );
+}
+
 // In-flight and recent code exchange cache to prevent invalid_grant on duplicate/retry callback invocations
 const codeInFlight = new Map<string, Promise<{ success: boolean; user?: GoogleUserInfo; error?: string }>>();
 const codeRecentResults = new Map<string, { timestamp: number; result: { success: boolean; user?: GoogleUserInfo; error?: string } }>();

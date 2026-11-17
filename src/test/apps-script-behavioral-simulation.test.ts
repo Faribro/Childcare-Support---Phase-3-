@@ -945,17 +945,24 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
   // SCENARIO 20: No spreadsheet or folder-discovery fallback occurs when explicit properties are unset
   // ==========================================================================
   it('Scenario 20: Resolver functions throw immediately without fallback when properties are unset', () => {
+    const savedSheetId = scriptProperties.TARGET_SPREADSHEET_ID;
+    const savedFolderId = scriptProperties.ROOT_DOCUMENTS_FOLDER_ID;
     delete scriptProperties.TARGET_SPREADSHEET_ID;
     delete scriptProperties.ROOT_DOCUMENTS_FOLDER_ID;
 
-    // Direct getTargetSpreadsheet_ must throw immediately without falling back to getActiveSpreadsheet
-    expect(() => {
-      sandbox.getTargetSpreadsheet_();
-    }).toThrow(/TARGET_SPREADSHEET_ID must be configured in Script Properties/);
+    try {
+      // Direct getTargetSpreadsheet_ must throw immediately without falling back to getActiveSpreadsheet
+      expect(() => {
+        sandbox.getTargetSpreadsheet_();
+      }).toThrow(/TARGET_SPREADSHEET_ID must be configured in Script Properties/);
 
-    // Direct getOrCreateRootDocumentsFolder_ returns null without candidate folder scanning
-    const folder = sandbox.getOrCreateRootDocumentsFolder_();
-    expect(folder).toBeNull();
+      // Direct getOrCreateRootDocumentsFolder_ returns null without candidate folder scanning
+      const folder = sandbox.getOrCreateRootDocumentsFolder_();
+      expect(folder).toBeNull();
+    } finally {
+      scriptProperties.TARGET_SPREADSHEET_ID = savedSheetId;
+      scriptProperties.ROOT_DOCUMENTS_FOLDER_ID = savedFolderId;
+    }
   });
 
   // ==========================================================================

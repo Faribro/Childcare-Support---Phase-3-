@@ -14,6 +14,20 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
 import * as evalAccess from '@/lib/auth/evaluationAccess';
 
+const mockPush = vi.fn();
+const mockReplace = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
@@ -132,6 +146,7 @@ describe('EvaluationLoginModal Component', () => {
 
     expect(screen.getByText(/Currently Signed In: Farhan Sayyed/i)).toBeDefined();
     expect(screen.getByText(/Role:/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /Sign Out \/ Lock Session/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Continue to Supervisor Dashboard/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Switch Account \/ Sign Out/i })).toBeDefined();
   });
 });

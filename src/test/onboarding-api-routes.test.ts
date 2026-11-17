@@ -230,5 +230,55 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
       const setCookie = res.headers.get('set-cookie');
       expect(setCookie).toContain('evaluation_session_token=');
     });
+
+    it('successfully onboards caseworker directly with invitation code when Google ticket is absent', async () => {
+      // 1. Create approved state team and active invitation for Maharashtra
+      const reg = await store.createStateTeamRegistration({
+        firstName: 'Anjali',
+        lastName: 'Deshmukh',
+        workEmail: 'anjali@allianceindia.org',
+        requestedState: 'Maharashtra',
+        organization: 'Alliance India MH',
+        autoApprove: true,
+      });
+      await store.verifyStateTeamEmail(reg.workEmail);
+
+      const { issueStateTeamInvitation } = await import('@/lib/server/stateTeamAuthChallenge');
+      const inv = await issueStateTeamInvitation({ stateTeamId: reg.id });
+
+      // 2. Submit onboarding with NO ticket cookie (direct code redemption)
+      const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: 'Farid',
+          lastName: 'Sayyed',
+          state: 'Maharashtra',
+          district: 'Thane',
+          srName: 'CSC Sagar',
+          ssrName: 'Pune care center',
+          invitationCode: inv.plainInvitationCode,
+        }),
+      });
+
+      const res = await completeOnboardingHandler(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.status).toBe('success');
+      expect(json.data.profile.firstName).toBe('Farid');
+      expect(json.data.profile.lastName).toBe('Sayyed');
+      expect(json.data.profile.assignedState).toBe('Maharashtra');
+      expect(json.data.profile.assignedDistrict).toBe('Thane');
+      expect(json.data.profile.srName).toBe('CSC Sagar');
+      expect(json.data.profile.ssrName).toBe('Pune care center');
+      expect(json.data.session.role).toBe('FIELD_USER');
+      expect(json.redirectUrl).toBe('/assessment/new');
+
+      const setCookie = res.headers.get('set-cookie');
+      expect(setCookie).toContain('evaluation_session_token=');
+    });
   });
 });

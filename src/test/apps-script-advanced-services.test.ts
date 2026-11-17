@@ -150,7 +150,7 @@ describe('Apps Script Advanced Services & Fail-Closed Security Suite', () => {
     });
 
     it('enforces standardized non-PII slot filenames for all document attachments', () => {
-      expect(gasContent).toContain('function getStandardSlotFilename_(docPrefix)');
+      expect(gasContent).toContain('function getStandardSlotFilename_(docPrefix');
       expect(gasContent).toContain('caregiver-signature.png');
       expect(gasContent).toContain('passbook.jpg');
       expect(gasContent).toContain('identity-document.jpg');

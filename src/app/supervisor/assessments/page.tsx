@@ -1046,8 +1046,8 @@ export default function SupervisorAssessmentsPage() {
 
         {/* Desktop View: Full Data Grid with Column-Header Multi-Select Popovers (>= 768px) */}
         <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-900">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-50">
+            <table className="w-full min-w-[1100px] text-left text-xs text-slate-900 border-collapse">
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <tr>
                   {/* 1. Reference ID */}
