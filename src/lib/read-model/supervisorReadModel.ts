@@ -18,6 +18,7 @@ import {
   type CanonicalOrphanStatus,
   type ReadinessSummary,
 } from './beneficiaryReadiness';
+import { deriveSubmissionStages, type SubmissionStages } from '@/lib/shared/submissionStages';
 
 export type {
   NetworkStatus,
@@ -80,6 +81,11 @@ export interface SupervisorBeneficiaryRow {
   isApproved: boolean;
   approvedStatus: string;
   readiness?: CanonicalRecordReadiness;
+  submittedBy?: string;
+  interviewerName?: string;
+  srName?: string;
+  ssrName?: string;
+  stages?: SubmissionStages;
 }
 
 export type SupervisorDataStatus =
@@ -236,6 +242,48 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
   const isApproved = readiness.isApproved;
   const approvedStatus = readiness.approvalStatus;
 
+  const stages = deriveSubmissionStages(it);
+  const submittedBy =
+    it['70\nForm Submitted By'] ||
+    it['form submitted by'] ||
+    it.submittedBy ||
+    it['5\nInterviewer Name'] ||
+    it.interviewerName ||
+    it.demographics?.interviewerName ||
+    it.raw_payload?.interviewerName ||
+    it.payload?.interviewerName ||
+    'Field Worker';
+
+  const interviewerName =
+    it['5\nInterviewer Name'] ||
+    it['interviewer name'] ||
+    it.interviewerName ||
+    it.submittedBy ||
+    it.demographics?.interviewerName ||
+    it.raw_payload?.interviewerName ||
+    it.payload?.interviewerName ||
+    'Field Worker';
+
+  const srName =
+    it['75\nSR Name'] ||
+    it['sr name'] ||
+    it.srName ||
+    it.sr_name ||
+    it.demographics?.srName ||
+    it.raw_payload?.demographics?.srName ||
+    it.payload?.demographics?.srName ||
+    '';
+
+  const ssrName =
+    it['76\nSSR Name'] ||
+    it['ssr name'] ||
+    it.ssrName ||
+    it.ssr_name ||
+    it.demographics?.ssrName ||
+    it.raw_payload?.demographics?.ssrName ||
+    it.payload?.demographics?.ssrName ||
+    '';
+
   return {
     id: String(id),
     artNumber: String(artNumber),
@@ -269,6 +317,11 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
     isApproved,
     approvedStatus,
     readiness,
+    submittedBy: String(submittedBy),
+    interviewerName: String(interviewerName),
+    srName: String(srName),
+    ssrName: String(ssrName),
+    stages,
   };
 }
 

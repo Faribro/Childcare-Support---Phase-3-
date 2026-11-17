@@ -181,20 +181,21 @@ export async function PATCH(
     }
 
     const isStateEvaluatorWithEdit = scope.role === 'STATE_REVIEWER' && scope.canEdit === true;
-    if (scope.role !== 'ADMIN' && scope.role !== 'LEADERSHIP' && !isStateEvaluatorWithEdit) {
+    const isFieldWorker = scope.role === 'FIELD_USER';
+    if (scope.role !== 'ADMIN' && scope.role !== 'LEADERSHIP' && !isStateEvaluatorWithEdit && !isFieldWorker) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'ACCESS_DENIED',
         outcome: 'DENY',
         targetResource: submissionId,
-        details: `Caller role '${scope.role}' forbidden to execute PATCH on submission. State Evaluators have read-only evaluation access.`,
+        details: `Caller role '${scope.role}' forbidden to execute PATCH on submission.`,
       });
       return NextResponse.json(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Record edits and approvals are restricted to verified Administrator and Leadership roles. State Evaluators have read-only access.',
+          message: 'Record edits and approvals are restricted to verified Administrator and Leadership roles. State Evaluator and Field sessions operate under read-only or restricted policies.',
           requestId,
         },
         { status: 403 }
@@ -211,8 +212,9 @@ export async function PATCH(
       );
     }
 
-    // State evaluators can edit record fields within their state, but CANNOT modify leadership grant approval
-    if (scope.role === 'STATE_REVIEWER') {
+    // State evaluators and Field workers can edit record fields within their authorized scope,
+    // but CANNOT modify leadership grant approval
+    if (scope.role === 'STATE_REVIEWER' || scope.role === 'FIELD_USER') {
       if (rawBody.approval !== undefined || rawBody.approvedAllianceIndia !== undefined) {
         logSecurityEvent({
           actor: scope.userId,
@@ -220,13 +222,13 @@ export async function PATCH(
           eventType: 'ACCESS_DENIED',
           outcome: 'DENY',
           targetResource: submissionId,
-          details: 'State Evaluation role forbidden to modify grant approval status. Approval is restricted to Leadership and Admin.',
+          details: `${scope.role} forbidden to modify grant approval status. Approval is restricted to Leadership and Admin.`,
         });
         return NextResponse.json(
           {
             status: 'error',
             code: 'FORBIDDEN',
-            message: 'State evaluators are forbidden from approving or modifying grant status. Approvals are restricted to Leadership and Admin.',
+            message: 'Grant approval decisions are strictly restricted to verified Administrator and Leadership roles. Field workers and State evaluators cannot modify approval status.',
             requestId,
           },
           { status: 403 }

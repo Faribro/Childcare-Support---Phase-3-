@@ -76,20 +76,22 @@ export async function POST(
       );
     }
 
-    if (scope.role !== 'ADMIN') {
+    const isStateEvaluatorWithEdit = scope.role === 'STATE_REVIEWER' && scope.canEdit === true;
+    const isFieldWorker = scope.role === 'FIELD_USER';
+    if (scope.role !== 'ADMIN' && !isStateEvaluatorWithEdit && !isFieldWorker) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
         eventType: 'ACCESS_DENIED',
         outcome: 'DENY',
         targetResource: submissionId,
-        details: `Caller role '${scope.role}' forbidden to upload assets under Model A read-only evaluation policy`,
+        details: `Caller role '${scope.role}' forbidden to upload assets (requires ADMIN, authorized STATE_REVIEWER with edit, or FIELD_USER)`,
       });
       return NextResponse.json(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Asset upload is restricted to verified Administrator role. State Evaluation and Leadership users have read-only evaluation access.',
+          message: 'Asset upload is restricted to verified Administrator role. State Evaluators and Leadership operate under read-only or non-upload policies.',
           requestId,
         },
         { status: 403, headers: ASSET_NO_STORE_HEADERS }

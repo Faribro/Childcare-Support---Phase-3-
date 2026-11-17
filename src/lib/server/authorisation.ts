@@ -3,6 +3,7 @@ import { UserRole } from './canonicalSubmissionAdapter';
 import { extractSessionToken, verifySessionToken } from './sessionService';
 import { extractLeaderSessionId, validateLeaderSession } from './leaderSessionStore';
 import { isLeadershipSharedPasswordPermitted } from './leadershipAuthPolicy';
+import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 
 export interface VerifiedRoleResult {
   role: UserRole;
@@ -388,7 +389,7 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
           userId: session.userId,
           name: session.name,
           role: session.role,
-          allowedStates: session.allowedStates,
+          allowedStates: (session.allowedStates || []).map((s) => (s === '*' ? '*' : canonicalizeStateName(s) || s)),
           allowedDistricts: session.allowedDistricts,
           allowedProgrammes: session.allowedProgrammes || ['alliance-childcare-phase3'],
           isVerified: true,

@@ -16,6 +16,7 @@ import {
   UserAccessScope,
 } from '@/lib/server/authorisation';
 import { clearLeaderSessionCookie } from '@/lib/server/leaderSessionStore';
+import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -276,12 +277,13 @@ export async function GET(req: NextRequest) {
     }
 
     // Enforce scope in upstream Google Apps Script / repository query parameters
-    const effectiveStateFilter =
+    const rawStateFilter =
       stateParam && stateParam.toUpperCase() !== 'ALL'
         ? stateParam
         : !effectiveScope.allowedStates.includes('*') && effectiveScope.allowedStates.length === 1
           ? effectiveScope.allowedStates[0]
           : stateParam;
+    const effectiveStateFilter = rawStateFilter ? canonicalizeStateName(rawStateFilter) : undefined;
 
     const effectiveDistrictFilter =
       districtParam && districtParam.toUpperCase() !== 'ALL'

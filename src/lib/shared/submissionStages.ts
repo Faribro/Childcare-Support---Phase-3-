@@ -209,6 +209,9 @@ export function deriveApprovalState(record: any): ApprovalState {
   const rawApproved =
     record['67\nApproved Alliance India'] ??
     record['Approved Alliance India'] ??
+    record['71\nAlliance India Approval'] ??
+    record.approval ??
+    record.isApproved ??
     record.approvedAllianceIndia ??
     record.approved_alliance_india ??
     record.approvedStatus ??
@@ -245,7 +248,23 @@ export function deriveLifecycle(record: any): SubmissionLifecycle {
 
   const rawStatus = String(record.status || record.syncStatus || '').toLowerCase();
 
-  if (rawStatus === 'synced' || rawStatus === 'submitted' || record.serverConfirmed) {
+  // Local outbox drafts are never submitted records
+  if (record.isDraft === true || record.draftId !== undefined || record.tableName === 'drafts' || rawStatus === 'draft') {
+    return 'draft';
+  }
+
+  if (
+    rawStatus === 'synced' ||
+    rawStatus === 'submitted' ||
+    record.serverConfirmed ||
+    record.isApproved === true ||
+    record.approvedAllianceIndia === true ||
+    record.approvedAllianceIndia === 'Approved' ||
+    record.approval === 'APPROVED' ||
+    record.approval === 'Approved' ||
+    record['71\nAlliance India Approval'] === 'Approved' ||
+    record['Alliance India Approval'] === 'Approved'
+  ) {
     return 'submitted';
   }
 
@@ -335,11 +354,11 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
   if (!bankFields.passbookProof) missingBankFields.push('passbookProof');
 
   // 4. Bank Workflow State rule:
-  // - If record is not yet submitted (draft/queued) or approvalState !== 'approved' -> 'not_yet_due'
-  // - If submitted AND approved AND all 6 bank fields present -> 'complete'
-  // - If submitted AND approved AND any bank field missing -> 'pending'
+  // - If record is not approved yet -> 'not_yet_due'
+  // - If approved AND all 6 bank fields present -> 'complete'
+  // - If approved AND any bank field missing -> 'pending'
   let bankWorkflow: BankWorkflowState = 'not_yet_due';
-  if (lifecycle === 'submitted' && approvalState === 'approved') {
+  if (lifecycle !== 'draft' && approvalState === 'approved') {
     bankWorkflow = missingBankFields.length === 0 ? 'complete' : 'pending';
   }
 

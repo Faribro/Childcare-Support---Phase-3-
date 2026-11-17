@@ -22,6 +22,7 @@ import type {
   SupervisorListDTO,
 } from './canonicalSubmissionAdapter';
 import type { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
+import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
 
 export interface FirestoreAdapterOptions {
   projectId?: string;
@@ -147,6 +148,9 @@ export class FirestoreSubmissionAdapter {
     }
 
     const now = new Date().toISOString();
+    const rawState = payload.demographics?.state || payload.state || '';
+    const state = canonicalizeStateName(rawState) || rawState;
+
     const docData = {
       id: clientSubmissionId,
       clientSubmissionId,
@@ -154,7 +158,7 @@ export class FirestoreSubmissionAdapter {
       version: 1,
       revisionNumber: 1,
       status: payload.status || 'SUBMITTED',
-      state: payload.demographics?.state || payload.state || '',
+      state,
       district: payload.demographics?.district || payload.district || '',
       taluk: payload.demographics?.taluk || payload.taluk || '',
       village: payload.demographics?.village || payload.village || '',
@@ -218,62 +222,74 @@ export class FirestoreSubmissionAdapter {
       this.mockSubmissions.set(clientSubmissionId, docData);
     }
 
-    // 3. Mirror to Google Sheets via Apps Script
+    // 3. Mirror to Google Sheets via Apps Script (Non-blocking / Background execution)
     let sheetSyncCompleted = false;
     let syncStatus: 'SYNCED' | 'PENDING_SHEET_SYNC' = 'PENDING_SHEET_SYNC';
 
     if (this.gatewayClient) {
-      try {
-        const mirrorRes = await this.gatewayClient.callGateway({
-          action: 'create',
-          data: payload,
-          payload: { ...payload, clientSubmissionId },
-          uniqueId: payload.uniqueId || payload.artNumber || payload.demographics?.artNumber || payload.uuid || clientSubmissionId,
-          ...payload,
-          idempotencyKey: input.idempotencyKey,
-          clientSubmissionId,
-        });
+      const mirrorTask = async () => {
+        try {
+          const mirrorRes = await this.gatewayClient!.callGateway({
+            action: 'create',
+            data: payload,
+            payload: { ...payload, clientSubmissionId },
+            uniqueId: payload.uniqueId || payload.artNumber || payload.demographics?.artNumber || payload.uuid || clientSubmissionId,
+            ...payload,
+            idempotencyKey: input.idempotencyKey,
+            clientSubmissionId,
+          });
 
-        if (mirrorRes && (mirrorRes.status === 'success' || mirrorRes.statusCode === 200)) {
-          sheetSyncCompleted = true;
-          syncStatus = 'SYNCED';
-          // Update mirror status in Firestore
-          if (db) {
-            const updatePayload: Record<string, any> = {
-              mirrorStatus: 'SYNCED',
-              mirroredAt: new Date().toISOString(),
-            };
-            if (mirrorRes.resolvedRow !== undefined) {
-              updatePayload.sheetRowNumber = mirrorRes.resolvedRow;
-            }
-            await db.collection('submissions').doc(clientSubmissionId).update(updatePayload);
-          } else {
-            const m = this.mockSubmissions.get(clientSubmissionId);
-            if (m) {
-              m.mirrorStatus = 'SYNCED';
+          if (mirrorRes && (mirrorRes.status === 'success' || mirrorRes.statusCode === 200)) {
+            // Update mirror status in Firestore
+            if (db) {
+              const updatePayload: Record<string, any> = {
+                mirrorStatus: 'SYNCED',
+                mirroredAt: new Date().toISOString(),
+              };
               if (mirrorRes.resolvedRow !== undefined) {
-                m.sheetRowNumber = mirrorRes.resolvedRow;
+                updatePayload.sheetRowNumber = mirrorRes.resolvedRow;
+              }
+              await db.collection('submissions').doc(clientSubmissionId).update(updatePayload);
+            } else {
+              const m = this.mockSubmissions.get(clientSubmissionId);
+              if (m) {
+                m.mirrorStatus = 'SYNCED';
+                if (mirrorRes.resolvedRow !== undefined) {
+                  m.sheetRowNumber = mirrorRes.resolvedRow;
+                }
               }
             }
+          } else {
+            throw new Error(mirrorRes?.message || 'Apps Script returned non-success status');
           }
-        } else {
-          throw new Error(mirrorRes?.message || 'Apps Script returned non-success status');
+        } catch (mirrorErr: any) {
+          // Enqueue to sheets_mirror_retry_queue for scheduled replay
+          await this.enqueueMirrorRetry({
+            id: clientSubmissionId,
+            submissionId: clientSubmissionId,
+            clientSubmissionId,
+            idempotencyKey: input.idempotencyKey,
+            payload: { ...payload, clientSubmissionId },
+            status: 'PENDING',
+            retryCount: 0,
+            nextRetryAt: new Date(Date.now() + 30000).toISOString(),
+            lastError: mirrorErr?.message || 'Apps Script sync failed',
+            createdAt: now,
+            updatedAt: now,
+          });
         }
-      } catch (mirrorErr: any) {
-        // Enqueue to sheets_mirror_retry_queue for scheduled replay
-        await this.enqueueMirrorRetry({
-          id: clientSubmissionId,
-          submissionId: clientSubmissionId,
-          clientSubmissionId,
-          idempotencyKey: input.idempotencyKey,
-          payload: { ...payload, clientSubmissionId },
-          status: 'PENDING',
-          retryCount: 0,
-          nextRetryAt: new Date(Date.now() + 30000).toISOString(),
-          lastError: mirrorErr?.message || 'Apps Script sync failed',
-          createdAt: now,
-          updatedAt: now,
-        });
+      };
+
+      if (process.env.FORCE_SYNC_MIRROR === 'true') {
+        await mirrorTask();
+        const m = this.mockSubmissions.get(clientSubmissionId);
+        if (m?.mirrorStatus === 'SYNCED') {
+          sheetSyncCompleted = true;
+          syncStatus = 'SYNCED';
+        }
+      } else {
+        // Run unawaited background mirror so submission returns in milliseconds
+        mirrorTask().catch((err) => console.error('[MIRROR:ASYNC:ERROR]', err?.message));
       }
     }
 
@@ -562,29 +578,58 @@ export class FirestoreSubmissionAdapter {
 
     if (db) {
       let query = db.collection('submissions').orderBy('submissionTime', 'desc');
-      if (params.state) query = query.where('state', '==', params.state);
-      if (params.district) query = query.where('district', '==', params.district);
+      if (params.state && params.state !== '*' && params.state.toUpperCase() !== 'ALL') {
+        const variants = getStateQueryVariants(params.state);
+        if (variants.length > 0) {
+          query = query.where('state', 'in', variants);
+        }
+      }
+      if (params.district && params.district !== '*' && params.district.toUpperCase() !== 'ALL') {
+        query = query.where('district', '==', params.district);
+      }
+      if (params.status && params.status !== '*' && params.status.toUpperCase() !== 'ALL') {
+        query = query.where('status', '==', params.status);
+      }
+      if (params.cursor) {
+        query = query.startAfter(params.cursor);
+      }
 
       const snap = await query.limit(limit).get();
       const items = snap.docs.map((d: any) => d.data());
+      const hasMore = items.length === limit;
+      const nextCursor = hasMore && items.length > 0 ? (items[items.length - 1].submissionTime || items[items.length - 1].id) : null;
       return {
         items,
         totalCount: items.length,
-        hasMore: false,
-        nextCursor: null,
+        hasMore,
+        nextCursor,
       };
     }
 
     let items = Array.from(this.mockSubmissions.values());
-    if (params.state) items = items.filter((i) => i.state === params.state);
-    if (params.district) items = items.filter((i) => i.district === params.district);
-    items.sort((a, b) => b.submissionTime.localeCompare(a.submissionTime));
+    if (params.state && params.state !== '*' && params.state.toUpperCase() !== 'ALL') {
+      const variants = getStateQueryVariants(params.state);
+      items = items.filter((i) => variants.some((v) => v.toLowerCase() === (i.state || '').toLowerCase()));
+    }
+    if (params.district && params.district !== '*' && params.district.toUpperCase() !== 'ALL') {
+      const targetDistrict = params.district.toLowerCase();
+      items = items.filter((i) => (i.district || '').toLowerCase() === targetDistrict);
+    }
+    if (params.status && params.status !== '*' && params.status.toUpperCase() !== 'ALL') {
+      const targetStatus = params.status.toLowerCase();
+      items = items.filter((i) => (i.status || '').toLowerCase() === targetStatus);
+    }
+    items.sort((a, b) => (b.submissionTime || '').localeCompare(a.submissionTime || ''));
+
+    const paginated = items.slice(0, limit);
+    const hasMore = items.length > limit;
+    const nextCursor = hasMore && paginated.length > 0 ? (paginated[paginated.length - 1].submissionTime || paginated[paginated.length - 1].id) : null;
 
     return {
-      items: items.slice(0, limit),
+      items: paginated,
       totalCount: items.length,
-      hasMore: items.length > limit,
-      nextCursor: null,
+      hasMore,
+      nextCursor,
     };
   }
 

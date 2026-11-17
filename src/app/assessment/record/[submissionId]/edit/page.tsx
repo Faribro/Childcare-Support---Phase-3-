@@ -1535,8 +1535,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
 
   // Under updated policy:
   // - Verified Administrators and Leadership are authorized to edit existing records.
-  // - State Evaluator sessions remain read-only.
-  if (user?.role && user.role !== 'ADMIN' && user.role !== 'LEADERSHIP') {
+  // - State Reviewers with edit clearance can edit records in their state.
+  // - Field Caseworkers can always edit records.
+  // - Read-only banner is ONLY for STATE_REVIEWER when canEdit === false.
+  if (user?.role === 'STATE_REVIEWER' && !user?.canEdit) {
     return (
       <AppShell>
         <div className="max-w-2xl mx-auto py-16 px-4 space-y-6">
@@ -1549,7 +1551,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
                 Read-Only Evaluation Session
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mt-2 max-w-md mx-auto leading-relaxed">
-                State Evaluator sessions operate under read-only policy. Existing beneficiary records cannot be edited or modified.
+                Your current State Evaluator session operates under a read-only policy. Existing beneficiary records cannot be edited without editing clearance.
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3 pt-3">

@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { getOnboardingStore } from './onboardingStore';
 import { sendStateTeamOtpEmail, sendStateTeamInvitationEmail, sendAdminPendingRegistrationEmail } from './emailProvider';
 import { createSessionToken } from './sessionService';
+import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 import {
   generatePlaintextInvitationCode,
   createInvitationVerifierPair,
@@ -324,13 +325,14 @@ export async function verifyStateTeamOtp(params: {
   }
 
   if (registration.status === 'APPROVED') {
+    const canonicalState = canonicalizeStateName(registration.requestedState) || registration.requestedState;
     // Generate authenticated State Reviewer session token
     const token = createSessionToken({
       userId: registration.id,
       username: registration.workEmail,
       name: `${registration.firstName} ${registration.lastName}`.trim(),
       role: 'STATE_REVIEWER',
-      allowedStates: [registration.requestedState],
+      allowedStates: [canonicalState],
       allowedDistricts: ['*'],
       credentialKind: 'STATE_EVALUATION',
       canEdit: true,
@@ -341,7 +343,7 @@ export async function verifyStateTeamOtp(params: {
       userId: registration.id,
       name: `${registration.firstName} ${registration.lastName}`.trim(),
       role: 'STATE_REVIEWER' as const,
-      allowedStates: [registration.requestedState],
+      allowedStates: [canonicalState],
       allowedDistricts: ['*'],
       token,
     };

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Mail,
   Shield,
@@ -29,6 +30,7 @@ export function StateTeamAuthFlow({
   onCancel,
   onSwitchToPassword,
 }: StateTeamAuthFlowProps) {
+  const router = useRouter();
   const [step, setStep] = useState<'details' | 'otp' | 'ready'>('details');
 
   // Registration & Login Fields
@@ -155,8 +157,11 @@ export function StateTeamAuthFlow({
           isVerified: true,
         };
         setEvaluationUnlocked(true, authedUser);
-        setStep('ready');
-        setSuccessMessage('Email verified successfully! State Team portal unlocked.');
+        setSuccessMessage('Email verified successfully! Redirecting to state dashboard…');
+        setTimeout(() => {
+          onSuccess?.();
+          router.push('/supervisor');
+        }, 500);
       } else {
         setSuccessMessage(data.message || 'Email verified! Your registration is pending administrator approval.');
         setStep('ready');
@@ -457,6 +462,7 @@ export function StateTeamAuthFlow({
             type="button"
             onClick={() => {
               onSuccess?.();
+              router.push('/supervisor');
             }}
             className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 text-white font-semibold text-sm rounded-xl transition-colors cursor-pointer"
           >

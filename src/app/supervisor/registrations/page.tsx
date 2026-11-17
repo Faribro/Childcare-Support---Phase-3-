@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
@@ -43,6 +43,7 @@ interface RegistrationItem {
 }
 
 function RegistrationsReviewContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const targetId = searchParams?.get('id')?.trim() || null;
 
@@ -180,6 +181,38 @@ function RegistrationsReviewContent() {
           <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto mb-4" />
           <h2 className="text-sm font-semibold text-slate-800">Loading Administrator Review…</h2>
           <p className="text-xs text-slate-500">Checking clearance and retrieving registrations.</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (isUnlocked && user?.role === 'STATE_REVIEWER') {
+    const reviewerState = user.allowedStates?.filter((s: string) => s !== '*')[0] || 'State';
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8">
+          <SupervisorTabNav />
+          <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm text-center max-w-md mx-auto my-8 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
+              <Users className="w-6 h-6" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Coordinator Registration Approvals</h2>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              State-team coordinator registration approvals are reserved for central Leadership and Administrator accounts.
+            </p>
+            <div className="text-xs text-teal-800 bg-teal-50/80 border border-teal-200/80 rounded-xl p-3 text-left">
+              As a State Reviewer for <strong>{reviewerState}</strong>, you can view the active field workers, their assigned districts, SR/SSR details, and survey submission totals in the Field Workers Directory.
+            </div>
+            <div className="pt-2">
+              <Button
+                onClick={() => router.push('/supervisor/field-workers')}
+                className="w-full bg-teal-800 hover:bg-teal-900 text-white text-xs py-2.5 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-xs"
+              >
+                <Users className="w-4 h-4" />
+                View {reviewerState} Field Workers Directory
+              </Button>
+            </div>
+          </div>
         </div>
       </AppShell>
     );

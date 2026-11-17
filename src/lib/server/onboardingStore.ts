@@ -23,6 +23,7 @@ import {
 } from './invitationCrypto';
 import { validateFirestoreDatabaseEnvironment } from './firestoreSubmissionAdapter';
 import { getFirestoreDb, sanitizeIpForDocId } from './credentialRegistry';
+import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
 
 export const STATE_TEAM_REGISTRATIONS_COLLECTION = 'state_team_registrations';
 export const STATE_TEAM_INVITATIONS_COLLECTION = 'state_team_invitations';
@@ -110,6 +111,7 @@ export interface OnboardingStore {
   getFieldUserProfileByGoogleSub(googleSub: string): Promise<FieldUserProfile | null>;
   getFieldUserProfileByEmail(googleEmail: string): Promise<FieldUserProfile | null>;
   getFieldUserProfileById(id: string): Promise<FieldUserProfile | null>;
+  listFieldUserProfiles(state?: string): Promise<FieldUserProfile[]>;
   updateFieldUserProfile(
     id: string,
     updates: Partial<Omit<FieldUserProfile, 'id' | 'googleSub' | 'createdAt'>>
@@ -575,6 +577,15 @@ export class MemoryOnboardingStore implements OnboardingStore {
     return this.fieldProfiles.get(id) || null;
   }
 
+  async listFieldUserProfiles(state?: string): Promise<FieldUserProfile[]> {
+    const list = Array.from(this.fieldProfiles.values());
+    if (!state || state === '*' || state.toUpperCase() === 'ALL') return list;
+    const variants = getStateQueryVariants(state);
+    return list.filter((p) =>
+      variants.some((v) => v.toLowerCase() === (p.assignedState || '').toLowerCase())
+    );
+  }
+
   async updateFieldUserProfile(
     id: string,
     updates: Partial<Omit<FieldUserProfile, 'id' | 'googleSub' | 'createdAt'>>
@@ -656,6 +667,7 @@ export class UnavailableOnboardingStore implements OnboardingStore {
   async getFieldUserProfileByGoogleSub(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
   async getFieldUserProfileByEmail(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
   async getFieldUserProfileById(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
+  async listFieldUserProfiles(): Promise<FieldUserProfile[]> { throw new Error(this.reason); }
   async updateFieldUserProfile(): Promise<FieldUserProfile | null> { throw new Error(this.reason); }
 }
 
@@ -1384,6 +1396,32 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     };
   }
 
+  async listFieldUserProfiles(state?: string): Promise<FieldUserProfile[]> {
+    let url = `${this.baseUrl}/rest/v1/field_user_profiles?select=*`;
+    if (state && state !== '*' && state.toUpperCase() !== 'ALL') {
+      const canon = canonicalizeStateName(state);
+      url += `&assigned_state=ilike.${encodeURIComponent(canon)}`;
+    }
+    const res = await fetch(url, { headers: this.headers });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return (rows || []).map((row: any) => ({
+      id: row.id,
+      googleSub: row.google_sub,
+      googleEmail: row.google_email,
+      firstName: row.first_name,
+      lastName: row.last_name || '',
+      assignedState: row.assigned_state,
+      assignedDistrict: row.assigned_district,
+      invitationId: row.invitation_id,
+      status: row.status,
+      srName: row.sr_name || row.srName || '',
+      ssrName: row.ssr_name || row.ssrName || '',
+      createdAt: typeof row.created_at === 'string' ? new Date(row.created_at).getTime() : row.created_at,
+      updatedAt: typeof row.updated_at === 'string' ? new Date(row.updated_at).getTime() : row.updated_at,
+    }));
+  }
+
   async updateFieldUserProfile(
     id: string,
     updates: Partial<Omit<FieldUserProfile, 'id' | 'googleSub' | 'createdAt'>>
@@ -1571,7 +1609,7 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       firstName: data.firstName.trim(),
       lastName: data.lastName.trim(),
       workEmail: data.workEmail.toLowerCase().trim(),
-      requestedState: data.requestedState.trim().toUpperCase(),
+      requestedState: canonicalizeStateName(data.requestedState) || data.requestedState.trim(),
       organization: data.organization.trim(),
       status: data.autoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
       emailVerified: Boolean(data.autoApprove),
@@ -1928,7 +1966,7 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       googleEmail: data.googleEmail.toLowerCase().trim(),
       firstName: data.firstName.trim(),
       lastName: data.lastName.trim(),
-      assignedState: data.assignedState.toUpperCase().trim(),
+      assignedState: canonicalizeStateName(data.assignedState) || data.assignedState.trim(),
       assignedDistrict: data.assignedDistrict.trim(),
       invitationId: data.invitationId,
       status: 'ACTIVE',
@@ -1940,6 +1978,28 @@ export class FirestoreOnboardingStore implements OnboardingStore {
 
     await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(profile);
     return profile;
+  }
+
+  async listFieldUserProfiles(state?: string): Promise<FieldUserProfile[]> {
+    const db = await this.getDb();
+    if (!state || state === '*' || state.toUpperCase() === 'ALL') {
+      const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION).get();
+      return snap.docs.map((d: any) => d.data() as FieldUserProfile);
+    }
+    const variants = getStateQueryVariants(state);
+    try {
+      const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+        .where('assignedState', 'in', variants)
+        .get();
+      return snap.docs.map((d: any) => d.data() as FieldUserProfile);
+    } catch {
+      const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION).get();
+      return snap.docs
+        .map((d: any) => d.data() as FieldUserProfile)
+        .filter((p: FieldUserProfile) =>
+          variants.some((v) => v.toLowerCase() === (p.assignedState || '').toLowerCase())
+        );
+    }
   }
 
   async getFieldUserProfileByGoogleSub(googleSub: string): Promise<FieldUserProfile | null> {

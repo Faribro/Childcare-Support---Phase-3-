@@ -642,8 +642,11 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     it['67\\nApproved Alliance India'] ||
     it['Approved Alliance India'] ||
     it['approved alliance india'] ||
+    it['71\nAlliance India Approval'] ||
     it.approvedAllianceIndia ||
     it.approved_alliance_india ||
+    it.approval ||
+    it.isApproved ||
     it.finalReview?.approvedAllianceIndia ||
     it.raw_payload?.finalReview?.approvedAllianceIndia;
   const { status: approvalStatus, isApproved } = normalizeApprovalStatus(rawApproved);

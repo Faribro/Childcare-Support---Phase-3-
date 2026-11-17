@@ -184,12 +184,16 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   onClick={() => {
                     onSuccess?.();
                     onClose();
-                    router.push(user.role === 'LEADERSHIP' ? '/supervisor' : '/supervisor');
+                    router.push('/supervisor');
                   }}
                   className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
                 >
                   <Shield className="w-3.5 h-3.5 text-teal-200" />
-                  <span>Continue to Supervisor Dashboard</span>
+                  <span>
+                    {user.role === 'STATE_REVIEWER'
+                      ? `Continue to State Dashboard (${user.allowedStates.filter((s: string) => s !== '*').join(', ') || 'State'})`
+                      : 'Continue to Supervisor Dashboard'}
+                  </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
 
@@ -282,6 +286,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                       onSuccess={() => {
                         onSuccess?.();
                         onClose();
+                        router.push('/supervisor');
                       }}
                       onCancel={onClose}
                       onSwitchToPassword={() => setStateAuthMode('password')}
@@ -387,6 +392,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   onSuccess={() => {
                     onSuccess?.();
                     onClose();
+                    router.push('/supervisor');
                   }}
                   onCancel={onClose}
                 />

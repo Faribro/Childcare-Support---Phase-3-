@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, TableProperties, BarChart3, Users } from 'lucide-react';
+import { Activity, TableProperties, BarChart3, Users, Shield } from 'lucide-react';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
 interface SupervisorTabNavProps {
   rightAction?: React.ReactNode;
@@ -16,35 +17,51 @@ interface NavTabItem {
   exact?: boolean;
 }
 
-const SUPERVISOR_TABS: NavTabItem[] = [
-  {
-    href: '/supervisor',
-    label: 'Overview & Surveillance',
-    icon: Activity,
-    exact: true,
-  },
-  {
-    href: '/supervisor/assessments',
-    label: 'Beneficiary Linelist',
-    icon: TableProperties,
-    exact: false,
-  },
-  {
-    href: '/supervisor/analytics',
-    label: 'Clinical Analytics',
-    icon: BarChart3,
-    exact: false,
-  },
-  {
-    href: '/supervisor/registrations',
-    label: 'Registrations Review',
-    icon: Users,
-    exact: false,
-  },
-];
-
 export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
   const pathname = usePathname();
+  const { user } = useEvaluationAccess();
+
+  const supervisorTabs: NavTabItem[] = useMemo(() => {
+    const isStateReviewer = user?.role === 'STATE_REVIEWER';
+
+    const baseTabs: NavTabItem[] = [
+      {
+        href: '/supervisor',
+        label: 'Overview & Surveillance',
+        icon: Activity,
+        exact: true,
+      },
+      {
+        href: '/supervisor/assessments',
+        label: 'Beneficiary Linelist',
+        icon: TableProperties,
+        exact: false,
+      },
+      {
+        href: '/supervisor/analytics',
+        label: 'Clinical Analytics',
+        icon: BarChart3,
+        exact: false,
+      },
+      {
+        href: '/supervisor/field-workers',
+        label: 'Field Workers',
+        icon: Users,
+        exact: false,
+      },
+    ];
+
+    if (!isStateReviewer) {
+      baseTabs.push({
+        href: '/supervisor/registrations',
+        label: 'Registrations Review',
+        icon: Shield,
+        exact: false,
+      });
+    }
+
+    return baseTabs;
+  }, [user?.role]);
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number; opacity: number }>({
     left: 0,
     width: 0,
@@ -66,6 +83,7 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
       return '/supervisor/assessments';
     }
     if (pathname?.startsWith('/supervisor/analytics')) return '/supervisor/analytics';
+    if (pathname?.startsWith('/supervisor/field-workers')) return '/supervisor/field-workers';
     if (pathname?.startsWith('/supervisor/registrations')) return '/supervisor/registrations';
     return '/supervisor';
   };
@@ -127,7 +145,7 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
         className="relative flex items-center space-x-1 overflow-x-auto sm:overflow-x-visible no-scrollbar pb-[1px]"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
-        {SUPERVISOR_TABS.map((tab) => {
+        {supervisorTabs.map((tab) => {
           const isActive = tab.href === activeHref;
           const Icon = tab.icon;
 

@@ -35,6 +35,8 @@ import {
   Check,
   AlertTriangle,
   RotateCcw,
+  Users,
+  MapPin,
 } from 'lucide-react';
 import { SupervisorTabNav } from '@/components/supervisor/SupervisorTabNav';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
@@ -101,6 +103,18 @@ export default function SupervisorAssessmentsPage() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [columnFilters, setColumnFilters] = useState<LinelistColumnFilters>(INITIAL_COLUMN_FILTERS);
   const [sortState, setSortState] = useState<LinelistSortState | null>(null);
+
+  // Dedicated Worklist Tabs & Caseworker Filter
+  const [worklistTab, setWorklistTab] = useState<'all' | 'bank_pending' | 'pending_approval' | 'intake_pending' | 'intake_complete'>('all');
+  const [workerFilter, setWorkerFilter] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      const w = sp.get('worker');
+      if (w) setWorkerFilter(w);
+    }
+  }, []);
 
   // Debounce global search input to prevent main-thread jank across large datasets (10,000 rows)
   useEffect(() => {
@@ -198,10 +212,71 @@ export default function SupervisorAssessmentsPage() {
 
   const totalChildrenInScope = currentChildRecords.length;
 
+  // Worklist aggregate counts across all children in authorized scope
+  const worklistCounts = useMemo(() => {
+    let bankPending = 0;
+    let pendingApproval = 0;
+    let intakePending = 0;
+    let intakeComplete = 0;
+
+    for (const r of currentChildRecords) {
+      const stages = deriveSubmissionStages(r.rawRecord || r);
+      if (r.isApproved) {
+        if (stages.bankWorkflow !== 'complete') {
+          bankPending++;
+        } else if (r.documentStatus.isComplete) {
+          intakeComplete++;
+        }
+      } else {
+        pendingApproval++;
+      }
+      if (!r.documentStatus.isComplete) {
+        intakePending++;
+      }
+    }
+
+    return {
+      all: currentChildRecords.length,
+      bankPending,
+      pendingApproval,
+      intakePending,
+      intakeComplete,
+    };
+  }, [currentChildRecords]);
+
+  // Worklist-filtered records before multi-select faceted filters
+  const worklistFilteredRecords = useMemo(() => {
+    let subset = currentChildRecords;
+    if (workerFilter) {
+      const wf = workerFilter.toLowerCase();
+      subset = subset.filter(
+        (r) =>
+          (r.submittedBy || '').toLowerCase().includes(wf) ||
+          (r.interviewerName || '').toLowerCase().includes(wf)
+      );
+    }
+    if (worklistTab === 'bank_pending') {
+      subset = subset.filter((r) => {
+        const stages = deriveSubmissionStages(r.rawRecord || r);
+        return r.isApproved && stages.bankWorkflow !== 'complete';
+      });
+    } else if (worklistTab === 'pending_approval') {
+      subset = subset.filter((r) => !r.isApproved);
+    } else if (worklistTab === 'intake_pending') {
+      subset = subset.filter((r) => !r.documentStatus.isComplete);
+    } else if (worklistTab === 'intake_complete') {
+      subset = subset.filter((r) => {
+        const stages = deriveSubmissionStages(r.rawRecord || r);
+        return r.isApproved && stages.bankWorkflow === 'complete' && r.documentStatus.isComplete;
+      });
+    }
+    return subset;
+  }, [currentChildRecords, workerFilter, worklistTab]);
+
   // 2. Filtered dataset combining global search and multi-select column filters
   const filteredData = useMemo(() => {
-    return filterBeneficiaryRows(currentChildRecords, columnFilters, debouncedSearchTerm, user);
-  }, [currentChildRecords, columnFilters, debouncedSearchTerm, user]);
+    return filterBeneficiaryRows(worklistFilteredRecords, columnFilters, debouncedSearchTerm, user);
+  }, [worklistFilteredRecords, columnFilters, debouncedSearchTerm, user]);
 
   // 3. Stable tie-break sorted dataset
   const sortedData = useMemo(() => {
@@ -428,15 +503,31 @@ export default function SupervisorAssessmentsPage() {
   // Reset all filters (preserves authorized scope)
   const resetFilters = useCallback(() => {
     setSearchTerm('');
+    setDebouncedSearchTerm('');
     setColumnFilters(INITIAL_COLUMN_FILTERS);
+    setWorkerFilter(null);
+    setWorklistTab('all');
     setSortState(null);
+    setCurrentPage(1);
   }, []);
 
   // Determine active filter count across all columns & search
   const activeFilterList = useMemo(() => {
-    const list: { key: keyof LinelistColumnFilters | 'search'; label: string; count: number }[] = [];
+    const list: { key: string; label: string; count: number }[] = [];
     if (searchTerm.trim()) {
       list.push({ key: 'search', label: `Search: "${searchTerm}"`, count: 1 });
+    }
+    if (workerFilter) {
+      list.push({ key: 'worker', label: `Field Worker: ${workerFilter}`, count: 1 });
+    }
+    if (worklistTab !== 'all') {
+      const tabLabels: Record<string, string> = {
+        bank_pending: 'Worklist: Approved — Bank Pending',
+        pending_approval: 'Worklist: Pending Review',
+        intake_pending: 'Worklist: Intake Docs Pending',
+        intake_complete: 'Worklist: Intake Complete',
+      };
+      list.push({ key: 'worklist', label: tabLabels[worklistTab] || worklistTab, count: 1 });
     }
     const filterLabels: Record<keyof LinelistColumnFilters, string> = {
       artNumber: 'ART ID',
@@ -465,16 +556,20 @@ export default function SupervisorAssessmentsPage() {
       }
     }
     return list;
-  }, [searchTerm, columnFilters]);
+  }, [searchTerm, workerFilter, worklistTab, columnFilters]);
 
   const hasActiveFilters = activeFilterList.length > 0;
 
   // Single filter chip removal
-  const handleRemoveFilterChip = (key: keyof LinelistColumnFilters | 'search') => {
+  const handleRemoveFilterChip = (key: string) => {
     if (key === 'search') {
       setSearchTerm('');
+    } else if (key === 'worker') {
+      setWorkerFilter(null);
+    } else if (key === 'worklist') {
+      setWorklistTab('all');
     } else {
-      handleClearColumnFilter([key]);
+      handleClearColumnFilter([key as keyof LinelistColumnFilters]);
     }
   };
 
@@ -741,17 +836,118 @@ export default function SupervisorAssessmentsPage() {
           }
         />
 
-        {/* Model A Evaluation Read-Only Notice Banner */}
-        {user?.role && user.role !== 'ADMIN' && (
-          <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-700 flex items-center justify-between shadow-2xs">
-            <div className="flex items-center space-x-2.5">
-              <Info className="h-4 w-4 text-teal-700 shrink-0" />
-              <span>
-                <strong>Evaluation Read-Only Mode ({user.role}):</strong> You have read-only clearance for surveillance and review. Record mutations, approvals, and deletions are restricted to verified administrators.
-              </span>
+        {/* State Team / Leadership Scope & Programme Overview Banner */}
+        <div className="mb-5 bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 rounded-3xl p-5 sm:p-6 text-white shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-700/60 border border-teal-500/30 rounded-full text-xs font-medium text-teal-200 mb-1">
+                <MapPin className="w-3.5 h-3.5 text-teal-300" />
+                <span>
+                  {user?.role === 'STATE_REVIEWER'
+                    ? `State Reviewer Workspace: ${user.allowedStates?.filter((s) => s !== '*').join(', ') || 'State'}`
+                    : user?.role === 'LEADERSHIP'
+                    ? 'National Leadership Surveillance: All States'
+                    : 'System Administrator Surveillance'}
+                </span>
+              </div>
+              <h2 className="text-lg sm:text-xl font-bold tracking-tight">
+                Submitted Surveys &amp; Beneficiary Linelist
+              </h2>
+              <p className="text-xs text-teal-100/80 mt-0.5">
+                All successfully submitted assessments across all field caseworkers. Track approvals, intake completeness, and post-approval bank documents.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <Link href="/supervisor/field-workers">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs rounded-xl flex items-center gap-1.5 font-semibold cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Field Workers Directory</span>
+                </Button>
+              </Link>
             </div>
           </div>
-        )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+            <div
+              onClick={() => setWorklistTab('all')}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                worklistTab === 'all'
+                  ? 'bg-white/20 border-white/40 shadow-xs ring-1 ring-white/30'
+                  : 'bg-white/10 hover:bg-white/15 border-white/10'
+              }`}
+            >
+              <div className="text-teal-200 text-[11px] font-medium">Total Submitted Surveys</div>
+              <div className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
+                {worklistCounts.all}
+              </div>
+              <div className="text-[10px] text-teal-200/70 mt-0.5">All field workers combined</div>
+            </div>
+
+            <div
+              onClick={() => setWorklistTab('pending_approval')}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                worklistTab === 'pending_approval'
+                  ? 'bg-amber-500/25 border-amber-300/40 shadow-xs ring-1 ring-amber-300/30'
+                  : 'bg-white/10 hover:bg-white/15 border-white/10'
+              }`}
+            >
+              <div className="text-amber-200 text-[11px] font-medium">Pending Review / Decision</div>
+              <div className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
+                {worklistCounts.pendingApproval}
+              </div>
+              <div className="text-[10px] text-amber-200/70 mt-0.5">Awaiting leadership grant decision</div>
+            </div>
+
+            <div
+              onClick={() => setWorklistTab('bank_pending')}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                worklistTab === 'bank_pending'
+                  ? 'bg-yellow-500/30 border-yellow-300/50 shadow-xs ring-1 ring-yellow-300/40'
+                  : 'bg-white/10 hover:bg-white/15 border-white/10'
+              }`}
+            >
+              <div className="text-amber-200 text-[11px] font-medium">Approved — Bank Pending</div>
+              <div className="text-xl sm:text-2xl font-extrabold text-amber-300 mt-0.5">
+                {worklistCounts.bankPending}
+              </div>
+              <div className="text-[10px] text-amber-200/70 mt-0.5">Post-approval KYC needed</div>
+            </div>
+
+            <div
+              onClick={() => setWorklistTab('intake_pending')}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                worklistTab === 'intake_pending'
+                  ? 'bg-rose-500/25 border-rose-300/40 shadow-xs ring-1 ring-rose-300/30'
+                  : 'bg-white/10 hover:bg-white/15 border-white/10'
+              }`}
+            >
+              <div className="text-rose-200 text-[11px] font-medium">Intake Docs Pending</div>
+              <div className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
+                {worklistCounts.intakePending}
+              </div>
+              <div className="text-[10px] text-rose-200/70 mt-0.5">Missing passbook/Aadhaar/photo</div>
+            </div>
+
+            <div
+              onClick={() => setWorklistTab('intake_complete')}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+                worklistTab === 'intake_complete'
+                  ? 'bg-emerald-500/25 border-emerald-300/40 shadow-xs ring-1 ring-emerald-300/30'
+                  : 'bg-white/10 hover:bg-white/15 border-white/10'
+              }`}
+            >
+              <div className="text-emerald-200 text-[11px] font-medium">Intake Complete</div>
+              <div className="text-xl sm:text-2xl font-extrabold text-emerald-300 mt-0.5">
+                {worklistCounts.intakeComplete}
+              </div>
+              <div className="text-[10px] text-emerald-200/70 mt-0.5">Approved &amp; all KYC verified</div>
+            </div>
+          </div>
+        </div>
 
         {/* Unauthorized State Banner */}
         {isUnauthorized && (
@@ -874,6 +1070,106 @@ export default function SupervisorAssessmentsPage() {
             />
           </div>
         )}
+
+        {/* Dedicated Worklist Tabs for Post-Approval and Intake Tracking */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 no-scrollbar text-xs">
+          <button
+            type="button"
+            onClick={() => setWorklistTab('all')}
+            className={`px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+              worklistTab === 'all'
+                ? 'bg-teal-900 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <span>All Submitted Surveys</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                worklistTab === 'all' ? 'bg-teal-800 text-teal-100' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {worklistCounts.all}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setWorklistTab('bank_pending')}
+            className={`px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+              worklistTab === 'bank_pending'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-amber-800 hover:bg-amber-50 border border-amber-200'
+            }`}
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+            <span>Approved — Bank Documents Pending</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                worklistTab === 'bank_pending' ? 'bg-amber-700 text-amber-100' : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {worklistCounts.bankPending}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setWorklistTab('pending_approval')}
+            className={`px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+              worklistTab === 'pending_approval'
+                ? 'bg-teal-800 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <span>Pending Review</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                worklistTab === 'pending_approval' ? 'bg-teal-700 text-teal-100' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {worklistCounts.pendingApproval}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setWorklistTab('intake_pending')}
+            className={`px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+              worklistTab === 'intake_pending'
+                ? 'bg-rose-700 text-white shadow-xs'
+                : 'bg-white text-rose-800 hover:bg-rose-50 border border-rose-200'
+            }`}
+          >
+            <span>Intake Docs Pending</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                worklistTab === 'intake_pending' ? 'bg-rose-800 text-rose-100' : 'bg-rose-100 text-rose-800'
+              }`}
+            >
+              {worklistCounts.intakePending}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setWorklistTab('intake_complete')}
+            className={`px-3.5 py-2 rounded-xl font-semibold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+              worklistTab === 'intake_complete'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'bg-white text-emerald-800 hover:bg-emerald-50 border border-emerald-200'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Intake Complete</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                worklistTab === 'intake_complete' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800'
+              }`}
+            >
+              {worklistCounts.intakeComplete}
+            </span>
+          </button>
+        </div>
 
         {/* Precision Command Ribbon: Global Search, Open GIS & Export CSV */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 mb-5 shadow-xs transition-all">
@@ -1381,8 +1677,19 @@ export default function SupervisorAssessmentsPage() {
                         </Link>
                       </td>
 
-                      {/* 2. Child Name */}
-                      <td className="py-3.5 px-3.5 font-bold text-slate-900">{row.childName}</td>
+                      {/* 2. Child Name & Submitter */}
+                      <td className="py-3.5 px-3.5">
+                        <div className="font-bold text-slate-900">{row.childName}</div>
+                        <div
+                          className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5"
+                          title={`Survey collected by ${row.submittedBy || 'Field Worker'}`}
+                        >
+                          <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate max-w-[130px] font-medium">
+                            {row.submittedBy || 'Field Worker'}
+                          </span>
+                        </div>
+                      </td>
 
                       {/* 3. Age / Sex */}
                       <td className="py-3.5 px-3.5 text-slate-600">
@@ -1443,7 +1750,19 @@ export default function SupervisorAssessmentsPage() {
                       {/* 10. Documents & Bank Stage */}
                       <td className="py-3.5 px-3 text-center">
                         <div className="flex flex-col items-center gap-1">
-                          {row.documentStatus.isComplete ? (
+                          {row.isApproved ? (
+                            stages.bankWorkflow !== 'complete' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-amber-100 text-amber-950 border border-amber-300 shadow-2xs">
+                                <AlertCircle className="w-3 h-3 mr-1 text-amber-700 shrink-0" />
+                                Leadership Approved — Bank Documents Pending
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-2xs">
+                                <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-700 shrink-0" />
+                                Leadership Approved — Bank Details Complete
+                              </span>
+                            )
+                          ) : row.documentStatus.isComplete ? (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                               <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
                               Intake Complete
@@ -1470,18 +1789,6 @@ export default function SupervisorAssessmentsPage() {
                                 <Info className="h-3 w-3" />
                               </button>
                             </div>
-                          )}
-
-                          {row.isApproved && (
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                                stages.bankWorkflow === 'complete'
-                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                  : 'bg-amber-100 text-amber-900 border border-amber-300'
-                              }`}
-                            >
-                              {stages.bankWorkflow === 'complete' ? 'Bank Details Complete' : 'Bank Details Pending'}
-                            </span>
                           )}
                         </div>
                       </td>
@@ -1692,6 +1999,10 @@ export default function SupervisorAssessmentsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="text-base font-bold text-slate-900">{row.childName}</h3>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                      <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{row.submittedBy || 'Field Worker'}</span>
+                    </div>
                     <p className="text-xs text-slate-600 mt-0.5">
                       {row.age !== null && row.age !== undefined ? `${row.age} yrs` : '—'} • {row.gender} • {row.district} ({row.state || 'Maharashtra'})
                     </p>
@@ -1761,7 +2072,12 @@ export default function SupervisorAssessmentsPage() {
                 {/* Mobile Documents & Actions */}
                 <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
                   <div className="flex items-center space-x-1.5">
-                    {row.documentStatus.isComplete ? (
+                    {row.isApproved && deriveSubmissionStages(row.rawRecord || row).bankWorkflow !== 'complete' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-amber-100 text-amber-950 border border-amber-300">
+                        <AlertCircle className="w-3 h-3 mr-1 text-amber-700" />
+                        Approved — Bank Pending
+                      </span>
+                    ) : row.documentStatus.isComplete ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300">
                         <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-700" />
                         Complete
