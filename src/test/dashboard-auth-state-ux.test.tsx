@@ -246,7 +246,7 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
       expect(localStorage.getItem('child_nutrition_evaluation_unlocked')).toBeNull();
     });
 
-    it('renders Evaluation tab as permanently locked and non-interactive for field workers in CompactMasthead', async () => {
+    it('renders Evaluation tab as locked with role-switching login modal trigger for field workers in CompactMasthead', async () => {
       // Set field user session
       localStorage.setItem(
         'child_nutrition:user_session_v1',
@@ -255,14 +255,11 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
 
       render(<CompactMasthead />);
 
-      const lockedTab = screen.getByLabelText('Evaluation Portal Locked');
-      expect(lockedTab).toBeDefined();
-      expect(lockedTab.textContent).toContain('Evaluation');
-      expect(lockedTab.getAttribute('title')).toContain('permanently secured');
+      const loginButton = screen.getByTitle('Sign in to unlock Evaluation Portal');
+      expect(loginButton).toBeDefined();
+      expect(loginButton.textContent).toContain('Evaluation');
       // Should NOT render unlocked supervisor link
       expect(screen.queryByTitle('Evaluation Portal (Unlocked)')).toBeNull();
-      // Should NOT render unlock login button
-      expect(screen.queryByTitle('Sign in to unlock Evaluation Portal')).toBeNull();
     });
 
     it('renders Access Restricted when a FIELD_USER visits /supervisor directly', async () => {

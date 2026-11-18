@@ -31,17 +31,8 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const [isOnline, setIsOnline] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const pathname = usePathname();
-  const { isUnlocked, user } = useEvaluationAccess();
+  const { isUnlocked } = useEvaluationAccess();
   const summary = useSubmissionSummary({ enabled: submittedCount === undefined });
-
-  // Field caseworkers are permanently locked and cannot access the Evaluation portal
-  const isFieldWorker =
-    user?.role === 'FIELD_USER' ||
-    (typeof window !== 'undefined' &&
-      Boolean(localStorage.getItem('field_user_profile')) &&
-      user?.role !== 'STATE_REVIEWER' &&
-      user?.role !== 'LEADERSHIP' &&
-      user?.role !== 'ADMIN');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -137,17 +128,8 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
               );
             })}
 
-            {/* Evaluation Tab - Permanently locked for Field Workers; unlocked for State Reviewers & Leadership */}
-            {isFieldWorker ? (
-              <div
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 bg-slate-100/70 border border-slate-200/60 cursor-not-allowed select-none opacity-80"
-                title="Evaluation Portal is permanently secured and restricted to State Reviewers and Leadership."
-                aria-label="Evaluation Portal Locked"
-              >
-                <Lock className="h-3 w-3 text-slate-400 shrink-0" />
-                <span>Evaluation</span>
-              </div>
-            ) : isUnlocked ? (
+            {/* Evaluation Tab - Shows Lock icon when locked; clicking opens role-switching EvaluationLoginModal; unlocked for State Reviewers & Leadership */}
+            {isUnlocked ? (
               <Link
                 href="/supervisor"
                 className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
@@ -171,17 +153,16 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                 onClick={() => setIsLoginModalOpen(true)}
                 className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-teal-900 bg-slate-50 hover:bg-teal-50/60 border border-slate-200/80 hover:border-teal-300 cursor-pointer transition-all"
                 title="Sign in to unlock Evaluation Portal"
+                aria-label="Evaluation Portal Locked - Sign in to access"
               >
                 <Lock className="h-3 w-3 text-slate-500 shrink-0" />
                 <span>Evaluation</span>
               </button>
             )}
-            {!isFieldWorker && (
-              <EvaluationLoginModal
-                isOpen={isLoginModalOpen}
-                onClose={() => setIsLoginModalOpen(false)}
-              />
-            )}
+            <EvaluationLoginModal
+              isOpen={isLoginModalOpen}
+              onClose={() => setIsLoginModalOpen(false)}
+            />
           </nav>
 
           {/* Status & Mobile Actions */}
