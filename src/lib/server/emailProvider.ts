@@ -755,7 +755,7 @@ This code expires in ${expiryMinutes} minutes. Do not share it with anyone.
     html,
     text,
     otp: code,
-    action: 'send_leadership_otp',
+    action: 'send_transactional_email',
   });
 }
 
