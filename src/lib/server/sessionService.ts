@@ -1,8 +1,10 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthPolicyRole } from './authorisation';
+import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 import {
   getCredentialByIdentifier,
+  findCoordinatorCredentialByPassword,
   checkRateLimit,
   recordAuthAttempt,
   isCredentialActiveSync,
@@ -402,7 +404,18 @@ export async function authenticateUser(
   }
 
   if (credential && credential.isActive) {
-    const isValid = await verifyPassword(credential.passwordHash, plainPassword);
+    let isValid = await verifyPassword(credential.passwordHash, plainPassword);
+
+    // Fallback: If password didn't match the record (e.g. user selected state "Maharashtra" but entered their personal coordinator password ALN-MH-XXXXXX),
+    // check if this is an authorized coordinator's personal password for that state
+    if (!isValid && (credential.credentialKind === 'STATE_EVALUATION' || plainPassword.startsWith('ALN-'))) {
+      const coordCred = await findCoordinatorCredentialByPassword(plainPassword, cleanIdentifier);
+      if (coordCred) {
+        credential = coordCred;
+        isValid = true;
+      }
+    }
+
     if (!isValid) {
       await recordAuthAttempt(cleanIdentifier, clientIp, false);
       return { success: false, error: 'Invalid username or password.', statusCode: 401 };
@@ -415,7 +428,10 @@ export async function authenticateUser(
 
     if (credential.credentialKind === 'STATE_EVALUATION') {
       role = 'STATE_REVIEWER';
-      allowedStates = credential.stateCode ? [credential.stateCode] : [];
+      const canonState = credential.stateCode
+        ? (canonicalizeStateName(credential.stateCode) || credential.stateCode)
+        : 'Maharashtra';
+      allowedStates = [canonState];
     } else if (credential.credentialKind === 'LEADERSHIP_EVALUATION') {
       role = 'LEADERSHIP';
       allowedStates = ['*'];
@@ -440,6 +456,36 @@ export async function authenticateUser(
 
     const token = signSessionToken(sessionPayload);
     return { success: true, token, user: sessionPayload };
+  }
+
+  // 1b. If direct lookup did not find a credential, check if plainPassword matches a coordinator
+  if (!credential) {
+    const coordCred = await findCoordinatorCredentialByPassword(plainPassword, cleanIdentifier);
+    if (coordCred) {
+      credential = coordCred;
+      await recordAuthAttempt(cleanIdentifier, clientIp, true);
+
+      const canonState = credential.stateCode
+        ? (canonicalizeStateName(credential.stateCode) || credential.stateCode)
+        : 'Maharashtra';
+
+      const sessionPayload: SessionPayload = {
+        userId: credential.id,
+        username: credential.accessIdentifier,
+        name: credential.displayName,
+        role: 'STATE_REVIEWER',
+        allowedStates: [canonState],
+        allowedDistricts: ['*'],
+        allowedProgrammes: credential.programmeScope || ['alliance-childcare-phase3'],
+        credentialVersion: credential.credentialVersion,
+        credentialKind: credential.credentialKind,
+        createdAt: now,
+        expiresAt: now + SESSION_TTL_MS,
+      };
+
+      const token = signSessionToken(sessionPayload);
+      return { success: true, token, user: sessionPayload };
+    }
   }
 
   // 2. Legacy fallback for pre-existing tests or bootstrap accounts if not in remote database registry:

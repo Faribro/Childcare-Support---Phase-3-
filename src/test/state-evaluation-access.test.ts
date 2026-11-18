@@ -697,5 +697,53 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         await initializeTestFixtures();
       }
     });
+
+    it('authenticates coordinator using personal password via email, state code, or state name', async () => {
+      const { hashPassword } = await import('@/lib/server/sessionService');
+      const coordPassword = 'ALN-MH-42B484';
+      const passwordHash = await hashPassword(coordPassword);
+
+      // Register coordinator credential in registry
+      registerCredential({
+        id: 'coord-fsayyed@allianceindia.org',
+        accessIdentifier: 'FSAYYED@ALLIANCEINDIA.ORG',
+        displayName: 'Farid Sayyed',
+        credentialKind: 'STATE_EVALUATION',
+        stateCode: 'MH',
+        programmeScope: ['alliance-childcare-phase3'],
+        passwordHash,
+        credentialVersion: 1,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 1. Direct login via official email
+      const emailLogin = await authenticateUser('fsayyed@allianceindia.org', coordPassword, '127.0.0.1');
+      expect(emailLogin.success).toBe(true);
+      if (emailLogin.success) {
+        expect(emailLogin.user.name).toBe('Farid Sayyed');
+        expect(emailLogin.user.role).toBe('STATE_REVIEWER');
+        expect(emailLogin.user.allowedStates).toEqual(['Maharashtra']);
+      }
+
+      // 2. Login via State Name (e.g. legacy/cached form selecting "Maharashtra")
+      const stateNameLogin = await authenticateUser('Maharashtra', coordPassword, '127.0.0.1');
+      expect(stateNameLogin.success).toBe(true);
+      if (stateNameLogin.success) {
+        expect(stateNameLogin.user.name).toBe('Farid Sayyed');
+        expect(stateNameLogin.user.role).toBe('STATE_REVIEWER');
+        expect(stateNameLogin.user.allowedStates).toEqual(['Maharashtra']);
+      }
+
+      // 3. Login via State Code (e.g. legacy/cached form sending "STATE-MH")
+      const stateCodeLogin = await authenticateUser('STATE-MH', coordPassword, '127.0.0.1');
+      expect(stateCodeLogin.success).toBe(true);
+      if (stateCodeLogin.success) {
+        expect(stateCodeLogin.user.name).toBe('Farid Sayyed');
+        expect(stateCodeLogin.user.role).toBe('STATE_REVIEWER');
+        expect(stateCodeLogin.user.allowedStates).toEqual(['Maharashtra']);
+      }
+    });
   });
 });

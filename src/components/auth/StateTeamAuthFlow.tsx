@@ -59,6 +59,15 @@ export function StateTeamAuthFlow({
   const otpInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    try {
+      const savedEmail = localStorage.getItem('last_state_coordinator_email');
+      if (savedEmail && !workEmail) {
+        setWorkEmail(savedEmail);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     if (subTab === 'signin') {
       setTimeout(() => emailInputRef.current?.focus(), 60);
     } else if (subTab === 'register' && step === 'details') {
@@ -75,6 +84,10 @@ export function StateTeamAuthFlow({
       setErrorMessage('Please enter your official email and password.');
       return;
     }
+
+    try {
+      localStorage.setItem('last_state_coordinator_email', workEmail.trim());
+    } catch {}
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -538,15 +551,16 @@ export function StateTeamAuthFlow({
               )}
             </button>
 
-            {onSwitchToPassword && (
-              <button
-                type="button"
-                onClick={onSwitchToPassword}
-                className="text-xs text-slate-500 hover:text-slate-800 py-1 transition-colors underline cursor-pointer text-center"
-              >
-                Use Shared State Password instead
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('signin');
+                setErrorMessage(null);
+              }}
+              className="text-xs text-slate-500 hover:text-slate-800 py-1 transition-colors underline cursor-pointer text-center"
+            >
+              Already registered? Sign In with Password
+            </button>
           </div>
         </form>
       )}
