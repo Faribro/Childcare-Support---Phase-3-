@@ -168,7 +168,6 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   aria-selected={activeTab === 'state'}
                   onClick={() => {
                     setActiveTab('state');
-                    setErrorMessage(null);
                   }}
                   className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     activeTab === 'state'
@@ -185,7 +184,6 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   aria-selected={activeTab === 'leadership'}
                   onClick={() => {
                     setActiveTab('leadership');
-                    setErrorMessage(null);
                   }}
                   className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     activeTab === 'leadership'
@@ -208,7 +206,6 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   }}
                   onCancel={onClose}
                 />
-              )}
               )}
 
               {/* Tab 2: Leadership Flow (Integrated In-Place) */}
