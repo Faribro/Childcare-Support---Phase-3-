@@ -1,0 +1,50 @@
+# knadh/otpgateway Configuration for Childcare Support Linelist PWA
+# Documentation: https://github.com/knadh/otpgateway
+
+[app]
+address = "0.0.0.0:9000"
+auth_key = "{{ env \"OTPGATEWAY_API_KEY\" }}"
+log_level = "info"
+
+# Root namespace for field caseworker authentication
+[namespaces.childcare-field-auth]
+otp_length = 6
+otp_type = "numeric"
+ttl = 300       # 5 minutes validity
+max_attempts = 3
+cooldown = 60   # 60s resend cooldown
+rate_limit = 5  # Max 5 requests per hour
+
+# Shared Durable Challenge Store: Redis (Cloud Memorystore or external Redis)
+# Note: Local SQLite/file and in-memory stores are strictly forbidden in multi-instance Cloud Run.
+[store.redis]
+host = "{{ env \"REDIS_HOST\" }}"
+port = 6379
+password = "{{ env \"REDIS_PASSWORD\" }}"
+db = 0
+prefix = "otpgw:"
+
+# SMS Provider Integration: MSG91 (India TRAI DLT Compliant Webhook)
+[providers.msg91]
+type = "http"
+method = "POST"
+url = "https://control.msg91.com/api/v5/otp"
+timeout = "5s"
+retries = 2
+
+# HTTP Headers with credentials from Secret Manager
+[providers.msg91.headers]
+"authkey" = "{{ env \"MSG91_AUTH_KEY\" }}"
+"Content-Type" = "application/json"
+
+# Webhook payload mapping for MSG91 DLT template
+# Required DLT Template: "Your verification code for Childcare Support is {#var#}. Valid for 5 minutes. Alliance India."
+[providers.msg91.body]
+template_id = "{{ env \"MSG91_DLT_TEMPLATE_ID\" }}"
+mobile = "{{ .To }}"
+otp = "{{ .OTP }}"
+
+# Safe Logging: Redact OTP codes and PII from stdout/stderr
+[logging]
+redact_fields = ["otp", "code", "authkey", "password"]
+mask_phone = true

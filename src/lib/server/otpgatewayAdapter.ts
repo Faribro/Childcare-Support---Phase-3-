@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { validateAndFormatIndianMobile } from './phoneValidation';
+import { FirestoreOtpStore } from './firestoreOtpStore';
 
 export interface OtpRequestResult {
   success: boolean;
@@ -306,22 +307,113 @@ export class RemoteOtpGatewayProvider implements OtpProvider {
   }
 }
 
+/**
+ * Distributed Firestore OTP Provider: provides durable, shared challenge storage
+ * and atomic verification across multi-instance Cloud Run containers.
+ */
+export class DistributedFirestoreOtpProvider implements OtpProvider {
+  private store: FirestoreOtpStore;
+  private msg91AuthKey?: string;
+  private msg91TemplateId?: string;
+
+  constructor(options?: { store?: FirestoreOtpStore; msg91AuthKey?: string; msg91TemplateId?: string }) {
+    this.store = options?.store || new FirestoreOtpStore();
+    this.msg91AuthKey = options?.msg91AuthKey || process.env.MSG91_AUTH_KEY;
+    this.msg91TemplateId = options?.msg91TemplateId || process.env.MSG91_DLT_TEMPLATE_ID;
+  }
+
+  public async sendOtp(mobileE164: string, purpose: string): Promise<OtpRequestResult> {
+    // 1. Cryptographically strong 6-digit random code
+    const randomInt = crypto.randomInt(100000, 999999);
+    const code = randomInt.toString();
+
+    // 2. Persist challenge atomically in shared Firestore store
+    const saveResult = await this.store.saveChallenge(mobileE164, purpose, code);
+    if (!saveResult.success) {
+      return saveResult;
+    }
+
+    // 3. Dispatch to MSG91 Webhook if credentials provided in environment
+    if (this.msg91AuthKey && this.msg91TemplateId) {
+      try {
+        const res = await fetch('https://control.msg91.com/api/v5/otp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'authkey': this.msg91AuthKey,
+          },
+          body: JSON.stringify({
+            template_id: this.msg91TemplateId,
+            mobile: mobileE164.replace(/\D/g, ''),
+            otp: code,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.type === 'error') {
+          return {
+            success: false,
+            message: 'SMS provider delivery failed: ' + (data.message || 'Gateway rejected dispatch'),
+            error: 'SMS_PROVIDER_ERROR',
+          };
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          message: 'Unable to reach SMS gateway for OTP dispatch.',
+          error: 'SMS_GATEWAY_UNREACHABLE',
+        };
+      }
+    }
+
+    const last4 = mobileE164.slice(-4);
+    return {
+      success: true,
+      message: 'OTP sent successfully to registered mobile number.',
+      maskedMobile: `+91 ******${last4}`,
+      debugCode: process.env.NODE_ENV === 'test' ? code : undefined,
+    };
+  }
+
+  public async verifyOtp(mobileE164: string, otpCode: string, purpose: string = 'login'): Promise<OtpVerifyResult> {
+    return await this.store.verifyChallenge(mobileE164, otpCode, purpose);
+  }
+
+  public async resetForTesting(): Promise<void> {
+    await this.store.resetForTesting();
+  }
+}
+
 // Global singleton instance with environment safety guards
 let providerInstance: OtpProvider | null = null;
 
 export function getOtpProvider(): OtpProvider {
   if (providerInstance) return providerInstance;
 
-  // Staging and production MUST NOT use MockOtpProvider unless explicitly mock in unit tests
+  const appEnv = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development').toLowerCase();
   const isTest = process.env.NODE_ENV === 'test';
   const isExplicitMock = process.env.USE_MOCK_OTP_PROVIDER === 'true';
 
-  if (isTest || (isExplicitMock && process.env.NODE_ENV !== 'production')) {
+  // Strict guard: Staging and production MUST NOT use MockOtpProvider
+  if (appEnv === 'staging' || appEnv === 'production') {
+    if (isExplicitMock && !isTest) {
+      throw new Error(`SECURITY_GATE_VIOLATION: MockOtpProvider is strictly prohibited in ${appEnv}!`);
+    }
+  }
+
+  if (isTest || (isExplicitMock && appEnv === 'development')) {
     providerInstance = new MockOtpProvider();
     return providerInstance;
   }
 
-  providerInstance = new RemoteOtpGatewayProvider();
+  // If remote otpgateway URL is explicitly configured, use RemoteOtpGatewayProvider
+  if (process.env.OTPGATEWAY_BASE_URL && process.env.USE_REMOTE_OTPGATEWAY === 'true') {
+    providerInstance = new RemoteOtpGatewayProvider();
+    return providerInstance;
+  }
+
+  // Default durable multi-instance provider: Firestore shared challenge store
+  providerInstance = new DistributedFirestoreOtpProvider();
   return providerInstance;
 }
 
