@@ -226,14 +226,13 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
       expect(tokenPayload?.allowedStates).toEqual(['Maharashtra']);
     });
 
-    it('authenticates state by state name (e.g. "West Bengal") resolving to STATE-WB', async () => {
+    it('rejects state name (e.g. "West Bengal") with 401 when used as login identity', async () => {
       const authResult = await authenticateUser('West Bengal', getTestStatePassword('WB'), TEST_IP);
-      expect(authResult.success).toBe(true);
-      if (!authResult.success) return;
-
-      expect(authResult.user.username).toBe('STATE-WB');
-      expect(authResult.user.role).toBe('STATE_REVIEWER');
-      expect(authResult.user.allowedStates).toEqual(['West Bengal']);
+      expect(authResult.success).toBe(false);
+      if (!authResult.success) {
+        expect(authResult.statusCode).toBe(401);
+        expect(authResult.error).toBe('Invalid username or password.');
+      }
     });
 
     it('prevents Maharashtra credential from accessing West Bengal records (HTTP 403 FORBIDDEN_SCOPE)', async () => {
@@ -655,7 +654,6 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
     it('authenticates bootstrap environment credentials using evaluation aliases in production mode', async () => {
       const originalNodeEnv = process.env.NODE_ENV;
       const originalLeadPwd = process.env.INITIAL_LEADERSHIP_PWD;
-      const originalRevPwd = process.env.INITIAL_REV_MH_PWD;
       try {
         (process.env as any).NODE_ENV = 'production';
         clearRegistry();
@@ -663,7 +661,6 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         resetRateLimits();
 
         process.env.INITIAL_LEADERSHIP_PWD = 'TestBootstrap123!';
-        process.env.INITIAL_REV_MH_PWD = 'TestBootstrap123!';
 
         // 1. Leadership login via LEADERSHIP-ALL
         const leadRes = await authenticateUser('LEADERSHIP-ALL', 'TestBootstrap123!', '127.0.0.1');
@@ -673,37 +670,36 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
           expect(leadRes.user.allowedStates).toEqual(['*']);
         }
 
-        // 2. State Evaluation login via Maharashtra
+        // 2. State Evaluation login via Maharashtra state name MUST FAIL (401)
         const mhNameRes = await authenticateUser('Maharashtra', 'TestBootstrap123!', '127.0.0.1');
-        expect(mhNameRes.success).toBe(true);
-        if (mhNameRes.success) {
-          expect(mhNameRes.user.role).toBe('STATE_REVIEWER');
-          expect(mhNameRes.user.allowedStates).toEqual(['Maharashtra']);
+        expect(mhNameRes.success).toBe(false);
+        if (!mhNameRes.success) {
+          expect(mhNameRes.statusCode).toBe(401);
+          expect(mhNameRes.error).toBe('Invalid username or password.');
         }
 
-        // 3. State Evaluation login via STATE-MH
-        const mhCodeRes = await authenticateUser('STATE-MH', 'TestBootstrap123!', '127.0.0.1');
-        expect(mhCodeRes.success).toBe(true);
-        if (mhCodeRes.success) {
-          expect(mhCodeRes.user.role).toBe('STATE_REVIEWER');
-          expect(mhCodeRes.user.allowedStates).toEqual(['Maharashtra']);
+        // 3. State Evaluation login via 2-letter state code MUST FAIL (401)
+        const mhCodeRes = await authenticateUser('MH', 'TestBootstrap123!', '127.0.0.1');
+        expect(mhCodeRes.success).toBe(false);
+        if (!mhCodeRes.success) {
+          expect(mhCodeRes.statusCode).toBe(401);
+          expect(mhCodeRes.error).toBe('Invalid username or password.');
         }
       } finally {
         (process.env as any).NODE_ENV = originalNodeEnv;
         process.env.INITIAL_LEADERSHIP_PWD = originalLeadPwd;
-        process.env.INITIAL_REV_MH_PWD = originalRevPwd;
         resetPasswordHashCache();
         resetRateLimits();
         await initializeTestFixtures();
       }
     });
 
-    it('authenticates coordinator using personal password via email, state code, or state name', async () => {
+    it('authenticates coordinator strictly by official email and rejects state name or state code', async () => {
       const { hashPassword } = await import('@/lib/server/sessionService');
-      const coordPassword = 'ALN-MH-42B484';
+      const coordPassword = 'ALN-MH-TEST-PWD-SECURE';
       const passwordHash = await hashPassword(coordPassword);
 
-      // Register coordinator credential in registry
+      // Register coordinator credential in registry bound strictly to email
       registerCredential({
         id: 'coord-fsayyed@allianceindia.org',
         accessIdentifier: 'FSAYYED@ALLIANCEINDIA.ORG',
@@ -718,7 +714,7 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         updatedAt: new Date().toISOString(),
       });
 
-      // 1. Direct login via official email
+      // 1. Direct login via official email SUCCEEDS
       const emailLogin = await authenticateUser('fsayyed@allianceindia.org', coordPassword, '127.0.0.1');
       expect(emailLogin.success).toBe(true);
       if (emailLogin.success) {
@@ -727,22 +723,40 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         expect(emailLogin.user.allowedStates).toEqual(['Maharashtra']);
       }
 
-      // 2. Login via State Name (e.g. legacy/cached form selecting "Maharashtra")
+      // 2. Email lookup is case-insensitive
+      const upperEmailLogin = await authenticateUser('FSAYYED@ALLIANCEINDIA.ORG', coordPassword, '127.0.0.1');
+      expect(upperEmailLogin.success).toBe(true);
+
+      // 3. Login via State Name (e.g. "Maharashtra") MUST BE REJECTED with 401
       const stateNameLogin = await authenticateUser('Maharashtra', coordPassword, '127.0.0.1');
-      expect(stateNameLogin.success).toBe(true);
-      if (stateNameLogin.success) {
-        expect(stateNameLogin.user.name).toBe('Farid Sayyed');
-        expect(stateNameLogin.user.role).toBe('STATE_REVIEWER');
-        expect(stateNameLogin.user.allowedStates).toEqual(['Maharashtra']);
+      expect(stateNameLogin.success).toBe(false);
+      if (!stateNameLogin.success) {
+        expect(stateNameLogin.statusCode).toBe(401);
+        expect(stateNameLogin.error).toBe('Invalid username or password.');
       }
 
-      // 3. Login via State Code (e.g. legacy/cached form sending "STATE-MH")
-      const stateCodeLogin = await authenticateUser('STATE-MH', coordPassword, '127.0.0.1');
-      expect(stateCodeLogin.success).toBe(true);
-      if (stateCodeLogin.success) {
-        expect(stateCodeLogin.user.name).toBe('Farid Sayyed');
-        expect(stateCodeLogin.user.role).toBe('STATE_REVIEWER');
-        expect(stateCodeLogin.user.allowedStates).toEqual(['Maharashtra']);
+      // 4. Login via State Code (e.g. "MH") MUST BE REJECTED with 401
+      const shortCodeLogin = await authenticateUser('MH', coordPassword, '127.0.0.1');
+      expect(shortCodeLogin.success).toBe(false);
+      if (!shortCodeLogin.success) {
+        expect(shortCodeLogin.statusCode).toBe(401);
+        expect(shortCodeLogin.error).toBe('Invalid username or password.');
+      }
+
+      // 5. Coordinator A password cannot authenticate another coordinator's account
+      const wrongEmailLogin = await authenticateUser('other.coordinator@allianceindia.org', coordPassword, '127.0.0.1');
+      expect(wrongEmailLogin.success).toBe(false);
+      if (!wrongEmailLogin.success) {
+        expect(wrongEmailLogin.statusCode).toBe(401);
+        expect(wrongEmailLogin.error).toBe('Invalid username or password.');
+      }
+
+      // 6. Incorrect password fails with generic 401
+      const wrongPwdLogin = await authenticateUser('fsayyed@allianceindia.org', 'WrongPassword123!', '127.0.0.1');
+      expect(wrongPwdLogin.success).toBe(false);
+      if (!wrongPwdLogin.success) {
+        expect(wrongPwdLogin.statusCode).toBe(401);
+        expect(wrongPwdLogin.error).toBe('Invalid username or password.');
       }
     });
   });

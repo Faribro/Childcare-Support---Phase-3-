@@ -518,20 +518,6 @@ export function resolveAccessIdentifier(input: string): string | null {
   const trimmed = input.trim();
   const upper = trimmed.toUpperCase();
 
-  // Direct match to standard identifier format
-  if (upper.startsWith('STATE-')) {
-    const stateMatch = CANONICAL_EVALUATION_STATES.find((s) => s.accessIdentifier === upper);
-    if (stateMatch) return stateMatch.accessIdentifier;
-  }
-
-  // 2-3 letter state code (e.g. MH, WB, DL)
-  const codeMatch = CANONICAL_EVALUATION_STATES.find((s) => s.code.toUpperCase() === upper);
-  if (codeMatch) return codeMatch.accessIdentifier;
-
-  // Full state name (e.g. Maharashtra, West Bengal)
-  const nameMatch = CANONICAL_EVALUATION_STATES.find((s) => s.name.toLowerCase() === trimmed.toLowerCase());
-  if (nameMatch) return nameMatch.accessIdentifier;
-
   // Leadership identifier aliases
   if (
     upper === 'LEADERSHIP' ||
@@ -618,20 +604,6 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
         return null;
       }
 
-      // Query by stateCode field
-      const stateSnap = await db
-        .collection(EVALUATION_CREDENTIALS_COLLECTION)
-        .where('stateCode', '==', identifierOrState.trim())
-        .limit(1)
-        .get();
-      if (!stateSnap.empty) {
-        const data = stateSnap.docs[0].data();
-        if (data && data.isActive !== false) {
-          return mapFirestoreDocToCredential(data);
-        }
-        return null;
-      }
-
       // If document was not found in Firestore, do not fall through to memory in production
       if (appEnv === 'production') {
         return null;
@@ -661,12 +633,8 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
     return memoryRecord;
   }
 
-  // Check by stateCode or aliases in inMemoryRegistry
   for (const cred of inMemoryRegistry.values()) {
-    if (
-      cred.accessIdentifier.toUpperCase() === resolvedId.toUpperCase() ||
-      (cred.stateCode && cred.stateCode.toLowerCase() === identifierOrState.trim().toLowerCase())
-    ) {
+    if (cred.accessIdentifier.toUpperCase() === resolvedId.toUpperCase()) {
       return cred;
     }
   }
@@ -715,97 +683,6 @@ export async function getCredentialByIdentifier(identifierOrState: string): Prom
     } catch (err: any) {
       console.error('[CredentialRegistry] Failed to query remote database registry:', err.message);
       return null;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Resolves an active coordinator credential by verifying the password across registered
- * state team coordinators, optionally constrained by state hint or password prefix (ALN-<STATE>-...).
- * This allows state team members who enter their state or select a state dropdown with their personal
- * password (ALN-MH-XXXXXX) to authenticate seamlessly.
- */
-export async function findCoordinatorCredentialByPassword(
-  plainPassword: string,
-  stateOrIdentifier?: string
-): Promise<EvaluationCredential | null> {
-  if (!plainPassword || typeof plainPassword !== 'string') return null;
-
-  const isFirestore = process.env.DATA_ENGINE === 'firestore';
-
-  // Extract state abbreviation from password (e.g. ALN-MH-XXXXXX -> MH)
-  const match = plainPassword.match(/^ALN-([A-Z]{2})-[A-F0-9]{6}$/i);
-  let stateFilter = match ? match[1].toUpperCase() : null;
-
-  if (!stateFilter && stateOrIdentifier) {
-    const resolved = resolveAccessIdentifier(stateOrIdentifier);
-    if (resolved && resolved.startsWith('STATE-')) {
-      stateFilter = resolved.replace('STATE-', '');
-    } else {
-      const stateMatch = CANONICAL_EVALUATION_STATES.find(
-        (s) =>
-          s.code.toUpperCase() === stateOrIdentifier.trim().toUpperCase() ||
-          s.name.toLowerCase() === stateOrIdentifier.trim().toLowerCase()
-      );
-      if (stateMatch) stateFilter = stateMatch.code.toUpperCase();
-    }
-  }
-
-  // 1. Check Firestore
-  if (isFirestore) {
-    try {
-      const db = await getFirestoreDb();
-      if (db) {
-        const snap = await db.collection(EVALUATION_CREDENTIALS_COLLECTION).where('isActive', '==', true).get();
-        for (const doc of snap.docs) {
-          const data = doc.data();
-          // Skip legacy shared accounts and leadership accounts
-          if (doc.id.startsWith('STATE-') || doc.id.startsWith('ADMIN-') || doc.id.startsWith('LEADERSHIP-')) {
-            continue;
-          }
-          if (data.credentialKind !== 'STATE_EVALUATION') {
-            continue;
-          }
-
-          if (stateFilter) {
-            const docState = (data.stateCode || '').toUpperCase();
-            const matchedState = CANONICAL_EVALUATION_STATES.find((s) => s.code === stateFilter);
-            const stateName = matchedState ? matchedState.name.toUpperCase() : '';
-            if (docState !== stateFilter && docState !== stateName) {
-              continue;
-            }
-          }
-
-          if (data.passwordHash) {
-            const matches = await verifyPassword(data.passwordHash, plainPassword);
-            if (matches) {
-              return mapFirestoreDocToCredential(data);
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      console.warn('[CredentialRegistry] findCoordinatorCredentialByPassword error:', err?.message);
-    }
-  }
-
-  // 2. Check in-memory store
-  for (const cred of inMemoryRegistry.values()) {
-    if (!cred.isActive || cred.credentialKind !== 'STATE_EVALUATION') continue;
-    if (cred.accessIdentifier.startsWith('STATE-') || cred.accessIdentifier.startsWith('ADMIN-')) continue;
-
-    if (stateFilter && cred.stateCode) {
-      const cState = cred.stateCode.toUpperCase();
-      const matchedState = CANONICAL_EVALUATION_STATES.find((s) => s.code === stateFilter);
-      const stateName = matchedState ? matchedState.name.toUpperCase() : '';
-      if (cState !== stateFilter && cState !== stateName) continue;
-    }
-
-    if (cred.passwordHash) {
-      const matches = await verifyPassword(cred.passwordHash, plainPassword);
-      if (matches) return cred;
     }
   }
 
