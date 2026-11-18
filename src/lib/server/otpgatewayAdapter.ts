@@ -16,7 +16,7 @@ export interface OtpVerifyResult {
   canonicalMobile?: string;
   error?: string;
   message?: string;
-  code?: 'INVALID_CODE' | 'EXPIRED_CODE' | 'MAX_ATTEMPTS_EXCEEDED' | 'RATE_LIMITED' | 'ALREADY_USED';
+  code?: 'INVALID_CODE' | 'EXPIRED_CODE' | 'MAX_ATTEMPTS_EXCEEDED' | 'RATE_LIMITED' | 'ALREADY_USED' | 'DATABASE_UNAVAILABLE';
   remainingAttempts?: number;
 }
 
