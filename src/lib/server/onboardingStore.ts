@@ -2130,7 +2130,7 @@ export function getOnboardingStore(): OnboardingStore {
   }
 
   const dataEngine = (process.env.DATA_ENGINE || 'sheets').toLowerCase().trim();
-  if (dataEngine === 'firestore') {
+  if (dataEngine === 'firestore' || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT) {
     const store = new FirestoreOnboardingStore();
     globalOnboardingStore = store;
     return store;
