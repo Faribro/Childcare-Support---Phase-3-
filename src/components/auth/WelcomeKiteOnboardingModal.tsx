@@ -15,6 +15,7 @@ import {
   KeyRound,
   RotateCcw,
   Send,
+  ArrowLeft,
 } from 'lucide-react';
 import { INDIAN_STATES_AND_UTS } from '@/lib/clinical/nutritionCalculations';
 import { DistrictCombobox } from '@/components/forms/DistrictCombobox';
@@ -71,9 +72,16 @@ export function WelcomeKiteOnboardingModal({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Registration Email OTP State
+  const [regStep, setRegStep] = useState<'details' | 'otp'>('details');
+  const [regOtp, setRegOtp] = useState('');
+  const [regOtpCooldown, setRegOtpCooldown] = useState(0);
+  const [isVerifyingRegOtp, setIsVerifyingRegOtp] = useState(false);
+
   const firstNameInputRef = useRef<HTMLInputElement>(null);
   const signInEmailInputRef = useRef<HTMLInputElement>(null);
   const otpInputRef = useRef<HTMLInputElement>(null);
+  const regOtpInputRef = useRef<HTMLInputElement>(null);
 
   // Cooldown countdown effect
   useEffect(() => {
@@ -83,6 +91,15 @@ export function WelcomeKiteOnboardingModal({
     }
     return () => clearTimeout(timer);
   }, [otpCooldown]);
+
+  // Registration OTP Cooldown countdown effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (regOtpCooldown > 0) {
+      timer = setTimeout(() => setRegOtpCooldown((prev) => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [regOtpCooldown]);
 
   // Load active State SRs for the selected state
   useEffect(() => {
@@ -112,6 +129,8 @@ export function WelcomeKiteOnboardingModal({
     if (isOpen) {
       setErrorMessage(null);
       setInfoMessage(null);
+      setRegStep('details');
+      setRegOtp('');
       if (initialMode) {
         setActiveTab(initialMode);
       }
@@ -265,8 +284,107 @@ export function WelcomeKiteOnboardingModal({
   };
 
   // --------------------------------------------------------------------------
-  // New Worker Registration Submission Handler
+  // New Worker Registration Submission Handler (Email OTP & Profile)
   // --------------------------------------------------------------------------
+  const executeRegistration = async (emailTicket?: string) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    const finalSr = srName.trim();
+    const cleanEmail = registerEmail.trim().toLowerCase();
+
+    const persistLocal = (profileId?: string, profileName?: string, userEmail?: string) => {
+      if (typeof window !== 'undefined') {
+        const cleanMobile = mobileNumber.trim().replace(/\D/g, '');
+        const maskedMobile = cleanMobile.length >= 4 ? `+91 ******${cleanMobile.slice(-4)}` : undefined;
+        const profileObj = {
+          id: profileId || `fld_local_${Date.now()}`,
+          name: profileName || `${firstName.trim()} ${lastName.trim()}`.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          assignedState: state.trim(),
+          assignedDistrict: district.trim(),
+          googleEmail: userEmail || cleanEmail || googleEmail.trim() || undefined,
+          maskedMobile,
+          srName: finalSr,
+          ssrName: ssrName.trim(),
+        };
+        localStorage.setItem('field_user_profile', JSON.stringify(profileObj));
+        localStorage.setItem(
+          'field_user_sr',
+          JSON.stringify({
+            srName: finalSr,
+            ssrName: ssrName.trim(),
+          })
+        );
+      }
+    };
+
+    try {
+      const res = await fetch('/api/auth/field-user/complete-onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          state: state.trim(),
+          district: district.trim(),
+          email: cleanEmail || googleEmail.trim() || undefined,
+          emailTicket: emailTicket || undefined,
+          mobileNumber: mobileNumber.trim() || undefined,
+          invitationCode: invitationCode.trim() || undefined,
+          srName: finalSr,
+          ssrName: ssrName.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.status === 'error') {
+        setErrorMessage(data.error || 'Failed to complete registration. Please verify details.');
+        setIsLoading(false);
+        setIsVerifyingRegOtp(false);
+        return;
+      }
+
+      persistLocal(data.profile?.id, data.profile?.name, data.profile?.googleEmail);
+
+      // Save session token in native secure storage if returned
+      try {
+        if (data.data?.session?.token) {
+          const storage = platformRegistry.getSecureStorage();
+          await storage.setSecret('field_session_token', data.data.session.token);
+        }
+      } catch (_) {}
+
+      if (data.profile) {
+        setEvaluationUnlocked(false, {
+          userId: data.profile.id,
+          name: data.profile.name,
+          role: 'FIELD_USER',
+          allowedStates: [data.profile.assignedState],
+          allowedDistricts: [data.profile.assignedDistrict],
+          isVerified: true,
+        });
+      }
+
+      setIsLoading(false);
+      setIsVerifyingRegOtp(false);
+      onSuccess?.();
+      onClose();
+      router.push(data.redirectUrl || '/assessment/new');
+      if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
+        try {
+          window.location.reload();
+        } catch (_) {}
+      }
+    } catch {
+      setErrorMessage('Network or server error completing profile. Please try again.');
+      setIsLoading(false);
+      setIsVerifyingRegOtp(false);
+    }
+  };
+
   const handleSubmitProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim()) {
@@ -290,101 +408,117 @@ export function WelcomeKiteOnboardingModal({
       setErrorMessage('Please enter or select your State Sub-Recipient (SR) Name.');
       return;
     }
-    if (!invitationCode.trim()) {
-      setErrorMessage('Please enter your state-team invitation code.');
-      return;
-    }
 
-    setIsLoading(true);
-    setErrorMessage(null);
+    const cleanEmail = registerEmail.trim().toLowerCase();
 
-    const persistLocal = (profileId?: string, profileName?: string, userEmail?: string) => {
-      if (typeof window !== 'undefined') {
-        const cleanMobile = mobileNumber.trim().replace(/\D/g, '');
-        const maskedMobile = cleanMobile.length >= 4 ? `+91 ******${cleanMobile.slice(-4)}` : undefined;
-        const profileObj = {
-          id: profileId || `fld_local_${Date.now()}`,
-          name: profileName || `${firstName.trim()} ${lastName.trim()}`.trim(),
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          assignedState: state.trim(),
-          assignedDistrict: district.trim(),
-          googleEmail: userEmail || registerEmail.trim() || googleEmail.trim() || undefined,
-          maskedMobile,
-          srName: finalSr,
-          ssrName: ssrName.trim(),
-        };
-        localStorage.setItem('field_user_profile', JSON.stringify(profileObj));
-        localStorage.setItem(
-          'field_user_sr',
-          JSON.stringify({
-            srName: finalSr,
-            ssrName: ssrName.trim(),
-          })
-        );
-      }
-    };
+    // If official email is entered and user is not authenticated via Google OAuth:
+    // Request Email OTP for first-time registration verification
+    if (!googleEmail && cleanEmail && cleanEmail.includes('@')) {
+      setIsLoading(true);
+      setErrorMessage(null);
+      setInfoMessage(null);
 
-    if (googleEmail || invitationCode.trim()) {
       try {
-        const res = await fetch('/api/auth/field-user/complete-onboarding', {
+        const res = await fetch('/api/auth/field-user/email-otp/request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
-            state: state.trim(),
-            district: district.trim(),
-            email: registerEmail.trim() || googleEmail.trim() || undefined,
-            mobileNumber: mobileNumber.trim() || undefined,
-            invitationCode: invitationCode.trim(),
-            srName: finalSr,
-            ssrName: ssrName.trim(),
-          }),
+          body: JSON.stringify({ email: cleanEmail, purpose: 'registration' }),
         });
-
         const data = await res.json();
-
         if (!res.ok || data.status === 'error') {
-          setErrorMessage(data.error || 'Failed to complete onboarding. Please check your invitation code.');
+          setErrorMessage(data.error || 'Failed to send verification code to your email.');
           setIsLoading(false);
           return;
         }
 
-        persistLocal(data.profile?.id, data.profile?.name, data.profile?.googleEmail);
-
-        // Save session token in native secure storage if returned
-        try {
-          if (data.data?.session?.token) {
-            const storage = platformRegistry.getSecureStorage();
-            await storage.setSecret('field_session_token', data.data.session.token);
-          }
-        } catch (_) {}
-
-        if (data.profile) {
-          setEvaluationUnlocked(false, {
-            userId: data.profile.id,
-            name: data.profile.name,
-            role: 'FIELD_USER',
-            allowedStates: [data.profile.assignedState],
-            allowedDistricts: [data.profile.assignedDistrict],
-            isVerified: true,
-          });
-        }
-
-        onSuccess?.();
-        onClose();
-        router.push(data.redirectUrl || '/assessment/new');
-      } catch {
-        setErrorMessage('Network or server error completing profile. Please try again.');
+        setRegStep('otp');
+        setRegOtpCooldown(60);
+        setInfoMessage(data.message || `6-digit verification code sent to ${cleanEmail}. Valid for 10 minutes.`);
         setIsLoading(false);
+        setTimeout(() => regOtpInputRef.current?.focus(), 100);
+        return;
+      } catch {
+        setErrorMessage('Network error requesting verification code. Please check your connection.');
+        setIsLoading(false);
+        return;
       }
-    } else {
-      persistLocal();
+    }
+
+    // Direct registration (Google OAuth, or invitation code provided without email)
+    if (!cleanEmail && !invitationCode.trim()) {
+      setErrorMessage('Please enter your official email address or state-team invitation code.');
+      return;
+    }
+
+    await executeRegistration();
+  };
+
+  const handleVerifyRegOtpAndSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = regOtp.trim();
+    if (!cleanCode || cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+      setErrorMessage('Please enter the 6-digit numeric verification code.');
+      return;
+    }
+
+    setIsVerifyingRegOtp(true);
+    setErrorMessage(null);
+
+    const cleanEmail = registerEmail.trim().toLowerCase();
+
+    try {
+      const verifyRes = await fetch('/api/auth/field-user/email-otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          code: cleanCode,
+          purpose: 'registration',
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || verifyData.status === 'error') {
+        setErrorMessage(verifyData.error || 'Verification code failed. Please check and try again.');
+        setIsVerifyingRegOtp(false);
+        return;
+      }
+
+      const emailTicket = verifyData.emailTicket;
+      await executeRegistration(emailTicket);
+    } catch {
+      setErrorMessage('Network error verifying code. Please try again.');
+      setIsVerifyingRegOtp(false);
+    }
+  };
+
+  const handleResendRegOtp = async () => {
+    const cleanEmail = registerEmail.trim().toLowerCase();
+    if (!cleanEmail) return;
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/field-user/email-otp/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, purpose: 'registration' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        setErrorMessage(data.error || 'Failed to resend verification code.');
+        setIsLoading(false);
+        return;
+      }
+
+      setRegOtpCooldown(60);
+      setInfoMessage(data.message || `New 6-digit verification code sent to ${cleanEmail}.`);
       setIsLoading(false);
-      onSuccess?.();
-      onClose();
-      router.push('/assessment/new');
+    } catch {
+      setErrorMessage('Network error resending code. Please check your connection.');
+      setIsLoading(false);
     }
   };
 
@@ -555,6 +689,24 @@ export function WelcomeKiteOnboardingModal({
                       </>
                     )}
                   </button>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">First time here?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('register');
+                        setRegStep('details');
+                        if (signInEmail) setRegisterEmail(signInEmail);
+                        setErrorMessage(null);
+                        setInfoMessage(null);
+                      }}
+                      className="font-semibold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Register New Account</span>
+                    </button>
+                  </div>
                 </form>
               ) : (
                 <form onSubmit={handleVerifySignInOtp} noValidate className="space-y-4">
@@ -633,18 +785,35 @@ export function WelcomeKiteOnboardingModal({
                       </>
                     )}
                   </button>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500">Not receiving code?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('register');
+                        setRegStep('details');
+                        if (signInEmail) setRegisterEmail(signInEmail);
+                        setErrorMessage(null);
+                        setInfoMessage(null);
+                      }}
+                      className="font-semibold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer"
+                    >
+                      Register as a new caseworker
+                    </button>
+                  </div>
                 </form>
               )}
             </div>
           )}
 
-          {/* TAB 2: NEW WORKER REGISTRATION */}
-          {activeTab === 'register' && (
+          {/* TAB 2: NEW WORKER REGISTRATION (DETAILS FORM) */}
+          {activeTab === 'register' && regStep === 'details' && (
             <form onSubmit={handleSubmitProfile} noValidate className="space-y-4 animate-in fade-in duration-150">
               <div className="border-b border-slate-100 pb-2">
                 <h3 className="text-sm font-bold text-slate-800">Complete Field Profile</h3>
                 <p className="text-[11px] text-slate-500">
-                  Register with your state programme using the private invitation code provided by your state coordinator.
+                  Register with your official email using our single-use Email OTP system. Your profile will be securely registered in the state programme database.
                 </p>
               </div>
 
@@ -694,18 +863,23 @@ export function WelcomeKiteOnboardingModal({
               {!googleEmail && (
                 <div>
                   <label htmlFor="field-register-email" className="block text-xs font-semibold text-slate-700 mb-1">
-                    Official Email Address (Recommended)
+                    Official Email Address *
                   </label>
-                  <input
-                    id="field-register-email"
-                    type="email"
-                    value={registerEmail}
-                    onChange={(e) => setRegisterEmail(e.target.value)}
-                    placeholder="e.g. caseworker@allianceindia.org"
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
-                  />
+                  <div className="relative">
+                    <input
+                      id="field-register-email"
+                      type="email"
+                      value={registerEmail}
+                      onChange={(e) => setRegisterEmail(e.target.value)}
+                      placeholder="e.g. caseworker@allianceindia.org"
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all pl-9"
+                    />
+                    <div className="absolute left-3 top-2.5 text-slate-400 pointer-events-none">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                  </div>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    Used for 1-click password-free sign-in and restoring your submitted forms if you log out.
+                    We will send a 6-digit verification code to confirm your email address.
                   </p>
                 </div>
               )}
@@ -833,7 +1007,7 @@ export function WelcomeKiteOnboardingModal({
 
               <div>
                 <label htmlFor="field-invitation-code" className="block text-xs font-semibold text-slate-700 mb-1">
-                  State-Team Invitation Code *
+                  State-Team Invitation Code (Optional)
                 </label>
                 <div className="relative">
                   <input
@@ -841,7 +1015,6 @@ export function WelcomeKiteOnboardingModal({
                     type="text"
                     value={invitationCode}
                     onChange={(e) => setInvitationCode(e.target.value.toUpperCase())}
-                    required
                     placeholder="e.g. ALN-MH-7K9W-4P2R"
                     className="w-full px-3 py-2.5 text-sm font-mono tracking-wider bg-emerald-50/40 border border-emerald-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none uppercase transition-all"
                   />
@@ -850,7 +1023,7 @@ export function WelcomeKiteOnboardingModal({
                   </div>
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Enter the private code provided by your state programme team (e.g. from state coordinator email).
+                  Optional if registering via official email OTP, or enter code provided by your state coordinator.
                 </p>
               </div>
 
@@ -863,7 +1036,7 @@ export function WelcomeKiteOnboardingModal({
                   {isLoading ? (
                     <span className="inline-flex items-center gap-2 text-xs">
                       <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      Validating &amp; Creating Profile…
+                      Sending Verification Code…
                     </span>
                   ) : (
                     <>
@@ -871,6 +1044,104 @@ export function WelcomeKiteOnboardingModal({
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* TAB 2: NEW WORKER REGISTRATION (EMAIL OTP VERIFICATION STEP) */}
+          {activeTab === 'register' && regStep === 'otp' && (
+            <form onSubmit={handleVerifyRegOtpAndSubmit} noValidate className="space-y-4 animate-in fade-in duration-150">
+              <div className="border-b border-slate-100 pb-2">
+                <h3 className="text-sm font-bold text-slate-800">Verify Your Email Address</h3>
+                <p className="text-[11px] text-slate-500">
+                  A 6-digit verification code was dispatched to your email. Enter it below to complete registration and create your caseworker profile.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-teal-700" />
+                  <span className="text-xs font-semibold text-slate-800">{registerEmail}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegStep('details');
+                    setErrorMessage(null);
+                    setInfoMessage(null);
+                  }}
+                  className="text-[11px] text-teal-700 hover:underline font-medium cursor-pointer flex items-center gap-1"
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                  <span>Edit Details</span>
+                </button>
+              </div>
+
+              <div>
+                <label htmlFor="reg-otp" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Enter 6-Digit Code *
+                </label>
+                <div className="relative">
+                  <input
+                    ref={regOtpInputRef}
+                    id="reg-otp"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    value={regOtp}
+                    onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    required
+                    placeholder="••••••"
+                    className="w-full px-3 py-2.5 text-center text-lg font-mono tracking-widest bg-emerald-50/40 border border-emerald-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                  />
+                  <div className="absolute right-3 top-3 text-emerald-600 pointer-events-none">
+                    <KeyRound className="w-4 h-4 opacity-50" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-1 text-[11px]">
+                  <span className="text-slate-500">Valid for 10 minutes</span>
+                  {regOtpCooldown > 0 ? (
+                    <span className="text-slate-400">Resend in {regOtpCooldown}s</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResendRegOtp}
+                      disabled={isLoading}
+                      className="text-teal-700 hover:underline font-semibold cursor-pointer"
+                    >
+                      Resend Code
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="submit"
+                  disabled={isVerifyingRegOtp || regOtp.length !== 6}
+                  className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isVerifyingRegOtp ? (
+                    <span className="inline-flex items-center gap-2 text-xs">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Verifying &amp; Creating Profile…
+                    </span>
+                  ) : (
+                    <>
+                      <span>Verify Code &amp; Complete Registration</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRegStep('details')}
+                  className="w-full py-2 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors cursor-pointer"
+                >
+                  Back to Registration Details
                 </button>
               </div>
             </form>

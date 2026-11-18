@@ -61,12 +61,13 @@ export async function POST(req: NextRequest) {
 
   const ticketCookie = extractOnboardingTicketCookie(req);
   const ticket = verifyOnboardingTicket(ticketCookie);
+  const hasValidEmailTicket = Boolean(verifiedEmail && emailTicket);
 
-  if (!ticket && !invitationCode?.trim()) {
+  if (!ticket && !invitationCode?.trim() && !hasValidEmailTicket) {
     return NextResponse.json(
       {
         status: 'error',
-        error: 'Your onboarding session has expired. Please sign in or provide a valid state-team invitation code.',
+        error: 'Please verify your email via OTP or provide a valid state-team invitation code.',
       },
       { status: 401 }
     );
@@ -81,9 +82,9 @@ export async function POST(req: NextRequest) {
   if (!district?.trim()) {
     return NextResponse.json({ status: 'error', error: 'District selection is required.' }, { status: 400 });
   }
-  if (!invitationCode?.trim()) {
+  if (!invitationCode?.trim() && !hasValidEmailTicket && !ticket) {
     return NextResponse.json(
-      { status: 'error', error: 'State team invitation code is required.' },
+      { status: 'error', error: 'State team invitation code or verified email is required.' },
       { status: 400 }
     );
   }
@@ -91,52 +92,60 @@ export async function POST(req: NextRequest) {
   const store = getOnboardingStore();
   const now = Date.now();
 
-  // Rate limit: 10 attempts per 15 minutes to prevent brute forcing codes
-  const rateLimitKey = ticket
-    ? `field-onboarding-attempt:${ticket.googleSub}`
-    : `field-onboarding-attempt:inv:${invitationCode.trim().toUpperCase()}`;
+  let assignedState = state.trim();
+  let invitationId = hasValidEmailTicket ? `email_otp_${verifiedEmail}` : 'direct_registration';
 
-  const rateCheck = await store.checkRateLimit(
-    rateLimitKey,
-    now,
-    10,
-    15 * 60 * 1000
-  );
-  if (!rateCheck.allowed) {
-    return NextResponse.json(
-      {
-        status: 'error',
-        error: `Too many redemption attempts. Please wait ${rateCheck.retryAfterSeconds} seconds.`,
-      },
-      { status: 429 }
+  if (invitationCode?.trim()) {
+    // Rate limit: 10 attempts per 15 minutes to prevent brute forcing codes
+    const rateLimitKey = ticket
+      ? `field-onboarding-attempt:${ticket.googleSub}`
+      : `field-onboarding-attempt:inv:${invitationCode.trim().toUpperCase()}`;
+
+    const rateCheck = await store.checkRateLimit(
+      rateLimitKey,
+      now,
+      10,
+      15 * 60 * 1000
     );
-  }
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: `Too many redemption attempts. Please wait ${rateCheck.retryAfterSeconds} seconds.`,
+        },
+        { status: 429 }
+      );
+    }
 
-  // Validate the invitation code against the requested state
-  const validation = await store.findAndValidateInvitation(invitationCode, state, now);
-  if (!validation.valid || !validation.invitation) {
-    return NextResponse.json(
-      { status: 'error', error: validation.error || 'Invalid invitation code.' },
-      { status: validation.statusCode || 400 }
-    );
-  }
+    // Validate the invitation code against the requested state
+    const validation = await store.findAndValidateInvitation(invitationCode, state, now);
+    if (!validation.valid || !validation.invitation) {
+      return NextResponse.json(
+        { status: 'error', error: validation.error || 'Invalid invitation code.' },
+        { status: validation.statusCode || 400 }
+      );
+    }
 
-  const invitation = validation.invitation;
+    const invitation = validation.invitation;
 
-  // Atomically increment redemption count
-  const redemption = await store.atomicRedeemInvitation(invitation.id);
-  if (!redemption.success) {
-    return NextResponse.json(
-      {
-        status: 'error',
-        error: redemption.error || 'Invitation code has reached maximum redemption capacity.',
-      },
-      { status: 429 }
-    );
+    // Atomically increment redemption count
+    const redemption = await store.atomicRedeemInvitation(invitation.id);
+    if (!redemption.success) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: redemption.error || 'Invitation code has reached maximum redemption capacity.',
+        },
+        { status: 429 }
+      );
+    }
+
+    assignedState = invitation.state;
+    invitationId = invitation.id;
   }
 
   // Create persistent field user profile
-  // Note: assignedState is derived from the verified invitation, NOT client state override!
+  // Note: assignedState is derived from the verified invitation (if provided), or selected state
   const finalFirstName = firstName.trim();
   const finalLastName = (lastName || '').trim();
   const finalSrName = typeof srName === 'string' ? srName.trim() : '';
@@ -144,11 +153,11 @@ export async function POST(req: NextRequest) {
 
   const googleSub = ticket
     ? ticket.googleSub
-    : `direct_inv_${invitation.id}_${crypto.randomBytes(4).toString('hex')}`;
+    : `direct_fld_${crypto.randomBytes(8).toString('hex')}`;
 
   const googleEmail = ticket
     ? ticket.googleEmail
-    : (verifiedEmail || `${finalFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${invitation.id.slice(0, 6)}@allianceindia.local`);
+    : (verifiedEmail || `${finalFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${invitationId.slice(0, 6)}@allianceindia.local`);
 
   const profile = await store.createFieldUserProfile({
     googleSub,
@@ -157,9 +166,9 @@ export async function POST(req: NextRequest) {
     isMobileVerified,
     firstName: finalFirstName,
     lastName: finalLastName,
-    assignedState: invitation.state,
+    assignedState,
     assignedDistrict: district.trim(),
-    invitationId: invitation.id,
+    invitationId,
     srName: finalSrName,
     ssrName: finalSsrName,
   });

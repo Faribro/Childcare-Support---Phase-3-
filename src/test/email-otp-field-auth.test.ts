@@ -86,6 +86,44 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
       expect(savedProfile?.assignedState).toBe('Maharashtra');
       expect(savedProfile?.assignedDistrict).toBe('Pune');
     });
+
+    it('registers first-time caseworker using verified Email OTP ticket without invitation code and records in database', async () => {
+      const { createEmailTicket } = await import('@/lib/server/fieldEmailOtpChallenge');
+      const caseworkerEmail = 'shaukat.field@allianceindia.org';
+      const emailTicket = createEmailTicket(caseworkerEmail);
+
+      const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: 'Shaukat',
+          lastName: 'Sayyed',
+          state: 'Maharashtra',
+          district: 'Mumbai Suburban',
+          email: caseworkerEmail,
+          emailTicket,
+          srName: 'Alliance India Maharashtra SR',
+          ssrName: 'Mumbai Care Unit',
+        }),
+      });
+
+      const res = await completeOnboardingHandler(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.status).toBe('success');
+      expect(json.profile.firstName).toBe('Shaukat');
+      expect(json.profile.lastName).toBe('Sayyed');
+      expect(json.profile.googleEmail).toBe(caseworkerEmail);
+      expect(json.profile.id).toBeDefined();
+
+      // Verify record is committed in database
+      const savedProfile = await store.getFieldUserProfileByEmail(caseworkerEmail);
+      expect(savedProfile).not.toBeNull();
+      expect(savedProfile?.firstName).toBe('Shaukat');
+      expect(savedProfile?.assignedState).toBe('Maharashtra');
+      expect(savedProfile?.assignedDistrict).toBe('Mumbai Suburban');
+    });
   });
 
   describe('2. Request Email OTP (Sign-In & Anti-Enumeration)', () => {
