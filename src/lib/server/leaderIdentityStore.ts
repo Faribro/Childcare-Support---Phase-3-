@@ -37,10 +37,21 @@ export interface PublicDirectoryLeader {
 
 const SYNTHETIC_FIXTURE_LEADERS: LeaderIdentity[] = [
   {
+    id: 'lead-faridsayyed1010',
+    email: 'faridsayyed1010@gmail.com',
+    name: 'Farid Sayyed',
+    title: 'Programme Director',
+    role: 'LEADERSHIP',
+    allowedStates: ['*'],
+    allowedDistricts: ['*'],
+    isActive: true,
+    authVersion: 1,
+  },
+  {
     id: 'lead-ananya-roy',
     email: 'ananya.roy@example.org',
     name: 'Dr. Ananya Roy',
-    title: 'National Programme Director',
+    title: 'National Programme Director (Synthetic Test)',
     role: 'LEADERSHIP',
     allowedStates: ['*'],
     allowedDistricts: ['*'],
@@ -51,7 +62,7 @@ const SYNTHETIC_FIXTURE_LEADERS: LeaderIdentity[] = [
     id: 'lead-rajiv-menon',
     email: 'rajiv.menon@example.org',
     name: 'Rajiv Menon',
-    title: 'Senior Technical Lead',
+    title: 'Senior Technical Lead (Synthetic Test)',
     role: 'LEADERSHIP',
     allowedStates: ['*'],
     allowedDistricts: ['*'],

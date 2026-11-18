@@ -689,6 +689,18 @@ function doPost(e) {
       ).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (action === 'purgeStagingDriveFolders') {
+      var callerSecret = payload && (payload.secret || payload.currentSecret);
+      var currentSecret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
+      if (!callerSecret || callerSecret !== currentSecret) {
+        return errorResponse_('Unauthorized', 'UNAUTHORIZED', 401, requestId);
+      }
+      var purgeResult = purgeAllStagingDriveFolders_();
+      return ContentService.createTextOutput(
+        JSON.stringify(purgeResult)
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === 'cleanupStagingRun') {
       return cleanupStagingRun_(payload, requestId);
     }
@@ -4253,6 +4265,54 @@ function cleanupTestFolders_() {
     message: 'Trashed ' + trashed.length + ' dummy test folder(s). Any non-test folders preserved.',
     trashedCount: trashed.length,
     trashedFolders: trashed,
+  };
+}
+
+function purgeAllStagingDriveFolders_() {
+  var root = getOrCreateRootDocumentsFolder_();
+  var trashed = [];
+
+  if (root) {
+    var subFolders = root.getFolders();
+    while (subFolders.hasNext()) {
+      var f = subFolders.next();
+      var name = f.getName();
+      try {
+        f.setTrashed(true);
+        trashed.push('root/' + name);
+      } catch (err) {
+        Logger.log('Could not trash root folder ' + name + ': ' + err);
+      }
+    }
+    // Also trash any loose files in root
+    var files = root.getFiles();
+    while (files.hasNext()) {
+      var file = files.next();
+      try {
+        file.setTrashed(true);
+        trashed.push('root:file/' + file.getName());
+      } catch (fErr) {}
+    }
+  }
+
+  // Also search for specific folders named 'docs', 'csc', 'csc-docs', 'csc-storage' in Drive
+  var targetNames = ['docs', 'csc', 'csc-docs', 'csc-storage', 'csc_docs', 'csc_storage'];
+  for (var i = 0; i < targetNames.length; i++) {
+    var iter = DriveApp.getFoldersByName(targetNames[i]);
+    while (iter.hasNext()) {
+      var tf = iter.next();
+      try {
+        tf.setTrashed(true);
+        trashed.push('drive/' + tf.getName() + ' (' + tf.getId() + ')');
+      } catch (tErr) {}
+    }
+  }
+
+  return {
+    status: 'success',
+    message: 'Trashed ' + trashed.length + ' folder(s)/file(s) in Drive.',
+    trashedCount: trashed.length,
+    trashedItems: trashed,
   };
 }
 

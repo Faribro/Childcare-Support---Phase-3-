@@ -42,31 +42,14 @@ export interface ApprovedLeaderProfile {
   email?: string;
 }
 
-export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] =
-  process.env.NODE_ENV === 'production'
-    ? []
-    : [
-        {
-          id: 'lead-ananya-roy',
-          name: 'Dr. Ananya Roy',
-          title: 'National Programme Director',
-        },
-        {
-          id: 'lead-rajiv-menon',
-          name: 'Rajiv Menon',
-          title: 'Senior Technical Lead',
-        },
-        {
-          id: 'lead-priya-sharma',
-          name: 'Priya Sharma',
-          title: 'Regional Operations Head',
-        },
-        {
-          id: 'lead-samuel-k',
-          name: 'Samuel K',
-          title: 'Governance & Compliance Officer',
-        },
-      ];
+export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] = [
+  {
+    id: 'lead-faridsayyed1010',
+    name: 'Farid Sayyed',
+    title: 'Programme Director',
+    email: 'faridsayyed1010@gmail.com',
+  },
+];
 
 // Synthetic fixtures for local development & testing ONLY.
 // Gate: rendered ONLY when process.env.NODE_ENV !== 'production' AND NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true'.
