@@ -1,53 +1,40 @@
-# Task Plan: Fix 0.0.0.0:8080 Leak in Onboarding Flow & Validate Live Staging
+# Task Plan: Orientation Readiness — Complete Implementation, Staging Pre-Flight, & Production Release Plan
 
 ## Goal
-Eliminate the local development URL `https://0.0.0.0:8080` leak during field caseworker onboarding, ensure base URLs and redirects correctly resolve to the staging public URL (`https://cs-p3-production.web.app` or `https://childcare.allianceindia.org`), add regression tests, rebuild and redeploy staging revision on Cloud Run, and verify end-to-end.
+Complete all remaining local implementation for stable field worker identity, mobile OTP lifecycle with shared challenge storage, 83-column linelist contract verification, and secure evaluator role-switching. Prepare an exact staging deployment request for owner approval, and formalize a production release plan with frozen baselines.
 
-## User Constraints & Rules
-- Branch: strictly `gcp-migration`. Never touch `main`.
-- Environment: Staging (`cs-p3-production`, `csc-staging`). Production mutations strictly forbidden.
-- Zero secrets or PII in logs, commits, or responses.
-- Follow `/planning-with-files` and `/goal` (thorough verification before completion).
-
-## Current Phase: Complete
-
----
+## Current Phase: Complete (Awaiting Staging Approval)
 
 ## Phases & Tasks
 
-### Phase 1: Investigation & Root Cause Identification
-- [x] Task 1.1: Locate all occurrences of `0.0.0.0`, `req.url`, `redirectUrl`, `buildGoogleAuthUrl`, `NEXT_PUBLIC_APP_URL`, `APP_BASE_URL` across client components and API routes.
-- [x] Task 1.2: Check Cloud Run service `csc-staging` environment variables (`gcloud run services describe csc-staging`).
-- [x] Task 1.3: Inspect `cloudbuild.staging.yaml` and `Dockerfile` to see how `NEXT_PUBLIC_APP_URL` is passed and baked.
-- [x] Task 1.4: Document findings in `findings.md`.
-- **Status:** complete
+### Phase 1: Local OTP Gateway Integration & Durable Storage
+- [x] Pin exact `otpgateway` Docker image and digest: `ghcr.io/knadh/otpgateway:v0.3.0@sha256:7b5d1e2e9c12b7a70821b22e1b1d034989063eb778ecff9d0124c96d9dc86976`.
+- [x] Create `deploy/otpgateway/config.toml` with MSG91 India DLT-compliant webhook integration (`https://control.msg91.com/api/v5/otp`).
+- [x] Create `deploy/otpgateway/Dockerfile`.
+- [x] Implement `src/lib/server/firestoreOtpStore.ts` using Firestore `_otp_challenges` (prefixed with `_staging` if in staging on default db) with atomic `db.runTransaction()`, 60-second shared cooldown, 5/hr rate limits, 5-minute TTL, and single-use consumption.
+- [x] Integrate `DistributedFirestoreOtpProvider` into `src/lib/server/otpgatewayAdapter.ts` with fail-closed security guards preventing `MockOtpProvider` in `staging` or `production`.
+- [x] Create `src/test/multi-instance-otp-verification.test.ts` verifying atomic single-use (`ALREADY_USED`), cross-instance verification, shared cooldown, and attempt limits (5/5 passed).
+- **Status:** COMPLETE
 
-### Phase 2: Implementation & Fix
-- [x] Task 2.1: Implement canonical base URL resolver function `getBaseAppUrl(req)` that prioritizes forwarded host (`x-forwarded-host`, `x-fh-requested-host`), then `NEXT_PUBLIC_APP_URL` / `APP_URL`, and strictly forbids `0.0.0.0`, `127.0.0.1`, or `localhost` in non-development environments.
-- [x] Task 2.2: Fix `/api/auth/google/login/route.ts`, `/api/auth/google/callback/route.ts`, and `buildGoogleAuthUrl()` in `src/lib/server/googleAuth.ts`.
-- [x] Task 2.3: In `Dockerfile`, pass `ARG NEXT_PUBLIC_APP_URL` and `ENV` into Stage 3 runner; set `_NEXT_PUBLIC_APP_URL: 'https://childcare.allianceindia.org'` in `cloudbuild.staging.yaml`.
-- [x] Task 2.4: Write regression test suite `src/test/app-url-resolution.test.ts` (12 tests, 100% pass) asserting no redirect or generated URL contains `0.0.0.0` or `:8080`.
-- **Status:** complete
+### Phase 2: Workflow & Contract Parity Verification
+- [x] Verify canonical Linelist contract is exactly 83 columns in `gas/Code.js` and `apps-script-behavioral-simulation.test.ts` (26/26 passed). Phantom columns 84/85 rejected.
+- [x] Verify stable server-stamped submission ownership: client cannot override `authorId`; display-name authorization eliminated (`stable-ownership-and-mobile-otp.test.ts`, 11/11 passed).
+- [x] Restore agreed secure role-switching on Evaluation tab (`CompactMasthead.tsx`), prompting `EvaluationLoginModal` for authorized email OTP (`dashboard-auth-state-ux.test.tsx`, 11/11 passed).
+- [x] Verify post-approval bank passbook upload preserves `APPROVED` status and increments OCC revision ($N \to N+1$) (`edit-record-capabilities.test.ts`, 13/13 passed).
+- **Status:** COMPLETE
 
-### Phase 3: Verification & Build
-- [x] Task 3.1: Run `npx vitest run` across test suite (12 tests in `app-url-resolution.test.ts` + 25 onboarding tests passed).
-- [x] Task 3.2: Run `npx tsc --noEmit` type-check (0 errors).
-- [x] Task 3.3: Run `npm run build` locally (compiled successfully with exit code 0).
-- [x] Task 3.4: Commit code on `gcp-migration` (`f94a0cf`).
-- [x] Task 3.5: Submit Cloud Build for new staging container image (`2188a67b-a91c-4bee-8915-4f455a72d9fe` -> SUCCESS, digest `sha256:d86b97621406eec4e477e69d7249339e0839e94daaf57022d4f82877a5e8ad02`).
-- [x] Task 3.6: Deploy new revision `csc-staging-00018-2cw` to Cloud Run `csc-staging` with updated environment variables (`NEXT_PUBLIC_APP_URL`, `APP_URL`).
-- **Status:** complete
+### Phase 3: Comprehensive Regression & Build Gates
+- [x] Run full Vitest regression suite: 132 files passed, 1,702 tests passed, 26 skipped, 0 failed.
+- [x] Run TypeScript check: `npm run typecheck` (`tsc --noEmit`) -> 0 errors.
+- [x] Run Web production build: `npm run build` -> Next.js 14.2.35 standalone distribution created.
+- [x] Run Native client build: `npm run build:native-client` -> Vite build succeeded in 13.80s.
+- [x] Verify working tree clean on branch `gcp-migration`.
+- **Status:** COMPLETE
 
-### Phase 4: Live Staging Verification
-- [x] Task 4.1: Verify live endpoints on `https://cs-p3-production.web.app` and `https://childcare.allianceindia.org/app`.
-- [x] Task 4.2: Verify redirect Location header points to `https://...`, never `0.0.0.0:8080` (verified live HTTP 307 to `https://childcare.allianceindia.org/assessment/new?onboarding=direct&notice=google_auth_not_configured` and `https://cs-p3-production.web.app/...`).
-- [x] Task 4.3: Verify direct field caseworker onboarding (`POST /api/auth/field-user/complete-onboarding` returned success with session token and assigned profile).
-- [x] Task 4.4: Deliver final evidence table with commit SHA, revision ID, and proof.
-- **Status:** complete
-
-## Errors Encountered & Resolutions
-| Error | Attempt | Resolution |
-|---|---|---|
-| `resolveSafeRedirectUrl` preserved port 8080 when host was changed | 1 | Explicitly set `parsed.hostname = publicBase.hostname; parsed.port = publicBase.port;` |
-| `gcloud run deploy --set-env-vars` failed on comma in `ALLOWED_HOSTS` | 1 | Switched to `--update-env-vars="NEXT_PUBLIC_APP_URL=https://childcare.allianceindia.org,APP_URL=https://childcare.allianceindia.org"` |
-| `gcloud run deploy` initially failed when image was still uploading | 1 | Waited for Cloud Build `2188a67b` image push step to report SUCCESS before deploying |
+### Phase 4: Staging Resource Plan & Production Freeze Plan
+- [x] Document Cloud Run staging service name (`childcare-support-pwa-staging`), region (`asia-south1`), and namespace isolation on Firestore `(default)` database via `_staging_` prefixes.
+- [x] Provide exact Cloud Run deploy and traffic rollback commands.
+- [x] Formulate step-by-step Orientation Acceptance Test (Scenarios A through L).
+- [x] Provide PowerShell Android build commands and truthfully mark native device acceptance as `NOT TESTED`.
+- [x] Formalize Production Release Plan with frozen rollback baseline (Vercel commit `520f1a4`, deployment `dpl_6Xv8Cq9MyUiQBcBH7Q8zLig8S9zU`, Apps Script Version 35).
+- **Status:** COMPLETE

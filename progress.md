@@ -1,17 +1,23 @@
-# Progress Log: Elimination of 0.0.0.0:8080 Leak & Staging Verification
+# Progress Log: Orientation Readiness — Complete Implementation & Staging Pre-Flight
 
-## 2026-11-17
-- **05:55 UTC**: Investigated root cause of `https://0.0.0.0:8080` leak during onboarding redirect. Identified that Docker multi-stage build did not forward `ARG NEXT_PUBLIC_APP_URL` into the `runner` stage, and Node.js route handlers were using `new URL(path, req.url)` where `req.url` resolved to container local socket `http://0.0.0.0:8080`.
-- **06:01 UTC**: Created `src/lib/server/appUrl.ts` with `isInternalHost(host)`, `getPublicAppBaseUrl(req)`, and `resolveSafeRedirectUrl(targetPath, req)`.
-- **06:03 UTC**: Integrated `appUrl.ts` into `/api/auth/google/login`, `/api/auth/google/callback`, and `googleAuth.ts`.
-- **06:04 UTC**: Updated `Dockerfile` Stage 3 (`runner`) to define `ENV NEXT_PUBLIC_APP_URL`, `ENV APP_URL`, and `ENV APP_BASE_URL`. Updated `cloudbuild.staging.yaml` with canonical URL.
-- **06:05 UTC**: Wrote 12 unit and regression tests in `src/test/app-url-resolution.test.ts`. All 12 passed. Ran onboarding test suites (25 tests passed). Type-check passed with 0 errors.
-- **06:07 UTC**: Local Next.js build completed with code 0.
-- **06:08 UTC**: Committed changes to `gcp-migration` (`f94a0cf`).
-- **06:13 UTC**: Cloud Build `2188a67b-a91c-4bee-8915-4f455a72d9fe` completed successfully with image digest `sha256:d86b97621406eec4e477e69d7249339e0839e94daaf57022d4f82877a5e8ad02`.
-- **06:14 UTC**: Deployed new revision `csc-staging-00018-2cw` to Cloud Run `csc-staging`.
-- **06:15 UTC**: Verified live `/api/health` returning commit `csc-staging-00018-2cw`.
-- **06:15 UTC**: Tested live Google login redirect:
-  - `https://childcare.allianceindia.org/api/auth/google/login` -> HTTP 307 `Location: https://childcare.allianceindia.org/assessment/new?onboarding=direct&notice=google_auth_not_configured` (0.0.0.0:8080 completely eliminated).
-  - `https://cs-p3-production.web.app/api/auth/google/login` -> HTTP 307 `Location: https://cs-p3-production.web.app/assessment/new?onboarding=direct&notice=google_auth_not_configured`.
-- **06:17 UTC**: Verified live field caseworker direct registration (`POST /api/auth/field-user/complete-onboarding` with state invitation code `ALN-MH-WR5A-4G9T`). Succeeded with HTTP 200, returning session token, assigned profile, and redirect URL `/assessment/new`.
+## Latest State
+- **Branch**: `gcp-migration`
+- **Latest Commit**: `dae13600fef0dd3eb9294ae0f6c2d8aa32a00e57`
+- **Working Tree**: Clean (`nothing to commit, working tree clean`)
+- **Full Test Results**: 132 test files passed, 1,702 tests passed, 26 skipped, 0 failed
+- **TypeScript**: 0 errors
+- **Web Build**: Success (`next build`)
+- **Native Client Build**: Success (`vite build --config vite.native.config.ts` in 13.80s)
+
+## Verification Evidence Log
+| Capability | Test / Build File | Evidence / Metric | Status |
+|---|---|---|---|
+| **Multi-Instance OTP Storage** | `src/test/multi-instance-otp-verification.test.ts` | 5 passed (single-use, cooldown, limits, DB safe failure) | PASS |
+| **Stable Ownership & OTP Lifecycle** | `src/test/stable-ownership-and-mobile-otp.test.ts` | 11 passed (anti-collision, E.164 normalization, authorId stamped) | PASS |
+| **83-Column Sheet Contract** | `src/test/apps-script-behavioral-simulation.test.ts` | 26 passed (exact 83 columns, OCC revisions, formulas) | PASS |
+| **Post-Approval Passbook Upload** | `src/test/edit-record-capabilities.test.ts` | 13 passed (status preserved as `APPROVED`, revision $N \to N+1$) | PASS |
+| **Evaluation Secure Role-Switching** | `src/test/dashboard-auth-state-ux.test.tsx` | 11 passed (field locked, role modal trigger, scope restrictions) | PASS |
+| **TypeScript Typecheck** | `npm run typecheck` (`tsc --noEmit`) | 0 compilation errors | PASS |
+| **Production Web Build** | `npm run build` | Next.js 14.2.35 standalone bundle produced | PASS |
+| **Native Client Build** | `npm run build:native-client` | Vite client bundle compiled in 13.80s | PASS |
+| **Native Device Hardware Test** | Physical Android / ADB Device | No physical handset in local environment | NOT TESTED |
