@@ -23,6 +23,7 @@ interface FieldUserProfile {
   lastName?: string;
   assignedState?: string;
   assignedDistrict?: string;
+  maskedMobile?: string;
   srName?: string;
   ssrName?: string;
 }
@@ -222,6 +223,14 @@ export function ProfileMenu() {
                     <span className="text-slate-400">SSR Name:</span>
                     <span className="font-semibold text-slate-800 truncate max-w-[170px]" title={fieldProfile.ssrName}>
                       {fieldProfile.ssrName}
+                    </span>
+                  </div>
+                )}
+                {fieldProfile?.maskedMobile && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="text-slate-400">Mobile:</span>
+                    <span className="font-mono text-[11px] font-semibold text-slate-700">
+                      {fieldProfile.maskedMobile}
                     </span>
                   </div>
                 )}

@@ -364,6 +364,12 @@ export class DistributedFirestoreOtpProvider implements OtpProvider {
           error: 'SMS_GATEWAY_UNREACHABLE',
         };
       }
+    } else if (process.env.NODE_ENV !== 'test') {
+      return {
+        success: false,
+        message: 'SMS provider is not configured for live OTP delivery. Mobile login is currently unavailable.',
+        error: 'SMS_GATEWAY_NOT_CONFIGURED',
+      };
     }
 
     const last4 = mobileE164.slice(-4);

@@ -135,6 +135,8 @@ export function WelcomeKiteOnboardingModal({
 
     const persistLocal = (profileId?: string, profileName?: string) => {
       if (typeof window !== 'undefined') {
+        const cleanMobile = mobileNumber.trim().replace(/\D/g, '');
+        const maskedMobile = cleanMobile.length >= 4 ? `+91 ******${cleanMobile.slice(-4)}` : undefined;
         const profileObj = {
           id: profileId || `fld_local_${Date.now()}`,
           name: profileName || `${firstName.trim()} ${lastName.trim()}`.trim(),
@@ -142,7 +144,7 @@ export function WelcomeKiteOnboardingModal({
           lastName: lastName.trim(),
           assignedState: state.trim(),
           assignedDistrict: district.trim(),
-          mobileNumber: mobileNumber.trim() || undefined,
+          maskedMobile,
           srName: finalSr,
           ssrName: ssrName.trim(),
         };

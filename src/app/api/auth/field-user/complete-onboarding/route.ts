@@ -167,21 +167,24 @@ export async function POST(req: NextRequest) {
     ssrName: profile.ssrName,
   });
 
+  const safeProfile = {
+    id: profile.id,
+    name: `${profile.firstName} ${profile.lastName}`.trim(),
+    assignedState: profile.assignedState,
+    assignedDistrict: profile.assignedDistrict,
+    maskedMobile: profile.mobileNumber ? `+91 ******${profile.mobileNumber.slice(-4)}` : undefined,
+    srName: profile.srName,
+    ssrName: profile.ssrName,
+  };
+
   const response = NextResponse.json(
     {
       status: 'success',
       message: 'Onboarding completed successfully. Welcome to Childcare Support!',
       redirectUrl: '/assessment/new',
-      profile: {
-        id: profile.id,
-        name: `${profile.firstName} ${profile.lastName}`.trim(),
-        assignedState: profile.assignedState,
-        assignedDistrict: profile.assignedDistrict,
-        srName: profile.srName,
-        ssrName: profile.ssrName,
-      },
+      profile: safeProfile,
       data: {
-        profile,
+        profile: safeProfile,
         session: {
           role: 'FIELD_USER',
           token: sessionToken,

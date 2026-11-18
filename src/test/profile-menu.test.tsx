@@ -54,6 +54,7 @@ describe('ProfileMenu Component', () => {
         name: 'Sunita Patil',
         assignedState: 'Maharashtra',
         assignedDistrict: 'Pune',
+        maskedMobile: '+91 ******3210',
         srName: 'Alliance India SR',
         ssrName: 'Pune SSR Unit',
       })
@@ -67,6 +68,7 @@ describe('ProfileMenu Component', () => {
     expect(screen.getByText(/Field Caseworker/i)).toBeInTheDocument();
     expect(screen.getByText(/Maharashtra/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Pune/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('+91 ******3210')).toBeInTheDocument();
   });
 
   it('displays supervisor evaluator details when unlocked', () => {

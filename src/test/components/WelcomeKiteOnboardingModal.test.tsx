@@ -266,7 +266,8 @@ describe('WelcomeKiteOnboardingModal Component', () => {
 
     await waitFor(() => {
       const storedProfile = JSON.parse(localStorage.getItem('field_user_profile') || '{}');
-      expect(storedProfile.mobileNumber).toBe('9876543210');
+      expect(storedProfile.mobileNumber).toBeUndefined();
+      expect(storedProfile.maskedMobile).toBe('+91 ******3210');
       expect(mockOnClose).toHaveBeenCalled();
     });
   });
