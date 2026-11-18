@@ -48,6 +48,17 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
     }
   }, [isOpen, activeTab]);
 
+  // Keyboard navigation: Escape key closes modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen && !e.defaultPrevented) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleLogout = async () => {

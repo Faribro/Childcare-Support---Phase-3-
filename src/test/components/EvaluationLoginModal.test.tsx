@@ -55,7 +55,7 @@ describe('EvaluationLoginModal Component', () => {
     localStorage.clear();
   });
 
-  it('1. renders modal header, caseworker notice, and defaults to State Evaluation in email OTP mode', async () => {
+  it('1. renders modal header, caseworker notice, and defaults to State Evaluation with StateTeamAuthFlow', async () => {
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toBeDefined();
@@ -71,22 +71,22 @@ describe('EvaluationLoginModal Component', () => {
     expect(screen.getByRole('tab', { name: /State Evaluation/i })).toBeDefined();
     expect(screen.getByRole('tab', { name: /Leadership/i })).toBeDefined();
 
-    // Defaults to email OTP submode (StateTeamAuthFlow is mounted by default)
-    expect(screen.getByText(/Work Email OTP \/ Sign Up/i)).toBeDefined();
-    expect(screen.getByLabelText(/Email address/i)).toBeDefined();
-    expect(screen.getByLabelText(/First Name/i)).toBeDefined();
+    // Defaults to StateTeamAuthFlow (Sign In tab active)
+    expect(screen.getByRole('tab', { name: /Sign In/i })).toBeDefined();
+    expect(screen.getByRole('tab', { name: /New Coordinator/i })).toBeDefined();
+    expect(screen.getByLabelText(/Official Email Address/i)).toBeDefined();
   });
 
-  it('1b. switches to Shared Password sub-mode when Shared Password button is clicked', async () => {
+  it('1b. switches to New Coordinator registration in StateTeamAuthFlow', async () => {
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
-    const sharedPasswordBtn = screen.getByRole('button', { name: /Shared Password/i });
-    fireEvent.click(sharedPasswordBtn);
+    const newCoordBtn = screen.getByRole('tab', { name: /New Coordinator/i });
+    fireEvent.click(newCoordBtn);
 
-    // State Evaluation form inputs should now appear
-    expect(screen.getByLabelText(/Assigned State/i)).toBeDefined();
-    expect(screen.getByLabelText(/State Evaluation Password/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /Sign In & Unlock Evaluation/i })).toBeDefined();
+    // Registration form inputs should now appear
+    expect(screen.getByLabelText(/State Scope/i)).toBeDefined();
+    expect(screen.getByLabelText(/First Name/i)).toBeDefined();
+    expect(screen.getByLabelText(/Email address/i)).toBeDefined();
   });
 
   it('2. switches to Leadership tab and mounts LeadershipOtpFlow in-place', async () => {

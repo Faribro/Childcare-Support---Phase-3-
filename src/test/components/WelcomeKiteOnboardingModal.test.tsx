@@ -230,6 +230,7 @@ describe('WelcomeKiteOnboardingModal Component', () => {
         onClose={mockOnClose}
         onSuccess={mockOnSuccess}
         initialTicketData={{
+          googleEmail: 'kavita.sharma@allianceindia.org',
           firstName: 'Kavita',
           lastName: 'Sharma',
         }}

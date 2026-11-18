@@ -231,7 +231,7 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
       expect(setCookie).toContain('evaluation_session_token=');
     });
 
-    it('successfully onboards caseworker directly with invitation code when Google ticket is absent', async () => {
+    it('successfully onboards caseworker with verified email OTP ticket and invitation code when Google ticket is absent', async () => {
       // 1. Create approved state team and active invitation for Maharashtra
       const reg = await store.createStateTeamRegistration({
         firstName: 'Anjali',
@@ -244,9 +244,11 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
       await store.verifyStateTeamEmail(reg.workEmail);
 
       const { issueStateTeamInvitation } = await import('@/lib/server/stateTeamAuthChallenge');
+      const { createEmailTicket } = await import('@/lib/server/fieldEmailOtpChallenge');
       const inv = await issueStateTeamInvitation({ stateTeamId: reg.id });
+      const emailTicket = createEmailTicket('farid.sayyed@allianceindia.org');
 
-      // 2. Submit onboarding with NO ticket cookie (direct code redemption)
+      // 2. Submit onboarding with verified emailTicket and valid invitation code
       const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
         method: 'POST',
         headers: {
@@ -260,6 +262,7 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
           srName: 'CSC Sagar',
           ssrName: 'Pune care center',
           invitationCode: inv.plainInvitationCode,
+          emailTicket,
         }),
       });
 

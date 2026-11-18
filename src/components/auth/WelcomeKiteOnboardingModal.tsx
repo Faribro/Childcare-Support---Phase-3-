@@ -408,12 +408,21 @@ export function WelcomeKiteOnboardingModal({
       setErrorMessage('Please enter or select your State Sub-Recipient (SR) Name.');
       return;
     }
+    if (!invitationCode.trim()) {
+      setErrorMessage('Please enter your state-team invitation code.');
+      return;
+    }
 
-    const cleanEmail = registerEmail.trim().toLowerCase();
+    const cleanEmail = (registerEmail.trim() || googleEmail.trim()).toLowerCase();
 
     // If official email is entered and user is not authenticated via Google OAuth:
     // Request Email OTP for first-time registration verification
-    if (!googleEmail && cleanEmail && cleanEmail.includes('@')) {
+    if (!googleEmail) {
+      if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+        setErrorMessage('Please enter a valid official email address.');
+        return;
+      }
+
       setIsLoading(true);
       setErrorMessage(null);
       setInfoMessage(null);
@@ -444,12 +453,7 @@ export function WelcomeKiteOnboardingModal({
       }
     }
 
-    // Direct registration (Google OAuth, or invitation code provided without email)
-    if (!cleanEmail && !invitationCode.trim()) {
-      setErrorMessage('Please enter your official email address or state-team invitation code.');
-      return;
-    }
-
+    // Direct registration for pre-authenticated Google OAuth
     await executeRegistration();
   };
 
@@ -1007,7 +1011,7 @@ export function WelcomeKiteOnboardingModal({
 
               <div>
                 <label htmlFor="field-invitation-code" className="block text-xs font-semibold text-slate-700 mb-1">
-                  State-Team Invitation Code (Optional)
+                  State-Team Invitation Code *
                 </label>
                 <div className="relative">
                   <input
@@ -1015,6 +1019,7 @@ export function WelcomeKiteOnboardingModal({
                     type="text"
                     value={invitationCode}
                     onChange={(e) => setInvitationCode(e.target.value.toUpperCase())}
+                    required
                     placeholder="e.g. ALN-MH-7K9W-4P2R"
                     className="w-full px-3 py-2.5 text-sm font-mono tracking-wider bg-emerald-50/40 border border-emerald-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none uppercase transition-all"
                   />
@@ -1023,7 +1028,7 @@ export function WelcomeKiteOnboardingModal({
                   </div>
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Optional if registering via official email OTP, or enter code provided by your state coordinator.
+                  Enter the private code provided by your state programme team. Required for authorization.
                 </p>
               </div>
 

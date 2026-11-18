@@ -13,6 +13,7 @@ import { issueStateTeamInvitation } from '@/lib/server/stateTeamAuthChallenge';
 import {
   requestFieldEmailOtp,
   verifyFieldEmailOtp,
+  createEmailTicket,
   setTestEmailOtpStore,
   normalizeEmail,
 } from '@/lib/server/fieldEmailOtpChallenge';
@@ -48,8 +49,11 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
     invitationCode = inv.plainInvitationCode;
   });
 
-  describe('1. First-Time Registration with Invitation Code + Official Email', () => {
-    it('creates stable worker profile with verified googleEmail and issues session token', async () => {
+  describe('1. First-Time Registration with Mandatory Invitation Code + Email OTP Verification', () => {
+    it('creates stable worker profile with verified email OTP ticket + valid invitation code and issues session token', async () => {
+      const caseworkerEmail = 'ramesh.shinde@allianceindia.org';
+      const emailTicket = createEmailTicket(caseworkerEmail);
+
       const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,7 +62,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
           lastName: 'Shinde',
           state: 'Maharashtra',
           district: 'Pune',
-          email: 'ramesh.shinde@allianceindia.org',
+          emailTicket,
           invitationCode,
           srName: 'Alliance India Maharashtra SR',
           ssrName: 'Pune Care Unit',
@@ -71,7 +75,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
       expect(res.status).toBe(200);
       expect(json.status).toBe('success');
       expect(json.profile.firstName).toBe('Ramesh');
-      expect(json.profile.googleEmail).toBe('ramesh.shinde@allianceindia.org');
+      expect(json.profile.googleEmail).toBe(caseworkerEmail);
       expect(json.profile.id).toBeDefined();
       expect(json.data.session.role).toBe('FIELD_USER');
 
@@ -80,15 +84,14 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
       expect(setCookie).toContain('evaluation_session_token=');
 
       // Verify server store has the profile mapped by email
-      const savedProfile = await store.getFieldUserProfileByEmail('ramesh.shinde@allianceindia.org');
+      const savedProfile = await store.getFieldUserProfileByEmail(caseworkerEmail);
       expect(savedProfile).not.toBeNull();
       expect(savedProfile?.id).toBe(json.profile.id);
       expect(savedProfile?.assignedState).toBe('Maharashtra');
       expect(savedProfile?.assignedDistrict).toBe('Pune');
     });
 
-    it('registers first-time caseworker using verified Email OTP ticket without invitation code and records in database', async () => {
-      const { createEmailTicket } = await import('@/lib/server/fieldEmailOtpChallenge');
+    it('rejects registration when invitation code is missing even if email OTP ticket is valid', async () => {
       const caseworkerEmail = 'shaukat.field@allianceindia.org';
       const emailTicket = createEmailTicket(caseworkerEmail);
 
@@ -100,7 +103,6 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
           lastName: 'Sayyed',
           state: 'Maharashtra',
           district: 'Mumbai Suburban',
-          email: caseworkerEmail,
           emailTicket,
           srName: 'Alliance India Maharashtra SR',
           ssrName: 'Mumbai Care Unit',
@@ -110,19 +112,72 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
       const res = await completeOnboardingHandler(req);
       const json = await res.json();
 
-      expect(res.status).toBe(200);
-      expect(json.status).toBe('success');
-      expect(json.profile.firstName).toBe('Shaukat');
-      expect(json.profile.lastName).toBe('Sayyed');
-      expect(json.profile.googleEmail).toBe(caseworkerEmail);
-      expect(json.profile.id).toBeDefined();
+      expect(res.status).toBe(400);
+      expect(json.status).toBe('error');
+      expect(json.error).toMatch(/invitation code is required/i);
+    });
 
-      // Verify record is committed in database
-      const savedProfile = await store.getFieldUserProfileByEmail(caseworkerEmail);
-      expect(savedProfile).not.toBeNull();
-      expect(savedProfile?.firstName).toBe('Shaukat');
-      expect(savedProfile?.assignedState).toBe('Maharashtra');
-      expect(savedProfile?.assignedDistrict).toBe('Mumbai Suburban');
+    it('rejects registration when email verification ticket is missing', async () => {
+      const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: 'Unauthorized',
+          lastName: 'User',
+          state: 'Maharashtra',
+          district: 'Pune',
+          invitationCode,
+        }),
+      });
+
+      const res = await completeOnboardingHandler(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(json.status).toBe('error');
+      expect(json.error).toMatch(/verified official email is required/i);
+    });
+
+    it('prevents duplicate registration when email address is already registered', async () => {
+      const caseworkerEmail = 'duplicate.worker@allianceindia.org';
+      const emailTicket1 = createEmailTicket(caseworkerEmail);
+
+      // Register first time
+      const req1 = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: 'Initial',
+          lastName: 'Registration',
+          state: 'Maharashtra',
+          district: 'Pune',
+          emailTicket: emailTicket1,
+          invitationCode,
+        }),
+      });
+      const res1 = await completeOnboardingHandler(req1);
+      expect(res1.status).toBe(200);
+
+      // Attempt second registration with new ticket for same email
+      const emailTicket2 = createEmailTicket(caseworkerEmail);
+      const req2 = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: 'Duplicate',
+          lastName: 'Attempt',
+          state: 'Maharashtra',
+          district: 'Pune',
+          emailTicket: emailTicket2,
+          invitationCode,
+        }),
+      });
+      const res2 = await completeOnboardingHandler(req2);
+      const json2 = await res2.json();
+
+      expect(res2.status).toBe(409);
+      expect(json2.status).toBe('error');
+      expect(json2.error).toMatch(/already registered with this email address/i);
     });
   });
 
@@ -131,7 +186,8 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
     const workerEmail = 'sunita.patil@allianceindia.org';
 
     beforeEach(async () => {
-      // Register worker Sunita
+      // Register worker Sunita with invitationCode + emailTicket
+      const emailTicket = createEmailTicket(workerEmail);
       const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,7 +196,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
           lastName: 'Patil',
           state: 'Maharashtra',
           district: 'Pune',
-          email: workerEmail,
+          emailTicket,
           invitationCode,
           srName: 'Alliance India Maharashtra SR',
           ssrName: 'Pune Center',
@@ -187,6 +243,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
 
     it('enforces 60-second cooldown rate limit against immediate duplicate requests', async () => {
       const freshEmail = 'cooldown.tester@allianceindia.org';
+      const emailTicket = createEmailTicket(freshEmail);
       // Register worker for cooldown test
       const regReq = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
         method: 'POST',
@@ -196,7 +253,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
           lastName: 'Tester',
           state: 'Maharashtra',
           district: 'Pune',
-          email: freshEmail,
+          emailTicket,
           invitationCode,
           srName: 'Alliance India MH SR',
         }),
@@ -235,6 +292,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
     beforeEach(async () => {
       testIdx++;
       workerEmail = `deepak.kamble${testIdx}@allianceindia.org`;
+      const emailTicket = createEmailTicket(workerEmail);
 
       const req = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
         method: 'POST',
@@ -244,7 +302,7 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
           lastName: 'Kamble',
           state: 'Maharashtra',
           district: 'Nagpur',
-          email: workerEmail,
+          emailTicket,
           invitationCode,
           srName: 'Alliance India MH SR',
           ssrName: 'Nagpur NGO',

@@ -27,17 +27,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { firstName, lastName, state, district, invitationCode, srName, ssrName, email, emailTicket, mobileNumber, mobileTicket } = body || {};
-
-  let verifiedEmail: string | undefined = undefined;
-  if (emailTicket) {
-    const emailTicketCheck = verifyEmailTicket(emailTicket);
-    if (emailTicketCheck.valid && emailTicketCheck.email) {
-      verifiedEmail = emailTicketCheck.email;
-    }
-  } else if (email && typeof email === 'string' && email.includes('@')) {
-    verifiedEmail = email.trim().toLowerCase();
-  }
+  const { firstName, lastName, state, district, invitationCode, srName, ssrName, emailTicket, mobileNumber, mobileTicket } = body || {};
 
   let verifiedMobile: string | undefined = undefined;
   let isMobileVerified = false;
@@ -61,15 +51,43 @@ export async function POST(req: NextRequest) {
 
   const ticketCookie = extractOnboardingTicketCookie(req);
   const ticket = verifyOnboardingTicket(ticketCookie);
-  const hasValidEmailTicket = Boolean(verifiedEmail && emailTicket);
 
-  if (!ticket && !invitationCode?.trim() && !hasValidEmailTicket) {
+  let verifiedEmail: string | undefined = undefined;
+  if (emailTicket) {
+    const emailTicketCheck = verifyEmailTicket(emailTicket);
+    if (!emailTicketCheck.valid || !emailTicketCheck.email) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: emailTicketCheck.error || 'Invalid or expired email verification ticket. Please verify your email via OTP again.',
+        },
+        { status: 401 }
+      );
+    }
+    verifiedEmail = emailTicketCheck.email;
+  } else if (ticket) {
+    verifiedEmail = ticket.googleEmail;
+  }
+
+  // 1. Mandatory Email Verification requirement
+  if (!verifiedEmail) {
     return NextResponse.json(
       {
         status: 'error',
-        error: 'Please verify your email via OTP or provide a valid state-team invitation code.',
+        error: 'Verified official email is required. Please verify your email address via OTP.',
       },
       { status: 401 }
+    );
+  }
+
+  // 2. Mandatory State-Team Invitation Code requirement
+  if (!invitationCode?.trim()) {
+    return NextResponse.json(
+      {
+        status: 'error',
+        error: 'State team invitation code is required to authorize field-worker registration.',
+      },
+      { status: 400 }
     );
   }
 
@@ -82,70 +100,67 @@ export async function POST(req: NextRequest) {
   if (!district?.trim()) {
     return NextResponse.json({ status: 'error', error: 'District selection is required.' }, { status: 400 });
   }
-  if (!invitationCode?.trim() && !hasValidEmailTicket && !ticket) {
-    return NextResponse.json(
-      { status: 'error', error: 'State team invitation code or verified email is required.' },
-      { status: 400 }
-    );
-  }
 
   const store = getOnboardingStore();
   const now = Date.now();
 
-  let assignedState = state.trim();
-  let invitationId = hasValidEmailTicket ? `email_otp_${verifiedEmail}` : 'direct_registration';
-
-  if (invitationCode?.trim()) {
-    // Rate limit: 10 attempts per 15 minutes to prevent brute forcing codes
-    const rateLimitKey = ticket
-      ? `field-onboarding-attempt:${ticket.googleSub}`
-      : `field-onboarding-attempt:inv:${invitationCode.trim().toUpperCase()}`;
-
-    const rateCheck = await store.checkRateLimit(
-      rateLimitKey,
-      now,
-      10,
-      15 * 60 * 1000
+  // 3. Prevent duplicate registration for the same verified email
+  const existingProfile = await store.getFieldUserProfileByEmail(verifiedEmail);
+  if (existingProfile) {
+    return NextResponse.json(
+      {
+        status: 'error',
+        error: 'A caseworker profile is already registered with this email address. Please sign in under Returning Caseworker.',
+      },
+      { status: 409 }
     );
-    if (!rateCheck.allowed) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          error: `Too many redemption attempts. Please wait ${rateCheck.retryAfterSeconds} seconds.`,
-        },
-        { status: 429 }
-      );
-    }
-
-    // Validate the invitation code against the requested state
-    const validation = await store.findAndValidateInvitation(invitationCode, state, now);
-    if (!validation.valid || !validation.invitation) {
-      return NextResponse.json(
-        { status: 'error', error: validation.error || 'Invalid invitation code.' },
-        { status: validation.statusCode || 400 }
-      );
-    }
-
-    const invitation = validation.invitation;
-
-    // Atomically increment redemption count
-    const redemption = await store.atomicRedeemInvitation(invitation.id);
-    if (!redemption.success) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          error: redemption.error || 'Invitation code has reached maximum redemption capacity.',
-        },
-        { status: 429 }
-      );
-    }
-
-    assignedState = invitation.state;
-    invitationId = invitation.id;
   }
 
-  // Create persistent field user profile
-  // Note: assignedState is derived from the verified invitation (if provided), or selected state
+  // 4. Rate limit: 10 attempts per 15 minutes to prevent brute forcing codes
+  const rateLimitKey = ticket
+    ? `field-onboarding-attempt:${ticket.googleSub}`
+    : `field-onboarding-attempt:inv:${invitationCode.trim().toUpperCase()}`;
+
+  const rateCheck = await store.checkRateLimit(
+    rateLimitKey,
+    now,
+    10,
+    15 * 60 * 1000
+  );
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      {
+        status: 'error',
+        error: `Too many redemption attempts. Please wait ${rateCheck.retryAfterSeconds} seconds.`,
+      },
+      { status: 429 }
+    );
+  }
+
+  // 5. Validate the invitation code against the requested state
+  const validation = await store.findAndValidateInvitation(invitationCode, state, now);
+  if (!validation.valid || !validation.invitation) {
+    return NextResponse.json(
+      { status: 'error', error: validation.error || 'Invalid or expired state team invitation code.' },
+      { status: validation.statusCode || 400 }
+    );
+  }
+
+  const invitation = validation.invitation;
+
+  // 6. Atomically increment redemption count
+  const redemption = await store.atomicRedeemInvitation(invitation.id);
+  if (!redemption.success) {
+    return NextResponse.json(
+      {
+        status: 'error',
+        error: redemption.error || 'Invitation code has reached maximum redemption capacity.',
+      },
+      { status: 429 }
+    );
+  }
+
+  // 7. Create persistent, stable field user profile bound to invitation state
   const finalFirstName = firstName.trim();
   const finalLastName = (lastName || '').trim();
   const finalSrName = typeof srName === 'string' ? srName.trim() : '';
@@ -153,22 +168,18 @@ export async function POST(req: NextRequest) {
 
   const googleSub = ticket
     ? ticket.googleSub
-    : `direct_fld_${crypto.randomBytes(8).toString('hex')}`;
-
-  const googleEmail = ticket
-    ? ticket.googleEmail
-    : (verifiedEmail || `${finalFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${invitationId.slice(0, 6)}@allianceindia.local`);
+    : `fld_sub_${crypto.createHash('sha256').update(verifiedEmail).digest('hex').slice(0, 16)}`;
 
   const profile = await store.createFieldUserProfile({
     googleSub,
-    googleEmail,
+    googleEmail: verifiedEmail,
     mobileNumber: verifiedMobile,
     isMobileVerified,
     firstName: finalFirstName,
     lastName: finalLastName,
-    assignedState,
+    assignedState: invitation.state,
     assignedDistrict: district.trim(),
-    invitationId,
+    invitationId: invitation.id,
     srName: finalSrName,
     ssrName: finalSsrName,
   });

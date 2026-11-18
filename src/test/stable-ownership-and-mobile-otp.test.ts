@@ -127,7 +127,10 @@ describe('Stable Submission Ownership & Mobile OTP Verification', () => {
       const verifyData = await verifyRes.json();
       expect(verifyData.mobileTicket).toBeDefined();
 
-      // Step C: Complete Onboarding with verified mobile ticket
+      // Step C: Complete Onboarding with verified mobile ticket and email ticket
+      const { createEmailTicket } = await import('@/lib/server/fieldEmailOtpChallenge');
+      const emailTicket = createEmailTicket('ramesh.pawar@allianceindia.org');
+
       const completeReq = new NextRequest('http://localhost:3000/api/auth/field-user/complete-onboarding', {
         method: 'POST',
         headers: {
@@ -141,6 +144,7 @@ describe('Stable Submission Ownership & Mobile OTP Verification', () => {
           district: 'Pune',
           invitationCode: 'MHA-TEST-INV-01',
           mobileTicket: verifyData.mobileTicket,
+          emailTicket,
         }),
       });
       const completeRes = await completeOnboardingRoute(completeReq);

@@ -108,9 +108,11 @@ describe('LeadershipOtpFlow Component', () => {
     // Real combobox is present with approved profiles
     expect(screen.getByRole('combobox')).toBeDefined();
     fireEvent.click(screen.getByRole('combobox'));
-    expect(screen.getByText('Dr. Ananya Roy')).toBeDefined();
-    expect(screen.getByText('Rajiv Menon')).toBeDefined();
-    // Synthetic demo accounts are strictly excluded
+    expect(screen.getByText('Farid Sayyed')).toBeDefined();
+    expect(screen.getByText('M Balani')).toBeDefined();
+    expect(screen.getByText('Pramod Kumar')).toBeDefined();
+    // Synthetic demo accounts and removed dummy accounts are strictly excluded
+    expect(screen.queryByText(/Rajiv Menon/i)).toBeNull();
     expect(screen.queryByText(/Alex Rivera/i)).toBeNull();
     expect(screen.queryByText(/Synthetic Demo/i)).toBeNull();
   });
@@ -428,7 +430,7 @@ describe('LeadershipOtpFlow Component', () => {
     });
   });
 
-  it('8. falls back to shared password form when email authentication is explicitly disabled by server', async () => {
+  it('8. displays unavailable state when email authentication is explicitly disabled by server without shared password fallback', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
         return {
@@ -445,11 +447,11 @@ describe('LeadershipOtpFlow Component', () => {
     render(<LeadershipOtpFlow isModal={true} />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Leadership Shared Password/i)).toBeDefined();
+      expect(screen.getByText(/Leadership Sign-In Unavailable/i)).toBeDefined();
     });
 
-    expect(screen.getByText(/Individual email sign-in is disabled on this environment/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /Sign In & Unlock Leadership/i })).toBeDefined();
+    expect(screen.getByText(/Leadership email authentication is currently disabled on this environment/i)).toBeDefined();
+    expect(screen.queryByLabelText(/Leadership Shared Password/i)).toBeNull();
   });
 
   it('9. security: feature-status network error does NOT enable shared-password fallback; renders retry state', async () => {
@@ -938,8 +940,8 @@ describe('LeadershipOtpFlow Component', () => {
     expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
   });
 
-  it('19. status policy consistency: respects documented policy modes (email_only, password_only, hybrid)', async () => {
-    // Mode A: email_only explicitly disabled -> indicates cutover without password fallback
+  it('19. status policy consistency: respects documented policy modes and never displays shared password', async () => {
+    // Mode A: email_only explicitly disabled -> indicates unavailable without password fallback
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
         return {
@@ -957,35 +959,14 @@ describe('LeadershipOtpFlow Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Leadership Sign-In Unavailable/i)).toBeDefined();
-      expect(screen.getByText(/retired under server cutover policy/i)).toBeDefined();
     });
 
-    // Shared password input must NOT be shown when email_only is policy
+    // Shared password input must NOT be shown
     expect(screen.queryByLabelText(/Shared Evaluation Password/i)).toBeNull();
+    expect(screen.queryByLabelText(/Leadership Shared Password/i)).toBeNull();
     unmount();
 
-    // Mode B: password_only with email disabled -> renders shared password fallback
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
-      if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
-        return {
-          ok: true,
-          json: async () => ({
-            status: 'success',
-            data: { emailAuthEnabled: false, authMode: 'password_only' },
-          }),
-        } as Response;
-      }
-      return { ok: false } as Response;
-    });
-
-    const { unmount: unmount2 } = render(<LeadershipOtpFlow isModal={true} />);
-
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Leadership Shared Password/i)).toBeDefined();
-    });
-    unmount2();
-
-    // Mode C: hybrid with email enabled -> renders email input
+    // Mode B: hybrid with email enabled -> renders email input
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
         return {
@@ -1088,9 +1069,9 @@ describe('LeadershipOtpFlow Component', () => {
       expect(screen.getByRole('combobox')).toBeDefined();
     });
 
-    // Open combobox and select Dr. Ananya Roy
+    // Open combobox and select Farid Sayyed
     fireEvent.click(screen.getByRole('combobox'));
-    const leaderOption = screen.getByText('Dr. Ananya Roy').closest('li');
+    const leaderOption = screen.getByText('Farid Sayyed').closest('li');
     expect(leaderOption).toBeDefined();
     fireEvent.click(leaderOption!);
 
@@ -1103,7 +1084,7 @@ describe('LeadershipOtpFlow Component', () => {
     });
 
     // Verifies that leaderId was passed for server-side resolution
-    expect(capturedBody.leaderId).toBe('lead-ananya-roy');
+    expect(capturedBody.leaderId).toBe('lead-faridsayyed1010');
   });
 
   it('22. temporary burst throttling: sets accurate countdown from retryAfterSeconds on 429 response', async () => {

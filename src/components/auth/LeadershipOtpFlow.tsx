@@ -73,16 +73,6 @@ export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] = [
     title: 'Surveillance Lead',
     email: 'mbamrotiya@allianceindia.org',
   },
-  {
-    id: 'lead-priya-sharma',
-    name: 'Priya Sharma',
-    title: 'Regional Operations Head',
-  },
-  {
-    id: 'lead-samuel-k',
-    name: 'Samuel K',
-    title: 'Governance & Compliance Officer',
-  },
 ];
 
 // Synthetic fixtures for local development & testing ONLY.
