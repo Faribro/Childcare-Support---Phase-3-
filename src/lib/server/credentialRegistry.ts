@@ -205,6 +205,7 @@ export async function getFirestoreDb(customDb?: any) {
   activeFirestoreDb = new FirestoreClass({
     projectId,
     databaseId: databaseId === '(default)' ? undefined : databaseId,
+    ignoreUndefinedProperties: true,
   });
   return activeFirestoreDb;
 }

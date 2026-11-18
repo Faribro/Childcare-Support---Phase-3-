@@ -2028,7 +2028,14 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       updatedAt: now,
     };
 
-    await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(profile);
+    const cleanProfile: Record<string, any> = { ...profile };
+    Object.keys(cleanProfile).forEach((k) => {
+      if (cleanProfile[k] === undefined) {
+        delete cleanProfile[k];
+      }
+    });
+
+    await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(cleanProfile);
     return profile;
   }
 
@@ -2106,7 +2113,14 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       updatedAt: Date.now(),
     };
 
-    await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(updated);
+    const cleanUpdated: Record<string, any> = { ...updated };
+    Object.keys(cleanUpdated).forEach((k) => {
+      if (cleanUpdated[k] === undefined) {
+        delete cleanUpdated[k];
+      }
+    });
+
+    await db.collection(FIELD_USER_PROFILES_COLLECTION).doc(id).set(cleanUpdated);
     return updated;
   }
 }
