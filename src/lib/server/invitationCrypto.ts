@@ -11,7 +11,7 @@
 
 import crypto from 'crypto';
 
-export const DEFAULT_INVITATION_EXPIRY_DAYS = 30;
+export const DEFAULT_INVITATION_EXPIRY_DAYS = 36500; // Permanent / No expiration (100 years)
 export const DEFAULT_INVITATION_EXPIRY_MS = DEFAULT_INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 export const DEFAULT_MAX_REDEMPTIONS = 50;
 

@@ -31,10 +31,12 @@ export function StateTeamAuthFlow({
   onSwitchToPassword,
 }: StateTeamAuthFlowProps) {
   const router = useRouter();
+  const [subTab, setSubTab] = useState<'signin' | 'register' | 'otp_signin'>('signin');
   const [step, setStep] = useState<'details' | 'otp' | 'ready'>('details');
 
   // Registration & Login Fields
   const [workEmail, setWorkEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [requestedState, setRequestedState] = useState('Maharashtra');
@@ -53,15 +55,79 @@ export function StateTeamAuthFlow({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const otpInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (step === 'details') {
+    if (subTab === 'signin') {
+      setTimeout(() => emailInputRef.current?.focus(), 60);
+    } else if (subTab === 'register' && step === 'details') {
       setTimeout(() => emailInputRef.current?.focus(), 60);
     } else if (step === 'otp') {
       setTimeout(() => otpInputRef.current?.focus(), 60);
     }
-  }, [step]);
+  }, [subTab, step]);
+
+  // Handler: Password-based sign in
+  const handlePasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workEmail.trim() || !password.trim()) {
+      setErrorMessage('Please enter your official email and password.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessIdentifier: workEmail.trim(),
+          password: password.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.status === 'error') {
+        setErrorMessage(data.message || 'Invalid email address or evaluation password.');
+        setIsLoading(false);
+        return;
+      }
+
+      const user = data.data?.user;
+      if (user) {
+        const authedUser: EvaluationUser = {
+          userId: user.userId || `coord-${workEmail.trim()}`,
+          name: user.name || workEmail.split('@')[0],
+          role: user.role || 'STATE_REVIEWER',
+          allowedStates: user.allowedStates || ['Maharashtra'],
+          allowedDistricts: user.allowedDistricts || [],
+          isVerified: true,
+          canEdit: true,
+        };
+        setEvaluationUnlocked(true, authedUser);
+        setSuccessMessage('Signed in successfully! Redirecting to dashboard…');
+        setTimeout(() => {
+          onSuccess?.();
+          router.push('/supervisor');
+        }, 500);
+      } else {
+        setSuccessMessage('Signed in successfully! Redirecting…');
+        setTimeout(() => {
+          onSuccess?.();
+          router.push('/supervisor');
+        }, 500);
+      }
+    } catch {
+      setErrorMessage('Network or server error during sign in.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Step 1: Send OTP / Register
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -228,8 +294,140 @@ export function StateTeamAuthFlow({
         </div>
       )}
 
-      {/* Step 1: Registration / Login details */}
+      {/* Sub-tab switcher: Sign In vs New Registration */}
       {step === 'details' && (
+        <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl gap-1" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={subTab === 'signin'}
+            onClick={() => {
+              setSubTab('signin');
+              setErrorMessage(null);
+            }}
+            className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              subTab === 'signin'
+                ? 'bg-white text-teal-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Lock className="w-3.5 h-3.5" />
+            Sign In
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={subTab === 'register'}
+            onClick={() => {
+              setSubTab('register');
+              setErrorMessage(null);
+            }}
+            className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              subTab === 'register'
+                ? 'bg-white text-teal-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            New Coordinator
+          </button>
+        </div>
+      )}
+
+      {/* Mode A: Sign in with Password */}
+      {step === 'details' && subTab === 'signin' && (
+        <form onSubmit={handlePasswordSignIn} className="space-y-3.5">
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+            Sign in using your official email address and the all-time evaluation password sent to your email.
+          </div>
+
+          <div>
+            <label htmlFor="st-login-email" className="block text-xs font-semibold text-slate-700 mb-1">
+              Official Email Address
+            </label>
+            <div className="relative">
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+              <input
+                ref={emailInputRef}
+                id="st-login-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={workEmail}
+                onChange={(e) => setWorkEmail(e.target.value)}
+                placeholder="coordinator@allianceindia.org"
+                className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="st-login-password" className="block text-xs font-semibold text-slate-700">
+                Evaluation Password
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSubTab('register');
+                  setErrorMessage(null);
+                }}
+                className="text-[11px] text-teal-700 hover:text-teal-900 font-medium transition-colors cursor-pointer"
+              >
+                Forgot password?
+              </button>
+            </div>
+            <div className="relative">
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+              <input
+                ref={passwordInputRef}
+                id="st-login-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your personal evaluation password"
+                className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col gap-2">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isLoading ? (
+                <span className="inline-flex items-center gap-2 text-xs">
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  Signing in…
+                </span>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  Sign In with Password
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('register');
+                setErrorMessage(null);
+              }}
+              className="text-xs text-slate-500 hover:text-slate-800 py-1 transition-colors underline cursor-pointer text-center"
+            >
+              First time here? Register as New Coordinator
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Mode B: Registration / First-Time details */}
+      {step === 'details' && subTab === 'register' && (
         <form onSubmit={handleSendOtp} className="space-y-3.5">
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
             Enter your official programme credentials to receive an email OTP and manage team invitations.

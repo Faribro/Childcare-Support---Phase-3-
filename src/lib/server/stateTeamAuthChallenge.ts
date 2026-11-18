@@ -14,7 +14,8 @@
 import crypto from 'crypto';
 import { getOnboardingStore } from './onboardingStore';
 import { sendStateTeamOtpEmail, sendStateTeamInvitationEmail, sendAdminPendingRegistrationEmail } from './emailProvider';
-import { createSessionToken } from './sessionService';
+import { createSessionToken, hashPassword } from './sessionService';
+import { getFirestoreDb } from './credentialRegistry';
 import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 import {
   generatePlaintextInvitationCode,
@@ -25,6 +26,7 @@ import {
   DEFAULT_MAX_REDEMPTIONS,
   DEFAULT_INVITATION_EXPIRY_MS,
   DEFAULT_INVITATION_EXPIRY_DAYS,
+  getStateAbbreviation,
 } from './invitationCrypto';
 
 export const STATE_TEAM_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -203,7 +205,34 @@ export async function requestStateTeamOtp(params: {
   await store.saveStateTeamChallenge(challenge);
   activeChallenges.set(normEmail, challenge);
 
-  // Dispatch combined email with Section A (OTP) and Section B (Invitation Code)
+  // Generate permanent personal login password for state evaluation access
+  const stateCode = getStateAbbreviation(registration.requestedState) || 'MH';
+  const personalPassword = `ALN-${stateCode}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+
+  // Persist personal credentials in evaluation_credentials store
+  try {
+    const passwordHash = await hashPassword(personalPassword);
+    const db = await getFirestoreDb();
+    if (db) {
+      await db.collection('evaluation_credentials').doc(normEmail.toUpperCase()).set({
+        id: `coord-${normEmail}`,
+        accessIdentifier: normEmail.toUpperCase(),
+        displayName: `${registration.firstName} ${registration.lastName}`.trim(),
+        credentialKind: 'STATE_EVALUATION',
+        stateCode,
+        programmeScope: ['alliance-childcare-phase3'],
+        passwordHash,
+        credentialVersion: 1,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
+  } catch (err: any) {
+    console.warn('[STATE_TEAM_AUTH] Failed to persist evaluation_credentials in Firestore:', err?.message);
+  }
+
+  // Dispatch combined email with Section A (OTP), All-Time Password, and Section B (Invitation Code)
   const emailResult = await sendStateTeamOtpEmail({
     to: normEmail,
     name: challenge.name,
@@ -214,6 +243,7 @@ export async function requestStateTeamOtp(params: {
     invitationExpiryDays: DEFAULT_INVITATION_EXPIRY_DAYS,
     maxRedemptions: DEFAULT_MAX_REDEMPTIONS,
     isPreApproved: autoApprove,
+    personalPassword,
   });
 
   if (!emailResult.success) {

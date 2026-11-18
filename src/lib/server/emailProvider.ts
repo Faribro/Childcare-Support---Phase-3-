@@ -487,9 +487,10 @@ export async function sendStateTeamOtpEmail({
   code,
   expiryMinutes = 10,
   invitationCode,
-  invitationExpiryDays = 30,
+  invitationExpiryDays,
   maxRedemptions = 50,
   isPreApproved = false,
+  personalPassword,
 }: {
   to: string;
   name: string;
@@ -500,11 +501,32 @@ export async function sendStateTeamOtpEmail({
   invitationExpiryDays?: number;
   maxRedemptions?: number;
   isPreApproved?: boolean;
+  personalPassword?: string;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
   const subject = invitationCode
     ? `Your State Team Verification & Field Invitation Code — ${state}`
     : `Your State Team Verification Code — ${state}`;
+
+  const personalPasswordHtml = personalPassword
+    ? `
+      <div style="margin-top: 24px; padding: 18px; background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; margin-bottom: 24px;">
+        <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 4px;">STATE EVALUATION ACCESS</span>
+        <h3 style="color: #064e3b; font-size: 16px; font-weight: 700; margin: 0 0 6px 0;">Your All-Time Login Password</h3>
+        <p style="color: #047857; font-size: 13px; line-height: 1.5; margin: 0 0 10px 0;">
+          Keep this password safe. You can use your official email address (<strong>${to}</strong>) and this password to sign in to the State Evaluation portal anytime:
+        </p>
+        <div style="background-color: #ffffff; border: 1px solid #6ee7b7; border-radius: 8px; padding: 12px; text-align: center; margin-bottom: 8px;">
+          <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 22px; font-weight: 800; letter-spacing: 0.12em; color: #064e3b; display: block;">
+            ${personalPassword}
+          </code>
+        </div>
+        <p style="color: #047857; font-size: 12px; margin: 0;">
+          ✓ <strong>Validity:</strong> Permanent (No expiration). Use this to sign in directly without waiting for one-time codes.
+        </p>
+      </div>
+    `
+    : '';
 
   const invitationSectionHtml = invitationCode
     ? `
@@ -533,7 +555,7 @@ export async function sendStateTeamOtpEmail({
 
         <div style="font-size: 13px; color: #334155; line-height: 1.6; margin-bottom: 16px;">
           <p style="margin: 0 0 4px 0;"><strong>State Scope:</strong> ${state}</p>
-          <p style="margin: 0 0 4px 0;"><strong>Validity:</strong> ${invitationExpiryDays} days</p>
+          <p style="margin: 0 0 4px 0;"><strong>Validity:</strong> Permanent (No expiration)</p>
           <p style="margin: 0 0 4px 0;"><strong>Maximum Capacity:</strong> Up to ${maxRedemptions} authorized caseworkers</p>
         </div>
 
@@ -590,6 +612,8 @@ export async function sendStateTeamOtpEmail({
             </p>
           </div>
 
+          ${personalPasswordHtml}
+
           ${invitationSectionHtml}
 
           <p style="color: #94a3b8; font-size: 11px; line-height: 1.5; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
@@ -600,6 +624,16 @@ export async function sendStateTeamOtpEmail({
     </html>
   `;
 
+  const personalPasswordText = personalPassword
+    ? `
+All-Time State Evaluation Login Password:
+----------------------------------------
+Password: ${personalPassword}
+Validity: Permanent (No expiration)
+Use your official email (${to}) and this password to sign in to State Evaluation anytime.
+`
+    : '';
+
   const text = invitationCode
     ? `India HIV/AIDS Alliance — Childcare Support Programme
 State Team Access (${state})
@@ -609,12 +643,12 @@ SECTION A: Your personal email verification code
 Your verification code is: ${code}
 Expires in: ${expiryMinutes} minutes
 IMPORTANT: For your email verification only. Do not share with field users or caseworkers.
-
+${personalPasswordText}
 SECTION B: Your field-team invitation code
 -----------------------------------------
 Field Team Invitation Code: ${invitationCode}
 State Scope: ${state}
-Validity: ${invitationExpiryDays} days
+Validity: Permanent (No expiration)
 Maximum Capacity: Up to ${maxRedemptions} authorized caseworkers
 Activation Status: ${
         isPreApproved
@@ -632,7 +666,8 @@ Share privately with authorized field caseworkers only.`.trim()
     : `Your State Team verification code for ${state} is: ${code}
 
 This code expires in ${expiryMinutes} minutes.
-For your email verification only. Do not share.`.trim();
+For your email verification only. Do not share.
+${personalPasswordText}`.trim();
 
   return provider.sendEmail({
     to,
@@ -768,7 +803,7 @@ export async function sendStateTeamInvitationEmail({
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.6;">
             <ul style="margin: 0; padding-left: 18px;">
               <li><strong>Authorized Scope:</strong> Valid only for field users registering under <strong>${state}</strong>.</li>
-              <li><strong>Validity:</strong> Expires in <strong>${expiryDays} days</strong>.</li>
+              <li><strong>Validity:</strong> <strong>Permanent (No expiration)</strong>.</li>
               <li><strong>Redemption Capacity:</strong> Up to <strong>${maxRedemptions} field caseworkers</strong>.</li>
               <li><strong>Security Note:</strong> Distribute this code directly to your caseworkers via private channels. Do not publish it publicly.</li>
             </ul>
@@ -787,7 +822,7 @@ Field Team Invitation Code for ${state}:
 Code: ${plainCode}
 
 Valid for ${state} caseworkers.
-Expires in ${expiryDays} days (maximum ${maxRedemptions} redemptions).
+Validity: Permanent (No expiration) (maximum ${maxRedemptions} redemptions).
 Distribute privately.
   `.trim();
 
