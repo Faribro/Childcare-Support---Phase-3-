@@ -11,9 +11,15 @@ import {
   Building,
   MapPin,
   Sparkles,
+  Mail,
+  KeyRound,
+  RotateCcw,
+  Send,
 } from 'lucide-react';
 import { INDIAN_STATES_AND_UTS } from '@/lib/clinical/nutritionCalculations';
 import { DistrictCombobox } from '@/components/forms/DistrictCombobox';
+import { setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
 
 interface WelcomeKiteOnboardingModalProps {
   isOpen: boolean;
@@ -24,6 +30,7 @@ interface WelcomeKiteOnboardingModalProps {
     firstName?: string;
     lastName?: string;
   } | null;
+  initialMode?: 'signin' | 'register';
 }
 
 export function WelcomeKiteOnboardingModal({
@@ -31,11 +38,24 @@ export function WelcomeKiteOnboardingModal({
   onClose,
   onSuccess,
   initialTicketData,
+  initialMode,
 }: WelcomeKiteOnboardingModalProps) {
   const router = useRouter();
-  // Direct caseworker profile setup only (Google OAuth signup removed for field workers)
-  const [step] = useState<'profile'>('profile');
+
+  // Mode switcher: Returning worker (Email OTP) vs New registration
+  const [activeTab, setActiveTab] = useState<'register' | 'signin'>(() => initialMode || 'register');
+
+  // Sign In (Email OTP) State
+  const [signInEmail, setSignInEmail] = useState('');
+  const [signInCode, setSignInCode] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  // Registration State
   const [googleEmail, setGoogleEmail] = useState(() => initialTicketData?.googleEmail || '');
+  const [registerEmail, setRegisterEmail] = useState(() => initialTicketData?.googleEmail || '');
   const [firstName, setFirstName] = useState(() => initialTicketData?.firstName || '');
   const [lastName, setLastName] = useState(() => initialTicketData?.lastName || '');
   const [state, setState] = useState('Maharashtra');
@@ -52,6 +72,17 @@ export function WelcomeKiteOnboardingModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const firstNameInputRef = useRef<HTMLInputElement>(null);
+  const signInEmailInputRef = useRef<HTMLInputElement>(null);
+  const otpInputRef = useRef<HTMLInputElement>(null);
+
+  // Cooldown countdown effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (otpCooldown > 0) {
+      timer = setTimeout(() => setOtpCooldown((prev) => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [otpCooldown]);
 
   // Load active State SRs for the selected state
   useEffect(() => {
@@ -74,20 +105,29 @@ export function WelcomeKiteOnboardingModal({
           setIsCustomSr(true);
         });
     }
-  }, [state]);
+  }, [isOpen, state]);
 
-  // Check if onboarding ticket already exists in cookie
+  // Reset/focus on open
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
+      setInfoMessage(null);
+      if (initialMode) {
+        setActiveTab(initialMode);
+      }
       if (initialTicketData?.googleEmail) {
         setGoogleEmail(initialTicketData.googleEmail);
+        setRegisterEmail(initialTicketData.googleEmail);
         setFirstName(initialTicketData.firstName || '');
         setLastName(initialTicketData.lastName || '');
       }
-      setTimeout(() => firstNameInputRef.current?.focus(), 80);
+      if (activeTab === 'register') {
+        setTimeout(() => firstNameInputRef.current?.focus(), 80);
+      } else {
+        setTimeout(() => signInEmailInputRef.current?.focus(), 80);
+      }
     }
-  }, [isOpen, initialTicketData]);
+  }, [isOpen, initialTicketData, initialMode, activeTab]);
 
   // Escape key closes modal
   useEffect(() => {
@@ -102,6 +142,125 @@ export function WelcomeKiteOnboardingModal({
 
   if (!isOpen) return null;
 
+  // --------------------------------------------------------------------------
+  // Returning Caseworker: Email OTP Request & Verification Handlers
+  // --------------------------------------------------------------------------
+  const handleRequestSignInOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanEmail = signInEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setErrorMessage('Please enter a valid official email address.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/field-user/email-otp/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, purpose: 'login' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        setErrorMessage(data.error || 'Failed to send sign-in code.');
+        setIsSigningIn(false);
+        return;
+      }
+      setIsOtpSent(true);
+      setOtpCooldown(60);
+      setInfoMessage(data.message || '6-digit sign-in code sent to your email. Valid for 10 minutes.');
+      setIsSigningIn(false);
+      setTimeout(() => otpInputRef.current?.focus(), 100);
+    } catch {
+      setErrorMessage('Network error requesting sign-in code. Please check your connection.');
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleVerifySignInOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = signInCode.trim();
+    if (!cleanCode || cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+      setErrorMessage('Please enter the 6-digit numeric verification code.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/field-user/email-otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: signInEmail.trim().toLowerCase(),
+          code: cleanCode,
+          purpose: 'login',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        setErrorMessage(data.error || 'Verification code failed. Please check and try again.');
+        setIsSigningIn(false);
+        return;
+      }
+
+      const profile = data.profile;
+      if (typeof window !== 'undefined' && profile) {
+        localStorage.setItem('field_user_profile', JSON.stringify(profile));
+        if (profile.srName) {
+          localStorage.setItem(
+            'field_user_sr',
+            JSON.stringify({
+              srName: profile.srName,
+              ssrName: profile.ssrName || '',
+            })
+          );
+        }
+      }
+
+      // Secure storage backup for mobile native persistence
+      try {
+        if (data.sessionToken) {
+          const storage = platformRegistry.getSecureStorage();
+          await storage.setSecret('field_session_token', data.sessionToken);
+        }
+      } catch (_) {}
+
+      // Update evaluation session context
+      if (profile) {
+        setEvaluationUnlocked(false, {
+          userId: profile.id,
+          name: profile.name,
+          role: 'FIELD_USER',
+          allowedStates: [profile.assignedState],
+          allowedDistricts: [profile.assignedDistrict],
+          isVerified: true,
+        });
+      }
+
+      setIsSigningIn(false);
+      onSuccess?.();
+      onClose();
+      router.push('/app');
+      if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
+        try {
+          window.location.reload();
+        } catch (_) {}
+      }
+    } catch {
+      setErrorMessage('Network or server error during sign-in. Please try again.');
+      setIsSigningIn(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // New Worker Registration Submission Handler
+  // --------------------------------------------------------------------------
   const handleSubmitProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim()) {
@@ -133,7 +292,7 @@ export function WelcomeKiteOnboardingModal({
     setIsLoading(true);
     setErrorMessage(null);
 
-    const persistLocal = (profileId?: string, profileName?: string) => {
+    const persistLocal = (profileId?: string, profileName?: string, userEmail?: string) => {
       if (typeof window !== 'undefined') {
         const cleanMobile = mobileNumber.trim().replace(/\D/g, '');
         const maskedMobile = cleanMobile.length >= 4 ? `+91 ******${cleanMobile.slice(-4)}` : undefined;
@@ -144,15 +303,19 @@ export function WelcomeKiteOnboardingModal({
           lastName: lastName.trim(),
           assignedState: state.trim(),
           assignedDistrict: district.trim(),
+          googleEmail: userEmail || registerEmail.trim() || googleEmail.trim() || undefined,
           maskedMobile,
           srName: finalSr,
           ssrName: ssrName.trim(),
         };
         localStorage.setItem('field_user_profile', JSON.stringify(profileObj));
-        localStorage.setItem('field_user_sr', JSON.stringify({
-          srName: finalSr,
-          ssrName: ssrName.trim(),
-        }));
+        localStorage.setItem(
+          'field_user_sr',
+          JSON.stringify({
+            srName: finalSr,
+            ssrName: ssrName.trim(),
+          })
+        );
       }
     };
 
@@ -166,6 +329,7 @@ export function WelcomeKiteOnboardingModal({
             lastName: lastName.trim(),
             state: state.trim(),
             district: district.trim(),
+            email: registerEmail.trim() || googleEmail.trim() || undefined,
             mobileNumber: mobileNumber.trim() || undefined,
             invitationCode: invitationCode.trim(),
             srName: finalSr,
@@ -181,7 +345,27 @@ export function WelcomeKiteOnboardingModal({
           return;
         }
 
-        persistLocal(data.profile?.id, data.profile?.name);
+        persistLocal(data.profile?.id, data.profile?.name, data.profile?.googleEmail);
+
+        // Save session token in native secure storage if returned
+        try {
+          if (data.data?.session?.token) {
+            const storage = platformRegistry.getSecureStorage();
+            await storage.setSecret('field_session_token', data.data.session.token);
+          }
+        } catch (_) {}
+
+        if (data.profile) {
+          setEvaluationUnlocked(false, {
+            userId: data.profile.id,
+            name: data.profile.name,
+            role: 'FIELD_USER',
+            allowedStates: [data.profile.assignedState],
+            allowedDistricts: [data.profile.assignedDistrict],
+            isVerified: true,
+          });
+        }
+
         onSuccess?.();
         onClose();
         router.push(data.redirectUrl || '/assessment/new');
@@ -210,7 +394,7 @@ export function WelcomeKiteOnboardingModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Playful & Pastoral Kite Header Banner */}
-        <div className="relative bg-gradient-to-br from-teal-800 via-teal-700 to-emerald-800 px-6 py-6 text-white shrink-0 overflow-hidden">
+        <div className="relative bg-gradient-to-br from-teal-800 via-teal-700 to-emerald-800 px-6 py-5 text-white shrink-0 overflow-hidden">
           {/* Subtle background SVG Kite Motif */}
           <div className="absolute right-4 -top-2 opacity-15 pointer-events-none" aria-hidden="true">
             <svg width="140" height="140" viewBox="0 0 100 100" fill="none">
@@ -223,7 +407,7 @@ export function WelcomeKiteOnboardingModal({
 
           <div className="flex items-start justify-between relative z-10">
             <div className="flex items-center gap-3.5">
-              {/* Animated/Pastoral Kite Icon Badge */}
+              {/* Kite Icon Badge */}
               <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-inner shrink-0">
                 <svg width="28" height="28" viewBox="0 0 32 32" fill="none" className="transform -rotate-12">
                   <polygon points="16,3 28,15 16,27 4,15" fill="#38BDF8" fillOpacity="0.85" stroke="#FFFFFF" strokeWidth="2" />
@@ -254,8 +438,44 @@ export function WelcomeKiteOnboardingModal({
           </div>
         </div>
 
-        {/* Modal Body: Direct Caseworker Registration */}
-        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+        {/* Tab Switcher: Returning Worker (Email OTP) vs New Registration */}
+        <div className="flex border-b border-slate-100 bg-slate-50/80 px-6 pt-2.5 gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('register');
+              setErrorMessage(null);
+              setInfoMessage(null);
+            }}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'register'
+                ? 'border-teal-700 text-teal-900'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+            <span>New Registration</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('signin');
+              setErrorMessage(null);
+              setInfoMessage(null);
+            }}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'signin'
+                ? 'border-teal-700 text-teal-900'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Mail className="w-3.5 h-3.5 text-teal-700" />
+            <span>Returning Caseworker</span>
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 overflow-y-auto space-y-4 flex-1">
           {errorMessage && (
             <div
               role="alert"
@@ -266,89 +486,254 @@ export function WelcomeKiteOnboardingModal({
             </div>
           )}
 
-          <form onSubmit={handleSubmitProfile} noValidate className="space-y-4">
-            <div className="border-b border-slate-100 pb-2">
-              <h3 className="text-sm font-bold text-slate-800">Complete Field Profile</h3>
-              <p className="text-[11px] text-slate-500">
-                Register with your state programme using the private invitation code provided by your state coordinator.
-              </p>
+          {infoMessage && (
+            <div
+              role="status"
+              className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 text-xs text-teal-800 flex items-start gap-2.5 animate-in fade-in"
+            >
+              <CheckCircle className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">{infoMessage}</div>
             </div>
+          )}
 
-            {googleEmail && (
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  <span className="text-xs font-semibold text-slate-800">{googleEmail}</span>
+          {/* TAB 1: RETURNING CASEWORKER (EMAIL OTP SIGN IN) */}
+          {activeTab === 'signin' && (
+            <div className="space-y-4 animate-in fade-in duration-150">
+              <div className="border-b border-slate-100 pb-2">
+                <h3 className="text-sm font-bold text-slate-800">Sign In to Your Existing Account</h3>
+                <p className="text-[11px] text-slate-500">
+                  Enter your registered official email. We will send you a 6-digit verification code to restore your profile and all previous submissions.
+                </p>
+              </div>
+
+              {!isOtpSent ? (
+                <form onSubmit={handleRequestSignInOtp} noValidate className="space-y-4">
+                  <div>
+                    <label htmlFor="signin-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                      Official Email Address *
+                    </label>
+                    <div className="relative">
+                      <input
+                        ref={signInEmailInputRef}
+                        id="signin-email"
+                        type="email"
+                        value={signInEmail}
+                        onChange={(e) => setSignInEmail(e.target.value)}
+                        required
+                        placeholder="e.g. caseworker@allianceindia.org"
+                        className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all pl-9"
+                      />
+                      <div className="absolute left-3 top-2.5 text-slate-400 pointer-events-none">
+                        <Mail className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      We will send a 6-digit single-use code valid for 10 minutes.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSigningIn}
+                    className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSigningIn ? (
+                      <span className="inline-flex items-center gap-2 text-xs">
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        Sending 6-Digit Code…
+                      </span>
+                    ) : (
+                      <>
+                        <span>Send Sign-in Code</span>
+                        <Send className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleVerifySignInOtp} noValidate className="space-y-4">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-teal-700" />
+                      <span className="text-xs font-semibold text-slate-800">{signInEmail}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOtpSent(false);
+                        setSignInCode('');
+                        setErrorMessage(null);
+                        setInfoMessage(null);
+                      }}
+                      className="text-[11px] text-teal-700 hover:underline font-medium cursor-pointer"
+                    >
+                      Change Email
+                    </button>
+                  </div>
+
+                  <div>
+                    <label htmlFor="signin-otp" className="block text-xs font-semibold text-slate-700 mb-1">
+                      Enter 6-Digit Code *
+                    </label>
+                    <div className="relative">
+                      <input
+                        ref={otpInputRef}
+                        id="signin-otp"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d{6}"
+                        maxLength={6}
+                        value={signInCode}
+                        onChange={(e) => setSignInCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        required
+                        placeholder="••••••"
+                        className="w-full px-3 py-2.5 text-center text-lg font-mono tracking-widest bg-emerald-50/40 border border-emerald-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                      />
+                      <div className="absolute right-3 top-3 text-emerald-600 pointer-events-none">
+                        <KeyRound className="w-4 h-4 opacity-50" />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-1 text-[11px]">
+                      <span className="text-slate-500">Max 3 attempts per code</span>
+                      {otpCooldown > 0 ? (
+                        <span className="text-slate-400">Resend in {otpCooldown}s</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleRequestSignInOtp()}
+                          disabled={isSigningIn}
+                          className="text-teal-700 hover:underline font-semibold cursor-pointer"
+                        >
+                          Resend Code
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSigningIn || signInCode.length !== 6}
+                    className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSigningIn ? (
+                      <span className="inline-flex items-center gap-2 text-xs">
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        Verifying Code…
+                      </span>
+                    ) : (
+                      <>
+                        <span>Verify &amp; Restore Account</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* TAB 2: NEW WORKER REGISTRATION */}
+          {activeTab === 'register' && (
+            <form onSubmit={handleSubmitProfile} noValidate className="space-y-4 animate-in fade-in duration-150">
+              <div className="border-b border-slate-100 pb-2">
+                <h3 className="text-sm font-bold text-slate-800">Complete Field Profile</h3>
+                <p className="text-[11px] text-slate-500">
+                  Register with your state programme using the private invitation code provided by your state coordinator.
+                </p>
+              </div>
+
+              {googleEmail && (
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-semibold text-slate-800">{googleEmail}</span>
+                  </div>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
+                    Linked Account
+                  </span>
                 </div>
-                <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
-                  Linked Account
-                </span>
-              </div>
-            )}
+              )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="field-first-name" className="block text-xs font-semibold text-slate-700 mb-1">
-                  First Name *
-                </label>
-                <input
-                  ref={firstNameInputRef}
-                  id="field-first-name"
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  required
-                  placeholder="Enter first name"
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label htmlFor="field-last-name" className="block text-xs font-semibold text-slate-700 mb-1">
-                  Last Name
-                </label>
-                <input
-                  id="field-last-name"
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Single name supported"
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="field-state-select" className="block text-xs font-semibold text-slate-700 mb-1">
-                  State / UT *
-                </label>
-                <select
-                  id="field-state-select"
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all cursor-pointer"
-                >
-                  {INDIAN_STATES_AND_UTS.map((st) => (
-                    <option key={st} value={st}>
-                      {st}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="field-first-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                    First Name *
+                  </label>
+                  <input
+                    ref={firstNameInputRef}
+                    id="field-first-name"
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    required
+                    placeholder="Enter first name"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="field-last-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Last Name
+                  </label>
+                  <input
+                    id="field-last-name"
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Single name supported"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                  />
+                </div>
               </div>
 
-              {/* Searchable District Combobox with 'Other' Fallback */}
-              <div>
-                <DistrictCombobox
-                  state={state}
-                  value={district}
-                  onChange={setDistrict}
-                  required
-                />
-              </div>
-            </div>
+              {!googleEmail && (
+                <div>
+                  <label htmlFor="field-register-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Official Email Address (Recommended)
+                  </label>
+                  <input
+                    id="field-register-email"
+                    type="email"
+                    value={registerEmail}
+                    onChange={(e) => setRegisterEmail(e.target.value)}
+                    placeholder="e.g. caseworker@allianceindia.org"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Used for 1-click password-free sign-in and restoring your submitted forms if you log out.
+                  </p>
+                </div>
+              )}
 
-              {/* SR & SSR Name Fields (Collected ONCE during onboarding/registration) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="field-state-select" className="block text-xs font-semibold text-slate-700 mb-1">
+                    State / UT *
+                  </label>
+                  <select
+                    id="field-state-select"
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all cursor-pointer"
+                  >
+                    {INDIAN_STATES_AND_UTS.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <DistrictCombobox
+                    state={state}
+                    value={district}
+                    onChange={setDistrict}
+                    required
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="field-sr-name" className="block text-xs font-semibold text-slate-700 mb-1">
@@ -436,7 +821,7 @@ export function WelcomeKiteOnboardingModal({
                   />
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Used for password-free mobile OTP account sign-in and recovery.
+                  Optional contact number for field coordination.
                 </p>
               </div>
 
@@ -483,6 +868,7 @@ export function WelcomeKiteOnboardingModal({
                 </button>
               </div>
             </form>
+          )}
         </div>
       </div>
     </div>

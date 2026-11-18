@@ -12,9 +12,11 @@ import {
   AlertTriangle,
   X,
   ChevronDown,
+  Mail,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
 
 interface FieldUserProfile {
   id?: string;
@@ -24,6 +26,7 @@ interface FieldUserProfile {
   assignedState?: string;
   assignedDistrict?: string;
   maskedMobile?: string;
+  googleEmail?: string;
   srName?: string;
   ssrName?: string;
 }
@@ -107,15 +110,22 @@ export function ProfileMenu() {
         localStorage.removeItem('field_user_profile');
         localStorage.removeItem('field_user_sr');
       }
+      try {
+        const storage = platformRegistry.getSecureStorage();
+        await storage.removeSecret('field_session_token');
+      } catch (_) {}
       await logout();
       // Server-side session cookie clearance
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
       await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
     } finally {
       setIsOpen(false);
       setShowLogoutConfirm(false);
       router.push('/app');
-      if (typeof window !== 'undefined') {
-        window.location.reload();
+      if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
+        try {
+          window.location.reload();
+        } catch (_) {}
       }
     }
   };
@@ -201,6 +211,16 @@ export function ProfileMenu() {
                     <span className="font-mono text-[11px] font-semibold text-slate-700">{fieldProfile.id}</span>
                   </div>
                 )}
+                {fieldProfile?.googleEmail && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <Mail className="w-3 h-3" /> Email:
+                    </span>
+                    <span className="font-semibold text-slate-800 truncate max-w-[170px]" title={fieldProfile.googleEmail}>
+                      {fieldProfile.googleEmail}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-slate-600">
                   <span className="text-slate-400 flex items-center gap-1">
                     <MapPin className="w-3 h-3" /> State / District:
@@ -240,6 +260,24 @@ export function ProfileMenu() {
 
           {/* Action Links */}
           <div className="p-2 space-y-1">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setIsOpen(false);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(
+                    new CustomEvent('child_nutrition:open_welcome_kite', { detail: { mode: 'signin' } })
+                  );
+                }
+                router.push('/app?onboarding=open&mode=signin');
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-teal-800 bg-teal-50/70 hover:bg-teal-100/70 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+            >
+              <Mail className="w-4 h-4 text-teal-700" />
+              <span>Sign In / Restore Account (Email OTP)</span>
+            </button>
+
             <button
               type="button"
               role="menuitem"

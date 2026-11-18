@@ -22,6 +22,7 @@ export default function FieldWorkspacePage() {
   const router = useRouter();
   const { user } = useEvaluationAccess();
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [onboardingInitialMode, setOnboardingInitialMode] = useState<'signin' | 'register'>('register');
 
   // Decoupled state for Drafts
   const [draftCount, setDraftCount] = useState<number | null>(null);
@@ -297,14 +298,29 @@ export default function FieldWorkspacePage() {
     }
   }, [user?.isVerified, refreshSubmitted]);
 
-  // Check for onboarding query flag on mount
+  // Check for onboarding query flag on mount & custom events
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('onboarding') === 'open' || params.get('onboarding') === '1') {
+        if (params.get('mode') === 'signin') {
+          setOnboardingInitialMode('signin');
+        }
         setIsOnboardingOpen(true);
       }
     }
+
+    const handleOpenWelcomeKite = (e: any) => {
+      if (e?.detail?.mode === 'signin') {
+        setOnboardingInitialMode('signin');
+      } else if (e?.detail?.mode === 'register') {
+        setOnboardingInitialMode('register');
+      }
+      setIsOnboardingOpen(true);
+    };
+
+    window.addEventListener('child_nutrition:open_welcome_kite', handleOpenWelcomeKite);
+    return () => window.removeEventListener('child_nutrition:open_welcome_kite', handleOpenWelcomeKite);
   }, []);
 
   const handleStartNewSurvey = useCallback(
@@ -589,6 +605,7 @@ export default function FieldWorkspacePage() {
       {/* Welcome Kite First-Time Field User Onboarding Modal */}
       <WelcomeKiteOnboardingModal
         isOpen={isOnboardingOpen}
+        initialMode={onboardingInitialMode}
         onClose={() => setIsOnboardingOpen(false)}
         onSuccess={() => {
           setIsOnboardingOpen(false);

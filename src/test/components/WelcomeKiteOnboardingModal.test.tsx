@@ -271,4 +271,106 @@ describe('WelcomeKiteOnboardingModal Component', () => {
       expect(mockOnClose).toHaveBeenCalled();
     });
   });
+
+  it('9. allows switching to Returning Caseworker tab and requesting email OTP', async () => {
+    (global.fetch as any).mockImplementation((url: string) => {
+      if (url === '/api/auth/field-user/email-otp/request') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'success', message: '6-digit sign-in code sent to your email.' }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<WelcomeKiteOnboardingModal isOpen={true} onClose={vi.fn()} />);
+
+    // Click Returning Caseworker tab
+    const returnTab = screen.getByRole('button', { name: /Returning Caseworker/i });
+    fireEvent.click(returnTab);
+
+    expect(screen.getByText('Sign In to Your Existing Account')).toBeDefined();
+    expect(screen.getByLabelText(/Official Email Address/i)).toBeDefined();
+
+    // Enter email
+    const emailInput = screen.getByLabelText(/Official Email Address/i);
+    fireEvent.change(emailInput, { target: { value: 'caseworker@allianceindia.org' } });
+
+    // Click Send Sign-in Code
+    const sendBtn = screen.getByRole('button', { name: /Send Sign-in Code/i });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/6-digit sign-in code sent/i)).toBeDefined();
+      expect(screen.getByLabelText(/Enter 6-Digit Code/i)).toBeDefined();
+    });
+  });
+
+  it('10. verifies 6-digit code, restores profile in localStorage, and triggers onSuccess', async () => {
+    const mockOnSuccess = vi.fn();
+    const mockOnClose = vi.fn();
+
+    (global.fetch as any).mockImplementation((url: string) => {
+      if (url === '/api/auth/field-user/email-otp/request') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'success', message: 'Code sent.' }),
+        });
+      }
+      if (url === '/api/auth/field-user/email-otp/verify') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            status: 'success',
+            sessionToken: 'test_session_token_123',
+            profile: {
+              id: 'fld_worker_stable_999',
+              name: 'Suresh Kumar',
+              assignedState: 'Maharashtra',
+              assignedDistrict: 'Pune',
+              srName: 'Alliance India SR',
+              ssrName: 'Pune Center',
+              googleEmail: 'suresh@allianceindia.org',
+            },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(
+      <WelcomeKiteOnboardingModal
+        isOpen={true}
+        initialMode="signin"
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
+    );
+
+    // Request code
+    const emailInput = screen.getByLabelText(/Official Email Address/i);
+    fireEvent.change(emailInput, { target: { value: 'suresh@allianceindia.org' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send Sign-in Code/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Enter 6-Digit Code/i)).toBeDefined();
+    });
+
+    // Enter 6-digit code
+    const otpInput = screen.getByLabelText(/Enter 6-Digit Code/i);
+    fireEvent.change(otpInput, { target: { value: '654321' } });
+
+    // Verify
+    const verifyBtn = screen.getByRole('button', { name: /Verify & Restore Account/i });
+    fireEvent.click(verifyBtn);
+
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('field_user_profile') || '{}');
+      expect(stored.id).toBe('fld_worker_stable_999');
+      expect(stored.name).toBe('Suresh Kumar');
+      expect(stored.googleEmail).toBe('suresh@allianceindia.org');
+      expect(mockOnSuccess).toHaveBeenCalled();
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
 });

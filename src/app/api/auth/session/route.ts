@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveUserAccessScope, shouldClearLeaderSessionCookie } from '@/lib/server/authorisation';
 import { clearLeaderSessionCookie } from '@/lib/server/leaderSessionStore';
+import { clearSessionCookie } from '@/lib/server/sessionService';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,3 +40,17 @@ export async function GET(req: NextRequest) {
 
   return response;
 }
+
+export async function DELETE(req: NextRequest) {
+  const response = NextResponse.json(
+    {
+      status: 'success',
+      message: 'Session cleared successfully.',
+    },
+    { headers: NO_STORE_HEADERS }
+  );
+
+  clearSessionCookie(response, req);
+  return response;
+}
+

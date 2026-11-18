@@ -9,6 +9,7 @@ import { getOnboardingStore } from '@/lib/server/onboardingStore';
 import { createSessionToken, setSessionCookie } from '@/lib/server/sessionService';
 import { validateMutationOrigin } from '@/lib/server/authorisation';
 import { verifyMobileTicket, validateAndFormatIndianMobile } from '@/lib/server/phoneValidation';
+import { verifyEmailTicket } from '@/lib/server/fieldEmailOtpChallenge';
 
 export async function POST(req: NextRequest) {
   const originCheck = validateMutationOrigin(req);
@@ -26,7 +27,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { firstName, lastName, state, district, invitationCode, srName, ssrName, email, mobileNumber, mobileTicket } = body || {};
+  const { firstName, lastName, state, district, invitationCode, srName, ssrName, email, emailTicket, mobileNumber, mobileTicket } = body || {};
+
+  let verifiedEmail: string | undefined = undefined;
+  if (emailTicket) {
+    const emailTicketCheck = verifyEmailTicket(emailTicket);
+    if (emailTicketCheck.valid && emailTicketCheck.email) {
+      verifiedEmail = emailTicketCheck.email;
+    }
+  } else if (email && typeof email === 'string' && email.includes('@')) {
+    verifiedEmail = email.trim().toLowerCase();
+  }
 
   let verifiedMobile: string | undefined = undefined;
   let isMobileVerified = false;
@@ -137,9 +148,7 @@ export async function POST(req: NextRequest) {
 
   const googleEmail = ticket
     ? ticket.googleEmail
-    : (email && typeof email === 'string' && email.includes('@')
-        ? email.trim().toLowerCase()
-        : `${finalFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${invitation.id.slice(0, 6)}@allianceindia.local`);
+    : (verifiedEmail || `${finalFirstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${invitation.id.slice(0, 6)}@allianceindia.local`);
 
   const profile = await store.createFieldUserProfile({
     googleSub,
@@ -174,6 +183,7 @@ export async function POST(req: NextRequest) {
     lastName: profile.lastName,
     assignedState: profile.assignedState,
     assignedDistrict: profile.assignedDistrict,
+    googleEmail: profile.googleEmail,
     maskedMobile: profile.mobileNumber ? `+91 ******${profile.mobileNumber.slice(-4)}` : undefined,
     srName: profile.srName,
     ssrName: profile.ssrName,
