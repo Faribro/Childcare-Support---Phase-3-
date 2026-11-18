@@ -170,6 +170,8 @@ export async function POST(req: NextRequest) {
   const safeProfile = {
     id: profile.id,
     name: `${profile.firstName} ${profile.lastName}`.trim(),
+    firstName: profile.firstName,
+    lastName: profile.lastName,
     assignedState: profile.assignedState,
     assignedDistrict: profile.assignedDistrict,
     maskedMobile: profile.mobileNumber ? `+91 ******${profile.mobileNumber.slice(-4)}` : undefined,

@@ -315,11 +315,18 @@ export class DistributedFirestoreOtpProvider implements OtpProvider {
   private store: FirestoreOtpStore;
   private msg91AuthKey?: string;
   private msg91TemplateId?: string;
+  private authkeyApiKey?: string;
 
-  constructor(options?: { store?: FirestoreOtpStore; msg91AuthKey?: string; msg91TemplateId?: string }) {
+  constructor(options?: {
+    store?: FirestoreOtpStore;
+    msg91AuthKey?: string;
+    msg91TemplateId?: string;
+    authkeyApiKey?: string;
+  }) {
     this.store = options?.store || new FirestoreOtpStore();
     this.msg91AuthKey = options?.msg91AuthKey || process.env.MSG91_AUTH_KEY;
     this.msg91TemplateId = options?.msg91TemplateId || process.env.MSG91_DLT_TEMPLATE_ID;
+    this.authkeyApiKey = options?.authkeyApiKey || process.env.AUTHKEY_API_KEY;
   }
 
   public async sendOtp(mobileE164: string, purpose: string): Promise<OtpRequestResult> {
@@ -333,8 +340,48 @@ export class DistributedFirestoreOtpProvider implements OtpProvider {
       return saveResult;
     }
 
-    // 3. Dispatch to MSG91 Webhook if credentials provided in environment
-    if (this.msg91AuthKey && this.msg91TemplateId) {
+    // 3. Dispatch to SMS Gateway (Authkey.io or MSG91) if credentials provided in environment
+    if (this.authkeyApiKey) {
+      try {
+        const raw10 = mobileE164.replace(/\D/g, '').slice(-10);
+        const params = new URLSearchParams({
+          authkey: this.authkeyApiKey,
+          mobile: raw10,
+          country_code: '91',
+        });
+
+        if (process.env.AUTHKEY_SMS_SID) {
+          params.set('sid', process.env.AUTHKEY_SMS_SID);
+          params.set('otp', code);
+        } else {
+          const sender = process.env.AUTHKEY_SENDER_ID || 'AUTHKEY';
+          params.set('sender', sender);
+          params.set('sms', `Your Childcare Support verification code is ${code}. Valid for 5 minutes.`);
+          if (process.env.AUTHKEY_DLT_PE_ID) params.set('pe_id', process.env.AUTHKEY_DLT_PE_ID);
+          if (process.env.AUTHKEY_DLT_TEMPLATE_ID) params.set('template_id', process.env.AUTHKEY_DLT_TEMPLATE_ID);
+        }
+
+        const res = await fetch(`https://api.authkey.io/request?${params.toString()}`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(10_000),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.type === 'error' || data.success === false) {
+          return {
+            success: false,
+            message: 'SMS provider delivery failed: ' + (data.message || 'Gateway rejected dispatch'),
+            error: 'SMS_PROVIDER_ERROR',
+          };
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          message: 'Unable to reach SMS gateway for OTP dispatch.',
+          error: 'SMS_GATEWAY_UNREACHABLE',
+        };
+      }
+    } else if (this.msg91AuthKey && this.msg91TemplateId) {
       try {
         const res = await fetch('https://control.msg91.com/api/v5/otp', {
           method: 'POST',
