@@ -305,6 +305,8 @@ export default function FieldWorkspacePage() {
       if (params.get('onboarding') === 'open' || params.get('onboarding') === '1') {
         if (params.get('mode') === 'signin') {
           setOnboardingInitialMode('signin');
+        } else {
+          setOnboardingInitialMode('register');
         }
         setIsOnboardingOpen(true);
       }

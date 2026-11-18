@@ -107,7 +107,7 @@ export function WelcomeKiteOnboardingModal({
     }
   }, [isOpen, state]);
 
-  // Reset/focus on open
+  // Reset on modal open
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
@@ -121,13 +121,19 @@ export function WelcomeKiteOnboardingModal({
         setFirstName(initialTicketData.firstName || '');
         setLastName(initialTicketData.lastName || '');
       }
+    }
+  }, [isOpen, initialMode, initialTicketData]);
+
+  // Focus input when tab changes or modal opens
+  useEffect(() => {
+    if (isOpen) {
       if (activeTab === 'register') {
         setTimeout(() => firstNameInputRef.current?.focus(), 80);
       } else {
         setTimeout(() => signInEmailInputRef.current?.focus(), 80);
       }
     }
-  }, [isOpen, initialTicketData, initialMode, activeTab]);
+  }, [isOpen, activeTab]);
 
   // Escape key closes modal
   useEffect(() => {
