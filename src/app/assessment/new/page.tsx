@@ -118,7 +118,14 @@ export default function NewSinglePageAssessment() {
   // selectedCategories: []  → legacy mode (all sections visible, schema v2 compat)
   const [showCategoryStep, setShowCategoryStep] = useState(true);
   const [selectedCategories, setSelectedCategories] = useState<SupportCategory[]>([]);
+  const [confirmedCategories, setConfirmedCategories] = useState<SupportCategory[]>([]);
+  const [hasEverContinued, setHasEverContinued] = useState(false);
   const [categoryStepError, setCategoryStepError] = useState<string | null>(null);
+  const [deselectionWarning, setDeselectionWarning] = useState<{
+    categories: SupportCategory[];
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null>(null);
 
   const isHivApplicable = useMemo(() => {
     return selectedCategories.length === 0 || selectedCategories.includes('hiv_support');
@@ -321,6 +328,78 @@ export default function NewSinglePageAssessment() {
     formSubmittedBy: '',
     organizationEmail: '',
   });
+
+  const handleCategoryStepBack = useCallback(() => {
+    if (hasEverContinued) {
+      setSelectedCategories(confirmedCategories);
+      setCategoryStepError(null);
+      setShowCategoryStep(false);
+    } else {
+      router.push('/app');
+    }
+  }, [hasEverContinued, confirmedCategories, router]);
+
+  const handleCategoryStepContinue = useCallback(() => {
+    if (selectedCategories.length === 0) {
+      setCategoryStepError('Select at least one support category to continue.');
+      return;
+    }
+    setCategoryStepError(null);
+
+    // If this is a category change after having already entered the form
+    if (hasEverContinued && confirmedCategories.length > 0) {
+      const removedCats = confirmedCategories.filter((c) => !selectedCategories.includes(c));
+      const removedWithAnswers = removedCats.filter((cat) => {
+        if (cat === 'education') {
+          return Boolean(
+            formData.educationStatus ||
+            formData.schoolName ||
+            Number(formData.schoolFees) > 0 ||
+            Number(formData.tuitionFees) > 0 ||
+            formData.feeReceiptPhotoUrl ||
+            formData.marksheetPhotoUrl ||
+            formData.remarks
+          );
+        }
+        if (cat === 'nutrition') {
+          return Boolean(
+            formData.appetite ||
+            Number(formData.mealsPerDay) > 0 ||
+            formData.malnutritionSymptoms
+          );
+        }
+        if (cat === 'hiv_support') {
+          return Boolean(
+            formData.artStatus ||
+            formData.artIdNumber ||
+            formData.vlStatus ||
+            formData.viralLoad
+          );
+        }
+        return false;
+      });
+
+      if (removedWithAnswers.length > 0) {
+        setDeselectionWarning({
+          categories: removedWithAnswers,
+          onConfirm: () => {
+            setConfirmedCategories(selectedCategories);
+            setDeselectionWarning(null);
+            setShowCategoryStep(false);
+          },
+          onCancel: () => {
+            setSelectedCategories((prev) => Array.from(new Set([...prev, ...removedWithAnswers])));
+            setDeselectionWarning(null);
+          },
+        });
+        return;
+      }
+    }
+
+    setConfirmedCategories(selectedCategories);
+    setHasEverContinued(true);
+    setShowCategoryStep(false);
+  }, [selectedCategories, hasEverContinued, confirmedCategories, formData]);
 
   // ── Real-Time Field Blur & Scroll-Past Section Validation ──────────────
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
@@ -1106,15 +1185,65 @@ export default function NewSinglePageAssessment() {
                 if (cats.length > 0) setCategoryStepError(null);
               }}
               error={categoryStepError}
-              onContinue={() => {
-                if (selectedCategories.length === 0) {
-                  setCategoryStepError('Select at least one support category to continue.');
-                  return;
-                }
-                setCategoryStepError(null);
-                setShowCategoryStep(false);
-              }}
+              onContinue={handleCategoryStepContinue}
+              onBack={handleCategoryStepBack}
             />
+          </div>
+        )}
+
+        {/* Category Deselection Warning Confirmation Modal */}
+        {deselectionWarning && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deselection-warning-title"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+          >
+            <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-amber-200 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 id="deselection-warning-title" className="text-base font-bold text-slate-900">
+                    Remove Support Category?
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {deselectionWarning.categories
+                      .map((c) =>
+                        c === 'education'
+                          ? 'Education'
+                          : c === 'nutrition'
+                          ? 'Nutrition'
+                          : 'HIV-related support'
+                      )
+                      .join(', ')}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                You have entered answers or documents in this section. If removed, these questions will no longer be included in the submitted assessment.
+              </p>
+              <div className="p-3 rounded-xl bg-purple-50/80 border border-purple-200 text-xs text-purple-900">
+                <strong>Data Safety:</strong> Your entered answers are safely preserved in your local draft. If you change your mind and reselect this category before submitting, your answers will be restored.
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={deselectionWarning.onCancel}
+                  className="flex-1 h-11 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Keep Section
+                </button>
+                <button
+                  type="button"
+                  onClick={deselectionWarning.onConfirm}
+                  className="flex-1 h-11 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Confirm &amp; Remove
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2226,7 +2355,6 @@ export default function NewSinglePageAssessment() {
             </div>
 
             {/* Sub-Card 4: Comorbidities & Co-infections */}
-            {isHivApplicable && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -2292,10 +2420,8 @@ export default function NewSinglePageAssessment() {
                 </div>
               )}
             </div>
-            )}
 
             {/* Sub-Card 5: Disability Details */}
-            {isHivApplicable && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -2362,7 +2488,6 @@ export default function NewSinglePageAssessment() {
                 </div>
               )}
             </div>
-            )}
           </div>
         </section>
         )}

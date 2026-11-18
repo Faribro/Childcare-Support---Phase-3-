@@ -318,6 +318,103 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
     }
   }
 
+  // 4. Support Category Payload Sanitization (Schema V3)
+  // When supportCategories is specified, inactive category answers are excluded from the submitted assessment
+  const cats = sanitized.supportCategories;
+  if (Array.isArray(cats) && cats.length > 0) {
+    // If education is not selected, omit all education and expenses data
+    if (!cats.includes('education')) {
+      delete sanitized.educationStatus;
+      delete sanitized.educationExpenses;
+      delete sanitized.educationSupportRequired;
+      delete sanitized.schoolFees;
+      delete sanitized.tuitionFees;
+      delete sanitized.books;
+      delete sanitized.stationery;
+      delete sanitized.uniform;
+      delete sanitized.transport;
+      delete sanitized.otherExpenses;
+      delete sanitized.totalAnnualCost;
+      delete sanitized.feeReceiptPhotoUrl;
+      delete sanitized.marksheetPhotoUrl;
+      delete sanitized.schoolName;
+      delete sanitized.currentClass;
+      delete sanitized.currentClassSpecify;
+      delete sanitized.attendance;
+      delete sanitized.receivingEducationSchemeBenefit;
+      delete sanitized.educationSchemeName;
+      delete sanitized.educationSchemeNameSpecify;
+      delete sanitized.requiredSchoolFees;
+      delete sanitized.requiredTuitionFees;
+      delete sanitized.requiredBooks;
+      delete sanitized.requiredStationery;
+      delete sanitized.requiredUniform;
+      delete sanitized.requiredTransport;
+      delete sanitized.requiredOtherSupport;
+      delete sanitized.totalRequiredSupport;
+    }
+
+    // If nutrition is not selected, omit nutrition habit questions
+    if (!cats.includes('nutrition')) {
+      delete sanitized.nutrition;
+      delete sanitized.appetite;
+      delete sanitized.mealsPerDay;
+      delete sanitized.malnutritionSymptoms;
+    }
+
+    // If hiv_support is not selected, omit HIV clinical fields
+    if (!cats.includes('hiv_support')) {
+      delete sanitized.artStatus;
+      delete sanitized.artRegistrationDate;
+      delete sanitized.artInitiationDate;
+      delete sanitized.artIdNumber;
+      delete sanitized.artMedicineType;
+      delete sanitized.currentlyOnArt;
+      delete sanitized.cd4Count;
+      delete sanitized.vlStatus;
+      delete sanitized.vlDate;
+      delete sanitized.viralLoad;
+      delete sanitized.vlCategory;
+      if (sanitized.health && typeof sanitized.health === 'object') {
+        delete sanitized.health.artStatus;
+        delete sanitized.health.artRegistrationDate;
+        delete sanitized.health.artInitiationDate;
+        delete sanitized.health.artIdNumber;
+        delete sanitized.health.artMedicineType;
+        delete sanitized.health.currentlyOnArt;
+        delete sanitized.health.cd4Count;
+        delete sanitized.health.vlStatus;
+        delete sanitized.health.vlDate;
+        delete sanitized.health.viralLoad;
+        delete sanitized.health.vlCategory;
+      }
+    }
+
+    // If neither nutrition nor hiv_support is selected (e.g. Education only), omit clinical anthropometrics
+    if (!cats.includes('nutrition') && !cats.includes('hiv_support')) {
+      delete sanitized.weightKg;
+      delete sanitized.heightCm;
+      delete sanitized.bmi;
+      delete sanitized.bmiCategory;
+      delete sanitized.haemoglobinGdl;
+      delete sanitized.hbCategory;
+      delete sanitized.nutritionStatus;
+      delete sanitized.otherHealthConditions;
+      delete sanitized.otherHealthConditionSpecify;
+      if (sanitized.health && typeof sanitized.health === 'object') {
+        delete sanitized.health.weightKg;
+        delete sanitized.health.heightCm;
+        delete sanitized.health.bmi;
+        delete sanitized.health.bmiCategory;
+        delete sanitized.health.haemoglobinGdl;
+        delete sanitized.health.hbCategory;
+        delete sanitized.health.nutritionStatus;
+        delete sanitized.health.otherHealthConditions;
+        delete sanitized.health.otherHealthConditionSpecify;
+      }
+    }
+  }
+
   return sanitized;
 }
 

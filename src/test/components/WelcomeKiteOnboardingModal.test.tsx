@@ -196,4 +196,78 @@ describe('WelcomeKiteOnboardingModal Component', () => {
       expect(mockOnClose).toHaveBeenCalled();
     });
   });
+
+  it('8. validates mobile number format and saves mobileNumber on profile completion', async () => {
+    const mockOnSuccess = vi.fn();
+    const mockOnClose = vi.fn();
+
+    (global.fetch as any).mockImplementation((url: string) => {
+      if (url === '/api/auth/field-user/complete-onboarding') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              status: 'success',
+              profile: {
+                id: 'fld_456',
+                name: 'Kavita Sharma',
+                mobileNumber: '+919876543210',
+                srName: 'Alliance India Maharashtra SR',
+                ssrName: 'Pune Care Center',
+              },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ hasTicket: false }),
+      });
+    });
+
+    render(
+      <WelcomeKiteOnboardingModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        initialTicketData={{
+          firstName: 'Kavita',
+          lastName: 'Sharma',
+        }}
+      />
+    );
+
+    // Select district
+    const districtInput = screen.getByPlaceholderText(/Search or select district/i);
+    fireEvent.focus(districtInput);
+    fireEvent.click(screen.getByRole('option', { name: /Pune/i }));
+
+    fireEvent.change(screen.getByLabelText(/State Sub-Recipient/i), {
+      target: { value: 'Alliance India Maharashtra SR' },
+    });
+    fireEvent.change(screen.getByLabelText(/State-Team Invitation Code/i), {
+      target: { value: 'ALN-MH-TEST-1234' },
+    });
+
+    // Enter invalid mobile number
+    const mobileInput = screen.getByLabelText(/Mobile Number/i);
+    fireEvent.change(mobileInput, { target: { value: '12345' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Complete Registration/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined();
+      expect(screen.getByText(/Please enter a valid 10-digit Indian mobile number/i)).toBeDefined();
+    });
+
+    // Fix to valid mobile number
+    fireEvent.change(mobileInput, { target: { value: '9876543210' } });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      const storedProfile = JSON.parse(localStorage.getItem('field_user_profile') || '{}');
+      expect(storedProfile.mobileNumber).toBe('9876543210');
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
 });

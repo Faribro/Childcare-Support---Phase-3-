@@ -11,6 +11,7 @@ import {
   validateEntireForm,
   validateField,
   validateSection,
+  sanitizeSubmissionPayload,
   CATEGORY_SCHEMA_VERSION,
 } from '@/lib/validations/formRules';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
@@ -143,5 +144,98 @@ describe('Server & Client Category Validation', () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it('decouples child disability across all categories in both dot-path and short-key', () => {
+    // Both long and short keys should be accessible in Education, Nutrition, and HIV
+    expect(isFieldApplicableForCategories('hasDisability', ['education'])).toBe(true);
+    expect(isFieldApplicableForCategories('health.hasDisability', ['education'])).toBe(true);
+    expect(isFieldApplicableForCategories('hasDisability', ['nutrition'])).toBe(true);
+    expect(isFieldApplicableForCategories('health.hasDisability', ['nutrition'])).toBe(true);
+    expect(isFieldApplicableForCategories('hasDisability', ['hiv_support'])).toBe(true);
+    expect(isFieldApplicableForCategories('health.hasDisability', ['hiv_support'])).toBe(true);
+
+    // Comorbidities available in Nutrition and HIV
+    expect(isFieldApplicableForCategories('otherHealthConditions', ['nutrition'])).toBe(true);
+    expect(isFieldApplicableForCategories('health.otherHealthConditions', ['nutrition'])).toBe(true);
+    expect(isFieldApplicableForCategories('otherHealthConditions', ['hiv_support'])).toBe(true);
+    expect(isFieldApplicableForCategories('health.otherHealthConditions', ['hiv_support'])).toBe(true);
+  });
+
+  it('sanitizeSubmissionPayload strips non-applicable category answers for Education-only payload', () => {
+    const payload = {
+      uuid: 'sub-edu-01',
+      schemaVersion: 3,
+      supportCategories: ['education'] as SupportCategory[],
+      schoolFees: 12000,
+      educationExpenses: {
+        schoolFees: 12000,
+        feeReceiptPhotoUrl: 'https://storage/receipt.jpg',
+      },
+      // Stale inactive answers that caseworker entered before switching to Education-only
+      appetite: 'Good',
+      nutrition: { appetite: 'Good', mealsPerDay: 3 },
+      weightKg: 25,
+      heightCm: 120,
+      artStatus: 'On ART',
+      health: {
+        weightKg: 25,
+        heightCm: 120,
+        artStatus: 'On ART',
+        artIdNumber: 'ART-999',
+      },
+    };
+
+    const sanitized = sanitizeSubmissionPayload(payload);
+
+    // Education data preserved
+    expect(sanitized.educationExpenses?.schoolFees).toBe(12000);
+    expect(sanitized.educationExpenses?.feeReceiptPhotoUrl).toBe('https://storage/receipt.jpg');
+
+    // Inactive Nutrition data omitted
+    expect(sanitized.nutrition).toBeUndefined();
+    expect(sanitized.appetite).toBeUndefined();
+
+    // Inactive HIV data omitted
+    expect(sanitized.artStatus).toBeUndefined();
+    expect(sanitized.health?.artStatus).toBeUndefined();
+    expect(sanitized.health?.artIdNumber).toBeUndefined();
+
+    // Inactive clinical anthropometrics omitted
+    expect(sanitized.weightKg).toBeUndefined();
+    expect(sanitized.health?.weightKg).toBeUndefined();
+  });
+
+  it('sanitizeSubmissionPayload strips non-applicable category answers for Nutrition-only payload', () => {
+    const payload = {
+      uuid: 'sub-nut-01',
+      schemaVersion: 3,
+      supportCategories: ['nutrition'] as SupportCategory[],
+      nutrition: { appetite: 'Fair', mealsPerDay: 2 },
+      weightKg: 18,
+      heightCm: 110,
+      health: {
+        weightKg: 18,
+        heightCm: 110,
+        artStatus: 'On ART',
+        artIdNumber: 'ART-888',
+      },
+      educationExpenses: {
+        schoolFees: 15000,
+      },
+    };
+
+    const sanitized = sanitizeSubmissionPayload(payload);
+
+    // Nutrition data preserved
+    expect(sanitized.nutrition?.appetite).toBe('Fair');
+    expect(sanitized.health?.weightKg).toBe(18);
+
+    // Inactive Education data omitted
+    expect(sanitized.educationExpenses).toBeUndefined();
+
+    // Inactive HIV clinical data omitted
+    expect(sanitized.health?.artStatus).toBeUndefined();
+    expect(sanitized.health?.artIdNumber).toBeUndefined();
   });
 });

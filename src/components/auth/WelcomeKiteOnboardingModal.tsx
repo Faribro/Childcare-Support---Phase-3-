@@ -35,12 +35,12 @@ export function WelcomeKiteOnboardingModal({
   const router = useRouter();
   // Direct caseworker profile setup only (Google OAuth signup removed for field workers)
   const [step] = useState<'profile'>('profile');
-  const [isGoogleConfigured, setIsGoogleConfigured] = useState<boolean>(true);
   const [googleEmail, setGoogleEmail] = useState(() => initialTicketData?.googleEmail || '');
   const [firstName, setFirstName] = useState(() => initialTicketData?.firstName || '');
   const [lastName, setLastName] = useState(() => initialTicketData?.lastName || '');
   const [state, setState] = useState('Maharashtra');
   const [district, setDistrict] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [srName, setSrName] = useState('');
   const [ssrName, setSsrName] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
@@ -102,11 +102,6 @@ export function WelcomeKiteOnboardingModal({
 
   if (!isOpen) return null;
 
-  const handleStartGoogle = () => {
-    // Redirect to Google login route with returnTo set to /assessment/new
-    window.location.href = '/api/auth/google/login?returnTo=/assessment/new';
-  };
-
   const handleSubmitProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim()) {
@@ -119,6 +114,10 @@ export function WelcomeKiteOnboardingModal({
     }
     if (!district.trim()) {
       setErrorMessage('Please enter your assigned district.');
+      return;
+    }
+    if (mobileNumber.trim() && !/^[6-9]\d{9}$/.test(mobileNumber.trim())) {
+      setErrorMessage('Please enter a valid 10-digit Indian mobile number starting with 6-9, or leave blank.');
       return;
     }
     const finalSr = srName.trim();
@@ -143,6 +142,7 @@ export function WelcomeKiteOnboardingModal({
           lastName: lastName.trim(),
           assignedState: state.trim(),
           assignedDistrict: district.trim(),
+          mobileNumber: mobileNumber.trim() || undefined,
           srName: finalSr,
           ssrName: ssrName.trim(),
         };
@@ -164,6 +164,7 @@ export function WelcomeKiteOnboardingModal({
             lastName: lastName.trim(),
             state: state.trim(),
             district: district.trim(),
+            mobileNumber: mobileNumber.trim() || undefined,
             invitationCode: invitationCode.trim(),
             srName: finalSr,
             ssrName: ssrName.trim(),
@@ -416,6 +417,25 @@ export function WelcomeKiteOnboardingModal({
                     className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="field-mobile-number" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mobile Number (Optional)
+                </label>
+                <div className="relative">
+                  <input
+                    id="field-mobile-number"
+                    type="tel"
+                    value={mobileNumber}
+                    onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="e.g. 9876543210 (10 digits)"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none transition-all font-mono"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Used for password-free mobile OTP account sign-in and recovery.
+                </p>
               </div>
 
               <div>
