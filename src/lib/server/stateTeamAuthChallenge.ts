@@ -76,14 +76,14 @@ export function isEmailPreApprovedForState(email: string, state: string): boolea
     return true;
   }
 
-  // 2. Check approved domain patterns (e.g. allianceindia.org)
-  const approvedDomains = (process.env.STATE_TEAM_APPROVED_DOMAINS || 'allianceindia.org')
+  // 2. Check approved domain patterns (e.g. allianceindia.org, childcare.allianceindia.org)
+  const approvedDomains = (process.env.STATE_TEAM_APPROVED_DOMAINS || 'allianceindia.org,childcare.allianceindia.org')
     .split(',')
     .map((d) => d.trim().toLowerCase())
     .filter(Boolean);
 
   const domain = normEmail.split('@')[1];
-  if (domain && approvedDomains.includes(domain)) {
+  if (domain && (approvedDomains.includes(domain) || domain.endsWith('.allianceindia.org'))) {
     return true;
   }
 
