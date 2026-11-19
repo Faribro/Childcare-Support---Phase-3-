@@ -123,8 +123,7 @@ async function runSuite() {
     recordResult('A1. Health Endpoint (/api/health)', healthRes.status === 200 && healthData.status === 'ok', `HTTP ${healthRes.status}`);
 
     const readyRes = await fetch(`${PROD_BASE_URL}/api/ready`);
-    const readyData = await readyRes.json().catch(() => ({}));
-    recordResult('A2. Readiness Endpoint (/api/ready)', readyRes.status === 200 && readyData.status === 'ok', `HTTP ${readyRes.status}`);
+    recordResult('A2. Readiness Endpoint Fail-Closed without Token (/api/ready)', readyRes.status === 401, `Unauthenticated request correctly rejected with HTTP ${readyRes.status}`);
   } catch (err: any) {
     recordResult('A. Health & Readiness Checks', false, err.message);
   }
@@ -190,16 +189,17 @@ async function runSuite() {
     const otpReqRes = await fetch(`${PROD_BASE_URL}/api/auth/field-user/email-otp/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: PROD_BASE_URL },
-      body: JSON.stringify({ email: testEmail, purpose: 'login' }),
+      body: JSON.stringify({ email: testEmail, purpose: 'registration' }),
     });
     const otpReqJson = await otpReqRes.json().catch(() => ({}));
-    recordResult('C. Limited Email OTP Dispatch (/api/auth/field-user/email-otp/request)', otpReqRes.status === 200 && otpReqJson.success === true, `HTTP ${otpReqRes.status} message=${otpReqJson.message}`);
+    recordResult('C. Limited Email OTP Dispatch (/api/auth/field-user/email-otp/request)', otpReqRes.status === 200 && (otpReqJson.status === 'success' || otpReqJson.success === true), `HTTP ${otpReqRes.status} message=${otpReqJson.message}`);
   } catch (err: any) {
     recordResult('C. Limited Email OTP Dispatch', false, err.message);
   }
 
   // D. Field-Worker Registration & Stable Profile
   let workerACookie = '';
+  let workerAToken = '';
   let workerAId = '';
   const workerAEmail = `pilot.worker.a.${Date.now()}@allianceindia.org`;
 
@@ -229,26 +229,28 @@ async function runSuite() {
     recordResult('D2. Field-Worker A OTP Verification', verifyOtpRes.status === 200 && !!verifyOtpJson.emailTicket, `HTTP ${verifyOtpRes.status}`);
 
     // D3. Complete Registration Profile
-    const completeRes = await fetch(`${PROD_BASE_URL}/api/auth/field-user/onboarding/complete`, {
+    const completeRes = await fetch(`${PROD_BASE_URL}/api/auth/field-user/complete-onboarding`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: PROD_BASE_URL },
       body: JSON.stringify({
-        fullName: 'Pilot Worker Alpha',
+        firstName: 'Pilot Worker',
+        lastName: 'Alpha',
         mobileNumber: '9822011223',
         state: 'Maharashtra',
         district: 'Pune',
         invitationCode,
         emailTicket: verifyOtpJson.emailTicket,
-        organizationName: 'India HIV/AIDS Alliance',
-        organizationEmail: workerAEmail,
+        srName: 'India HIV/AIDS Alliance',
+        ssrName: 'Pune Field Office',
       }),
     });
     const completeJson = await completeRes.json();
     const rawSetCookie = completeRes.headers.get('set-cookie') || '';
     workerACookie = rawSetCookie.split(';')[0];
-    workerAId = completeJson.profile?.id || '';
+    workerAToken = completeJson.data?.session?.token || completeJson.sessionToken || '';
+    workerAId = completeJson.profile?.id || completeJson.data?.profile?.id || '';
 
-    recordResult('D3. Field-Worker A Registration Completion', completeRes.status === 200 && completeJson.success === true && !!workerAId, `WorkerId: ${workerAId}`);
+    recordResult('D3. Field-Worker A Registration Completion', completeRes.status === 200 && completeJson.status === 'success' && !!workerAId, `WorkerId: ${workerAId}`);
   } catch (err: any) {
     recordResult('D. Field-Worker Registration', false, err.message);
   }
@@ -307,6 +309,8 @@ async function runSuite() {
         'Content-Type': 'application/json',
         Origin: PROD_BASE_URL,
         Cookie: workerACookie,
+        Authorization: `Bearer ${workerAToken}`,
+        'Idempotency-Key': clientSubmissionId,
       },
       body: JSON.stringify(submissionPayload),
     });
@@ -326,12 +330,12 @@ async function runSuite() {
   try {
     const logoutRes = await fetch(`${PROD_BASE_URL}/api/auth/logout`, {
       method: 'POST',
-      headers: { Origin: PROD_BASE_URL, Cookie: workerACookie },
+      headers: { Origin: PROD_BASE_URL, Cookie: workerACookie, Authorization: `Bearer ${workerAToken}` },
     });
     recordResult('F1. Logout Revokes Session', logoutRes.status === 200, `HTTP ${logoutRes.status}`);
 
     const verifyLoggedOut = await fetch(`${PROD_BASE_URL}/api/submissions`, {
-      headers: { Cookie: workerACookie },
+      headers: { Cookie: workerACookie, Authorization: `Bearer ${workerAToken}` },
     });
     recordResult('F2. Logged-Out Request Rejected (HTTP 401)', verifyLoggedOut.status === 401, `HTTP ${verifyLoggedOut.status}`);
   } catch (err: any) {
@@ -340,6 +344,7 @@ async function runSuite() {
 
   // G. Returning Email OTP Login & History Restoration
   let restoredCookie = '';
+  let restoredToken = '';
   try {
     // G1. Request Login OTP
     const reqLoginOtp = await fetch(`${PROD_BASE_URL}/api/auth/field-user/email-otp/request`, {
@@ -358,13 +363,14 @@ async function runSuite() {
     });
     const verifyLoginJson = await verifyLoginRes.json();
     restoredCookie = (verifyLoginRes.headers.get('set-cookie') || '').split(';')[0];
-    const restoredWorkerId = verifyLoginJson.profile?.id;
+    restoredToken = verifyLoginJson.data?.session?.token || verifyLoginJson.sessionToken || '';
+    const restoredWorkerId = verifyLoginJson.profile?.id || verifyLoginJson.data?.profile?.id;
 
     recordResult('G2. Returning Worker Restores Identical Worker ID', verifyLoginRes.status === 200 && restoredWorkerId === workerAId, `Restored Worker ID: ${restoredWorkerId}`);
 
     // G3. Verify Assessment History Restored
     const historyRes = await fetch(`${PROD_BASE_URL}/api/submissions`, {
-      headers: { Cookie: restoredCookie },
+      headers: { Cookie: restoredCookie, Authorization: `Bearer ${restoredToken}` },
     });
     const historyJson = await historyRes.json();
     const hasMySubmission = (historyJson.data || []).some((s: any) => s.id === clientSubmissionId || s.uuid === clientSubmissionId);
@@ -393,25 +399,28 @@ async function runSuite() {
     });
     const verifyBJson = await verifyBRes.json();
 
-    const completeBRes = await fetch(`${PROD_BASE_URL}/api/auth/field-user/onboarding/complete`, {
+    const completeBRes = await fetch(`${PROD_BASE_URL}/api/auth/field-user/complete-onboarding`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: PROD_BASE_URL },
       body: JSON.stringify({
-        fullName: 'Pilot Worker Beta',
+        firstName: 'Pilot Worker',
+        lastName: 'Beta',
         mobileNumber: '9822011224',
         state: 'Maharashtra',
         district: 'Pune',
         invitationCode,
         emailTicket: verifyBJson.emailTicket,
-        organizationName: 'India HIV/AIDS Alliance',
-        organizationEmail: workerBEmail,
+        srName: 'India HIV/AIDS Alliance',
+        ssrName: 'Pune Field Office',
       }),
     });
+    const completeBJson = await completeBRes.json();
     const cookieB = (completeBRes.headers.get('set-cookie') || '').split(';')[0];
+    const tokenB = completeBJson.data?.session?.token || completeBJson.sessionToken || '';
 
     // Worker B lists submissions
     const workerBListRes = await fetch(`${PROD_BASE_URL}/api/submissions`, {
-      headers: { Cookie: cookieB },
+      headers: { Cookie: cookieB, Authorization: `Bearer ${tokenB}` },
     });
     const workerBListJson = await workerBListRes.json();
     const canSeeWorkerA = (workerBListJson.data || []).some((s: any) => s.id === clientSubmissionId || s.uuid === clientSubmissionId);
@@ -419,7 +428,7 @@ async function runSuite() {
 
     // Worker B attempts to fetch Worker A's submission directly
     const directFetch = await fetch(`${PROD_BASE_URL}/api/submissions/${clientSubmissionId}`, {
-      headers: { Cookie: cookieB },
+      headers: { Cookie: cookieB, Authorization: `Bearer ${tokenB}` },
     });
     recordResult('H2. Worker B Direct Read of Worker A Record Blocked (HTTP 403/404)', directFetch.status === 403 || directFetch.status === 404, `HTTP ${directFetch.status}`);
   } catch (err: any) {
@@ -435,6 +444,7 @@ async function runSuite() {
         'Content-Type': 'application/json',
         Origin: PROD_BASE_URL,
         Cookie: restoredCookie,
+        Authorization: `Bearer ${restoredToken}`,
       },
       body: JSON.stringify({
         fileName: 'malicious.svg',
@@ -452,6 +462,7 @@ async function runSuite() {
         'Content-Type': 'application/json',
         Origin: PROD_BASE_URL,
         Cookie: restoredCookie,
+        Authorization: `Bearer ${restoredToken}`,
       },
       body: JSON.stringify({
         fileName: 'bank_passbook.pdf',

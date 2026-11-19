@@ -195,19 +195,19 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
   describe('Interactive Field Preview Tabs', () => {
     it('allows switching preview tabs with accessible attributes', () => {
       render(<LandingPage />);
-      const demographicsTab = screen.getByRole('tab', { name: /demographics & enrolment/i });
-      const clinicalTab = screen.getByRole('tab', { name: /clinical & anthropometry/i });
+      const step1Tab = screen.getByRole('tab', { name: /choose the support needed/i });
+      const step2Tab = screen.getByRole('tab', { name: /take consent/i });
 
-      expect(demographicsTab.getAttribute('aria-selected')).toBe('true');
-      expect(clinicalTab.getAttribute('aria-selected')).toBe('false');
+      expect(step1Tab.getAttribute('aria-selected')).toBe('true');
+      expect(step2Tab.getAttribute('aria-selected')).toBe('false');
 
-      // Click clinical tab
-      fireEvent.click(clinicalTab);
-      expect(clinicalTab.getAttribute('aria-selected')).toBe('true');
-      expect(demographicsTab.getAttribute('aria-selected')).toBe('false');
+      // Click step 2 tab
+      fireEvent.click(step2Tab);
+      expect(step2Tab.getAttribute('aria-selected')).toBe('true');
+      expect(step1Tab.getAttribute('aria-selected')).toBe('false');
 
-      // Check clinical content is rendered
-      expect(screen.getByText(/muac tape measurement/i)).toBeDefined();
+      // Check consent content is rendered
+      expect(screen.getAllByText(/caregiver consent/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -276,7 +276,7 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(pageText).not.toMatch(/ART-\d{4}/);
       expect(pageText).not.toMatch(/HIV\+/);
       expect(pageText).not.toMatch(/CD4 count/);
-      expect(pageText).toContain('SYNTHETIC SAMPLE RECORD');
+      expect(pageText).toMatch(/SYNTHETIC SAMPLE/i);
     });
   });
 

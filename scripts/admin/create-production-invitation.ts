@@ -74,7 +74,7 @@ async function main() {
     else if (arg.startsWith('--out=')) outFilePath = arg.split('=')[1].trim();
   }
 
-  const plainCode = generatePlaintextInvitationCode();
+  const plainCode = generatePlaintextInvitationCode(state);
   const { salt, verifier } = createInvitationVerifierPair(plainCode);
 
   const docId = `inv_prod_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
