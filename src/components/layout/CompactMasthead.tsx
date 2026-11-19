@@ -166,7 +166,21 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
           </nav>
 
           {/* Status & Mobile Actions */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+            {/* Persistent Waiting-to-Send Outbox Badge */}
+            {effectivePending > 0 && (
+              <Link
+                href="/assessment/sync?tab=outbox"
+                data-testid="waiting-to-send-badge"
+                className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-[10.5px] sm:text-[11px] font-bold shadow-2xs transition-colors whitespace-nowrap"
+                title={`${effectivePending} assessment${effectivePending === 1 ? '' : 's'} waiting to send`}
+                aria-label={`${effectivePending} waiting to send`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0" aria-hidden="true" />
+                <span className="tabular-nums">{effectivePending} waiting to send</span>
+              </Link>
+            )}
+
             {/* Truthful Connection & Sync Status Indicator */}
             <ConnectionStatus
               networkStatus={isOnline ? 'online' : 'offline'}

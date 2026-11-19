@@ -145,29 +145,28 @@ export function validateServerSubmissionIntake(
       });
     }
 
-    // 4b. Authenticated Organisation Credentials enforcement
-    const finalReviewObj = (rawBody.finalReview && typeof rawBody.finalReview === 'object') ? rawBody.finalReview : rawBody;
-    const orgName = getStr(finalReviewObj.organizationName);
-    const orgEmail = getStr(finalReviewObj.organizationEmail);
-    if (!orgName) {
-      errors.push({
-        field: 'finalReview.organizationName',
-        issue: 'Authenticated caseworker organisation name is required from profile.',
-        code: 'REQUIRED',
-      });
-    }
-    if (!orgEmail || !orgEmail.includes('@')) {
-      errors.push({
-        field: 'finalReview.organizationEmail',
-        issue: 'Authenticated caseworker verified email is required from profile.',
-        code: 'REQUIRED',
-      });
-    }
-
-    // Support Categories Validation (Schema V3)
+    // Support Categories Validation & Organisation Credentials enforcement (Schema V3)
     const isV3 = rawBody.schemaVersion === 3 || rawBody.supportCategories !== undefined;
     let validatedCategories: SupportCategory[] = [];
     if (isV3) {
+      const finalReviewObj = (rawBody.finalReview && typeof rawBody.finalReview === 'object') ? rawBody.finalReview : rawBody;
+      const orgName = getStr(finalReviewObj.organizationName);
+      const orgEmail = getStr(finalReviewObj.organizationEmail);
+      if (!orgName) {
+        errors.push({
+          field: 'finalReview.organizationName',
+          issue: 'Authenticated caseworker organisation name is required from profile.',
+          code: 'REQUIRED',
+        });
+      }
+      if (!orgEmail || !orgEmail.includes('@')) {
+        errors.push({
+          field: 'finalReview.organizationEmail',
+          issue: 'Authenticated caseworker verified email is required from profile.',
+          code: 'REQUIRED',
+        });
+      }
+
       if (!Array.isArray(rawBody.supportCategories) || rawBody.supportCategories.length === 0) {
         errors.push({
           field: 'supportCategories',

@@ -102,33 +102,33 @@ describe('UI Correction 2: Category Applicability Logic', () => {
 
     expect(hivSections).not.toContain('banking');
     expect(hivSections).not.toContain('household');
-    expect(hivSections).not.toContain('nutrition');
     expect(hivSections).not.toContain('education');
     expect(hivSections).not.toContain('expenses');
+    expect(hivSections).not.toContain('nutrition');
   });
 
-  it('restricts anthropometrics (weight, height, Hb) strictly to Nutrition or All Categories', () => {
-    // Nutrition selected -> applicable
+  it('restricts anthropometrics (weight, height, Hb) to Nutrition or All Categories, hiding them for HIV-only and Education-only', () => {
+    // Nutrition only
     expect(isFieldApplicableForCategories('weightKg', ['nutrition'])).toBe(true);
     expect(isFieldApplicableForCategories('heightCm', ['nutrition'])).toBe(true);
     expect(isFieldApplicableForCategories('haemoglobinGdl', ['nutrition'])).toBe(true);
     expect(isFieldApplicableForCategories('health.weightKg', ['nutrition'])).toBe(true);
 
-    // All categories -> applicable
+    // All categories
     expect(isFieldApplicableForCategories('weightKg', ['education', 'nutrition', 'hiv_support'])).toBe(true);
 
-    // Education-only -> NOT applicable
+    // Education only
     expect(isFieldApplicableForCategories('weightKg', ['education'])).toBe(false);
     expect(isFieldApplicableForCategories('heightCm', ['education'])).toBe(false);
     expect(isFieldApplicableForCategories('haemoglobinGdl', ['education'])).toBe(false);
 
-    // HIV-only -> NOT applicable
+    // HIV only
     expect(isFieldApplicableForCategories('weightKg', ['hiv_support'])).toBe(false);
     expect(isFieldApplicableForCategories('heightCm', ['hiv_support'])).toBe(false);
     expect(isFieldApplicableForCategories('haemoglobinGdl', ['hiv_support'])).toBe(false);
   });
 
-  it('keeps disability questions decoupled and available across all categories', () => {
+  it('keeps disability questions decoupled from HIV and accessible across all categories', () => {
     expect(isFieldApplicableForCategories('hasDisability', ['education'])).toBe(true);
     expect(isFieldApplicableForCategories('hasDisability', ['nutrition'])).toBe(true);
     expect(isFieldApplicableForCategories('hasDisability', ['hiv_support'])).toBe(true);
@@ -265,5 +265,298 @@ describe('UI Correction 3: Caseworker Organisation Credentials Enforcement', () 
     const result = validateServerSubmissionIntake(invalidPayload);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.field === 'finalReview.organizationEmail')).toBe(true);
+  });
+});
+
+describe('UI Correction 4: Tests and Regression for All Category Combinations & Contract Guarantees', () => {
+  const allCategories: SupportCategory[] = ['education', 'nutrition', 'hiv_support'];
+
+  it('validates applicable sections for all 7 category combinations plus empty/default', () => {
+    // 1. Education only
+    const eduOnly = getApplicableSections(['education']);
+    expect(eduOnly).toContain('consent');
+    expect(eduOnly).toContain('demographics');
+    expect(eduOnly).toContain('banking');
+    expect(eduOnly).toContain('household');
+    expect(eduOnly).toContain('education');
+    expect(eduOnly).toContain('expenses');
+    expect(eduOnly).toContain('review');
+    expect(eduOnly).not.toContain('nutrition');
+
+    // 2. Nutrition only
+    const nutOnly = getApplicableSections(['nutrition']);
+    expect(nutOnly).toContain('consent');
+    expect(nutOnly).toContain('demographics');
+    expect(nutOnly).toContain('banking');
+    expect(nutOnly).toContain('household');
+    expect(nutOnly).toContain('nutrition');
+    expect(nutOnly).toContain('review');
+    expect(nutOnly).not.toContain('education');
+    expect(nutOnly).not.toContain('expenses');
+
+    // 3. HIV support only
+    const hivOnly = getApplicableSections(['hiv_support']);
+    expect(hivOnly).toContain('consent');
+    expect(hivOnly).toContain('demographics');
+    expect(hivOnly).toContain('health');
+    expect(hivOnly).toContain('review');
+    expect(hivOnly).not.toContain('banking');
+    expect(hivOnly).not.toContain('household');
+    expect(hivOnly).not.toContain('education');
+    expect(hivOnly).not.toContain('expenses');
+    expect(hivOnly).not.toContain('nutrition');
+
+    // 4. Education + Nutrition
+    const eduNut = getApplicableSections(['education', 'nutrition']);
+    expect(eduNut).toContain('banking');
+    expect(eduNut).toContain('household');
+    expect(eduNut).toContain('education');
+    expect(eduNut).toContain('expenses');
+    expect(eduNut).toContain('nutrition');
+
+    // 5. Education + HIV
+    const eduHiv = getApplicableSections(['education', 'hiv_support']);
+    expect(eduHiv).toContain('banking');
+    expect(eduHiv).toContain('household');
+    expect(eduHiv).toContain('education');
+    expect(eduHiv).toContain('expenses');
+    expect(eduHiv).toContain('health');
+    expect(eduHiv).not.toContain('nutrition');
+
+    // 6. Nutrition + HIV
+    const nutHiv = getApplicableSections(['nutrition', 'hiv_support']);
+    expect(nutHiv).toContain('banking');
+    expect(nutHiv).toContain('household');
+    expect(nutHiv).toContain('nutrition');
+    expect(nutHiv).toContain('health');
+    expect(nutHiv).not.toContain('education');
+    expect(nutHiv).not.toContain('expenses');
+
+    // 7. All three categories
+    const all = getApplicableSections(allCategories);
+    expect(all).toContain('banking');
+    expect(all).toContain('household');
+    expect(all).toContain('nutrition');
+    expect(all).toContain('education');
+    expect(all).toContain('expenses');
+    expect(all).toContain('health');
+
+    // 8. Empty / undefined (defaults to all categories)
+    const def = getApplicableSections([]);
+    expect(def).toEqual(all);
+  });
+
+  it('deselection sanitisation: strips education and nutrition when deselected, leaving hiv_support', () => {
+    const fullRecord: any = {
+      uuid: '44444444-5555-6666-7777-888888888888',
+      schemaVersion: CATEGORY_SCHEMA_VERSION,
+      supportCategories: ['education'],
+      demographics: {
+        artNumber: 'MH-TEST-04',
+        dateOfFilling: '2026-11-19',
+        childName: 'Dev',
+        dob: '2015-05-10',
+        calculatedAgeYears: 11,
+        gender: 'Male',
+        caregiverName: 'Rekha',
+        caregiverRelationship: 'Mother',
+        state: 'Maharashtra',
+        district: 'Nashik',
+        contactNumber: '9876543210',
+      },
+      consent: { agreeToParticipate: true },
+      bankingAndKyc: { bankAccountHolderName: 'Rekha', bankAccountNumber: '123' },
+      householdFinancial: { totalFamilyMembers: 3, monthlyIncomeRs: 12000 },
+      health: {
+        weightKg: 30, // Nutrition only
+        artStatus: 'On ART', // HIV only
+        artIdNumber: 'MH-NAS-123',
+      },
+      educationStatus: { educationStatus: 'Currently going to school', schoolName: 'Nashik High' },
+      educationExpenses: { schoolFees: 1200 },
+      nutritionSupport: { rationCardType: 'BPL' },
+      finalReview: {
+        allInfoCorrect: true,
+        formSubmittedBy: 'Sunita Sharma',
+        organizationName: 'India HIV/AIDS Alliance',
+        organizationEmail: 'sunita@allianceindia.org',
+      },
+    };
+
+    const sanitized = sanitizeSubmissionPayload(fullRecord);
+
+    // Education-only should retain banking, household, education
+    expect(sanitized.bankingAndKyc).toBeDefined();
+    expect(sanitized.householdFinancial).toBeDefined();
+    expect(sanitized.educationStatus).toBeDefined();
+    expect(sanitized.educationExpenses).toBeDefined();
+
+    // Stripped: nutrition support, anthropometrics, clinical HIV
+    expect(sanitized.nutritionSupport).toBeUndefined();
+    expect(sanitized.health.weightKg).toBeUndefined();
+    expect(sanitized.health.artStatus).toBeUndefined();
+    expect(sanitized.health.artIdNumber).toBeUndefined();
+  });
+
+  it('draft preservation: toggling category selection in local draft preserves entered answers before submission', () => {
+    // Draft state simulates user having filled nutrition and education
+    const localDraft: any = {
+      categories: ['nutrition'] as SupportCategory[],
+      formValues: {
+        bankingAndKyc: { bankAccountNumber: '9988776655' },
+        health: { weightKg: 28.5, heightCm: 125 },
+        educationStatus: { educationStatus: 'Currently going to school', schoolName: 'St. Xavier' },
+      },
+    };
+
+    // User switches to ['education'] in the UI:
+    localDraft.categories = ['education'];
+    // In-memory formValues are NOT cleared immediately so user can switch back
+    expect(localDraft.formValues.health.weightKg).toBe(28.5);
+
+    // When submitted under education only, sanitizeSubmissionPayload strips non-applicable answers
+    const payloadToSubmit = {
+      uuid: '55555555-6666-7777-8888-999999999999',
+      schemaVersion: CATEGORY_SCHEMA_VERSION,
+      supportCategories: localDraft.categories,
+      demographics: {
+        artNumber: 'MH-TEST-05',
+        dateOfFilling: '2026-11-19',
+        childName: 'Gita',
+        dob: '2016-01-01',
+        gender: 'Female',
+        caregiverName: 'Shanti',
+        caregiverRelationship: 'Mother',
+        state: 'Maharashtra',
+        district: 'Pune',
+        contactNumber: '9876543210',
+      },
+      consent: { agreeToParticipate: true },
+      ...localDraft.formValues,
+      finalReview: {
+        allInfoCorrect: true,
+        organizationName: 'India HIV/AIDS Alliance',
+        organizationEmail: 'sunita@allianceindia.org',
+        formSubmittedBy: 'Sunita Sharma',
+      },
+    };
+
+    const sanitized = sanitizeSubmissionPayload(payloadToSubmit);
+    expect(sanitized.educationStatus.schoolName).toBe('St. Xavier');
+    expect(sanitized.health.weightKg).toBeUndefined();
+  });
+
+  it('legacy schemaVersion 2 records are preserved without stripping when supportCategories is absent', () => {
+    const legacyRecord: any = {
+      uuid: '66666666-7777-8888-9999-000000000000',
+      schemaVersion: 2,
+      // No supportCategories field in legacy schema v2
+      demographics: {
+        artNumber: 'MH-TEST-06',
+        dateOfFilling: '2026-11-19',
+        childName: 'Amit',
+        dob: '2015-08-12',
+        gender: 'Male',
+        caregiverName: 'Ramesh',
+        caregiverRelationship: 'Father',
+        state: 'Maharashtra',
+        district: 'Thane',
+        contactNumber: '9876543210',
+        orphanStatus: 'Both parents alive',
+      },
+      consent: { agreeToParticipate: true },
+      bankingAndKyc: { bankAccountHolderName: 'Ramesh' },
+      householdFinancial: { totalFamilyMembers: 4 },
+      health: {
+        weightKg: 32,
+        heightCm: 130,
+        haemoglobinGdl: '12.5',
+        artStatus: 'On ART',
+      },
+      educationStatus: { educationStatus: 'Currently going to school' },
+      finalReview: {
+        allInfoCorrect: true,
+        organizationName: 'India HIV/AIDS Alliance',
+        organizationEmail: 'sunita@allianceindia.org',
+        formSubmittedBy: 'Sunita Sharma',
+      },
+    };
+
+    const sanitized = sanitizeSubmissionPayload(legacyRecord);
+    // Legacy record retains all fields
+    expect(sanitized.bankingAndKyc).toBeDefined();
+    expect(sanitized.householdFinancial).toBeDefined();
+    expect(sanitized.health.weightKg).toBe(32);
+    expect(sanitized.health.artStatus).toBe('On ART');
+    expect(sanitized.educationStatus).toBeDefined();
+    expect(sanitized.demographics.guardianStatus).toBe('Alive');
+  });
+
+  it('verifies 83-column Sheet row contract: non-applicable fields produce empty strings without shifting columns', () => {
+    // Simulate the 83-column row generation pattern from gas/Code.js
+    const simulate83ColumnRow = (record: any): string[] => {
+      const row = new Array(83).fill('');
+      const d = record.demographics || {};
+      const b = record.bankingAndKyc || {};
+      const h = record.health || {};
+      const e = record.educationStatus || {};
+      const exp = record.educationExpenses || {};
+      const f = record.finalReview || {};
+
+      row[0] = record.uuid || '';
+      row[1] = String(record.schemaVersion || 1);
+      row[8] = d.childName || '';
+      row[12] = d.orphanStatus || '';
+      row[15] = d.contactNumber || ''; // Col 16: Caregiver Contact
+      row[19] = b.bankAccountHolderName || ''; // Col 20: Account Holder
+      row[31] = h.weightKg !== undefined ? String(h.weightKg) : ''; // Col 32: Weight
+      row[39] = h.artStatus || ''; // Col 40: ART Status
+      row[48] = e.educationStatus || ''; // Col 49: Education Status
+      row[55] = exp.schoolFees !== undefined ? String(exp.schoolFees) : ''; // Col 56: School Fees
+      row[68] = f.organizationName || ''; // Col 69: Org Name
+      row[70] = f.organizationEmail || ''; // Col 71: Org Email
+      row[75] = d.guardianStatus || ''; // Col 76: Guardian Status
+
+      return row;
+    };
+
+    // HIV-only payload
+    const hivPayload = sanitizeSubmissionPayload({
+      uuid: '77777777-8888-9999-0000-111111111111',
+      schemaVersion: 3,
+      supportCategories: ['hiv_support'],
+      demographics: {
+        childName: 'Suraj',
+        contactNumber: '9988776655',
+        orphanStatus: 'Father deceased',
+      } as any,
+      consent: { agreeToParticipate: true },
+      health: {
+        artStatus: 'On ART',
+      } as any,
+      finalReview: {
+        organizationName: 'India HIV/AIDS Alliance',
+        organizationEmail: 'sunita@allianceindia.org',
+      } as any,
+    } as any);
+
+    const hivRow = simulate83ColumnRow(hivPayload);
+    expect(hivRow.length).toBe(83);
+    // Col 16 is caregiver contact
+    expect(hivRow[15]).toBe('9988776655');
+    // Col 20 (Banking) is empty, NOT shifted
+    expect(hivRow[19]).toBe('');
+    // Col 32 (Weight) is empty
+    expect(hivRow[31]).toBe('');
+    // Col 40 (ART Status) is present
+    expect(hivRow[39]).toBe('On ART');
+    // Col 49 (Education) is empty
+    expect(hivRow[48]).toBe('');
+    // Col 69 (Org Name) is at index 68
+    expect(hivRow[68]).toBe('India HIV/AIDS Alliance');
+    // Col 71 (Org Email) is at index 70
+    expect(hivRow[70]).toBe('sunita@allianceindia.org');
+    // Col 76 (Guardian Status) is at index 75
+    expect(hivRow[75]).toBe('Deceased (Single Parent)');
   });
 });

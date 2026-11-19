@@ -15,6 +15,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import { getWaitingQueueCount } from '@/lib/db/syncQueueRepository';
 import { LeadershipOtpFlow } from './LeadershipOtpFlow';
 import { StateTeamAuthFlow } from './StateTeamAuthFlow';
 
@@ -41,12 +42,22 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
   const [activeTab, setActiveTab] = useState<'state' | 'leadership'>('state');
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [unsentCount, setUnsentCount] = useState(0);
+  const [confirmingLogoutWithUnsent, setConfirmingLogoutWithUnsent] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setSuccessMessage(null);
+      setConfirmingLogoutWithUnsent(false);
+      if (isUnlocked) {
+        getWaitingQueueCount()
+          .then((count) => setUnsentCount(count))
+          .catch(() => setUnsentCount(0));
+      } else {
+        setUnsentCount(0);
+      }
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, isUnlocked, activeTab]);
 
   // Keyboard navigation: Escape key closes modal
   useEffect(() => {
@@ -61,12 +72,23 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
 
   if (!isOpen) return null;
 
-  const handleLogout = async () => {
+  const performLogout = async () => {
     setIsLoading(true);
+    setConfirmingLogoutWithUnsent(false);
     await logout();
     setIsLoading(false);
     setSuccessMessage('Logged out successfully.');
     setTimeout(() => onClose(), 600);
+  };
+
+  const handleLogout = async () => {
+    const latestUnsent = await getWaitingQueueCount().catch(() => 0);
+    setUnsentCount(latestUnsent);
+    if (latestUnsent > 0 && !confirmingLogoutWithUnsent) {
+      setConfirmingLogoutWithUnsent(true);
+      return;
+    }
+    await performLogout();
   };
 
   return (
@@ -135,6 +157,26 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                 </p>
               </div>
 
+              {unsentCount > 0 && (
+                <div
+                  role="alert"
+                  data-testid="logout-unsent-warning"
+                  className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-xs space-y-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">
+                        {unsentCount} {unsentCount === 1 ? 'assessment is' : 'assessments are'} still waiting to send
+                      </p>
+                      <p className="text-[11px] text-amber-900 mt-0.5">
+                        Queued records stay saved on this device, but signing out locks your session while they are still unsent. Send queued records in Sync Centre before signing out when possible.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-2 space-y-2">
                 <button
                   type="button"
@@ -154,15 +196,44 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  disabled={isLoading}
-                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Switch Account / Sign Out</span>
-                </button>
+                {confirmingLogoutWithUnsent ? (
+                  <div
+                    role="alertdialog"
+                    aria-label="Confirm sign out with unsent records"
+                    className="p-3 rounded-lg bg-rose-50 border border-rose-300 space-y-2"
+                  >
+                    <p className="text-xs font-bold text-rose-950">
+                      Are you sure you want to sign out with unsent records?
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={performLogout}
+                        disabled={isLoading}
+                        className="px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-700 cursor-pointer disabled:opacity-50"
+                      >
+                        Sign Out Anyway
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingLogoutWithUnsent(false)}
+                        className="px-3 py-1.5 text-xs font-semibold bg-white text-slate-700 border border-slate-300 rounded-lg cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    disabled={isLoading}
+                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Switch Account / Sign Out / Lock Session</span>
+                  </button>
+                )}
               </div>
             </div>
           ) : (

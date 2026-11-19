@@ -102,16 +102,60 @@ class PlatformRegistryService {
   }
 
   public resolveUrl(path: string): string {
-    if (this.config.target === 'android') {
-      const envBase = process.env.NEXT_PUBLIC_API_BASE_URL ||
+    const isNative = this.config.target === 'android' || this.config.target === 'ios';
+
+    if (isNative) {
+      const rawBase = (
+        this.getApiBaseUrl() ||
+        process.env.NEXT_PUBLIC_API_BASE_URL ||
         process.env.NEXT_PUBLIC_APP_URL ||
-        'https://csc-staging-963330210821.asia-south1.run.app';
-      const baseUrl = this.getApiBaseUrl() || envBase;
-      if (baseUrl) {
-        const cleanBase = baseUrl.replace(/\/+$/, '');
-        const cleanPath = path.startsWith('/') ? path : `/${path}`;
-        return `${cleanBase}${cleanPath}`;
+        ''
+      ).trim();
+
+      // Fail-closed requirement: native platforms must explicitly provide an API base URL
+      if (!rawBase) {
+        throw new Error(
+          `[PlatformRegistry:CRITICAL] Native API base URL is not configured for platform "${this.config.target}". ` +
+          'Build or runtime must explicitly provide NEXT_PUBLIC_API_BASE_URL. ' +
+          'Silent fallbacks to staging, production, localhost, or third-party domains are strictly prohibited.'
+        );
       }
+
+      const appEnv = (
+        process.env.APP_ENV ||
+        process.env.NEXT_PUBLIC_APP_ENV ||
+        ''
+      ).trim().toLowerCase();
+
+      // Environment boundary guard: Production native build cannot point to staging
+      if (appEnv === 'production') {
+        if (rawBase.includes('staging') || rawBase.includes('csc-staging')) {
+          throw new Error(
+            `[PlatformRegistry:SECURITY_VIOLATION] Production native build rejected: API base URL "${rawBase}" contains staging identifier.`
+          );
+        }
+      }
+
+      // Environment boundary guard: Staging native build cannot point to production
+      if (appEnv === 'staging') {
+        if (rawBase.includes('childcare.allianceindia.org')) {
+          throw new Error(
+            `[PlatformRegistry:SECURITY_VIOLATION] Staging native build rejected: API base URL "${rawBase}" points to production domain.`
+          );
+        }
+      }
+
+      const cleanBase = rawBase.replace(/\/+$/, '');
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      return `${cleanBase}${cleanPath}`;
+    }
+
+    // Web platform: if base URL is explicitly configured, prepend it; otherwise return relative path
+    const webBase = (this.getApiBaseUrl() || process.env.NEXT_PUBLIC_API_BASE_URL || '').trim();
+    if (webBase) {
+      const cleanBase = webBase.replace(/\/+$/, '');
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      return `${cleanBase}${cleanPath}`;
     }
     return path;
   }

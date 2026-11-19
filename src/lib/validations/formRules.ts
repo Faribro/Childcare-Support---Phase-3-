@@ -32,25 +32,27 @@ export function getFieldValue(data: Record<string, any>, fieldKey: string): any 
     return data[fieldKey];
   }
 
-  // 2. Direct match on short name (last part of dot path, e.g. 'artIdNumber' for 'health.artIdNumber')
+  // 2. Direct traversal through dot path (e.g. data.health.artStatus)
   const parts = fieldKey.split('.');
+  if (parts.length > 1) {
+    let current: any = data;
+    for (const part of parts) {
+      if (current && typeof current === 'object' && part in current) {
+        current = current[part];
+      } else {
+        current = undefined;
+        break;
+      }
+    }
+    if (current !== undefined && current !== null) {
+      return current;
+    }
+  }
+
+  // 3. Direct match on short name (last part of dot path, e.g. 'artIdNumber' on flat objects)
   const lastPart = parts[parts.length - 1];
   if (data[lastPart] !== undefined && data[lastPart] !== null) {
     return data[lastPart];
-  }
-
-  // 3. Direct traversal through dot path (e.g. data.health.artStatus)
-  let current: any = data;
-  for (const part of parts) {
-    if (current && typeof current === 'object' && part in current) {
-      current = current[part];
-    } else {
-      current = undefined;
-      break;
-    }
-  }
-  if (current !== undefined && current !== null) {
-    return current;
   }
 
   // 4. Section alias mappings (e.g. data.householdFinancial for 'household.monthlyIncomeRs')
@@ -139,7 +141,12 @@ export function isFieldApplicable(
     fieldKey === 'viralLoad'
   ) {
     if (fieldKey === 'health.vlDate' || fieldKey === 'vlDate') {
-      return vlStatus !== 'Not tested' && vlStatus !== '';
+      return (
+        vlStatus !== 'Not tested' &&
+        vlStatus !== 'Pending test results' &&
+        vlStatus !== 'Awaiting results' &&
+        vlStatus !== ''
+      );
     }
     return vlStatus.startsWith('Tested') || vlStatus.startsWith('Suppressed') || vlStatus.startsWith('Unsuppressed');
   }
@@ -379,6 +386,7 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
     // If nutrition is not selected, omit nutrition habit questions
     if (!cats.includes('nutrition')) {
       delete sanitized.nutrition;
+      delete sanitized.nutritionSupport;
       delete sanitized.appetite;
       delete sanitized.mealsPerDay;
       delete sanitized.malnutritionSymptoms;

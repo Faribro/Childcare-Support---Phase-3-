@@ -33,7 +33,10 @@
     "seed:leaders": "bun scripts/seed-leader-identities.ts",
     "reset:staging": "bun scripts/reset-staging.ts",
     "backup:sheets": "bun scripts/export-sheets-backup.ts",
-    "build:native-client": "vite build --config vite.native.config.ts"
+    "build:native-client": "node scripts/build-native-client.mjs",
+    "build:native-client:staging": "node scripts/build-native-client.mjs --env=staging --sync",
+    "build:native-client:prod": "node scripts/build-native-client.mjs --env=production --sync",
+    "build:native-client:dev": "node scripts/build-native-client.mjs --env=development --sync"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "8.0.1",
