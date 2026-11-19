@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { INDIAN_STATES_AND_UTS } from '@/lib/clinical/nutritionCalculations';
 import { setEvaluationUnlocked, EvaluationUser } from '@/lib/auth/evaluationAccess';
+import { platformRegistry } from '@/lib/platform/platformRegistry';
 
 export interface StateTeamAuthFlowProps {
   onSuccess?: () => void;
@@ -94,7 +95,7 @@ export function StateTeamAuthFlow({
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,7 +164,7 @@ export function StateTeamAuthFlow({
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/auth/state-team/register', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/state-team/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -205,7 +206,7 @@ export function StateTeamAuthFlow({
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/auth/state-team/verify-otp', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/state-team/verify-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -261,7 +262,7 @@ export function StateTeamAuthFlow({
     setInvitationStatusMessage(null);
 
     try {
-      const res = await fetch('/api/auth/state-team/invitation/issue', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/state-team/invitation/issue'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

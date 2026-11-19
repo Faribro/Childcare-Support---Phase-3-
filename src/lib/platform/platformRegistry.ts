@@ -103,10 +103,9 @@ class PlatformRegistryService {
 
   public resolveUrl(path: string): string {
     if (this.config.target === 'android') {
-      const isCloudRun = Boolean(process.env.K_SERVICE);
       const envBase = process.env.NEXT_PUBLIC_API_BASE_URL ||
         process.env.NEXT_PUBLIC_APP_URL ||
-        (isCloudRun ? '' : 'https://childcare-support-phase-3-peqat23bz-hashcode1.vercel.app');
+        'https://csc-staging-963330210821.asia-south1.run.app';
       const baseUrl = this.getApiBaseUrl() || envBase;
       if (baseUrl) {
         const cleanBase = baseUrl.replace(/\/+$/, '');

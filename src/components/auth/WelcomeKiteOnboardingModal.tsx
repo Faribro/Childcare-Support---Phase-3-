@@ -104,7 +104,7 @@ export function WelcomeKiteOnboardingModal({
   // Load active State SRs for the selected state
   useEffect(() => {
     if (isOpen && state) {
-      fetch(`/api/reference-data/state-srs?state=${encodeURIComponent(state)}`)
+      fetch(platformRegistry.resolveUrl(`/api/reference-data/state-srs?state=${encodeURIComponent(state)}`))
         .then((res) => res.json())
         .then((json) => {
           if (json?.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
@@ -183,7 +183,7 @@ export function WelcomeKiteOnboardingModal({
     setInfoMessage(null);
 
     try {
-      const res = await fetch('/api/auth/field-user/email-otp/request', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/field-user/email-otp/request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail, purpose: 'login' }),
@@ -217,7 +217,7 @@ export function WelcomeKiteOnboardingModal({
     setErrorMessage(null);
 
     try {
-      const res = await fetch('/api/auth/field-user/email-otp/verify', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/field-user/email-otp/verify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -321,7 +321,7 @@ export function WelcomeKiteOnboardingModal({
     };
 
     try {
-      const res = await fetch('/api/auth/field-user/complete-onboarding', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/field-user/complete-onboarding'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -428,7 +428,7 @@ export function WelcomeKiteOnboardingModal({
       setInfoMessage(null);
 
       try {
-        const res = await fetch('/api/auth/field-user/email-otp/request', {
+        const res = await fetch(platformRegistry.resolveUrl('/api/auth/field-user/email-otp/request'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: cleanEmail, purpose: 'registration' }),
@@ -471,7 +471,7 @@ export function WelcomeKiteOnboardingModal({
     const cleanEmail = registerEmail.trim().toLowerCase();
 
     try {
-      const verifyRes = await fetch('/api/auth/field-user/email-otp/verify', {
+      const verifyRes = await fetch(platformRegistry.resolveUrl('/api/auth/field-user/email-otp/verify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -505,7 +505,7 @@ export function WelcomeKiteOnboardingModal({
     setInfoMessage(null);
 
     try {
-      const res = await fetch('/api/auth/field-user/email-otp/request', {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/field-user/email-otp/request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail, purpose: 'registration' }),

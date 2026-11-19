@@ -32,8 +32,22 @@ if (IS_DEV) {
 // Initialize platform registry for native Android target
 platformRegistry.configure({
   target: 'android',
-  apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'https://childcare-support-phase-3-peqat23bz-hashcode1.vercel.app',
+  apiBaseUrl:
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    'https://csc-staging-963330210821.asia-south1.run.app',
 });
+
+// Automatically resolve relative API URLs on native Android runtime
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+  const originalFetch = window.fetch;
+  window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
+    if (typeof input === 'string' && input.startsWith('/')) {
+      input = platformRegistry.resolveUrl(input);
+    }
+    return originalFetch.call(this, input, init);
+  };
+}
 
 import { enqueueCreate, getDispatchQueue } from '@/features/submission/submissionQueueRepository';
 import { getQueueStats } from '@/lib/db/syncQueueRepository';

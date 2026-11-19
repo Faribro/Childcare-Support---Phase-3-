@@ -24,7 +24,9 @@ export default defineConfig({
     'process.env.NEXT_PUBLIC_BUILD_TARGET': JSON.stringify('native-client'),
     'process.env.NEXT_PUBLIC_APP_ENV': JSON.stringify('production'),
     'process.env.NEXT_PUBLIC_API_BASE_URL': JSON.stringify(
-      process.env.NEXT_PUBLIC_API_BASE_URL || 'https://childcare-support-phase-3-peqat23bz-hashcode1.vercel.app'
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        'https://csc-staging-963330210821.asia-south1.run.app'
     ),
     'process.env.NEXT_PUBLIC_VERCEL_PROTECTION_BYPASS': JSON.stringify(
       process.env.NEXT_PUBLIC_VERCEL_PROTECTION_BYPASS || ''
