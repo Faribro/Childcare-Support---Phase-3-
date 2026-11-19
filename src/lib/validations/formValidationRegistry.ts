@@ -218,14 +218,14 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     order: 27,
   },
   'demographics.contactNumber': {
-    sectionKey: 'consent',
+    sectionKey: 'demographics',
     elementId: 'demographics-contactNumber',
     label: 'Caregiver contact number',
     defaultMessage: 'Must be a valid 10-digit Indian mobile number starting with 6-9.',
     order: 28,
   },
   'demographics.caregiverPhone': {
-    sectionKey: 'consent',
+    sectionKey: 'demographics',
     elementId: 'demographics-contactNumber',
     label: 'Caregiver contact number',
     defaultMessage: 'Must be a valid 10-digit Indian mobile number starting with 6-9.',
@@ -367,7 +367,7 @@ export const FIELD_REGISTRY: Record<string, FieldRegistryEntry> = {
     order: 42,
   },
   contactNumber: {
-    sectionKey: 'consent',
+    sectionKey: 'demographics',
     elementId: 'demographics-contactNumber',
     label: 'Caregiver contact number',
     order: 43,

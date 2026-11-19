@@ -12,7 +12,10 @@ import {
   type SupportCategory,
   isFieldApplicableForCategories,
   isSectionApplicable,
+  deriveGuardianStatus,
 } from '../assessment/categoryApplicability';
+
+export { deriveGuardianStatus };
 
 export const CURRENT_SCHEMA_VERSION = 2;
 export const CATEGORY_SCHEMA_VERSION = 3;
@@ -135,7 +138,10 @@ export function isFieldApplicable(
     fieldKey === 'vlDate' ||
     fieldKey === 'viralLoad'
   ) {
-    return vlStatus.startsWith('Suppressed') || vlStatus.startsWith('Unsuppressed');
+    if (fieldKey === 'health.vlDate' || fieldKey === 'vlDate') {
+      return vlStatus !== 'Not tested' && vlStatus !== '';
+    }
+    return vlStatus.startsWith('Tested') || vlStatus.startsWith('Suppressed') || vlStatus.startsWith('Unsuppressed');
   }
 
   if (
@@ -255,7 +261,23 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
   }
 
   // Viral load
-  if (!vlStatus.startsWith('Suppressed') && !vlStatus.startsWith('Unsuppressed')) {
+  if (vlStatus === 'Not tested') {
+    delete sanitized.vlDate;
+    delete sanitized.viralLoad;
+    delete sanitized.vlCategory;
+    if (sanitized.health && typeof sanitized.health === 'object') {
+      delete sanitized.health.vlDate;
+      delete sanitized.health.viralLoad;
+      delete sanitized.health.vlCategory;
+    }
+  } else if (vlStatus === 'Awaiting results') {
+    delete sanitized.viralLoad;
+    delete sanitized.vlCategory;
+    if (sanitized.health && typeof sanitized.health === 'object') {
+      delete sanitized.health.viralLoad;
+      delete sanitized.health.vlCategory;
+    }
+  } else if (vlStatus && !vlStatus.startsWith('Tested') && !vlStatus.startsWith('Suppressed') && !vlStatus.startsWith('Unsuppressed')) {
     delete sanitized.vlDate;
     delete sanitized.viralLoad;
     delete sanitized.vlCategory;
@@ -390,8 +412,31 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
       }
     }
 
-    // If neither nutrition nor hiv_support is selected (e.g. Education only), omit clinical anthropometrics
-    if (!cats.includes('nutrition') && !cats.includes('hiv_support')) {
+    // If neither education nor nutrition is selected (e.g. HIV-only), omit Banking & Household Income
+    if (!cats.includes('education') && !cats.includes('nutrition')) {
+      delete sanitized.bankingAndKyc;
+      delete sanitized.bankDetails;
+      delete sanitized.bankAccountHolderName;
+      delete sanitized.bankAccountNumber;
+      delete sanitized.bankName;
+      delete sanitized.bankBranch;
+      delete sanitized.ifscCode;
+      delete sanitized.bankPassbookPhotoUrl;
+      delete sanitized.aadhaarCardPhotoUrl;
+      delete sanitized.consentFormPhotoUrl;
+
+      delete sanitized.household;
+      delete sanitized.householdFinancial;
+      delete sanitized.totalFamilyIncome;
+      delete sanitized.familyMembersCount;
+      delete sanitized.mainSourceOfIncome;
+      delete sanitized.majorSourceOfIncome;
+      delete sanitized.rationCardType;
+      delete sanitized.bplCardNumber;
+    }
+
+    // Anthropometrics: omit whenever nutrition is not selected
+    if (!cats.includes('nutrition')) {
       delete sanitized.weightKg;
       delete sanitized.heightCm;
       delete sanitized.bmi;
@@ -399,8 +444,6 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
       delete sanitized.haemoglobinGdl;
       delete sanitized.hbCategory;
       delete sanitized.nutritionStatus;
-      delete sanitized.otherHealthConditions;
-      delete sanitized.otherHealthConditionSpecify;
       if (sanitized.health && typeof sanitized.health === 'object') {
         delete sanitized.health.weightKg;
         delete sanitized.health.heightCm;
@@ -409,9 +452,28 @@ export function sanitizeSubmissionPayload<T extends Record<string, any>>(data: T
         delete sanitized.health.haemoglobinGdl;
         delete sanitized.health.hbCategory;
         delete sanitized.health.nutritionStatus;
+      }
+    }
+
+    // If neither nutrition nor hiv_support is selected (e.g. Education only), omit general health comorbidities
+    if (!cats.includes('nutrition') && !cats.includes('hiv_support')) {
+      delete sanitized.otherHealthConditions;
+      delete sanitized.otherHealthConditionSpecify;
+      if (sanitized.health && typeof sanitized.health === 'object') {
         delete sanitized.health.otherHealthConditions;
         delete sanitized.health.otherHealthConditionSpecify;
       }
+    }
+  }
+
+  // Authoritatively derive guardianStatus from orphanStatus if orphanStatus is present
+  const rawOrphan = sanitized.orphanStatus || (sanitized.demographics && sanitized.demographics.orphanStatus);
+  const currentGuardian = sanitized.guardianStatus || (sanitized.demographics && sanitized.demographics.guardianStatus);
+  if (rawOrphan) {
+    const derived = deriveGuardianStatus(rawOrphan, currentGuardian);
+    (sanitized as any).guardianStatus = derived;
+    if (sanitized.demographics && typeof sanitized.demographics === 'object') {
+      (sanitized.demographics as any).guardianStatus = derived;
     }
   }
 

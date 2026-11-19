@@ -235,8 +235,15 @@ export function WelcomeKiteOnboardingModal({
       }
 
       const profile = data.profile;
+      const cleanEmail = signInEmail.trim().toLowerCase();
       if (typeof window !== 'undefined' && profile) {
-        localStorage.setItem('field_user_profile', JSON.stringify(profile));
+        const fullProfile = {
+          ...profile,
+          organizationName: profile.organizationName || profile.srName || 'India HIV/AIDS Alliance',
+          organizationEmail: profile.organizationEmail || profile.googleEmail || profile.email || cleanEmail,
+          email: profile.email || profile.googleEmail || cleanEmail,
+        };
+        localStorage.setItem('field_user_profile', JSON.stringify(fullProfile));
         if (profile.srName) {
           localStorage.setItem(
             'field_user_sr',
@@ -297,6 +304,7 @@ export function WelcomeKiteOnboardingModal({
       if (typeof window !== 'undefined') {
         const cleanMobile = mobileNumber.trim().replace(/\D/g, '');
         const maskedMobile = cleanMobile.length >= 4 ? `+91 ******${cleanMobile.slice(-4)}` : undefined;
+        const finalEmail = userEmail || cleanEmail || googleEmail.trim() || undefined;
         const profileObj = {
           id: profileId || `fld_local_${Date.now()}`,
           name: profileName || `${firstName.trim()} ${lastName.trim()}`.trim(),
@@ -304,7 +312,10 @@ export function WelcomeKiteOnboardingModal({
           lastName: lastName.trim(),
           assignedState: state.trim(),
           assignedDistrict: district.trim(),
-          googleEmail: userEmail || cleanEmail || googleEmail.trim() || undefined,
+          googleEmail: finalEmail,
+          email: finalEmail,
+          organizationName: finalSr || 'India HIV/AIDS Alliance',
+          organizationEmail: finalEmail,
           maskedMobile,
           srName: finalSr,
           ssrName: ssrName.trim(),

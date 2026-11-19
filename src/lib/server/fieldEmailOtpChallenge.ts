@@ -318,6 +318,9 @@ export async function verifyFieldEmailOtp(params: {
     assignedDistrict: profile.assignedDistrict,
     srName: profile.srName,
     ssrName: profile.ssrName,
+    organizationName: profile.srName || 'India HIV/AIDS Alliance',
+    organizationEmail: profile.googleEmail || normEmail,
+    email: profile.googleEmail || normEmail,
     googleEmail: profile.googleEmail || normEmail,
     maskedMobile: profile.mobileNumber ? `+91 ******${profile.mobileNumber.slice(-4)}` : undefined,
   };

@@ -50,8 +50,8 @@ export const CATEGORY_LABELS: Record<SupportCategory, string> = {
 export const SECTION_APPLICABILITY: Record<string, SupportCategory[] | 'always'> = {
   consent: 'always',
   demographics: 'always',
-  banking: 'always',          // optional at intake, shown for all
-  household: 'always',
+  banking: ['education', 'nutrition'],       // shown for education, nutrition, or all categories; hidden for HIV-only
+  household: ['education', 'nutrition'],     // shown for education, nutrition, or all categories; hidden for HIV-only
   health: ['nutrition', 'hiv_support'],
   nutrition: ['nutrition'],
   education: ['education'],
@@ -125,14 +125,27 @@ const FIELD_CATEGORY_MAP: Record<string, SupportCategory[] | 'always'> = {
   // General Health & Comorbidities
   'health.otherHealthConditions': ['nutrition', 'hiv_support'],
   'health.otherHealthConditionSpecify': ['nutrition', 'hiv_support'],
-  // Anthropometrics: shown when nutrition OR hiv_support selected
-  'health.weightKg': ['nutrition', 'hiv_support'],
-  'health.heightCm': ['nutrition', 'hiv_support'],
-  'health.haemoglobinGdl': ['nutrition', 'hiv_support'],
+  // Anthropometrics: shown ONLY when nutrition is selected
+  'health.weightKg': ['nutrition'],
+  'health.heightCm': ['nutrition'],
+  'health.haemoglobinGdl': ['nutrition'],
   // Child Disability: decoupled from HIV exclusivity — accessible across all support categories
   'health.hasDisability': ['education', 'nutrition', 'hiv_support'],
   'health.disabilityType': ['education', 'nutrition', 'hiv_support'],
   'health.disabilityCertificateStatus': ['education', 'nutrition', 'hiv_support'],
+  // Secure Banking & Payment Details: shown for Education, Nutrition, or All Categories
+  'banking.bankAccountHolderName': ['education', 'nutrition'],
+  'banking.bankAccountNumber': ['education', 'nutrition'],
+  'banking.bankName': ['education', 'nutrition'],
+  'banking.bankBranch': ['education', 'nutrition'],
+  'banking.ifscCode': ['education', 'nutrition'],
+  'banking.bankPassbookPhotoUrl': ['education', 'nutrition'],
+  // Family Background & Income: shown for Education, Nutrition, or All Categories
+  'household.totalFamilyIncome': ['education', 'nutrition'],
+  'household.familyMembersCount': ['education', 'nutrition'],
+  'household.majorSourceOfIncome': ['education', 'nutrition'],
+  'household.rationCardType': ['education', 'nutrition'],
+  'household.bplCardNumber': ['education', 'nutrition'],
   // Nutrition section
   'nutrition.appetite': ['nutrition'],
   'nutrition.mealsPerDay': ['nutrition'],
@@ -186,12 +199,24 @@ const FIELD_SHORT_KEY_MAP: Record<string, SupportCategory[] | 'always'> = {
   viralLoad: ['hiv_support'],
   otherHealthConditions: ['nutrition', 'hiv_support'],
   otherHealthConditionSpecify: ['nutrition', 'hiv_support'],
-  weightKg: ['nutrition', 'hiv_support'],
-  heightCm: ['nutrition', 'hiv_support'],
-  haemoglobinGdl: ['nutrition', 'hiv_support'],
+  weightKg: ['nutrition'],
+  heightCm: ['nutrition'],
+  haemoglobinGdl: ['nutrition'],
   hasDisability: ['education', 'nutrition', 'hiv_support'],
   disabilityType: ['education', 'nutrition', 'hiv_support'],
   disabilityCertificateStatus: ['education', 'nutrition', 'hiv_support'],
+  bankAccountHolderName: ['education', 'nutrition'],
+  bankAccountNumber: ['education', 'nutrition'],
+  bankName: ['education', 'nutrition'],
+  bankBranch: ['education', 'nutrition'],
+  ifscCode: ['education', 'nutrition'],
+  bankPassbookPhotoUrl: ['education', 'nutrition'],
+  totalFamilyIncome: ['education', 'nutrition'],
+  familyMembersCount: ['education', 'nutrition'],
+  mainSourceOfIncome: ['education', 'nutrition'],
+  majorSourceOfIncome: ['education', 'nutrition'],
+  rationCardType: ['education', 'nutrition'],
+  bplCardNumber: ['education', 'nutrition'],
   appetite: ['nutrition'],
   mealsPerDay: ['nutrition'],
   malnutritionSymptoms: ['nutrition'],
@@ -259,3 +284,43 @@ export function validateCategories(raw: unknown): SupportCategory[] | null {
 
   return valid.length > 0 ? valid : null;
 }
+
+/**
+ * Authoritatively derives guardian/parent status (Sheet Column 76) from orphanStatus.
+ * Keeps previously entered values if already valid, and provides exact mapping:
+ * - "Both parents alive" -> "Alive"
+ * - Double orphan -> "Deceased"
+ * - Single orphan -> "Deceased (Single Parent)"
+ * - Vulnerable child -> "Ill"
+ * - Abandon -> "Unknown"
+ */
+export function deriveGuardianStatus(orphanStatus?: string | null, existingGuardianStatus?: string | null): string {
+  if (existingGuardianStatus && existingGuardianStatus.trim()) {
+    const trimmed = existingGuardianStatus.trim();
+    if (['Alive', 'Deceased', 'Deceased (Single Parent)', 'Ill', 'Unknown'].includes(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  if (!orphanStatus) return existingGuardianStatus || '';
+
+  const normalized = orphanStatus.toLowerCase();
+  if (normalized.includes('both parents alive') || normalized.includes('both alive')) {
+    return 'Alive';
+  }
+  if (normalized.includes('double orphan') || normalized.includes('both parents deceased') || normalized.includes('both deceased')) {
+    return 'Deceased';
+  }
+  if (normalized.includes('single orphan') || normalized.includes('mother deceased') || normalized.includes('father deceased')) {
+    return 'Deceased (Single Parent)';
+  }
+  if (normalized.includes('vulnerable child') || normalized.includes('critically ill') || normalized.includes('ill')) {
+    return 'Ill';
+  }
+  if (normalized.includes('abandoned') || normalized.includes('abandon') || normalized.includes('untraceable') || normalized.includes('unknown')) {
+    return 'Unknown';
+  }
+
+  return existingGuardianStatus || 'Alive';
+}
+

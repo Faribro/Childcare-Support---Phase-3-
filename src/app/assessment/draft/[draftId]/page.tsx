@@ -7,7 +7,14 @@ import {
   validateEntireForm,
   sanitizeSubmissionPayload,
   CURRENT_SCHEMA_VERSION,
+  CATEGORY_SCHEMA_VERSION,
+  deriveGuardianStatus,
 } from '@/lib/validations/formRules';
+import {
+  type SupportCategory,
+  isSectionApplicable,
+  getApplicableSections,
+} from '@/lib/assessment/categoryApplicability';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -102,6 +109,22 @@ export default function ResumeDraftSinglePage() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<SupportCategory[]>([]);
+  const isHivApplicable = useMemo(
+    () => selectedCategories.length === 0 || selectedCategories.includes('hiv_support'),
+    [selectedCategories]
+  );
+  const applicableSections = useMemo(
+    () => getApplicableSections(selectedCategories),
+    [selectedCategories]
+  );
+  const sectionStepNumbers = useMemo(() => {
+    const map: Record<string, string> = {};
+    applicableSections.forEach((sec, idx) => {
+      map[sec] = String(idx + 1).padStart(2, '0');
+    });
+    return map;
+  }, [applicableSections]);
 
   const errorsByField = useMemo(() => {
     const map: Record<string, FormValidationError> = {};
@@ -386,6 +409,10 @@ export default function ResumeDraftSinglePage() {
             });
           }
 
+          if (found.supportCategories && Array.isArray(found.supportCategories)) {
+            setSelectedCategories(found.supportCategories as SupportCategory[]);
+          }
+
           // Map found draft to formData
           const d = found.demographics || ({} as any);
           const c = found.consent || ({} as any);
@@ -397,6 +424,21 @@ export default function ResumeDraftSinglePage() {
           const exp = found.educationExpenses || ({} as any);
           const req = found.educationSupportRequired || ({} as any);
           const fr = found.finalReview || ({} as any);
+
+          let profileOrgName = fr.organizationName || 'India HIV/AIDS Alliance';
+          let profileOrgEmail = fr.organizationEmail || '';
+          if (typeof window !== 'undefined') {
+            try {
+              const cachedProfile = localStorage.getItem('field_user_profile');
+              if (cachedProfile) {
+                const p = JSON.parse(cachedProfile);
+                if (p.organizationName) profileOrgName = p.organizationName;
+                if (p.organizationEmail || p.email || p.googleEmail) {
+                  profileOrgEmail = p.organizationEmail || p.email || p.googleEmail;
+                }
+              }
+            } catch (_) {}
+          }
 
           setFormData({
             artNumber: d.artNumber || '',
@@ -497,9 +539,9 @@ export default function ResumeDraftSinglePage() {
 
             approvedAllianceIndia: (found.approvedAllianceIndia || fr.approvedAllianceIndia || 'Pending') as ApprovedAllianceStatus,
             allInfoCorrect: fr.allInfoCorrect ?? true,
-            organizationName: fr.organizationName || 'India HIV/AIDS Alliance',
+            organizationName: profileOrgName,
             formSubmittedBy: fr.formSubmittedBy || found.interviewerName || 'Sunita Sharma',
-            organizationEmail: fr.organizationEmail || 'fieldworker@allianceindia.org',
+            organizationEmail: profileOrgEmail,
           });
 
           // Check signature status
@@ -861,6 +903,15 @@ export default function ResumeDraftSinglePage() {
       }
 
       const trimmedInterviewer = (formData.formSubmittedBy || '').trim();
+      const authoritativeOrgName = (formData.organizationName || '').trim();
+      const authoritativeOrgEmail = (formData.organizationEmail || '').trim().toLowerCase();
+
+      if (!authoritativeOrgName || !authoritativeOrgEmail || !authoritativeOrgEmail.includes('@')) {
+        setFormError('Authenticated caseworker organisation name and verified email are required from profile. Please complete or restore your caseworker profile.');
+        setIsSubmitting(false);
+        return;
+      }
+
       if (trimmedInterviewer.length < 2) {
         setFormError('Please enter your name using at least 2 characters.');
         setIsSubmitting(false);
@@ -871,6 +922,8 @@ export default function ResumeDraftSinglePage() {
         }
         return;
       }
+
+      const authoritativeGuardianStatus = deriveGuardianStatus(formData.orphanStatus, formData.guardianStatus);
 
       const finalRecord: AssessmentRecord = {
         uuid: clientUuid,
@@ -909,7 +962,7 @@ export default function ResumeDraftSinglePage() {
           childAadhaarNumber: formData.childAadhaarNumber,
           srName: formData.srName,
           ssrName: formData.ssrName,
-          guardianStatus: formData.guardianStatus,
+          guardianStatus: authoritativeGuardianStatus,
         },
         consent: {
           agreeToParticipate: formData.agreeToParticipate ?? false,
@@ -1009,9 +1062,9 @@ export default function ResumeDraftSinglePage() {
         },
         finalReview: {
           allInfoCorrect: formData.allInfoCorrect ?? false,
-          organizationName: formData.organizationName,
+          organizationName: authoritativeOrgName,
           formSubmittedBy: trimmedInterviewer,
-          organizationEmail: formData.organizationEmail,
+          organizationEmail: authoritativeOrgEmail,
           approvedAllianceIndia: formData.approvedAllianceIndia,
           reviewConfirmed: formData.allInfoCorrect ?? false,
         },
@@ -1025,9 +1078,11 @@ export default function ResumeDraftSinglePage() {
 
       // Single Source of Truth Form Rules & Clinical Skip Logic Validation
       const validationPayload = { ...formData, ...finalRecord };
+      const activeCategories = selectedCategories.length > 0 ? selectedCategories : undefined;
       const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
         validationPayload,
-        hasSavedSignature || !!signatureDataUrl
+        hasSavedSignature || !!signatureDataUrl,
+        activeCategories
       );
 
       if (!isFormValid || fullFormErrors.length > 0) {
@@ -1044,7 +1099,10 @@ export default function ResumeDraftSinglePage() {
       }
 
       // Sanitize payload: strip hidden skip-logic fields & set schemaVersion
-      finalRecord.schemaVersion = CURRENT_SCHEMA_VERSION;
+      finalRecord.schemaVersion = selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION;
+      if (selectedCategories.length > 0) {
+        (finalRecord as any).supportCategories = selectedCategories;
+      }
       const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
 
       // Valid: clear previous errors
@@ -1348,22 +1406,6 @@ export default function ResumeDraftSinglePage() {
                   </p>
                 )}
               </div>
-
-              <div id="q-caregiver-contact" className={getHighlightClass('q-caregiver-contact')}>
-                <Input
-                  id="demographics-contactNumber"
-                  label={t('caregiver_contact', currentLanguage)}
-                  type="tel"
-                  required
-                  maxLength={10}
-                  value={formData.contactNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, contactNumber: e.target.value.replace(/\D/g, '') })
-                  }
-                  error={errorsByField['demographics-contactNumber']?.message}
-                  placeholder="e.g. 9822012345"
-                />
-              </div>
             </div>
 
             {/* Signature Pad or Refusal Alert */}
@@ -1523,7 +1565,13 @@ export default function ResumeDraftSinglePage() {
                       name="orphanStatus"
                       value={opt.value}
                       checked={formData.orphanStatus === opt.value}
-                      onChange={() => setFormData({ ...formData, orphanStatus: opt.value })}
+                      onChange={() =>
+                        setFormData({
+                          ...formData,
+                          orphanStatus: opt.value,
+                          guardianStatus: deriveGuardianStatus(opt.value, formData.guardianStatus) as any,
+                        })
+                      }
                       className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span className="break-words leading-tight">{opt.label}</span>
@@ -1623,45 +1671,14 @@ export default function ResumeDraftSinglePage() {
               />
             </div>
 
-            {/* Standalone Card: Status of Guardian / Parent */}
-            <div className="p-4 sm:p-5 bg-white border border-slate-200/90 rounded-2xl shadow-2xs space-y-3" id="sec-guardian-status">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-purple-50 rounded-xl text-purple-700">
-                  <Users className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                    Status of Guardian or Parent
-                  </h4>
-                  <p className="text-[11px] text-slate-500">Select parent/guardian vitality status</p>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="guardian-status-select" className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
-                  Status
-                </label>
-                <select
-                  id="guardian-status-select"
-                  value={formData.guardianStatus}
-                  onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value as any })}
-                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl transition-all shadow-2xs focus:outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-200 cursor-pointer"
-                >
-                  <option value="">-- Select Status --</option>
-                  <option value="Alive">Alive</option>
-                  <option value="Deceased">Deceased</option>
-                  <option value="Ill">Ill</option>
-                  <option value="Migrated">Migrated</option>
-                  <option value="Unknown">Unknown</option>
-                </select>
-              </div>
-            </div>
           </div>
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
+        {isSectionApplicable('banking', selectedCategories) && (
         <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="03" title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
-          <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" />
+          <SectionVerticalTitle number={sectionStepNumbers['banking'] || '03'} title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
+          <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" errorCount={errorsBySection['banking']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div id="q-bank-holder" className={`sm:col-span-2 ${getHighlightClass('q-bank-holder')}`}>
@@ -1726,10 +1743,12 @@ export default function ResumeDraftSinglePage() {
             />
           </div>
         </section>
+        )}
 
         {/* SECTION 4: Household & Financial Details */}
+        {isSectionApplicable('household', selectedCategories) && (
         <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="04" title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
+          <SectionVerticalTitle number={sectionStepNumbers['household'] || '04'} title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
           <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1818,15 +1837,18 @@ export default function ResumeDraftSinglePage() {
             </div>
           </div>
         </section>
+        )}
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
+        {isSectionApplicable('health', selectedCategories) && (
         <section id="sec-health" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.clinical.bg}`} style={{"--neon-mid":SC.clinical.neonMid,"--neon-far":SC.clinical.neonFar,"--neon-border":SC.clinical.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="05" title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
+          <SectionVerticalTitle number={sectionStepNumbers['health'] || '05'} title={t('sec_clinical', currentLanguage)} colorScheme={SC.clinical} />
           <SectionHeader prefix="Clinical " emphasis="health" suffix=" measurements" emphasisColor="text-sky-600" borderColor="border-sky-100/80" eyebrowColor="text-sky-500/90" errorCount={errorsBySection['health']?.length || 0} />
 
           <div className="space-y-4">
             {/* Sub-Card 1: Anthropometry & Growth (WHO Standards) */}
             {/* Sub-Card 1: Growth & Measurements */}
+            {isSectionApplicable('nutrition', selectedCategories) && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-sky-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
               <div className="flex items-center justify-between border-b border-sky-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -1945,8 +1967,10 @@ export default function ResumeDraftSinglePage() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Sub-Card 2: Antiretroviral Therapy (ART) Care */}
+            {isHivApplicable && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-indigo-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-20">
               <div className="flex items-center justify-between border-b border-indigo-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -2049,8 +2073,10 @@ export default function ResumeDraftSinglePage() {
                 />
               </div>
             </div>
+            )}
 
             {/* Sub-Card 3: Diagnostics Lab Monitoring (Hb & Viral Load) */}
+            {(isSectionApplicable('nutrition', selectedCategories) || isHivApplicable) && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-purple-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-10">
               <div className="flex items-center justify-between border-b border-purple-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -2065,8 +2091,9 @@ export default function ResumeDraftSinglePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className={`grid grid-cols-1 ${isSectionApplicable('nutrition', selectedCategories) && isHivApplicable ? 'lg:grid-cols-2' : ''} gap-4`}>
                 {/* Part A: Hemoglobin & Anemia Staging */}
+                {isSectionApplicable('nutrition', selectedCategories) && (
                 <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
@@ -2116,8 +2143,10 @@ export default function ResumeDraftSinglePage() {
                     )}
                   </p>
                 </div>
+                )}
 
                 {/* Part B: Viral Load & Suppression */}
+                {isHivApplicable && (
                 <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
@@ -2199,10 +2228,13 @@ export default function ResumeDraftSinglePage() {
                     </div>
                   )}
                 </div>
+                )}
               </div>
             </div>
+            )}
 
             {/* Sub-Card 4: Comorbidities & Co-infections */}
+            {(isHivApplicable || isSectionApplicable('nutrition', selectedCategories)) && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -2267,6 +2299,7 @@ export default function ResumeDraftSinglePage() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Sub-Card 5: Disability Details */}
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
@@ -2337,10 +2370,12 @@ export default function ResumeDraftSinglePage() {
             </div>
           </div>
         </section>
+        )}
 
         {/* SECTION 6: Nutrition Habits */}
+        {isSectionApplicable('nutrition', selectedCategories) && (
         <section id="sec-nutrition" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.nutrition.bg}`} style={{"--neon-mid":SC.nutrition.neonMid,"--neon-far":SC.nutrition.neonFar,"--neon-border":SC.nutrition.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="06" title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
+          <SectionVerticalTitle number={sectionStepNumbers['nutrition'] || '06'} title={t('sec_nutrition', currentLanguage)} colorScheme={SC.nutrition} />
           <SectionHeader prefix="Nutrition " emphasis="appetite" suffix=" & eating habits" emphasisColor="text-lime-700" borderColor="border-lime-100/80" eyebrowColor="text-lime-600/90" errorCount={errorsBySection['nutrition']?.length || 0} />
 
           <div className="pt-1">
@@ -2369,10 +2404,12 @@ export default function ResumeDraftSinglePage() {
             </div>
           </div>
         </section>
+        )}
 
         {/* SECTION 7: Education Status */}
+        {isSectionApplicable('education', selectedCategories) && (
         <section id="sec-education" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.education.bg}`} style={{"--neon-mid":SC.education.neonMid,"--neon-far":SC.education.neonFar,"--neon-border":SC.education.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="07" title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
+          <SectionVerticalTitle number={sectionStepNumbers['education'] || '07'} title={t('sec_education', currentLanguage)} colorScheme={SC.education} />
           <SectionHeader prefix="Child's " emphasis="learning" suffix=" & school status" emphasisColor="text-violet-600" borderColor="border-violet-100/80" eyebrowColor="text-violet-400/90" errorCount={errorsBySection['education']?.length || 0} />
 
           <div className="space-y-4">
@@ -2697,10 +2734,12 @@ export default function ResumeDraftSinglePage() {
             )}
           </div>
         </section>
+        )}
 
         {/* SECTION 8: Expenses & Programme Support */}
+        {isSectionApplicable('expenses', selectedCategories) && (
         <section id="sec-expenses" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.expenses.bg}`} style={{"--neon-mid":SC.expenses.neonMid,"--neon-far":SC.expenses.neonFar,"--neon-border":SC.expenses.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="08" title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
+          <SectionVerticalTitle number={sectionStepNumbers['expenses'] || '08'} title={t('sec_expenses', currentLanguage)} colorScheme={SC.expenses} />
           <SectionHeader prefix="Programme " emphasis="expenses" suffix=" & required support" emphasisColor="text-orange-600" borderColor="border-orange-100/80" eyebrowColor="text-orange-500/90" errorCount={errorsBySection['expenses']?.length || 0} />
 
           <ExpensesAndApprovalGrid
@@ -2741,10 +2780,11 @@ export default function ResumeDraftSinglePage() {
             }}
           />
         </section>
+        )}
 
         {/* SECTION 9: Programme Approval & Final Review */}
         <section id="sec-review" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.review.bg}`} style={{"--neon-mid":SC.review.neonMid,"--neon-far":SC.review.neonFar,"--neon-border":SC.review.neonBorder} as React.CSSProperties}>
-          <SectionVerticalTitle number="09" title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
+          <SectionVerticalTitle number={sectionStepNumbers['review'] || '09'} title={t('sec_review', currentLanguage)} colorScheme={SC.review} />
           <SectionHeader prefix="Verify & " emphasis="submit" suffix=" this assessment" emphasisColor="text-emerald-700" borderColor="border-emerald-100/80" eyebrowColor="text-emerald-500/90" errorCount={errorsBySection['review']?.length || 0} />
 
           <div className="space-y-4">
@@ -2829,29 +2869,31 @@ export default function ResumeDraftSinglePage() {
                 />
               </div>
 
-              <Input
-                id="review-organizationName"
-                name="organizationName"
-                label={t('org_name', currentLanguage)}
-                value={formData.organizationName}
-                onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
-                placeholder="India HIV/AIDS Alliance"
-              />
+              <div className="flex flex-col space-y-1">
+                <span className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500">
+                  {t('org_name', currentLanguage)}
+                </span>
+                <div className="h-11 px-3.5 flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800">
+                  <span className="truncate">{formData.organizationName || 'India HIV/AIDS Alliance'}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/60 shrink-0">
+                    <ShieldCheck className="w-3 h-3 text-teal-600" />
+                    Verified
+                  </span>
+                </div>
+              </div>
 
-              <Input
-                id="review-organizationEmail"
-                name="organizationEmail"
-                label={t('org_email', currentLanguage)}
-                type="email"
-                value={formData.organizationEmail}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ ...formData, organizationEmail: val });
-                  clearFieldError('review-organizationEmail', 'organizationEmail');
-                }}
-                error={errorsByField['review-organizationEmail']?.message || errorsByField['organizationEmail']?.message}
-                placeholder="fieldworker@allianceindia.org"
-              />
+              <div className="flex flex-col space-y-1">
+                <span className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500">
+                  {t('org_email', currentLanguage)}
+                </span>
+                <div className="h-11 px-3.5 flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800">
+                  <span className="truncate">{formData.organizationEmail || 'Profile verified email'}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/60 shrink-0">
+                    <ShieldCheck className="w-3 h-3 text-teal-600" />
+                    Profile
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </section>

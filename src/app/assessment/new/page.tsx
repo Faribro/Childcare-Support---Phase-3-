@@ -8,6 +8,7 @@ import {
   sanitizeSubmissionPayload,
   CURRENT_SCHEMA_VERSION,
   CATEGORY_SCHEMA_VERSION,
+  deriveGuardianStatus,
 } from '@/lib/validations/formRules';
 import {
   type SupportCategory,
@@ -510,6 +511,8 @@ export default function NewSinglePageAssessment() {
             srName: prev.srName || p.srName || '',
             ssrName: prev.ssrName || p.ssrName || '',
             formSubmittedBy: prev.formSubmittedBy || p.name || (p.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : prev.formSubmittedBy),
+            organizationName: p.organizationName || p.srName || 'India HIV/AIDS Alliance',
+            organizationEmail: p.organizationEmail || p.email || p.googleEmail || '',
             state: p.assignedState || prev.state,
             district: p.assignedDistrict || prev.district,
           }));
@@ -891,6 +894,16 @@ export default function NewSinglePageAssessment() {
       }
 
       const trimmedInterviewer = (formData.formSubmittedBy || '').trim();
+      const authoritativeOrgName = (formData.organizationName || '').trim();
+      const authoritativeOrgEmail = (formData.organizationEmail || '').trim().toLowerCase();
+
+      if (!authoritativeOrgName || !authoritativeOrgEmail || !authoritativeOrgEmail.includes('@')) {
+        setFormError('Authenticated caseworker organisation name and verified email are required from profile. Please complete or restore your caseworker profile.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const authoritativeGuardianStatus = deriveGuardianStatus(formData.orphanStatus, formData.guardianStatus);
 
       const finalRecord: AssessmentRecord = {
         uuid: clientUuid,
@@ -929,7 +942,7 @@ export default function NewSinglePageAssessment() {
           childAadhaarNumber: formData.childAadhaarNumber,
           srName: effectiveSrName || formData.srName || '',
           ssrName: effectiveSsrName || formData.ssrName || '',
-          guardianStatus: formData.guardianStatus,
+          guardianStatus: authoritativeGuardianStatus,
         },
         consent: {
           agreeToParticipate: formData.agreeToParticipate === true,
@@ -1028,9 +1041,9 @@ export default function NewSinglePageAssessment() {
         },
         finalReview: {
           allInfoCorrect: formData.allInfoCorrect === true,
-          organizationName: formData.organizationName || 'India HIV/AIDS Alliance',
+          organizationName: authoritativeOrgName,
           formSubmittedBy: trimmedInterviewer,
-          organizationEmail: formData.organizationEmail || '',
+          organizationEmail: authoritativeOrgEmail,
           approvedAllianceIndia: formData.approvedAllianceIndia,
           reviewConfirmed: formData.allInfoCorrect === true,
         },
@@ -1072,7 +1085,6 @@ export default function NewSinglePageAssessment() {
       }
       const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
 
-
       // Valid: clear previous errors
       setValidationErrors([]);
       setFormError(null);
@@ -1080,8 +1092,8 @@ export default function NewSinglePageAssessment() {
       // Enforce 3 MB total submission platform budget
       const payloadBytes =
         typeof Buffer !== 'undefined'
-          ? Buffer.byteLength(JSON.stringify(finalRecord), 'utf8')
-          : new Blob([JSON.stringify(finalRecord)]).size;
+          ? Buffer.byteLength(JSON.stringify(sanitizedFinalRecord), 'utf8')
+          : new Blob([JSON.stringify(sanitizedFinalRecord)]).size;
 
       if (payloadBytes > 3 * 1024 * 1024) {
         setFormError(
@@ -1092,9 +1104,9 @@ export default function NewSinglePageAssessment() {
       }
 
       await enqueueCreate({
-        clientSubmissionId: finalRecord.clientSubmissionId || finalRecord.uuid,
-        createIdempotencyKey: `create-${finalRecord.clientSubmissionId || finalRecord.uuid}`,
-        snapshot: finalRecord,
+        clientSubmissionId: sanitizedFinalRecord.clientSubmissionId || sanitizedFinalRecord.uuid,
+        createIdempotencyKey: `create-${sanitizedFinalRecord.clientSubmissionId || sanitizedFinalRecord.uuid}`,
+        snapshot: sanitizedFinalRecord,
       });
 
       // Immediate Autosync Trigger via canonical worker
@@ -1422,26 +1434,6 @@ export default function NewSinglePageAssessment() {
                   </p>
                 )}
               </div>
-
-              <div id="q-caregiver-contact" className={getHighlightClass('q-caregiver-contact')}>
-                <Input
-                  id="demographics-contactNumber"
-                  label={t('caregiver_contact', currentLanguage)}
-                  type="tel"
-                  required
-                  maxLength={10}
-                  value={formData.contactNumber}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setFormData({ ...formData, contactNumber: val });
-                    if (!val || /^[6-9]\d{9}$/.test(val)) {
-                      clearFieldError('demographics-contactNumber', 'contactNumber');
-                    }
-                  }}
-                  error={errorsByField['demographics-contactNumber']?.message}
-                  placeholder="e.g. 9822012345"
-                />
-              </div>
             </div>
 
             {/* Signature Pad or Refusal Alert */}
@@ -1628,7 +1620,13 @@ export default function NewSinglePageAssessment() {
                       name="orphanStatus"
                       value={opt.value}
                       checked={formData.orphanStatus === opt.value}
-                      onChange={() => setFormData({ ...formData, orphanStatus: opt.value })}
+                      onChange={() =>
+                        setFormData({
+                          ...formData,
+                          orphanStatus: opt.value,
+                          guardianStatus: deriveGuardianStatus(opt.value, formData.guardianStatus) as any,
+                        })
+                      }
                       className="accent-purple-600 text-purple-600 focus:ring-purple-500 shrink-0"
                     />
                     <span className="break-words leading-tight">{opt.label}</span>
@@ -1727,43 +1725,11 @@ export default function NewSinglePageAssessment() {
                 placeholder="e.g. 123456789012"
               />
             </div>
-
-            {/* Standalone Card: Status of Guardian / Parent */}
-            <div className="p-4 sm:p-5 bg-white border border-slate-200/90 rounded-2xl shadow-2xs space-y-3" id="sec-guardian-status">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-purple-50 rounded-xl text-purple-700">
-                  <Users className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                    Status of Guardian or Parent
-                  </h4>
-                  <p className="text-[11px] text-slate-500">Select parent/guardian vitality status</p>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="guardian-status-select" className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
-                  Status
-                </label>
-                <select
-                  id="guardian-status-select"
-                  value={formData.guardianStatus}
-                  onChange={(e) => setFormData({ ...formData, guardianStatus: e.target.value as any })}
-                  className="w-full h-11 px-3 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl transition-all shadow-2xs focus:outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-200 cursor-pointer"
-                >
-                  <option value="">-- Select Status --</option>
-                  <option value="Alive">Alive</option>
-                  <option value="Deceased">Deceased</option>
-                  <option value="Ill">Ill</option>
-                  <option value="Migrated">Migrated</option>
-                  <option value="Unknown">Unknown</option>
-                </select>
-              </div>
-            </div>
           </div>
         </section>
 
         {/* SECTION 3: Banking & Identification (KYC) Details */}
+        {isSectionApplicable('banking', selectedCategories) && (
         <section id="sec-banking" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.banking.bg}`} style={{"--neon-mid":SC.banking.neonMid,"--neon-far":SC.banking.neonFar,"--neon-border":SC.banking.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number={sectionStepNumbers['banking'] || '03'} title={t('sec_banking', currentLanguage)} colorScheme={SC.banking} />
           <SectionHeader prefix="Secure " emphasis="banking" suffix=" & payment details" emphasisColor="text-amber-600" borderColor="border-amber-100/80" eyebrowColor="text-amber-500/90" errorCount={errorsBySection['banking']?.length || 0} />
@@ -1831,8 +1797,10 @@ export default function NewSinglePageAssessment() {
             />
           </div>
         </section>
+        )}
 
         {/* SECTION 4: Household & Financial Details */}
+        {isSectionApplicable('household', selectedCategories) && (
         <section id="sec-household" className={`neon-section relative pt-2.5 sm:pt-3 px-3 sm:px-6 pb-5 sm:pb-6 pr-3 sm:pr-13 space-y-4 scroll-mt-20 ${SC.household.bg}`} style={{"--neon-mid":SC.household.neonMid,"--neon-far":SC.household.neonFar,"--neon-border":SC.household.neonBorder} as React.CSSProperties}>
           <SectionVerticalTitle number={sectionStepNumbers['household'] || '04'} title={t('sec_household', currentLanguage)} colorScheme={SC.household} />
           <SectionHeader prefix="Family " emphasis="background" suffix=" & income" emphasisColor="text-teal-600" borderColor="border-teal-100/80" eyebrowColor="text-teal-500/90" errorCount={errorsBySection['household']?.length || 0} />
@@ -1939,6 +1907,7 @@ export default function NewSinglePageAssessment() {
             </div>
           </div>
         </section>
+        )}
 
         {/* SECTION 5: Health, Clinical, ART & Viral Load */}
         {isSectionApplicable('health', selectedCategories) && (
@@ -1948,6 +1917,7 @@ export default function NewSinglePageAssessment() {
 
           <div className="space-y-4">
             {/* Sub-Card 1: Growth & Measurements */}
+            {isSectionApplicable('nutrition', selectedCategories) && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-sky-200/90 p-4 sm:p-5 shadow-xs space-y-3.5">
               <div className="flex items-center justify-between border-b border-sky-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -2066,6 +2036,7 @@ export default function NewSinglePageAssessment() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Sub-Card 2: Antiretroviral Therapy (ART) Care */}
             {isHivApplicable && (
@@ -2201,6 +2172,7 @@ export default function NewSinglePageAssessment() {
             )}
 
             {/* Sub-Card 3: Diagnostics Lab Monitoring (Hb & Viral Load) */}
+            {(isSectionApplicable('nutrition', selectedCategories) || isHivApplicable) && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-purple-200/90 p-4 sm:p-5 shadow-xs space-y-3.5 relative z-10">
               <div className="flex items-center justify-between border-b border-purple-100 pb-2.5">
                 <div className="flex items-center space-x-2.5">
@@ -2215,8 +2187,9 @@ export default function NewSinglePageAssessment() {
                 </div>
               </div>
 
-              <div className={`grid grid-cols-1 ${isHivApplicable ? 'lg:grid-cols-2' : ''} gap-4`}>
+              <div className={`grid grid-cols-1 ${isSectionApplicable('nutrition', selectedCategories) && isHivApplicable ? 'lg:grid-cols-2' : ''} gap-4`}>
                 {/* Part A: Hemoglobin & Anemia Staging */}
+                {isSectionApplicable('nutrition', selectedCategories) && (
                 <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
@@ -2266,6 +2239,7 @@ export default function NewSinglePageAssessment() {
                     )}
                   </p>
                 </div>
+                )}
 
                 {/* Part B: Viral Load & Suppression */}
                 {isHivApplicable && (
@@ -2353,8 +2327,10 @@ export default function NewSinglePageAssessment() {
                 )}
               </div>
             </div>
+            )}
 
             {/* Sub-Card 4: Comorbidities & Co-infections */}
+            {(isHivApplicable || isSectionApplicable('nutrition', selectedCategories)) && (
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -2420,6 +2396,7 @@ export default function NewSinglePageAssessment() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Sub-Card 5: Disability Details */}
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
@@ -3036,29 +3013,31 @@ export default function NewSinglePageAssessment() {
                 />
               </div>
 
-              <Input
-                id="review-organizationName"
-                name="organizationName"
-                label={t('org_name', currentLanguage)}
-                value={formData.organizationName}
-                onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
-                placeholder="India HIV/AIDS Alliance"
-              />
+              <div className="flex flex-col space-y-1">
+                <span className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500">
+                  {t('org_name', currentLanguage)}
+                </span>
+                <div className="h-11 px-3.5 flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800">
+                  <span className="truncate">{formData.organizationName || 'India HIV/AIDS Alliance'}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/60 shrink-0">
+                    <ShieldCheck className="w-3 h-3 text-teal-600" />
+                    Verified
+                  </span>
+                </div>
+              </div>
 
-              <Input
-                id="review-organizationEmail"
-                name="organizationEmail"
-                label={t('org_email', currentLanguage)}
-                type="email"
-                value={formData.organizationEmail}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ ...formData, organizationEmail: val });
-                  clearFieldError('review-organizationEmail', 'organizationEmail');
-                }}
-                error={errorsByField['review-organizationEmail']?.message || errorsByField['organizationEmail']?.message}
-                placeholder="fieldworker@allianceindia.org"
-              />
+              <div className="flex flex-col space-y-1">
+                <span className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-500">
+                  {t('org_email', currentLanguage)}
+                </span>
+                <div className="h-11 px-3.5 flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800">
+                  <span className="truncate">{formData.organizationEmail || 'Profile verified email'}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/60 shrink-0">
+                    <ShieldCheck className="w-3 h-3 text-teal-600" />
+                    Profile
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Program Sub-Recipient & District SSR Assignment (Auto-attached from Caseworker Profile) */}

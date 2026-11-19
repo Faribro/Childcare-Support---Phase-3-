@@ -111,7 +111,7 @@ describe('Form Submission Select Defaults, Exact Field IDs & Error Focus Regress
 
     const phoneMeta = getFieldMetadata(['demographics', 'contactNumber']);
     expect(phoneMeta.elementId).toBe('demographics-contactNumber');
-    expect(phoneMeta.sectionKey).toBe('consent');
+    expect(phoneMeta.sectionKey).toBe('demographics');
   });
 
   it('3. Dual-path errors targeting the same physical input (e.g. interviewerName + finalReview.formSubmittedBy, or demographics.caregiverName + caregiverConsent.caregiverName) deduplicate to 1 error', () => {
