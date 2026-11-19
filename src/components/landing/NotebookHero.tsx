@@ -76,28 +76,22 @@ export function NotebookHero({ canInstall, onInstallClick, isStandalone = false 
               II. Scope
             </a>
             <a
-              href="#field-rhythm"
+              href="#connected-care-story"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
-              III. Rhythm
-            </a>
-            <a
-              href="#field-readiness"
-              className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
-            >
-              IV. Reality
+              III. Story
             </a>
             <a
               href="#preview-heading"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
-              V. Preview
+              IV. Preview
             </a>
             <a
               href="#faq-heading"
               className="px-3 py-1.5 rounded-l-lg text-[10px] font-mono font-bold tracking-wider uppercase bg-[#E8DEC8] hover:bg-[#DFCFA8] text-slate-800 shadow-xs border border-[#C5B396] border-r-0 transition-colors text-right"
             >
-              VI. FAQ
+              V. FAQ
             </a>
           </div>
 

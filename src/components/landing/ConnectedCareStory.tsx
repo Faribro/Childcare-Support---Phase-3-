@@ -146,6 +146,7 @@ export function ConnectedCareStory() {
       aria-labelledby="connected-care-heading"
       className="py-14 sm:py-20 bg-[#F7F3E9] border-t border-b border-[#E6DBCA] relative overflow-hidden"
     >
+      <span id="how-it-works" className="sr-only" />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto space-y-3">

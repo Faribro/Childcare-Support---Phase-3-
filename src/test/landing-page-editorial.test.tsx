@@ -348,10 +348,20 @@ describe('Editorial Notebook Landing Page (src/app/page.tsx)', () => {
       expect(target).toBeDefined();
     });
 
-    it('renders section with id="field-readiness" as target for #field-readiness links', () => {
+    it('renders section with id="connected-care-story" as target for #connected-care-story links', () => {
       const { container } = render(<LandingPage />);
-      const target = container.querySelector('#field-readiness');
+      const target = container.querySelector('#connected-care-story');
       expect(target).toBeDefined();
+    });
+
+    it('does not render removed sections (field-rhythm, field-readiness, principles)', () => {
+      const { container } = render(<LandingPage />);
+      expect(container.querySelector('#field-rhythm')).toBeNull();
+      expect(container.querySelector('#field-readiness')).toBeNull();
+      expect(container.querySelector('#principles')).toBeNull();
+      expect(container.textContent).not.toContain('Chapter III • Operational Cadence');
+      expect(container.textContent).not.toContain('Chapter IV • Field Environmental Reality');
+      expect(container.textContent).not.toContain('Core Philosophy • Ethical Governance');
     });
 
     it('renders section or element with id="preview-heading" for #preview-heading links', () => {

@@ -9,9 +9,6 @@ import { usePwaInstall } from '@/lib/pwa/usePwaInstall';
 import { NotebookHero } from '@/components/landing/NotebookHero';
 import { WholeChildSnapshot } from '@/components/landing/WholeChildSnapshot';
 import { ConnectedCareStory } from '@/components/landing/ConnectedCareStory';
-import { FieldRhythm } from '@/components/landing/FieldRhythm';
-import { FieldReadiness } from '@/components/landing/FieldReadiness';
-import { DesignPrinciples } from '@/components/landing/DesignPrinciples';
 import { ExperiencePreview } from '@/components/landing/ExperiencePreview';
 import { FieldFaq } from '@/components/landing/FieldFaq';
 import { FinalCta } from '@/components/landing/FinalCta';
@@ -71,32 +68,17 @@ export default function LandingPage() {
         {/* Section 3: MOMENT C — The Connection Returns (illustrative 7-step offline sync story) */}
         <ConnectedCareStory />
 
-        {/* Section 4: How it works — staggered fade (text rhythm section) */}
-        <Reveal className={motionStyles.revealFade}>
-          <FieldRhythm />
-        </Reveal>
-
-        {/* Section 4: Built for field conditions — zoom-up (device/readiness context) */}
-        <Reveal className={motionStyles.revealZoom}>
-          <FieldReadiness />
-        </Reveal>
-
-        {/* Section 5: Guiding principles — pure fade (text-forward editorial) */}
-        <Reveal className={motionStyles.revealPure}>
-          <DesignPrinciples />
-        </Reveal>
-
-        {/* Section 6: Experience preview — rise with tilt (UI showcase) */}
+        {/* Section 4: Experience preview — rise with tilt (UI showcase) */}
         <Reveal className={motionStyles.revealTilt}>
           <ExperiencePreview />
         </Reveal>
 
-        {/* Section 7: FAQ — simple default gentle rise */}
+        {/* Section 5: FAQ — simple default gentle rise */}
         <Reveal>
           <FieldFaq />
         </Reveal>
 
-        {/* Section 8: Final CTA — spread rise (invitation / close of narrative) */}
+        {/* Section 6: Final CTA — spread rise (invitation / close of narrative) */}
         <Reveal className={motionStyles.revealSpread}>
           <FinalCta
             canInstall={canInstall}
@@ -106,7 +88,7 @@ export default function LandingPage() {
         </Reveal>
       </main>
 
-      {/* Section 9: Institutional Footer */}
+      {/* Section 7: Institutional Footer */}
       <NotebookFooter />
 
       {/* ── Accessible Install / Download Modal ── */}
