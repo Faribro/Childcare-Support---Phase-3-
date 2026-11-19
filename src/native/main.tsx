@@ -35,7 +35,7 @@ platformRegistry.configure({
   apiBaseUrl:
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    'https://csc-staging-963330210821.asia-south1.run.app',
+    '',
 });
 
 // Automatically resolve relative API URLs on native Android runtime
