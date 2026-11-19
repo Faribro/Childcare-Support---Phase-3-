@@ -67,3 +67,6 @@ scratch/
 !public/manifest.json
 supabase/.temp/
 probe_register.json
+.secrets/
+*.secret
+
