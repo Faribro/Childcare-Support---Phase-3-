@@ -19,6 +19,7 @@ import {
 } from '@/lib/assessment/categoryApplicability';
 import { CategorySelectionStep } from '@/components/assessment/CategorySelectionStep';
 import { useRouter } from 'next/navigation';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -106,6 +107,7 @@ import {
 
 export default function NewSinglePageAssessment() {
   const router = useRouter();
+  const { user, isLoaded: isAuthLoaded } = useEvaluationAccess();
 
   const [clientUuid, setClientUuid] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
@@ -506,7 +508,7 @@ export default function NewSinglePageAssessment() {
     setFormData((prev) => ({ ...prev, artNumber: refId, koboId: refId }));
 
     if (typeof window !== 'undefined') {
-      let isAuthed = false;
+      let localAuthed = false;
       try {
         const cachedProfile = localStorage.getItem('field_user_profile');
         if (cachedProfile) {
@@ -518,7 +520,7 @@ export default function NewSinglePageAssessment() {
               p.email ||
               (p.name && p.name !== 'Field Caseworker' && p.assignedState))
           ) {
-            isAuthed = true;
+            localAuthed = true;
             setFormData((prev) => ({
               ...prev,
               srName: prev.srName || p.srName || '',
@@ -545,15 +547,34 @@ export default function NewSinglePageAssessment() {
         }
       } catch (_) {}
 
-      // If user has neither a stored verified profile nor an unlocked supervisor session, redirect to sign in
-      if (!isAuthed) {
-        setIsAuthedState(false);
-        router.replace('/app?onboarding=open&mode=signin');
+      if (localAuthed) {
+        setIsAuthedState(true);
         return;
       }
-      setIsAuthedState(true);
+
+      // Check if session has a verified user
+      if (user?.isVerified && user?.name) {
+        setIsAuthedState(true);
+        setFormData((prev) => ({
+          ...prev,
+          formSubmittedBy: prev.formSubmittedBy || user.name || 'Caseworker',
+          organizationName: prev.organizationName || 'India HIV/AIDS Alliance',
+          state: (user.allowedStates && user.allowedStates[0]) || prev.state,
+          district: (user.allowedDistricts && user.allowedDistricts[0]) || prev.district,
+        }));
+        return;
+      }
+
+      // If server session check is still loading, wait without redirecting
+      if (!isAuthLoaded) {
+        return;
+      }
+
+      // Only if both local profile and server session are definitively absent/unverified
+      setIsAuthedState(false);
+      router.replace('/app?onboarding=open&mode=signin');
     }
-  }, []);
+  }, [user, isAuthLoaded, router]);
 
   // Synchronize state and district changes with Unique ID
   useEffect(() => {
@@ -1208,6 +1229,17 @@ export default function NewSinglePageAssessment() {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
+
+  if (isAuthedState === null) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-24 flex flex-col items-center justify-center text-center space-y-3">
+          <div className="w-8 h-8 border-3 border-teal-700 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-slate-500 font-medium">Verifying session…</p>
+        </div>
+      </AppShell>
+    );
+  }
 
   if (isAuthedState === false) {
     return (
