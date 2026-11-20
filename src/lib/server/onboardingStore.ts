@@ -1650,6 +1650,12 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     notes?: string;
   }): Promise<StateTeamRegistration> {
     const db = await this.getDb();
+    const normEmail = data.workEmail.toLowerCase().trim();
+    const existing = await this.getStateTeamRegistrationByEmail(normEmail);
+    if (existing) {
+      return existing;
+    }
+
     const id = `reg_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
     const now = Date.now();
     const registration: StateTeamRegistration = {

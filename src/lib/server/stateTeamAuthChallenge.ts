@@ -15,7 +15,12 @@ import crypto from 'crypto';
 import { getOnboardingStore } from './onboardingStore';
 import { sendStateTeamOtpEmail, sendStateTeamInvitationEmail, sendAdminPendingRegistrationEmail } from './emailProvider';
 import { createSessionToken, hashPassword } from './sessionService';
-import { getFirestoreDb } from './credentialRegistry';
+import {
+  getFirestoreDb,
+  EVALUATION_CREDENTIALS_COLLECTION,
+  getCredentialByIdentifier,
+  registerCredential,
+} from './credentialRegistry';
 import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 import {
   generatePlaintextInvitationCode,
@@ -205,34 +210,77 @@ export async function requestStateTeamOtp(params: {
   await store.saveStateTeamChallenge(challenge);
   activeChallenges.set(normEmail, challenge);
 
-  // Generate permanent personal login password for state evaluation access
+  // Atomic coordinator credential initialization / preservation
   const stateCode = getStateAbbreviation(registration.requestedState) || 'MH';
-  const personalPassword = `ALN-${stateCode}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  let committedPersonalPassword: string | undefined = undefined;
 
-  // Persist personal credentials in evaluation_credentials store
   try {
-    const passwordHash = await hashPassword(personalPassword);
     const db = await getFirestoreDb();
-    if (db) {
-      await db.collection('evaluation_credentials').doc(normEmail.toUpperCase()).set({
-        id: `coord-${normEmail}`,
-        accessIdentifier: normEmail.toUpperCase(),
-        displayName: `${registration.firstName} ${registration.lastName}`.trim(),
-        credentialKind: 'STATE_EVALUATION',
-        stateCode,
-        programmeScope: ['alliance-childcare-phase3'],
-        passwordHash,
-        credentialVersion: 1,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+    if (db && typeof db.runTransaction === 'function') {
+      const credRef = db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(normEmail.toUpperCase());
+      await db.runTransaction(async (transaction: any) => {
+        const credSnap = await transaction.get(credRef);
+        if (!credSnap.exists) {
+          // First-time registration: generate and atomically commit new password hash
+          const personalPassword = `ALN-${stateCode}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+          const passwordHash = await hashPassword(personalPassword);
+          const nowIso = new Date().toISOString();
+          transaction.set(credRef, {
+            id: `coord-${normEmail}`,
+            accessIdentifier: normEmail.toUpperCase(),
+            displayName: `${registration.firstName} ${registration.lastName}`.trim(),
+            credentialKind: 'STATE_EVALUATION',
+            stateCode,
+            programmeScope: ['alliance-childcare-phase3'],
+            passwordHash,
+            credentialVersion: 1,
+            isActive: true,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+          committedPersonalPassword = personalPassword;
+        } else {
+          // Existing credential exists:
+          // Strictly PRESERVE existing credentials:
+          // 1. Do NOT overwrite passwordHash (prevents credential staleness on retries/resends)
+          // 2. Do NOT reactivate disabled account (isActive: false remains false)
+          // 3. Do NOT alter role/scope/stateCode
+          // 4. Do NOT email a new password
+        }
+      });
+    } else {
+      // In-memory fallback
+      const existing = await getCredentialByIdentifier(normEmail);
+      if (!existing) {
+        const personalPassword = `ALN-${stateCode}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+        const passwordHash = await hashPassword(personalPassword);
+        const nowIso = new Date().toISOString();
+        registerCredential({
+          id: `coord-${normEmail}`,
+          accessIdentifier: normEmail.toUpperCase(),
+          displayName: `${registration.firstName} ${registration.lastName}`.trim(),
+          credentialKind: 'STATE_EVALUATION',
+          stateCode,
+          programmeScope: ['alliance-childcare-phase3'],
+          passwordHash,
+          credentialVersion: 1,
+          isActive: true,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+        committedPersonalPassword = personalPassword;
+      }
     }
   } catch (err: any) {
-    console.warn('[STATE_TEAM_AUTH] Failed to persist evaluation_credentials in Firestore:', err?.message);
+    console.warn('[STATE_TEAM_AUTH] Failed to atomically verify or persist evaluation_credentials:', err?.message);
+    return {
+      success: false,
+      error: 'Authentication database is temporarily unavailable. Please retry in a moment.',
+      statusCode: 503,
+    };
   }
 
-  // Dispatch combined email with Section A (OTP), All-Time Password, and Section B (Invitation Code)
+  // Dispatch combined email with Section A (OTP), All-Time Password (if newly created), and Section B (Invitation Code)
   const emailResult = await sendStateTeamOtpEmail({
     to: normEmail,
     name: challenge.name,
@@ -243,12 +291,20 @@ export async function requestStateTeamOtp(params: {
     invitationExpiryDays: DEFAULT_INVITATION_EXPIRY_DAYS,
     maxRedemptions: DEFAULT_MAX_REDEMPTIONS,
     isPreApproved: autoApprove,
-    personalPassword,
+    personalPassword: committedPersonalPassword,
   });
 
   if (!emailResult.success) {
     await store.deleteStateTeamChallenge(normEmail);
     activeChallenges.delete(normEmail);
+    if (committedPersonalPassword) {
+      try {
+        const db = await getFirestoreDb();
+        if (db) {
+          await db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(normEmail.toUpperCase()).delete();
+        }
+      } catch (_) {}
+    }
     return {
       success: false,
       error: 'Unable to deliver verification email. Please check the address or try again later.',
