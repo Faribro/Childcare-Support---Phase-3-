@@ -537,15 +537,16 @@ export default function FieldWorkspacePage() {
                   <div className="waves wave-2"></div>
                   <div className="waves wave-3"></div>
                 </div>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleStartNewSurvey}
-                  className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
-                >
-                  <Plus className="w-5 h-5 stroke-[2.5]" />
-                  <span>Start New Survey</span>
-                </Button>
+                <Link href="/assessment/new" onClick={handleStartNewSurvey} className="relative z-10 inline-block">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
+                  >
+                    <Plus className="w-5 h-5 stroke-[2.5]" />
+                    <span>Start New Survey</span>
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>
