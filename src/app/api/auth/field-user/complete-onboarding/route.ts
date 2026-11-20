@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         status: 'error',
-        error: 'A caseworker profile is already registered with this email address. Please sign in under Returning Caseworker.',
+        error: 'A profile is already registered with this email address. Please sign in under Existing Field User.',
       },
       { status: 409 }
     );

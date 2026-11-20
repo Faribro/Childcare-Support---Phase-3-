@@ -286,8 +286,8 @@ describe('WelcomeKiteOnboardingModal Component', () => {
 
     render(<WelcomeKiteOnboardingModal isOpen={true} onClose={vi.fn()} />);
 
-    // Click Returning Caseworker tab
-    const returnTab = screen.getByRole('button', { name: /Returning Caseworker/i });
+    // Click Existing Field User tab
+    const returnTab = screen.getByRole('button', { name: /Existing Field User|Returning Caseworker/i });
     fireEvent.click(returnTab);
 
     expect(screen.getByText('Sign In to Your Existing Account')).toBeDefined();

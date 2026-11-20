@@ -183,7 +183,7 @@ export default function DraftReviewPage() {
         interviewerName: rawInterviewer,
         finalReview: {
           ...(record.finalReview || {}),
-          allInfoCorrect: record.finalReview?.allInfoCorrect ?? true,
+          allInfoCorrect: consentConfirmed || Boolean(record.finalReview?.allInfoCorrect),
           organizationName: record.finalReview?.organizationName || 'India HIV/AIDS Alliance',
           formSubmittedBy: rawInterviewer,
         },

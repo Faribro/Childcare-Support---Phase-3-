@@ -196,7 +196,7 @@ export function WelcomeKiteOnboardingModal({
         return;
       }
       if (data.message?.includes('If this email address is registered')) {
-        setErrorMessage('This email is not registered as a field caseworker. Please switch to "Register New Account" or check the address.');
+        setErrorMessage('This email is not registered as an existing field user. Please switch to "New Registration" or check the address.');
         setIsSigningIn(false);
         return;
       }
@@ -631,7 +631,7 @@ export function WelcomeKiteOnboardingModal({
             }`}
           >
             <Mail className="w-3.5 h-3.5 text-teal-700" />
-            <span>Returning Caseworker</span>
+            <span>Existing Field User</span>
           </button>
         </div>
 
@@ -798,7 +798,7 @@ export function WelcomeKiteOnboardingModal({
                       • Check your <strong>Spam / Junk</strong> or <strong>Updates</strong> folder for an email from <em>Alliance Childcare Support</em>.
                     </p>
                     <p className="text-amber-800">
-                      • If this is your first time here, please tap <strong>Register as a new caseworker</strong> below. Unregistered emails do not receive a sign-in code.
+                      • If this is your first time here, please tap <strong>New Registration</strong> below. Unregistered emails do not receive a sign-in code.
                     </p>
                   </div>
 
@@ -833,7 +833,7 @@ export function WelcomeKiteOnboardingModal({
                       }}
                       className="font-semibold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer"
                     >
-                      Register as a new caseworker
+                      New Registration
                     </button>
                   </div>
                 </form>

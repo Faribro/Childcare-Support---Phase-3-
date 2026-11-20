@@ -132,8 +132,8 @@ describe('Nutrition-Only Assessment Lifecycle & Validation Invariants', () => {
     expect(sanitized.educationStatus).toBeUndefined();
     expect(sanitized.educationExpenses).toBeUndefined();
     expect(sanitized.educationSupportRequired).toBeUndefined();
-    expect(sanitized.feeReceiptPhotoUrl).toBeUndefined();
-    expect(sanitized.marksheetPhotoUrl).toBeUndefined();
+    expect((sanitized as any).feeReceiptPhotoUrl).toBeUndefined();
+    expect((sanitized as any).marksheetPhotoUrl).toBeUndefined();
   });
 
   it('isSectionApplicable correctly configures visible sections for Nutrition-only', () => {
