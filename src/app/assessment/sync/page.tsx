@@ -51,6 +51,10 @@ export interface UnifiedAssessmentItem {
   status: 'synced' | 'ready_to_sync' | 'syncing' | 'failed_retryable' | 'failed_final' | 'conflict' | 'needs_review';
   chipStatus:
     | 'Waiting to send'
+    | 'Validation blocked'
+    | 'Server validation rejection'
+    | 'Network failure'
+    | 'Draft'
     | 'Saved on this device'
     | 'Waiting to retry'
     | 'Local'
@@ -142,8 +146,42 @@ function StatusChip({ chipStatus }: { chipStatus: UnifiedAssessmentItem['chipSta
           Needs correction
         </span>
       );
-    case 'Saved on this device':
+    case 'Validation blocked':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
+          <AlertCircle className="w-2.5 h-2.5" />
+          Validation blocked
+        </span>
+      );
+    case 'Server validation rejection':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
+          <AlertCircle className="w-2.5 h-2.5" />
+          Server validation rejection
+        </span>
+      );
+    case 'Network failure':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
+          <RefreshCw className="w-2.5 h-2.5" />
+          Network failure — retrying
+        </span>
+      );
     case 'Waiting to send':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300">
+          <Clock className="w-2.5 h-2.5" />
+          Waiting to send
+        </span>
+      );
+    case 'Draft':
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
+          <Clock className="w-2.5 h-2.5" />
+          Draft
+        </span>
+      );
+    case 'Saved on this device':
     case 'Local':
     default:
       return (
@@ -955,18 +993,22 @@ function SyncCentreContent() {
         sheetsStatus = 'waiting';
       } else if (rawStatus === 'failed_final' || (rawStatus === 'failed' && (isTerminal4xx || isTerminalHalted))) {
         status = 'failed_final';
-        chipStatus = 'Needs correction';
+        if (qItem.errorCategory === 'validation' || isTerminal4xx) {
+          chipStatus = qItem.lastErrorCode === 422 ? 'Server validation rejection' : 'Validation blocked';
+        } else {
+          chipStatus = 'Needs correction';
+        }
         serverStatus = 'error';
         sheetsStatus = 'failed';
       } else if (rawStatus === 'failed_retryable' || rawStatus === 'failed') {
         status = 'failed_retryable';
-        chipStatus = 'Waiting to retry';
+        chipStatus = qItem.errorCategory === 'network' || qItem.errorCategory === 'upstream_unavailable' ? 'Network failure' : 'Waiting to retry';
         serverStatus = 'waiting';
         sheetsStatus = 'waiting';
       } else {
         // 'queued', 'draft', 'finalized_local' or newly created
         status = 'ready_to_sync';
-        chipStatus = 'Saved on this device';
+        chipStatus = 'Waiting to send';
         serverStatus = 'waiting';
         sheetsStatus = 'waiting';
       }
@@ -1211,7 +1253,9 @@ function SyncCentreContent() {
                   <p className="text-xs text-rose-800 bg-rose-50/80 border border-rose-200 rounded-lg px-2.5 py-1.5 mt-1 font-medium">
                     {item.validationIssuePaths?.includes('interviewerName') || item.lastError?.includes('interviewerName')
                       ? 'Please enter your name using at least 2 characters.'
-                      : (item.lastError || 'Validation error. Please correct this assessment.')}
+                      : item.validationIssuePaths && item.validationIssuePaths.length > 0
+                        ? `Required fields need correction: ${item.validationIssuePaths.map((p) => p.split('.').pop()).join(', ')}. Select "Open and correct" below.`
+                        : (item.lastError || 'Validation error. Please correct this assessment.')}
                   </p>
                 )}
               </div>

@@ -42,7 +42,7 @@ function isAlreadyStoredAssetReference(val: string): boolean {
   );
 }
 
-function matchesMagicBytes(mime: string, buf: Buffer): boolean {
+function matchesMagicBytes(mime: string, buf: Uint8Array | Buffer): boolean {
   if (buf.length < 4) return false;
   if (mime === 'image/jpeg' || mime === 'image/jpg') {
     return buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
@@ -51,14 +51,14 @@ function matchesMagicBytes(mime: string, buf: Buffer): boolean {
     return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
   }
   if (mime === 'image/webp') {
-    return (
-      buf.length >= 12 &&
-      buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
-      buf.subarray(8, 12).toString('ascii') === 'WEBP'
-    );
+    if (buf.length < 12) return false;
+    const str0_4 = String.fromCharCode(buf[0], buf[1], buf[2], buf[3]);
+    const str8_12 = String.fromCharCode(buf[8], buf[9], buf[10], buf[11]);
+    return str0_4 === 'RIFF' && str8_12 === 'WEBP';
   }
   if (mime === 'application/pdf') {
-    return buf.subarray(0, 4).toString('ascii') === '%PDF';
+    const str0_4 = String.fromCharCode(buf[0], buf[1], buf[2], buf[3]);
+    return str0_4 === '%PDF';
   }
   return false;
 }
@@ -146,8 +146,19 @@ export function validateAssetPayload(
   // only if < 16 bytes AND in non-production/test contexts? Better: check magic bytes strictly whenever decodedBytes >= 16.
   if (decodedBytes >= 16) {
     const prefixBase64 = base64Body.slice(0, 32);
-    const headerBuf = Buffer.from(prefixBase64, 'base64');
-    if (!matchesMagicBytes(mimeType, headerBuf)) {
+    let headerBuf: Uint8Array | Buffer;
+    if (typeof Buffer !== 'undefined') {
+      headerBuf = Buffer.from(prefixBase64, 'base64');
+    } else if (typeof atob !== 'undefined') {
+      const bin = atob(prefixBase64);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      headerBuf = u8;
+    } else {
+      headerBuf = new Uint8Array(0);
+    }
+
+    if (headerBuf.length >= 4 && !matchesMagicBytes(mimeType, headerBuf)) {
       return {
         valid: false,
         statusCode: 415,

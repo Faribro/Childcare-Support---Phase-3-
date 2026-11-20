@@ -14,6 +14,7 @@ import {
   isSectionApplicable,
   deriveGuardianStatus,
 } from '../assessment/categoryApplicability';
+import { validateServerSubmissionIntake } from '../server/intakeValidation';
 
 export { deriveGuardianStatus };
 
@@ -215,6 +216,33 @@ export function isFieldApplicable(
     fieldKey === 'marksheetPhotoUrl'
   ) {
     return educationStatus === 'Currently going to school' || !educationStatus;
+  }
+
+  // Structured Address Fields (Paper Form A12):
+  // Applicable when structured address fields are present in the form or record
+  if (
+    fieldKey === 'demographics.residenceType' ||
+    fieldKey === 'demographics.doorAndColony' ||
+    fieldKey === 'demographics.street' ||
+    fieldKey === 'demographics.villageCity' ||
+    fieldKey === 'demographics.talukMandalBlock' ||
+    fieldKey === 'demographics.pinCode' ||
+    fieldKey === 'residenceType' ||
+    fieldKey === 'doorAndColony' ||
+    fieldKey === 'street' ||
+    fieldKey === 'villageCity' ||
+    fieldKey === 'talukMandalBlock' ||
+    fieldKey === 'pinCode'
+  ) {
+    const demo = (data.demographics && typeof data.demographics === 'object') ? data.demographics : data;
+    return (
+      demo.residenceType !== undefined ||
+      demo.doorAndColony !== undefined ||
+      demo.street !== undefined ||
+      demo.villageCity !== undefined ||
+      demo.talukMandalBlock !== undefined ||
+      demo.pinCode !== undefined
+    );
   }
 
   // All other core intake fields are applicable
@@ -616,6 +644,48 @@ export function validateField(
     }
   }
 
+  if (fieldKey === 'demographics.residenceType' || fieldKey === 'residenceType') {
+    const val = (getFieldValue(data, 'demographics.residenceType') || data.residenceType || '').toString().trim();
+    if (!val) {
+      return createErr('Type of residence is required.');
+    }
+  }
+
+  if (fieldKey === 'demographics.doorAndColony' || fieldKey === 'doorAndColony') {
+    const val = (getFieldValue(data, 'demographics.doorAndColony') || data.doorAndColony || '').toString().trim();
+    if (!val) {
+      return createErr('Door No / Ward No / House Name / Colony is required.');
+    }
+  }
+
+  if (fieldKey === 'demographics.street' || fieldKey === 'street') {
+    const val = (getFieldValue(data, 'demographics.street') || data.street || '').toString().trim();
+    if (!val) {
+      return createErr('Street name is required.');
+    }
+  }
+
+  if (fieldKey === 'demographics.villageCity' || fieldKey === 'villageCity') {
+    const val = (getFieldValue(data, 'demographics.villageCity') || data.villageCity || '').toString().trim();
+    if (!val) {
+      return createErr('Village or City is required.');
+    }
+  }
+
+  if (fieldKey === 'demographics.talukMandalBlock' || fieldKey === 'talukMandalBlock') {
+    const val = (getFieldValue(data, 'demographics.talukMandalBlock') || data.talukMandalBlock || '').toString().trim();
+    if (!val) {
+      return createErr('Taluk / Mandal / Block is required.');
+    }
+  }
+
+  if (fieldKey === 'demographics.pinCode' || fieldKey === 'pinCode') {
+    const val = (getFieldValue(data, 'demographics.pinCode') || data.pinCode || '').toString().trim();
+    if (!/^[1-9]\d{5}$/.test(val)) {
+      return createErr('A valid 6-digit PIN code is required.');
+    }
+  }
+
   // ── Section 4: Household & Financial ───────────────────────────────────────
   if (fieldKey === 'householdFinancial.totalFamilyMembers' || fieldKey === 'totalFamilyMembers') {
     const raw = getFieldValue(data, 'householdFinancial.totalFamilyMembers');
@@ -909,6 +979,12 @@ export function validateSection(
       'demographics.fullAddress',
       'demographics.state',
       'demographics.district',
+      'demographics.residenceType',
+      'demographics.doorAndColony',
+      'demographics.street',
+      'demographics.villageCity',
+      'demographics.talukMandalBlock',
+      'demographics.pinCode',
     ],
     banking: [], // Optional at intake
     household: [
@@ -990,6 +1066,31 @@ export function validateEntireForm(
   for (const sec of sections) {
     const secErrors = validateSection(sec, data, hasSavedSignature, categories);
     errors.push(...secErrors);
+  }
+
+  // Cross-verify server intake requirements (proofs, caseworker org credentials, attachment bounds)
+  if (data.consent !== undefined || data.caregiverConsent !== undefined || (data.finalReview && data.finalReview.organizationEmail)) {
+    const intakeCheck = validateServerSubmissionIntake(data);
+    if (!intakeCheck.valid) {
+      for (const err of intakeCheck.errors) {
+        if (!errors.some((e) => e.fieldKey === err.field || e.path.join('.') === err.field)) {
+          const reg = FIELD_REGISTRY[err.field] || {
+            sectionKey: err.field.startsWith('finalReview') ? 'review' : 'demographics',
+            elementId: err.field.replace(/\./g, '-'),
+            label: err.field,
+            order: 999,
+          };
+          errors.push({
+            path: err.field.split('.'),
+            fieldKey: err.field,
+            sectionKey: reg.sectionKey,
+            message: err.issue,
+            label: reg.label,
+            elementId: reg.elementId,
+          });
+        }
+      }
+    }
   }
 
   return {

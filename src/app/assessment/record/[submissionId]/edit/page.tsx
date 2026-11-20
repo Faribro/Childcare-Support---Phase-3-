@@ -27,6 +27,7 @@ import { handleSchemaValidationFailure } from '@/lib/validations/submissionValid
 import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
 import {
   type FormValidationError,
+  FIELD_REGISTRY,
   normalizeValidationErrors,
   navigateToValidationError,
   normalizeNativeValidationError,
@@ -954,6 +955,33 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           }
           return { canEdit: true, canDelete: false };
         });
+
+        // If loaded from a failed queue item with validation issues, highlight them immediately
+        if (queueItem?.validationIssuePaths && Array.isArray(queueItem.validationIssuePaths) && queueItem.validationIssuePaths.length > 0) {
+          const customErrors: FormValidationError[] = queueItem.validationIssuePaths.map((pathStr: string) => {
+            const reg = FIELD_REGISTRY[pathStr] || {
+              sectionKey: pathStr.startsWith('finalReview') ? 'review' : 'demographics',
+              elementId: pathStr.replace(/\./g, '-'),
+              label: pathStr,
+              order: 999,
+            };
+            return {
+              path: pathStr.split('.'),
+              fieldKey: pathStr,
+              sectionKey: reg.sectionKey,
+              message: `${reg.label} requires correction before submission.`,
+              label: reg.label,
+              elementId: reg.elementId,
+            };
+          });
+          const normalized = normalizeValidationErrors({ customErrors });
+          setValidationErrors(normalized);
+          if (normalized.length > 0) {
+            setTimeout(() => {
+              navigateToValidationError(normalized[0]);
+            }, 300);
+          }
+        }
       }
     } catch (err) {
       console.error('[EditRecordPage] Error loading record:', err);

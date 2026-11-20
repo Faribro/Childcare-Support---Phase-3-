@@ -463,6 +463,8 @@ describe('Intake Form Required Fields & Clinical Skip Logic (Schema V2)', () => 
           dob: '2016-05-15',
           gender: 'Male',
           orphanStatus: 'Single orphan',
+          caregiverName: 'Sunita Sharma',
+          caregiverRelationship: 'Mother',
           contactNumber: '9876543210',
           fullAddress: '123 Main Street, Pune',
           state: 'Maharashtra',

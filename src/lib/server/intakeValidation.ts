@@ -69,7 +69,7 @@ export function validateServerSubmissionIntake(
   }
 
   const errors: ServerIntakeValidationError[] = [];
-  const demo = rawBody.demographics && typeof rawBody.demographics === 'object' ? rawBody.demographics : {};
+  const demo = (rawBody.demographics && typeof rawBody.demographics === 'object') ? rawBody.demographics : rawBody;
 
   // 2. Core required child/caregiver/location fields (always required)
   if (getStr(demo.artNumber).length < 3) {
@@ -123,7 +123,9 @@ export function validateServerSubmissionIntake(
     const hasConsent =
       rawBody.caregiverConsent?.consentProvided === true ||
       rawBody.consent?.agreeToParticipate === true ||
-      rawBody.declaration?.consentAcknowledged === true;
+      rawBody.declaration?.consentAcknowledged === true ||
+      rawBody.agreeToParticipate === true ||
+      rawBody.consentProvided === true;
     if (!hasConsent) {
       errors.push({
         field: 'caregiverConsent.consentProvided',
@@ -136,7 +138,8 @@ export function validateServerSubmissionIntake(
     const hasFinalConfirmation =
       rawBody.finalReview?.allInfoCorrect === true ||
       rawBody.reviewConfirmed === true ||
-      rawBody.declaration?.consentAcknowledged === true;
+      rawBody.declaration?.consentAcknowledged === true ||
+      rawBody.allInfoCorrect === true;
     if (!hasFinalConfirmation) {
       errors.push({
         field: 'finalReview.allInfoCorrect',

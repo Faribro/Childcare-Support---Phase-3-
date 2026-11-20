@@ -38,6 +38,7 @@ import { t, cleanLabel } from '@/lib/i18n/translations';
 import { saveDraft } from '@/lib/db/draftRepository';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
+import { validateServerSubmissionIntake } from '@/lib/server/intakeValidation';
 import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
 import { EDUCATION_SCHEME_CATEGORIES, isSchemeSpecifyRequired } from '@/lib/constants/educationSchemes';
 import {
@@ -115,6 +116,7 @@ export default function NewSinglePageAssessment() {
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+  const [isAuthedState, setIsAuthedState] = useState<boolean | null>(null);
 
   // ── Category-Selection Step (Schema V3) ──────────────────────────────────
   // showCategoryStep: true  → render CategorySelectionStep before the form sections
@@ -545,9 +547,11 @@ export default function NewSinglePageAssessment() {
 
       // If user has neither a stored verified profile nor an unlocked supervisor session, redirect to sign in
       if (!isAuthed) {
+        setIsAuthedState(false);
         router.replace('/app?onboarding=open&mode=signin');
         return;
       }
+      setIsAuthedState(true);
     }
   }, []);
 
@@ -1106,6 +1110,51 @@ export default function NewSinglePageAssessment() {
       }
       const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
 
+      // BLOCKING PRE-SUBMISSION VALIDATION: Enforce Canonical Zod Schema
+      const schemaCheck = completeSubmissionSchema.safeParse(sanitizedFinalRecord);
+      if (!schemaCheck.success) {
+        const normalized = handleSchemaValidationFailure({
+          issues: schemaCheck.error.issues,
+          setError: (msg) => setFormError(msg),
+          setSubmitting: (v) => setIsSubmitting(v),
+        });
+        setValidationErrors(normalized);
+        if (normalized.length > 0) {
+          navigateToValidationError(normalized[0]);
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
+      // BLOCKING PRE-SUBMISSION VALIDATION: Enforce Server Intake Requirements
+      const intakeCheck = validateServerSubmissionIntake(sanitizedFinalRecord);
+      if (!intakeCheck.valid) {
+        const customErrors: FormValidationError[] = intakeCheck.errors.map((err) => {
+          const reg = FIELD_REGISTRY[err.field] || {
+            sectionKey: err.field.startsWith('finalReview') ? 'review' : 'demographics',
+            elementId: err.field.replace(/\./g, '-'),
+            label: err.field,
+            order: 999,
+          };
+          return {
+            path: err.field.split('.'),
+            fieldKey: err.field,
+            sectionKey: reg.sectionKey,
+            message: err.issue,
+            label: reg.label,
+            elementId: reg.elementId,
+          };
+        });
+        const normalized = normalizeValidationErrors({ customErrors });
+        setValidationErrors(normalized);
+        if (normalized.length > 0) {
+          navigateToValidationError(normalized[0]);
+          setFormError(`Please correct ${normalized.length} ${normalized.length === 1 ? 'field' : 'fields'} before submitting.`);
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
       // Valid: clear previous errors
       setValidationErrors([]);
       setFormError(null);
@@ -1159,6 +1208,28 @@ export default function NewSinglePageAssessment() {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
+
+  if (isAuthedState === false) {
+    return (
+      <AppShell>
+        <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 flex flex-col items-center justify-center text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-teal-100 flex items-center justify-center text-teal-800 shadow-xs">
+            <User className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">Caseworker Sign-In Required</h2>
+          <p className="text-sm text-slate-600">
+            Please sign in or set up your caseworker profile before starting a new child nutrition assessment.
+          </p>
+          <Link
+            href="/app?onboarding=open&mode=signin"
+            className="w-full min-h-[48px] inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold shadow-md transition-colors"
+          >
+            Sign In or Set Up Profile
+          </Link>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>

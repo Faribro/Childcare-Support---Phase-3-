@@ -6,6 +6,7 @@ import {
   X,
   CheckCircle,
   AlertTriangle,
+  AlertCircle,
   ArrowRight,
   ShieldCheck,
   Building,
@@ -196,7 +197,11 @@ export function WelcomeKiteOnboardingModal({
       }
       setIsOtpSent(true);
       setOtpCooldown(60);
-      setInfoMessage(data.message || '6-digit sign-in code sent to your email. Valid for 10 minutes.');
+      if (data.message?.includes('If this email address is registered')) {
+        setInfoMessage('If this email is registered, a 6-digit verification code was sent. If you have not set up your profile yet, please switch to Register New Account.');
+      } else {
+        setInfoMessage(data.message || '6-digit sign-in code sent to your email. Valid for 10 minutes.');
+      }
       setIsSigningIn(false);
       setTimeout(() => otpInputRef.current?.focus(), 100);
     } catch {
@@ -783,6 +788,19 @@ export function WelcomeKiteOnboardingModal({
                     </div>
                   </div>
 
+                  <div className="p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                    <p className="font-semibold flex items-center gap-1.5 text-amber-950">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      Can&apos;t find the email?
+                    </p>
+                    <p className="text-amber-800">
+                      • Check your <strong>Spam / Junk</strong> or <strong>Updates</strong> folder for an email from <em>Alliance Childcare Support</em>.
+                    </p>
+                    <p className="text-amber-800">
+                      • If this is your first time here, please tap <strong>Register as a new caseworker</strong> below. Unregistered emails do not receive a sign-in code.
+                    </p>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isSigningIn || signInCode.length !== 6}
@@ -1131,6 +1149,16 @@ export function WelcomeKiteOnboardingModal({
                     </button>
                   )}
                 </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                <p className="font-semibold flex items-center gap-1.5 text-amber-950">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  Can&apos;t find the verification email?
+                </p>
+                <p className="text-amber-800">
+                  Please check your <strong>Spam / Junk</strong> or <strong>Updates</strong> folder for an email from <em>Alliance Childcare Support</em>.
+                </p>
               </div>
 
               <div className="pt-2 flex flex-col gap-2">
