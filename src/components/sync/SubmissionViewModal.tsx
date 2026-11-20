@@ -47,6 +47,13 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
   const isRevision = revisionNumber > 1;
   const uniqueId = item.id || item.submissionId || data['1\nUnique ID'] || data.uniqueId || data.art_number || d.artNumber || item.submissionUuid || 'MH-PUN-000000-00';
   const editReason = item.editReason || data.editReason || data['4\nEdit Reason'] || data.edit_reason || '';
+  const categories: string[] = Array.isArray(data.supportCategories)
+    ? data.supportCategories
+    : Array.isArray(data.categories)
+    ? data.categories
+    : [];
+  const schemaVersion = Number(data.schemaVersion || item.schemaVersion || (categories.length > 0 ? 3 : 2));
+  const isEducationApplicable = categories.length === 0 || categories.includes('education');
 
   // Section 1: Consent & Signature
   const agreeToParticipate = c.agreeToParticipate !== undefined ? c.agreeToParticipate : (data.agreeToParticipate ?? true);
@@ -149,6 +156,11 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-800">
                 73 Columns Comprehensive
               </span>
+              {categories.length > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-100 text-teal-900 border border-teal-300">
+                  Schema v{schemaVersion} • {categories.map((c) => c === 'education' ? 'Education' : c === 'nutrition' ? 'Nutrition' : 'HIV Support').join(', ')}
+                </span>
+              )}
               {isRevision && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
                   Revision {revisionNumber} • Amended
@@ -428,32 +440,38 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
               <GraduationCap className="h-4 w-4 text-teal-700" />
               <span>7. Education Status</span>
             </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80">
-              <div>
-                <span className="text-slate-400 block text-[11px]">Schooling Status:</span>
-                <span className="font-semibold text-slate-800">{educationStatus}</span>
+            {!isEducationApplicable ? (
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 text-slate-500 italic">
+                Not Applicable — Beneficiary assessed for Nutrition support only. Education questions were excluded.
               </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">School Name:</span>
-                <span className="font-semibold text-slate-800">{schoolName}</span>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80">
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Schooling Status:</span>
+                  <span className="font-semibold text-slate-800">{educationStatus}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">School Name:</span>
+                  <span className="font-semibold text-slate-800">{schoolName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Session Start Date:</span>
+                  <span className="font-semibold text-slate-800">{sessionStartDate}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">School Type:</span>
+                  <span className="font-semibold text-slate-800">{schoolType}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Current Class / Grade:</span>
+                  <span className="font-semibold text-slate-800">{currentClass}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Attendance Continuity:</span>
+                  <span className="font-semibold text-slate-800">{attendance}</span>
+                </div>
               </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Session Start Date:</span>
-                <span className="font-semibold text-slate-800">{sessionStartDate}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">School Type:</span>
-                <span className="font-semibold text-slate-800">{schoolType}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Current Class / Grade:</span>
-                <span className="font-semibold text-slate-800">{currentClass}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Attendance Continuity:</span>
-                <span className="font-semibold text-slate-800">{attendance}</span>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Section 8: Education Expenses & Aid Breakdown */}
@@ -462,58 +480,64 @@ export function SubmissionViewModal({ item, onClose, onEdit }: SubmissionViewMod
               <FileCheck className="h-4 w-4 text-teal-700" />
               <span>8. Education Expenses &amp; Aid Breakdown</span>
             </h3>
-            <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 overflow-hidden">
-              <table className="w-full text-left text-xs text-slate-800">
-                <thead className="bg-slate-100/80 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
-                  <tr>
-                    <th className="py-2.5 px-3">Expense Category</th>
-                    <th className="py-2.5 px-3 text-right">Current Cost (₹)</th>
-                    <th className="py-2.5 px-3 text-right">Required Grant (₹)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {expensesList.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 text-slate-700">{row.label}</td>
-                      <td className="py-2 px-3 text-right font-mono">₹{row.cost.toLocaleString('en-IN')}</td>
-                      <td className="py-2 px-3 text-right font-mono font-semibold text-teal-900">
-                        {row.req > 0 ? `₹${row.req.toLocaleString('en-IN')}` : '—'}
-                      </td>
+            {!isEducationApplicable ? (
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 text-slate-500 italic">
+                Not Applicable — Beneficiary assessed for Nutrition support only. Education documents and expense calculations were excluded.
+              </div>
+            ) : (
+              <div className="bg-slate-50/70 rounded-xl border border-slate-200/80 overflow-hidden">
+                <table className="w-full text-left text-xs text-slate-800">
+                  <thead className="bg-slate-100/80 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Expense Category</th>
+                      <th className="py-2.5 px-3 text-right">Current Cost (₹)</th>
+                      <th className="py-2.5 px-3 text-right">Required Grant (₹)</th>
                     </tr>
-                  ))}
-                  <tr className="bg-slate-100/90 font-bold border-t border-slate-200 text-xs">
-                    <td className="py-2.5 px-3 text-slate-900">Total Programmatic Support</td>
-                    <td className="py-2.5 px-3 text-right font-mono">₹{totalAnnualCost.toLocaleString('en-IN')}</td>
-                    <td className="py-2.5 px-3 text-right font-mono text-teal-900">₹{totalRequiredSupport.toLocaleString('en-IN')}</td>
-                  </tr>
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {expensesList.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 text-slate-700">{row.label}</td>
+                        <td className="py-2 px-3 text-right font-mono">₹{row.cost.toLocaleString('en-IN')}</td>
+                        <td className="py-2 px-3 text-right font-mono font-semibold text-teal-900">
+                          {row.req > 0 ? `₹${row.req.toLocaleString('en-IN')}` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-100/90 font-bold border-t border-slate-200 text-xs">
+                      <td className="py-2.5 px-3 text-slate-900">Total Programmatic Support</td>
+                      <td className="py-2.5 px-3 text-right font-mono">₹{totalAnnualCost.toLocaleString('en-IN')}</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-teal-900">₹{totalRequiredSupport.toLocaleString('en-IN')}</td>
+                    </tr>
+                  </tbody>
+                </table>
 
-              <div className="p-3.5 space-y-3 border-t border-slate-200 bg-white">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="border border-slate-200 rounded-xl p-2 text-center space-y-1 bg-slate-50">
-                    <span className="text-[10px] font-bold text-slate-600 uppercase block">Fee Receipt Proof</span>
-                    {isValidImageUrl(feeReceiptPhoto) ? (
-                      <img src={feeReceiptPhoto} alt="Fee Receipt" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
-                    ) : (
-                      <div className="h-24 flex items-center justify-center bg-white rounded-lg text-slate-400 text-[11px]">No fee receipt attached</div>
-                    )}
+                <div className="p-3.5 space-y-3 border-t border-slate-200 bg-white">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="border border-slate-200 rounded-xl p-2 text-center space-y-1 bg-slate-50">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase block">Fee Receipt Proof</span>
+                      {isValidImageUrl(feeReceiptPhoto) ? (
+                        <img src={feeReceiptPhoto} alt="Fee Receipt" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
+                      ) : (
+                        <div className="h-24 flex items-center justify-center bg-white rounded-lg text-slate-400 text-[11px]">No fee receipt attached</div>
+                      )}
+                    </div>
+                    <div className="border border-slate-200 rounded-xl p-2 text-center space-y-1 bg-slate-50">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase block">Previous Marksheet</span>
+                      {isValidImageUrl(marksheetPhoto) ? (
+                        <img src={marksheetPhoto} alt="Marksheet" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
+                      ) : (
+                        <div className="h-24 flex items-center justify-center bg-white rounded-lg text-slate-400 text-[11px]">No marksheet attached</div>
+                      )}
+                    </div>
                   </div>
-                  <div className="border border-slate-200 rounded-xl p-2 text-center space-y-1 bg-slate-50">
-                    <span className="text-[10px] font-bold text-slate-600 uppercase block">Previous Marksheet</span>
-                    {isValidImageUrl(marksheetPhoto) ? (
-                      <img src={marksheetPhoto} alt="Marksheet" className="h-24 w-full object-cover rounded-lg border border-slate-200" />
-                    ) : (
-                      <div className="h-24 flex items-center justify-center bg-white rounded-lg text-slate-400 text-[11px]">No marksheet attached</div>
-                    )}
+                  <div>
+                    <span className="text-slate-400 block text-[11px]">Remarks / Documentation Notes:</span>
+                    <span className="text-slate-700 italic">{remarks}</span>
                   </div>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[11px]">Remarks / Documentation Notes:</span>
-                  <span className="text-slate-700 italic">{remarks}</span>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Section 9: Review & Submitter Attestation */}
