@@ -624,6 +624,29 @@ function SyncCentreContent() {
   };
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      let isAuthed = false;
+      try {
+        const rawProfile = localStorage.getItem('field_user_profile');
+        if (rawProfile) {
+          const parsed = JSON.parse(rawProfile);
+          if (
+            parsed &&
+            (parsed.id ||
+              parsed.googleEmail ||
+              parsed.email ||
+              (parsed.name && parsed.name !== 'Field Caseworker' && parsed.assignedState))
+          ) {
+            isAuthed = true;
+          }
+        }
+      } catch (_) {}
+      if (!isAuthed && !user?.isVerified) {
+        router.replace('/app?onboarding=open&mode=signin');
+        return;
+      }
+    }
+
     loadLocalData().then(() => {
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         processQueue('sync_page_mount')

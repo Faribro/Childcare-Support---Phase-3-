@@ -24,7 +24,32 @@ export default function FieldWorkspacePage() {
   const router = useRouter();
   const { user } = useEvaluationAccess();
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
-  const [onboardingInitialMode, setOnboardingInitialMode] = useState<'signin' | 'register'>('register');
+  const [onboardingInitialMode, setOnboardingInitialMode] = useState<'signin' | 'register'>('signin');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  const checkAuth = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = localStorage.getItem('field_user_profile');
+      if (stored) {
+        const p = JSON.parse(stored);
+        if (
+          p &&
+          (p.id ||
+            p.googleEmail ||
+            p.email ||
+            (p.name && p.name !== 'Field Caseworker' && p.assignedState))
+        ) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return Boolean(user?.isVerified && user?.name);
+  }, [user]);
+
+  useEffect(() => {
+    setIsAuthenticated(checkAuth());
+  }, [checkAuth]);
 
   // Decoupled state for Drafts
   const [draftCount, setDraftCount] = useState<number | null>(null);
@@ -327,22 +352,24 @@ export default function FieldWorkspacePage() {
     return () => window.removeEventListener('child_nutrition:open_welcome_kite', handleOpenWelcomeKite);
   }, []);
 
+  const handleRequireAuth = useCallback(() => {
+    setOnboardingInitialMode('signin');
+    setIsOnboardingOpen(true);
+  }, []);
+
   const handleStartNewSurvey = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       // 1. Returning user with valid verified session or existing stored profile proceeds directly
-      const hasStoredProfile = typeof window !== 'undefined' && Boolean(
-        localStorage.getItem('field_user_profile') || localStorage.getItem('field_user_sr')
-      );
-      if (hasStoredProfile || user?.isVerified) {
+      if (checkAuth()) {
         router.push('/assessment/new');
         return;
       }
 
-      // 2. First-time unverified online user: open Welcome Kite onboarding to register once
-      setIsOnboardingOpen(true);
+      // 2. First-time unverified user: open Welcome Kite onboarding to sign in or register
+      handleRequireAuth();
     },
-    [user, router]
+    [checkAuth, router, handleRequireAuth]
   );
 
   useEffect(() => {
@@ -451,22 +478,26 @@ export default function FieldWorkspacePage() {
   };
 
   const handleResumeDraft = (id: string | number) => {
+    if (!checkAuth()) {
+      handleRequireAuth();
+      return;
+    }
     router.push(`/assessment/draft/${id}`);
   };
 
   return (
     <AppShell
-      pendingSyncCount={waitingCount ?? 0}
-      submittedCount={submittedCount ?? 0}
+      pendingSyncCount={isAuthenticated ? (waitingCount ?? 0) : 0}
+      submittedCount={isAuthenticated ? (submittedCount ?? 0) : 0}
     >
       {/* Mobile KoboCollect-Style Home View (<768px) */}
       <MobileKoboHomeScreen
         drafts={drafts}
-        draftsCount={draftCount ?? drafts.length}
-        waitingCount={waitingCount ?? 0}
-        submittedCount={submittedCount}
-        submittedMissingDocsCount={submittedMissingDocsCount}
-        approvedBankPendingCount={approvedBankPendingCount}
+        draftsCount={isAuthenticated ? (draftCount ?? drafts.length) : 0}
+        waitingCount={isAuthenticated ? (waitingCount ?? 0) : 0}
+        submittedCount={isAuthenticated ? submittedCount : 0}
+        submittedMissingDocsCount={isAuthenticated ? submittedMissingDocsCount : 0}
+        approvedBankPendingCount={isAuthenticated ? approvedBankPendingCount : 0}
         serverScopeLabel={serverScopeLabel}
         isLoading={isDraftsLoading && isWaitingLoading && isSubmittedLoading}
         isDraftsLoading={isDraftsLoading}
@@ -477,6 +508,8 @@ export default function FieldWorkspacePage() {
         onDeleteDraft={handleDeleteDraft}
         onResumeDraft={handleResumeDraft}
         onStartSurvey={handleStartNewSurvey}
+        isAuthenticated={isAuthenticated}
+        onRequireAuth={handleRequireAuth}
       />
 
       {/* Desktop Workspace View (>=768px) */}
@@ -516,10 +549,10 @@ export default function FieldWorkspacePage() {
 
           {/* Needs Attention Panel */}
           <NeedsAttentionPanel
-            localDraftsCount={draftCount ?? drafts.length}
-            outboxAttentionCount={waitingCount ?? 0}
-            submittedMissingDocsCount={submittedMissingDocsCount}
-            approvedBankPendingCount={approvedBankPendingCount}
+            localDraftsCount={isAuthenticated ? (draftCount ?? drafts.length) : 0}
+            outboxAttentionCount={isAuthenticated ? (waitingCount ?? 0) : 0}
+            submittedMissingDocsCount={isAuthenticated ? submittedMissingDocsCount : 0}
+            approvedBankPendingCount={isAuthenticated ? approvedBankPendingCount : 0}
             serverScopeLabel={serverScopeLabel}
             isServerLoading={isSubmittedLoading}
           />

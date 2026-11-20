@@ -93,6 +93,10 @@ describe('ProfileMenu Component', () => {
   });
 
   it('shows unsynced drafts warning modal when signing out with pending syncs', () => {
+    localStorage.setItem(
+      'field_user_profile',
+      JSON.stringify({ id: 'CW-001', name: 'Ramesh Field', assignedState: 'Maharashtra' })
+    );
     mockSummary.localPendingSyncCount = 2;
 
     render(<ProfileMenu />);

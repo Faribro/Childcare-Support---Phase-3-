@@ -35,6 +35,8 @@ interface MobileKoboHomeScreenProps {
   onDeleteDraft?: (id: number) => Promise<void>;
   onResumeDraft?: (id: string | number) => void;
   onStartSurvey?: (e: React.MouseEvent) => void;
+  isAuthenticated?: boolean;
+  onRequireAuth?: () => void;
 }
 
 export function MobileKoboHomeScreen({
@@ -51,16 +53,21 @@ export function MobileKoboHomeScreen({
   submittedStatus = 'success',
   onRetrySubmitted,
   onStartSurvey,
+  isAuthenticated = true,
+  onRequireAuth,
 }: MobileKoboHomeScreenProps) {
   const draftsLoading = isDraftsLoading ?? isLoading;
   const waitingLoading = isWaitingLoading ?? isLoading;
   const submittedLoading = isSubmittedLoading ?? isLoading;
-  const count = draftsCount ?? drafts?.length ?? 0;
+  const count = isAuthenticated ? (draftsCount ?? drafts?.length ?? 0) : 0;
 
   // Pendings consolidates Missing Documents + Bank Details Needed per user addendum
-  const pendingsTotal = submittedMissingDocsCount + approvedBankPendingCount;
+  const effectiveMissingDocs = isAuthenticated ? submittedMissingDocsCount : 0;
+  const effectiveBankPending = isAuthenticated ? approvedBankPendingCount : 0;
+  const effectiveWaitingCount = isAuthenticated ? waitingCount : 0;
+  const pendingsTotal = effectiveMissingDocs + effectiveBankPending;
   const [isPendingsExpanded, setIsPendingsExpanded] = useState(false);
-  const totalActionable = count + waitingCount + pendingsTotal;
+  const totalActionable = count + effectiveWaitingCount + pendingsTotal;
 
   // Carousel active state and track ref for bounded stage pagination
   const [activeCardIndex, setActiveCardIndex] = useState(0);
@@ -126,7 +133,16 @@ export function MobileKoboHomeScreen({
         ? DASHBOARD_COPY.badgeSingular
         : DASHBOARD_COPY.badgePlural(totalActionable);
 
-  const handleOfflineNav = (e: React.MouseEvent, url: string) => {
+  const handleProtectedNav = (e: React.MouseEvent, url: string) => {
+    if (!isAuthenticated) {
+      e.preventDefault();
+      if (onRequireAuth) {
+        onRequireAuth();
+      } else if (onStartSurvey) {
+        onStartSurvey(e);
+      }
+      return;
+    }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       e.preventDefault();
       window.location.assign(url);
@@ -134,6 +150,11 @@ export function MobileKoboHomeScreen({
   };
 
   const handleStartSurvey = (e: React.MouseEvent) => {
+    if (!isAuthenticated && onRequireAuth) {
+      e.preventDefault();
+      onRequireAuth();
+      return;
+    }
     if (onStartSurvey) {
       onStartSurvey(e);
     } else {
@@ -143,6 +164,31 @@ export function MobileKoboHomeScreen({
 
   return (
     <div className="md:hidden w-full max-w-md mx-auto px-4 py-3 sm:py-4 space-y-3.5 animate-in fade-in duration-150">
+      {/* ── Unauthenticated Sign-In Notice Banner ── */}
+      {!isAuthenticated && (
+        <div className="w-full bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200/90 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs">
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-teal-600 animate-pulse" />
+              <h4 className="text-xs font-bold text-teal-950">Sign In Required</h4>
+            </div>
+            <p className="text-[11px] text-teal-800 font-medium mt-0.5">
+              Please sign in or register to record and sync surveys.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              if (onRequireAuth) onRequireAuth();
+              else if (onStartSurvey) onStartSurvey(e);
+            }}
+            className="px-3.5 py-1.5 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-bold text-xs rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
+          >
+            Sign In
+          </button>
+        </div>
+      )}
+
       {/* ── Row 1: Start New Survey (Prominent Full-Width Primary Action, >=56px touch target) ── */}
       <button
         type="button"
@@ -211,7 +257,7 @@ export function MobileKoboHomeScreen({
               <Link
                 href={DASHBOARD_COPY.cards.formsToFinish.href}
                 prefetch={true}
-                onClick={(e) => handleOfflineNav(e, DASHBOARD_COPY.cards.formsToFinish.href)}
+                onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.formsToFinish.href)}
                 className="group block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600 rounded-full w-[180px]"
               >
                 <div className="relative w-full aspect-square rounded-full border-2 border-teal-200/90 bg-gradient-to-b from-teal-50/70 via-white/95 to-teal-50/40 backdrop-blur-md shadow-xs hover:shadow-sm pt-2.5 px-3 pb-3 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer">
@@ -269,7 +315,7 @@ export function MobileKoboHomeScreen({
               <Link
                 href={DASHBOARD_COPY.cards.waitingToSend.href}
                 prefetch={true}
-                onClick={(e) => handleOfflineNav(e, DASHBOARD_COPY.cards.waitingToSend.href)}
+                onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.waitingToSend.href)}
                 className="group block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600 rounded-full w-[180px]"
               >
                 <div className="relative w-full aspect-square rounded-full border-2 border-amber-200/90 bg-gradient-to-b from-amber-50/70 via-white/95 to-amber-50/40 backdrop-blur-md shadow-xs hover:shadow-sm pt-2.5 px-3 pb-3 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer">
@@ -365,7 +411,7 @@ export function MobileKoboHomeScreen({
                   <Link
                     href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
                     prefetch={true}
-                    onClick={(e) => handleOfflineNav(e, DASHBOARD_COPY.cards.pendings.rows.missingDocs.href)}
+                    onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.pendings.rows.missingDocs.href)}
                     className="w-full inline-flex items-center justify-between gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-rose-950 bg-rose-100/90 hover:bg-rose-200 border border-rose-300 shadow-2xs transition-all cursor-pointer"
                   >
                     <span className="flex items-center gap-1 truncate min-w-0">
@@ -384,7 +430,7 @@ export function MobileKoboHomeScreen({
                   <Link
                     href={DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href}
                     prefetch={true}
-                    onClick={(e) => handleOfflineNav(e, DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href)}
+                    onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href)}
                     className="w-full inline-flex items-center justify-between gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-rose-950 bg-rose-100/90 hover:bg-rose-200 border border-rose-300 shadow-2xs transition-all cursor-pointer"
                   >
                     <span className="flex items-center gap-1 truncate min-w-0">
@@ -453,7 +499,7 @@ export function MobileKoboHomeScreen({
             href="/assessment/drafts"
             prefetch={true}
             className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600 rounded-2xl"
-            onClick={(e) => handleOfflineNav(e, '/assessment/drafts')}
+            onClick={(e) => handleProtectedNav(e, '/assessment/drafts')}
           >
             <div className="w-full min-h-[52px] bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer">
               <div className="flex items-center gap-3 min-w-0">
@@ -493,7 +539,7 @@ export function MobileKoboHomeScreen({
             href="/assessment/sync?tab=outbox"
             prefetch={true}
             className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600 rounded-2xl"
-            onClick={(e) => handleOfflineNav(e, '/assessment/sync?tab=outbox')}
+            onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=outbox')}
           >
             <div className="w-full min-h-[52px] bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer">
               <div className="flex items-center gap-3 min-w-0">
@@ -513,7 +559,7 @@ export function MobileKoboHomeScreen({
                           aria-label="Loading waiting count"
                         />
                       ) : (
-                        waitingCount
+                        effectiveWaitingCount
                       )}
                     </span>
                   </div>
@@ -533,7 +579,13 @@ export function MobileKoboHomeScreen({
             {/* Header / Toggle row */}
             <button
               type="button"
-              onClick={() => setIsPendingsExpanded(!isPendingsExpanded)}
+              onClick={() => {
+                if (!isAuthenticated && onRequireAuth) {
+                  onRequireAuth();
+                  return;
+                }
+                setIsPendingsExpanded(!isPendingsExpanded);
+              }}
               className="w-full flex items-center justify-between text-left cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 rounded-lg min-h-[44px]"
               aria-expanded={isPendingsExpanded}
             >
@@ -582,6 +634,7 @@ export function MobileKoboHomeScreen({
                 {/* Sub-row A: Missing documents */}
                 <Link
                   href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
+                  onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.pendings.rows.missingDocs.href)}
                   className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 hover:bg-rose-100/70 border border-rose-200/60 transition-colors min-h-[44px] cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -602,7 +655,7 @@ export function MobileKoboHomeScreen({
                       {submittedLoading ? (
                         <span className="inline-block w-3 h-2 bg-rose-200 animate-pulse rounded" />
                       ) : (
-                        submittedMissingDocsCount
+                        effectiveMissingDocs
                       )}
                     </span>
                     <ChevronRight className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
@@ -612,6 +665,7 @@ export function MobileKoboHomeScreen({
                 {/* Sub-row B: Bank details needed */}
                 <Link
                   href={DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href}
+                  onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href)}
                   className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 hover:bg-rose-100/70 border border-rose-200/60 transition-colors min-h-[44px] cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -632,7 +686,7 @@ export function MobileKoboHomeScreen({
                       {submittedLoading ? (
                         <span className="inline-block w-3 h-2 bg-rose-200 animate-pulse rounded" />
                       ) : (
-                        approvedBankPendingCount
+                        effectiveBankPending
                       )}
                     </span>
                     <ChevronRight className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />

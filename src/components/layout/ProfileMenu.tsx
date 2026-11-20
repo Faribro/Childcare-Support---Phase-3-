@@ -80,13 +80,24 @@ export function ProfileMenu() {
   }, [isOpen]);
 
   const isSupervisorUser = isUnlocked && user && user.role !== 'FIELD_USER';
+  const hasFieldProfile = Boolean(
+    fieldProfile &&
+      (fieldProfile.id ||
+        fieldProfile.googleEmail ||
+        (fieldProfile.name && fieldProfile.name !== 'Field Caseworker'))
+  );
+  const isLoggedIn = Boolean(
+    isSupervisorUser || (user?.isVerified && user?.name) || hasFieldProfile
+  );
 
   const displayName = isSupervisorUser
     ? user?.name || 'State Evaluator'
-    : fieldProfile?.name ||
+    : hasFieldProfile
+    ? fieldProfile?.name ||
       `${fieldProfile?.firstName || ''} ${fieldProfile?.lastName || ''}`.trim() ||
       user?.name ||
-      'Field Caseworker';
+      'Field Caseworker'
+    : '';
 
   const userRoleBadge = isSupervisorUser
     ? user?.role === 'LEADERSHIP'
@@ -94,7 +105,9 @@ export function ProfileMenu() {
       : user?.role === 'ADMIN'
       ? 'Administrator'
       : 'State Reviewer'
-    : 'Field Caseworker';
+    : hasFieldProfile
+    ? 'Field Caseworker'
+    : 'Not Signed In';
 
   const handleSignOutClick = () => {
     if (localPendingSyncCount > 0) {
@@ -139,7 +152,7 @@ export function ProfileMenu() {
         id={`profile-btn-${menuId}`}
         aria-haspopup="true"
         aria-expanded={isOpen}
-        aria-label={isMounted ? `User menu for ${displayName}` : 'User menu'}
+        aria-label={isMounted ? (isLoggedIn ? `User menu for ${displayName}` : 'Sign in / user menu') : 'User menu'}
         onClick={() => setIsOpen((prev) => !prev)}
         className={`h-9 px-2.5 rounded-full border flex items-center gap-2 transition-all cursor-pointer select-none ${
           isOpen
@@ -147,15 +160,25 @@ export function ProfileMenu() {
             : 'bg-white hover:bg-slate-50 border-slate-200/90 text-slate-700'
         }`}
       >
-        <div className="w-6 h-6 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs shrink-0">
+        <div
+          className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+            isLoggedIn
+              ? 'bg-teal-700 text-white'
+              : 'bg-slate-100 text-slate-600 border border-slate-200'
+          }`}
+        >
           {isMounted ? (
-            displayName.charAt(0).toUpperCase()
+            isLoggedIn && displayName ? (
+              displayName.charAt(0).toUpperCase()
+            ) : (
+              <User className="w-3.5 h-3.5 text-slate-600" />
+            )
           ) : (
-            <User className="w-3.5 h-3.5" />
+            <User className="w-3.5 h-3.5 text-slate-600" />
           )}
         </div>
         <span className="text-xs font-semibold max-w-[120px] truncate hidden sm:inline">
-          {isMounted ? displayName : 'Profile'}
+          {isMounted ? (isLoggedIn && displayName ? displayName : 'Sign In') : 'Profile'}
         </span>
         <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -168,13 +191,25 @@ export function ProfileMenu() {
           className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100"
         >
           {/* Header Banner */}
-          <div className="p-4 bg-gradient-to-br from-teal-800 to-emerald-900 text-white">
+          <div
+            className={`p-4 text-white ${
+              isLoggedIn
+                ? 'bg-gradient-to-br from-teal-800 to-emerald-900'
+                : 'bg-gradient-to-br from-slate-800 to-slate-900'
+            }`}
+          >
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-full bg-white/15 border border-white/20 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                {displayName.charAt(0).toUpperCase()}
+                {isLoggedIn && displayName ? (
+                  displayName.charAt(0).toUpperCase()
+                ) : (
+                  <User className="w-5 h-5 text-teal-300" />
+                )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold truncate leading-tight text-white">{displayName}</p>
+                <p className="text-sm font-bold truncate leading-tight text-white">
+                  {isLoggedIn && displayName ? displayName : 'Guest User'}
+                </p>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/20 text-teal-100">
                     {userRoleBadge}
@@ -186,7 +221,11 @@ export function ProfileMenu() {
 
           {/* User Details Body */}
           <div className="p-4 space-y-3 text-xs border-b border-slate-100">
-            {isSupervisorUser ? (
+            {!isLoggedIn ? (
+              <p className="text-slate-600 font-medium leading-relaxed">
+                Please sign in or register to record child nutrition assessments and sync records with the national database.
+              </p>
+            ) : isSupervisorUser ? (
               // State Team / Leadership Scope
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-slate-600">
@@ -272,31 +311,53 @@ export function ProfileMenu() {
                 }
                 router.push('/app?onboarding=open&mode=signin');
               }}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-teal-800 bg-teal-50/70 hover:bg-teal-100/70 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+              className={`w-full px-3 py-2.5 text-left text-xs font-bold rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer ${
+                !isLoggedIn
+                  ? 'text-white bg-teal-800 hover:bg-teal-900 shadow-xs'
+                  : 'text-teal-800 bg-teal-50/70 hover:bg-teal-100/70'
+              }`}
             >
-              <Mail className="w-4 h-4 text-teal-700" />
-              <span>Sign In / Restore Account (Email OTP)</span>
+              <Mail className={`w-4 h-4 ${!isLoggedIn ? 'text-teal-200' : 'text-teal-700'}`} />
+              <span>{isLoggedIn ? 'Switch / Restore Account (Email OTP)' : 'Sign In / Register (Email OTP)'}</span>
             </button>
+
+            {!isLoggedIn && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('child_nutrition:open_login_modal'));
+                  }
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+              >
+                <Shield className="w-4 h-4 text-slate-500" />
+                <span>Supervisor / Leadership Login</span>
+              </button>
+            )}
+
+            {isLoggedIn && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  router.push('/app');
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+              >
+                <User className="w-4 h-4 text-slate-400" />
+                <span>View Profile Details</span>
+              </button>
+            )}
 
             <button
               type="button"
               role="menuitem"
               onClick={() => {
                 setIsOpen(false);
-                router.push('/app');
-              }}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
-            >
-              <User className="w-4 h-4 text-slate-400" />
-              <span>View Profile Details</span>
-            </button>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setIsOpen(false);
-                // Trigger recovery / help info
                 alert(
                   'Account Recovery & Support:\n\nIf you have lost access to your registered device or phone number, please contact your State Programme Coordinator for assisted identity verification.'
                 );
@@ -307,15 +368,17 @@ export function ProfileMenu() {
               <span>Recover Account / Help</span>
             </button>
 
-            <button
-              type="button"
-              role="menuitem"
-              onClick={handleSignOutClick}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-4 h-4 text-rose-500" />
-              <span>Sign Out</span>
-            </button>
+            {isLoggedIn && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleSignOutClick}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 text-rose-500" />
+                <span>Sign Out</span>
+              </button>
+            )}
           </div>
         </div>
       )}

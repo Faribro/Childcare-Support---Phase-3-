@@ -41,6 +41,29 @@ export default function DedicatedDraftsPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      let isAuthed = false;
+      try {
+        const cachedProfile = localStorage.getItem('field_user_profile');
+        if (cachedProfile) {
+          const p = JSON.parse(cachedProfile);
+          if (
+            p &&
+            (p.id ||
+              p.googleEmail ||
+              p.email ||
+              (p.name && p.name !== 'Field Caseworker' && p.assignedState))
+          ) {
+            isAuthed = true;
+          }
+        }
+      } catch (_) {}
+      if (!isAuthed) {
+        router.replace('/app?onboarding=open&mode=signin');
+        return;
+      }
+    }
+
     loadData();
     const handleSyncComplete = () => {
       loadData();
@@ -49,7 +72,7 @@ export default function DedicatedDraftsPage() {
     return () => {
       window.removeEventListener('child_nutrition:sync_completed', handleSyncComplete);
     };
-  }, [loadData]);
+  }, [loadData, router]);
 
   const handleDeleteDraft = async (id: number): Promise<void> => {
     setDeleteError(null);

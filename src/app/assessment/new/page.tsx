@@ -504,20 +504,33 @@ export default function NewSinglePageAssessment() {
     setFormData((prev) => ({ ...prev, artNumber: refId, koboId: refId }));
 
     if (typeof window !== 'undefined') {
+      let isAuthed = false;
       try {
         const cachedProfile = localStorage.getItem('field_user_profile');
         if (cachedProfile) {
           const p = JSON.parse(cachedProfile);
-          setFormData((prev) => ({
-            ...prev,
-            srName: prev.srName || p.srName || '',
-            ssrName: prev.ssrName || p.ssrName || '',
-            formSubmittedBy: prev.formSubmittedBy || p.name || (p.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : prev.formSubmittedBy),
-            organizationName: p.organizationName || p.srName || 'India HIV/AIDS Alliance',
-            organizationEmail: p.organizationEmail || p.email || p.googleEmail || '',
-            state: p.assignedState || prev.state,
-            district: p.assignedDistrict || prev.district,
-          }));
+          if (
+            p &&
+            (p.id ||
+              p.googleEmail ||
+              p.email ||
+              (p.name && p.name !== 'Field Caseworker' && p.assignedState))
+          ) {
+            isAuthed = true;
+            setFormData((prev) => ({
+              ...prev,
+              srName: prev.srName || p.srName || '',
+              ssrName: prev.ssrName || p.ssrName || '',
+              formSubmittedBy:
+                prev.formSubmittedBy ||
+                p.name ||
+                (p.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : prev.formSubmittedBy),
+              organizationName: p.organizationName || p.srName || 'India HIV/AIDS Alliance',
+              organizationEmail: p.organizationEmail || p.email || p.googleEmail || '',
+              state: p.assignedState || prev.state,
+              district: p.assignedDistrict || prev.district,
+            }));
+          }
         }
         const cachedSr = localStorage.getItem('field_user_sr');
         if (cachedSr) {
@@ -529,6 +542,12 @@ export default function NewSinglePageAssessment() {
           }));
         }
       } catch (_) {}
+
+      // If user has neither a stored verified profile nor an unlocked supervisor session, redirect to sign in
+      if (!isAuthed) {
+        router.replace('/app?onboarding=open&mode=signin');
+        return;
+      }
     }
   }, []);
 
