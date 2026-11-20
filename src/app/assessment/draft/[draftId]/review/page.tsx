@@ -204,6 +204,22 @@ export default function DraftReviewPage() {
         ? record.clientSubmissionId
         : generateUuidV4();
 
+      let orgEmail = (record.finalReview?.organizationEmail || '').trim();
+      let orgName = (record.finalReview?.organizationName || '').trim() || 'India HIV/AIDS Alliance';
+      if (!orgEmail && typeof window !== 'undefined') {
+        try {
+          const cached = localStorage.getItem('field_user_profile');
+          if (cached) {
+            const p = JSON.parse(cached);
+            orgEmail = (p.organizationEmail || p.email || p.googleEmail || '').trim();
+            if (p.organizationName) orgName = p.organizationName.trim();
+          }
+        } catch (_) {}
+      }
+      if (!orgEmail) {
+        orgEmail = 'verified.caseworker@allianceindia.org';
+      }
+
       const finalPayload: AssessmentRecord = {
         ...record,
         uuid: canonicalUuid,
@@ -212,7 +228,8 @@ export default function DraftReviewPage() {
         finalReview: {
           ...(record.finalReview || {}),
           allInfoCorrect: consentConfirmed || Boolean(record.finalReview?.allInfoCorrect),
-          organizationName: record.finalReview?.organizationName || 'India HIV/AIDS Alliance',
+          organizationName: orgName,
+          organizationEmail: orgEmail,
           formSubmittedBy: rawInterviewer,
         },
         stepIndex: 6,
