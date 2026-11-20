@@ -229,4 +229,106 @@ describe('Nutrition-Only Assessment Lifecycle & Validation Invariants', () => {
     expect(isSectionApplicable('expenses', restored)).toBe(false);
     expect(isSectionApplicable('nutrition', restored)).toBe(true);
   });
+
+  it('preserves data and blocks submission for ambiguous legacy drafts until user explicitly confirms categories', () => {
+    // An ambiguous draft with default zero values in both education and nutrition:
+    const ambiguousZeroDraft = {
+      uuid: 'legacy-ambiguous-001',
+      demographics: {
+        artNumber: 'DL-AMB-2026-01',
+        childName: 'Pooja Kumari',
+        dob: '2015-06-01',
+        gender: 'Female',
+        orphanStatus: 'Not Orphan',
+        caregiverName: 'Sunita',
+        caregiverRelationship: 'Mother',
+        contactNumber: '9876543210',
+        state: 'Delhi',
+        district: 'South Delhi',
+        fullAddress: 'South Delhi',
+      },
+      // Stale default zeros and empty structures
+      educationStatus: {
+        educationStatus: 'Dropped out of school',
+      },
+      educationExpenses: {
+        schoolFees: 0,
+        tuitionFees: 0,
+        totalAnnualCost: 0,
+      },
+      nutrition: {
+        mealsPerDay: 0,
+      },
+      health: {
+        weightKg: 20,
+        heightCm: 118,
+      },
+    };
+
+    // Hydration check: Should NOT silently infer or decide categories from default zero values
+    const d = ambiguousZeroDraft as any;
+    const exp = d.educationExpenses || {};
+    const req = d.educationSupportRequired || {};
+    const edu = d.education || {};
+    const stat = d.educationStatus || {};
+    const n = d.nutrition || {};
+
+    const hasEducationData = Boolean(
+      (stat.educationStatus && stat.educationStatus !== 'Dropped out of school' && stat.educationStatus !== 'Never enrolled') ||
+      stat.schoolName ||
+      edu.schoolName ||
+      (exp.schoolFees && Number(exp.schoolFees) > 0) ||
+      (req.totalRequiredSupport && Number(req.totalRequiredSupport) > 0)
+    );
+
+    const hasNutritionData = Boolean(
+      n.appetite ||
+      n.malnutritionSymptoms ||
+      (n.mealsPerDay && Number(n.mealsPerDay) > 0) ||
+      (d.mealsPerDay && Number(d.mealsPerDay) > 0)
+    );
+
+    let restored: SupportCategory[] = [];
+    if (!hasEducationData && hasNutritionData) {
+      restored = ['nutrition'];
+    } else if (hasEducationData && !hasNutritionData) {
+      restored = ['education'];
+    } else {
+      // Ambiguous: leave empty to enforce explicit user confirmation
+      restored = [];
+    }
+
+    // 1. Must NOT guess categories silently
+    expect(restored).toEqual([]);
+
+    // 2. Submission without confirming categories is rejected by server intake validation
+    const unconfirmedSubmission = {
+      ...ambiguousZeroDraft,
+      schemaVersion: 3,
+      interviewerName: 'Staff Caseworker',
+      consent: { agreeToParticipate: true },
+      finalReview: {
+        allInfoCorrect: true,
+        organizationName: 'Alliance India',
+        organizationEmail: 'staff@allianceindia.org',
+      },
+      supportCategories: restored.length > 0 ? restored : undefined,
+    };
+
+    const serverCheck = validateServerSubmissionIntake(unconfirmedSubmission as any);
+    expect(serverCheck.valid).toBe(false);
+    expect(serverCheck.errors.some((e) => e.field === 'supportCategories')).toBe(true);
+
+    // 3. When caseworker explicitly confirms 'nutrition', all answers are preserved and payload passes cleanly
+    const confirmedNutritionSubmission = {
+      ...unconfirmedSubmission,
+      supportCategories: ['nutrition'] as SupportCategory[],
+    };
+
+    const confirmedCheck = validateServerSubmissionIntake(confirmedNutritionSubmission as any);
+    expect(confirmedCheck.valid).toBe(true);
+    expect(confirmedCheck.errors).toEqual([]);
+    expect(confirmedNutritionSubmission.demographics.childName).toBe('Pooja Kumari');
+    expect(confirmedNutritionSubmission.health.weightKg).toBe(20);
+  });
 });

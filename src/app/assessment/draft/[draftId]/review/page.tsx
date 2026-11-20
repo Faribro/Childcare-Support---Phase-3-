@@ -82,23 +82,46 @@ export default function DraftReviewPage() {
   const categories: SupportCategory[] = useMemo(() => {
     const raw = (record?.supportCategories as SupportCategory[]) || ((record as any)?.categories as SupportCategory[]);
     if (raw && Array.isArray(raw) && raw.length > 0) return raw;
-    // Infer categories for existing legacy drafts (e.g., DL-SOU-201300-01 Amit Singh)
-    const hasNutr = !!(
-      record?.nutrition?.appetite ||
-      record?.nutrition?.mealsPerDay ||
-      (record?.health?.weightKg && record?.health?.heightCm)
+
+    // Strict legacy check: Only infer when strictly unambiguous.
+    // Do not decide from default zero values or empty objects.
+    const ed = (record?.educationStatus || {}) as any;
+    const exp = (record?.educationExpenses || {}) as any;
+    const req = (record?.educationSupportRequired || {}) as any;
+    const n = (record?.nutrition || {}) as any;
+    const h = (record?.health || {}) as any;
+
+    const hasEdu = Boolean(
+      (ed.educationStatus && ed.educationStatus !== 'Dropped out of school' && ed.educationStatus !== 'Never enrolled in school') ||
+      ed.schoolName ||
+      exp.feeReceiptPhotoUrl ||
+      exp.marksheetPhotoUrl ||
+      exp.remarks ||
+      (exp.totalAnnualCost && Number(exp.totalAnnualCost) > 0) ||
+      (exp.schoolFees && Number(exp.schoolFees) > 0) ||
+      (req.totalRequiredSupport && Number(req.totalRequiredSupport) > 0)
     );
-    const hasEdu = !!(
-      (record?.educationStatus?.educationStatus && record?.educationStatus?.educationStatus === 'Currently going to school') ||
-      (record?.educationExpenses?.schoolFees && record?.educationExpenses?.schoolFees > 0)
+    const hasNutr = Boolean(
+      n.appetite ||
+      n.malnutritionSymptoms ||
+      (n.mealsPerDay && Number(n.mealsPerDay) > 0) ||
+      (record as any)?.appetite
     );
+
     if (hasNutr && !hasEdu) {
       const inf: SupportCategory[] = ['nutrition'];
-      if (record?.health?.artStatus && record?.health?.artStatus !== 'Not on ART') {
+      if (h.artStatus && h.artStatus !== 'Not on ART') {
+        inf.push('hiv_support');
+      }
+      return inf;
+    } else if (hasEdu && !hasNutr) {
+      const inf: SupportCategory[] = ['education'];
+      if (h.artStatus && h.artStatus !== 'Not on ART') {
         inf.push('hiv_support');
       }
       return inf;
     }
+    // Ambiguous legacy draft: require explicit user confirmation
     return [];
   }, [record]);
 
@@ -164,6 +187,11 @@ export default function DraftReviewPage() {
     const rawInterviewer = (record.finalReview?.formSubmittedBy || (record as any).interviewerName || '').trim();
     if (rawInterviewer.length < 2) {
       setError('Please enter your name using at least 2 characters.');
+      return;
+    }
+
+    if (categories.length === 0) {
+      setError('Support categories must be confirmed before submitting this legacy assessment. Please click "Select Categories" to confirm whether this child receives Education, Nutrition, and/or HIV Support.');
       return;
     }
 
@@ -311,7 +339,7 @@ export default function DraftReviewPage() {
         </div>
 
         {/* Category Indicator Banner */}
-        {categories.length > 0 && (
+        {categories.length > 0 ? (
           <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">
             <div className="flex items-center space-x-2">
               <span className="font-semibold text-teal-800">Assessed Categories:</span>
@@ -329,6 +357,21 @@ export default function DraftReviewPage() {
             <Link href={`/assessment/draft/${draftId}`}>
               <Button variant="ghost" size="sm" className="h-7 text-xs text-teal-700 hover:text-teal-900 hover:bg-teal-100">
                 Change
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-medium">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+              <div>
+                <span className="font-bold text-amber-900">Support Categories Not Confirmed:</span>
+                <span className="ml-1 text-amber-800">This legacy draft requires explicit category confirmation before submission.</span>
+              </div>
+            </div>
+            <Link href={`/assessment/draft/${draftId}`}>
+              <Button variant="primary" size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white border-none">
+                Select Categories
               </Button>
             </Link>
           </div>

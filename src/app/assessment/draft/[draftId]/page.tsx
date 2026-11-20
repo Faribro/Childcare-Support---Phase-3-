@@ -429,9 +429,10 @@ export default function ResumeDraftSinglePage() {
           } else if (Array.isArray((found as any).categories) && (found as any).categories.length > 0) {
             restoredCategories = (found as any).categories as SupportCategory[];
           } else {
-            // Content-based inference fallback for legacy drafts or drafts saved before category persistence fix:
+            // Strict legacy inference: Only infer when unambiguous.
+            // Do not silently guess if ambiguous (both present, neither present, or only default zeroes).
             const hasEducationData = Boolean(
-              ed.educationStatus ||
+              (ed.educationStatus && ed.educationStatus !== 'Dropped out of school' && ed.educationStatus !== 'Never enrolled in school') ||
               ed.schoolName ||
               exp.feeReceiptPhotoUrl ||
               exp.marksheetPhotoUrl ||
@@ -443,14 +444,14 @@ export default function ResumeDraftSinglePage() {
             const hasNutritionData = Boolean(
               n.appetite ||
               n.malnutritionSymptoms ||
-              n.mealsPerDay ||
+              (n.mealsPerDay && Number(n.mealsPerDay) > 0) ||
               (found as any).appetite ||
-              (found as any).mealsPerDay
+              ((found as any).mealsPerDay && Number((found as any).mealsPerDay) > 0)
             );
             const hasHivData = Boolean(
               h.artIdNumber ||
               (h as any).artNumber ||
-              h.artStatus ||
+              (h.artStatus && h.artStatus !== 'Not on ART') ||
               h.artRegistrationDate ||
               h.cd4Count ||
               h.viralLoad ||
@@ -459,11 +460,18 @@ export default function ResumeDraftSinglePage() {
 
             if (!hasEducationData && hasNutritionData) {
               restoredCategories = hasHivData ? ['nutrition', 'hiv_support'] : ['nutrition'];
+            } else if (hasEducationData && !hasNutritionData) {
+              restoredCategories = hasHivData ? ['education', 'hiv_support'] : ['education'];
+            } else {
+              // Ambiguous legacy draft: Keep all existing data intact and require explicit user confirmation.
+              restoredCategories = [];
             }
           }
 
           if (restoredCategories.length > 0) {
             setSelectedCategories(restoredCategories);
+          } else {
+            setSelectedCategories([]);
           }
 
           let profileOrgName = fr.organizationName || 'India HIV/AIDS Alliance';
@@ -930,6 +938,13 @@ export default function ResumeDraftSinglePage() {
     setFormError(null);
     setIsSubmitting(true);
 
+    if (selectedCategories.length === 0) {
+      setFormError('Support category confirmation required. Please select the applicable support categories (Education, Nutrition, and/or HIV Support) before submitting.');
+      setShowCategoryModal(true);
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       // Convert locally stored signature blob to base64 Data URL for Google Drive upload
       let signatureDataUrl: string | undefined = undefined;
@@ -1314,25 +1329,31 @@ export default function ResumeDraftSinglePage() {
         </div>
 
         {/* Support Category Indicator Banner */}
-        <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 border border-purple-200 text-xs">
-          <span className="text-purple-800 font-medium">
-            Showing sections for:{' '}
-            <strong>
-              {selectedCategories.length > 0
-                ? selectedCategories
-                    .map((c) =>
-                      c === 'education' ? 'Education' : c === 'nutrition' ? 'Nutrition' : 'HIV-related support'
-                    )
-                    .join(', ')
-                : 'All Support Areas (Legacy Mode)'}
-            </strong>
+        <div className={`flex items-center justify-between p-3 rounded-xl border text-xs ${
+          selectedCategories.length === 0
+            ? 'bg-amber-50 border-amber-300 text-amber-900'
+            : 'bg-purple-50/70 border-purple-200 text-purple-800'
+        }`}>
+          <span className="font-medium">
+            {selectedCategories.length === 0 ? (
+              <span className="flex items-center gap-1.5 font-semibold text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                Category confirmation required for this draft:
+              </span>
+            ) : (
+              <span>Showing sections for: <strong>{selectedCategories.map((c) => c === 'education' ? 'Education' : c === 'nutrition' ? 'Nutrition' : 'HIV-related support').join(', ')}</strong></span>
+            )}
           </span>
           <button
             type="button"
             onClick={() => setShowCategoryModal(true)}
-            className="ml-3 text-purple-700 font-semibold underline underline-offset-2 hover:text-purple-900 cursor-pointer"
+            className={`ml-3 font-semibold underline underline-offset-2 cursor-pointer ${
+              selectedCategories.length === 0
+                ? 'text-amber-800 hover:text-amber-950 font-bold'
+                : 'text-purple-700 hover:text-purple-900'
+            }`}
           >
-            Change
+            {selectedCategories.length === 0 ? 'Select Categories' : 'Change'}
           </button>
         </div>
 
