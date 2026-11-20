@@ -292,10 +292,10 @@ export function ThreeStatusOrb({
 
     const ball = new THREE.Object3D();
 
-    // Face opacity: slightly higher when there's something needing attention
-    const faceOpacity = isAllClear ? 0.14 : 0.19;
+    // Face opacity: kept subtle (~15%) so geometry reads as refined texture behind text
+    const faceOpacity = isAllClear ? 0.11 : 0.15;
 
-    // 1. Crystalline polygon faces (Option A — ~18% transparency)
+    // 1. Crystalline polygon faces (Option A — ~15% transparency)
     const faceMaterial = new THREE.MeshLambertMaterial({
       color: colors.face,
       transparent: true,
@@ -317,7 +317,7 @@ export function ThreeStatusOrb({
     const seamMaterial = new THREE.MeshBasicMaterial({
       color: colors.seam,
       transparent: true,
-      opacity: isAllClear ? 0.38 : 0.52,
+      opacity: isAllClear ? 0.28 : 0.40,
     });
     // Collect all tube geometries for disposal
     const tubeGeoms: THREE.TubeGeometry[] = [];
@@ -333,7 +333,7 @@ export function ThreeStatusOrb({
     const rimMaterial = new THREE.MeshBasicMaterial({
       color: colors.rim,
       transparent: true,
-      opacity: isAllClear ? 0.30 : 0.42,
+      opacity: isAllClear ? 0.22 : 0.32,
     });
     const rimGeom = new THREE.TorusGeometry(radius * 1.08, 0.016, 12, 96);
     const rim = new THREE.Mesh(rimGeom, rimMaterial);
@@ -412,20 +412,26 @@ export function ThreeStatusOrb({
     }
 
     // ── Animation loop ────────────────────────────────────────────────────────
+    const clock = new THREE.Clock();
+
     const animate = () => {
       animationId = requestAnimationFrame(animate);
       if (!isVisible) return;
 
-      if (!prefersReducedMotion) {
-        // Slow base rotation
-        ball.rotation.y += ROT_Y;
-        ball.rotation.x += ROT_X;
-        // Rim orbits slightly independently for the gyroscopic look
-        rim.rotation.z  += ROT_Y * 0.6;
-        // Particle cloud drifts opposite direction
-        particles.rotation.y -= ROT_Y * 0.4;
+      const delta = Math.min(clock.getDelta(), 0.1);
 
-        // Lazy approach towards mouse parallax tilt
+      // State-driven rotation: Only rotate background sphere mesh when count >= 1 and reduced-motion is not requested
+      if (!prefersReducedMotion && count >= 1) {
+        ball.rotation.y += delta * 0.35;
+        ball.rotation.x += delta * 0.12;
+        // Rim orbits slightly independently for the gyroscopic look
+        rim.rotation.z  += delta * 0.20;
+        // Particle cloud drifts opposite direction
+        particles.rotation.y -= delta * 0.15;
+      }
+
+      // Gentle mouse parallax tilt
+      if (!prefersReducedMotion) {
         ball.rotation.x += (targetTiltX - ball.rotation.x) * 0.03;
         ball.rotation.y += (targetTiltY - ball.rotation.y) * 0.03;
       }
@@ -459,14 +465,16 @@ export function ThreeStatusOrb({
   // ── CSS fallback (no WebGL / SSR) ─────────────────────────────────────────
   if (webglFailed) {
     const pal = COLOR_MAP[variant] ?? COLOR_MAP.teal;
+    const isSpinning = count >= 1;
     return (
       <div
         className={`absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden ${className}`}
         aria-hidden="true"
         data-testid="orb-css-fallback"
       >
-        {/* Soft gradient sphere silhouette */}
+        {/* Soft gradient sphere silhouette with optional state-driven spin */}
         <div
+          className={isSpinning ? 'animate-[spin_18s_linear_infinite] motion-reduce:animate-none will-change-transform' : ''}
           style={{
             position: 'absolute',
             inset: '10%',
@@ -478,6 +486,7 @@ export function ThreeStatusOrb({
         />
         {/* Two CSS concentric rings for the orbital look */}
         <div
+          className={isSpinning ? 'animate-[spin_24s_linear_infinite_reverse] motion-reduce:animate-none will-change-transform' : ''}
           style={{
             position: 'absolute',
             inset: '6%',

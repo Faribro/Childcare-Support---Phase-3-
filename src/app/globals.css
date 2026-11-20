@@ -1,6 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Anonymous+Pro:ital,wght@0,400;0,700;1,400;1,700&display=swap');
 
+/* Self-hosted open-source editorial grotesque font: Absans (Collletttivo) */
+@font-face {
+  font-family: 'Absans';
+  src: url('/fonts/Absans-Regular.woff2') format('woff2'),
+       url('/fonts/Absans-Regular.woff') format('woff');
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -27,7 +37,7 @@ body {
   background-color: var(--color-canvas);
   color: var(--color-ink-900);
   -webkit-text-size-adjust: 100%;
-  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Absans', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   min-height: 100vh;
   min-height: 100dvh;
 }
@@ -611,4 +621,60 @@ body {
 .animate-folder-unfold {
   animation: folderUnfold 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+
+/* State-Driven Attention Glow Keyframes (count >= 1) */
+@keyframes orbPulseEmerald {
+  0%, 100% {
+    box-shadow: 0 0 18px 2px rgba(16, 185, 129, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 28px 6px rgba(16, 185, 129, 0.55);
+  }
+}
+
+@keyframes orbPulseAmber {
+  0%, 100% {
+    box-shadow: 0 0 18px 2px rgba(245, 158, 11, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 28px 6px rgba(245, 158, 11, 0.55);
+  }
+}
+
+@keyframes orbPulseRose {
+  0%, 100% {
+    box-shadow: 0 0 20px 3px rgba(239, 68, 68, 0.40);
+  }
+  50% {
+    box-shadow: 0 0 32px 8px rgba(239, 68, 68, 0.65);
+  }
+}
+
+.animate-orb-pulse-emerald {
+  animation: orbPulseEmerald 2.6s ease-in-out infinite;
+}
+
+.animate-orb-pulse-amber {
+  animation: orbPulseAmber 2.6s ease-in-out infinite;
+}
+
+.animate-orb-pulse-rose {
+  animation: orbPulseRose 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-orb-pulse-emerald {
+    animation: none;
+    box-shadow: 0 0 22px 4px rgba(16, 185, 129, 0.45);
+  }
+  .animate-orb-pulse-amber {
+    animation: none;
+    box-shadow: 0 0 22px 4px rgba(245, 158, 11, 0.45);
+  }
+  .animate-orb-pulse-rose {
+    animation: none;
+    box-shadow: 0 0 26px 5px rgba(239, 68, 68, 0.50);
+  }
+}
+
 
