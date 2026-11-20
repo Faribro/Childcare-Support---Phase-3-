@@ -277,6 +277,7 @@ function makeSyntheticLocalRecord(overrides: Partial<AssessmentRecord> = {}): As
     } as any,
     educationExpenses: {
       totalAnnualCost: 4000,
+      remarks: 'Verified fee receipt by school',
     } as any,
     educationSupportRequired: {
       totalRequiredSupport: 2500,

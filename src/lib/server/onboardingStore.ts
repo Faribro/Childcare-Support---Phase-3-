@@ -577,7 +577,9 @@ export class MemoryOnboardingStore implements OnboardingStore {
   async getFieldUserProfileByEmail(googleEmail: string): Promise<FieldUserProfile | null> {
     const norm = googleEmail.trim().toLowerCase();
     for (const p of this.fieldProfiles.values()) {
-      if (p.googleEmail === norm) return p;
+      if (p.googleEmail?.trim().toLowerCase() === norm) return p;
+      if ((p as any).email?.trim().toLowerCase() === norm) return p;
+      if ((p as any).workEmail?.trim().toLowerCase() === norm) return p;
     }
     return null;
   }
@@ -2079,11 +2081,31 @@ export class FirestoreOnboardingStore implements OnboardingStore {
   async getFieldUserProfileByEmail(googleEmail: string): Promise<FieldUserProfile | null> {
     const db = await this.getDb();
     const norm = googleEmail.toLowerCase().trim();
-    const snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+    // 1. Primary match: googleEmail
+    let snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
       .where('googleEmail', '==', norm)
+      .limit(1)
       .get();
-    if (!snap.docs || snap.docs.length === 0) return null;
-    return snap.docs[0].data() as FieldUserProfile;
+    if (snap.docs && snap.docs.length > 0) {
+      return snap.docs[0].data() as FieldUserProfile;
+    }
+    // 2. Secondary match: email
+    snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+      .where('email', '==', norm)
+      .limit(1)
+      .get();
+    if (snap.docs && snap.docs.length > 0) {
+      return snap.docs[0].data() as FieldUserProfile;
+    }
+    // 3. Tertiary match: workEmail
+    snap = await db.collection(FIELD_USER_PROFILES_COLLECTION)
+      .where('workEmail', '==', norm)
+      .limit(1)
+      .get();
+    if (snap.docs && snap.docs.length > 0) {
+      return snap.docs[0].data() as FieldUserProfile;
+    }
+    return null;
   }
 
   async getFieldUserProfileByMobile(canonicalMobile: string): Promise<FieldUserProfile | null> {

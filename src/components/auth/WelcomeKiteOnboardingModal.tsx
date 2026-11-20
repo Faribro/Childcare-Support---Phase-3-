@@ -195,13 +195,14 @@ export function WelcomeKiteOnboardingModal({
         setIsSigningIn(false);
         return;
       }
+      if (data.message?.includes('If this email address is registered')) {
+        setErrorMessage('This email is not registered as a field caseworker. Please switch to "Register New Account" or check the address.');
+        setIsSigningIn(false);
+        return;
+      }
       setIsOtpSent(true);
       setOtpCooldown(60);
-      if (data.message?.includes('If this email address is registered')) {
-        setInfoMessage('If this email is registered, a 6-digit verification code was sent. If you have not set up your profile yet, please switch to Register New Account.');
-      } else {
-        setInfoMessage(data.message || '6-digit sign-in code sent to your email. Valid for 10 minutes.');
-      }
+      setInfoMessage(data.message || '6-digit sign-in code sent to your email. Valid for 10 minutes.');
       setIsSigningIn(false);
       setTimeout(() => otpInputRef.current?.focus(), 100);
     } catch {

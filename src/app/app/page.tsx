@@ -17,12 +17,12 @@ import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPl
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
 import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel';
 import { submissionEvents } from '@/features/submission/submissionEvents';
-import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import { useEvaluationAccess, setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
 import { WelcomeKiteOnboardingModal } from '@/components/auth/WelcomeKiteOnboardingModal';
 
 export default function FieldWorkspacePage() {
   const router = useRouter();
-  const { user } = useEvaluationAccess();
+  const { user, isLoaded } = useEvaluationAccess();
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingInitialMode, setOnboardingInitialMode] = useState<'signin' | 'register'>('signin');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -141,8 +141,8 @@ export default function FieldWorkspacePage() {
       abortControllerRef.current.abort();
     }
 
-    // Gate on session readiness: do not query protected endpoint if signed out
-    if (!user?.isVerified) {
+    // Gate on session readiness: do not query protected endpoint if signed out or session not yet loaded
+    if (!isLoaded || !user?.isVerified) {
       try {
         const localCount = await getLocalSyncedCount();
         if (isMountedRef.current) {
@@ -217,11 +217,13 @@ export default function FieldWorkspacePage() {
       });
       if (res.status === 401 || res.status === 403) {
         clearTimeout(timeoutId);
+        setEvaluationUnlocked(false, null);
         const localCount = await getLocalSyncedCount();
         if (isMountedRef.current) {
           setSubmittedCount(localCount);
           setSubmittedStatus('success');
           setIsSubmittedLoading(false);
+          setServerScopeLabel('Sign in for server sync');
         }
         return;
       }
@@ -299,7 +301,7 @@ export default function FieldWorkspacePage() {
         }
       }
     }
-  }, [user?.isVerified]);
+  }, [user?.isVerified, isLoaded]);
 
   const handleRetrySubmitted = useCallback(() => {
     setIsSubmittedLoading(true);
@@ -320,10 +322,10 @@ export default function FieldWorkspacePage() {
 
   // Reactive sync when user session unlocks
   useEffect(() => {
-    if (user?.isVerified) {
+    if (isLoaded && user?.isVerified) {
       refreshSubmitted();
     }
-  }, [user?.isVerified, refreshSubmitted]);
+  }, [isLoaded, user?.isVerified, refreshSubmitted]);
 
   // Check for onboarding query flag on mount & custom events
   useEffect(() => {
@@ -378,7 +380,7 @@ export default function FieldWorkspacePage() {
     // Independent concurrent initialization
     refreshDrafts();
     refreshWaiting();
-    if (user?.isVerified) {
+    if (isLoaded && user?.isVerified) {
       refreshSubmitted();
     } else {
       getLocalSyncedCount().then((localCount) => {
@@ -386,6 +388,7 @@ export default function FieldWorkspacePage() {
           setSubmittedCount(localCount);
           setSubmittedStatus('success');
           setIsSubmittedLoading(false);
+          setServerScopeLabel('Sign in for server sync');
         }
       });
     }
@@ -395,15 +398,15 @@ export default function FieldWorkspacePage() {
     };
     const handleSyncComplete = () => {
       refreshWaiting();
-      refreshSubmitted();
+      if (user?.isVerified) refreshSubmitted();
     };
     const handleRecordSynced = () => {
       refreshWaiting();
-      refreshSubmitted();
+      if (user?.isVerified) refreshSubmitted();
     };
     const handleOnline = () => {
       refreshWaiting();
-      refreshSubmitted();
+      if (user?.isVerified) refreshSubmitted();
     };
     const handleOffline = () => {
       if (abortControllerRef.current) {
@@ -438,7 +441,7 @@ export default function FieldWorkspacePage() {
     });
     const unsubSuccess = submissionEvents.on('submission:success', () => {
       refreshWaiting();
-      refreshSubmitted();
+      if (user?.isVerified) refreshSubmitted();
     });
     const unsubRetrying = submissionEvents.on('submission:retrying', () => {
       refreshWaiting();
