@@ -33,6 +33,7 @@ import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelect
 import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
 import { t, cleanLabel } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
+import { CategorySelectionStep } from '@/components/assessment/CategorySelectionStep';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure, type FormValidationError } from '@/lib/validations/submissionValidationGuard';
 import { CURRENT_CLASS_OPTIONS, OTHER_SPECIFY_CLASS, isCanonicalCurrentClass } from '@/lib/constants/educationClasses';
@@ -110,6 +111,7 @@ export default function ResumeDraftSinglePage() {
   const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<SupportCategory[]>([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const isHivApplicable = useMemo(
     () => selectedCategories.length === 0 || selectedCategories.includes('hiv_support'),
     [selectedCategories]
@@ -409,10 +411,6 @@ export default function ResumeDraftSinglePage() {
             });
           }
 
-          if (found.supportCategories && Array.isArray(found.supportCategories)) {
-            setSelectedCategories(found.supportCategories as SupportCategory[]);
-          }
-
           // Map found draft to formData
           const d = found.demographics || ({} as any);
           const c = found.consent || ({} as any);
@@ -424,6 +422,49 @@ export default function ResumeDraftSinglePage() {
           const exp = found.educationExpenses || ({} as any);
           const req = found.educationSupportRequired || ({} as any);
           const fr = found.finalReview || ({} as any);
+
+          let restoredCategories: SupportCategory[] = [];
+          if (Array.isArray(found.supportCategories) && found.supportCategories.length > 0) {
+            restoredCategories = found.supportCategories as SupportCategory[];
+          } else if (Array.isArray((found as any).categories) && (found as any).categories.length > 0) {
+            restoredCategories = (found as any).categories as SupportCategory[];
+          } else {
+            // Content-based inference fallback for legacy drafts or drafts saved before category persistence fix:
+            const hasEducationData = Boolean(
+              ed.educationStatus ||
+              ed.schoolName ||
+              exp.feeReceiptPhotoUrl ||
+              exp.marksheetPhotoUrl ||
+              exp.remarks ||
+              (exp.totalAnnualCost && Number(exp.totalAnnualCost) > 0) ||
+              (exp.schoolFees && Number(exp.schoolFees) > 0) ||
+              (req.totalRequiredSupport && Number(req.totalRequiredSupport) > 0)
+            );
+            const hasNutritionData = Boolean(
+              n.appetite ||
+              n.malnutritionSymptoms ||
+              n.mealsPerDay ||
+              (found as any).appetite ||
+              (found as any).mealsPerDay
+            );
+            const hasHivData = Boolean(
+              h.artIdNumber ||
+              (h as any).artNumber ||
+              h.artStatus ||
+              h.artRegistrationDate ||
+              h.cd4Count ||
+              h.viralLoad ||
+              (found as any).artStatus
+            );
+
+            if (!hasEducationData && hasNutritionData) {
+              restoredCategories = hasHivData ? ['nutrition', 'hiv_support'] : ['nutrition'];
+            }
+          }
+
+          if (restoredCategories.length > 0) {
+            setSelectedCategories(restoredCategories);
+          }
 
           let profileOrgName = fr.organizationName || 'India HIV/AIDS Alliance';
           let profileOrgEmail = fr.organizationEmail || '';
@@ -801,6 +842,8 @@ export default function ResumeDraftSinglePage() {
       },
       approvedAllianceIndia: formData.approvedAllianceIndia,
       reviewConfirmed: formData.allInfoCorrect ?? false,
+      schemaVersion: selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION,
+      supportCategories: selectedCategories,
       syncNeeded: 'NO',
       syncStatus: 'draft',
       updatedAt: new Date().toISOString(),
@@ -817,6 +860,7 @@ export default function ResumeDraftSinglePage() {
     totalAnnualEducationCost,
     totalRequiredSupport,
     hasSavedSignature,
+    selectedCategories,
   ]);
 
   // Continuous Autosave to Dexie drafts table with all 73 fields
@@ -1076,8 +1120,19 @@ export default function ResumeDraftSinglePage() {
         updatedAt: new Date().toISOString(),
       };
 
+      // Set schemaVersion & supportCategories before validation so all validation layers are category-aware
+      finalRecord.schemaVersion = selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION;
+      if (selectedCategories.length > 0) {
+        (finalRecord as any).supportCategories = selectedCategories;
+      }
+
       // Single Source of Truth Form Rules & Clinical Skip Logic Validation
-      const validationPayload = { ...formData, ...finalRecord };
+      const validationPayload = {
+        ...formData,
+        ...finalRecord,
+        schemaVersion: finalRecord.schemaVersion,
+        ...(selectedCategories.length > 0 ? { supportCategories: selectedCategories } : {}),
+      };
       const activeCategories = selectedCategories.length > 0 ? selectedCategories : undefined;
       const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
         validationPayload,
@@ -1098,11 +1153,7 @@ export default function ResumeDraftSinglePage() {
         return;
       }
 
-      // Sanitize payload: strip hidden skip-logic fields & set schemaVersion
-      finalRecord.schemaVersion = selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION;
-      if (selectedCategories.length > 0) {
-        (finalRecord as any).supportCategories = selectedCategories;
-      }
+      // Sanitize payload: strip hidden skip-logic fields & inactive category blocks
       const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
 
       // Valid: clear previous errors
@@ -1238,27 +1289,66 @@ export default function ResumeDraftSinglePage() {
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-xs">
             <span className="text-slate-400 font-bold uppercase text-[10px] mr-1">Quick Jump:</span>
             {[
-              { id: 'sec-consent', label: `1. ${t('sec_consent', currentLanguage)}` },
-              { id: 'sec-child', label: `2. ${t('sec_demographics', currentLanguage)}` },
-              { id: 'sec-banking', label: `3. ${t('sec_banking', currentLanguage)}` },
-              { id: 'sec-household', label: `4. ${t('sec_household', currentLanguage)}` },
-              { id: 'sec-health', label: `5. ${t('sec_clinical', currentLanguage)}` },
-              { id: 'sec-nutrition', label: `6. ${t('sec_nutrition', currentLanguage)}` },
-              { id: 'sec-education', label: `7. ${t('sec_education', currentLanguage)}` },
-              { id: 'sec-expenses', label: `8. ${t('sec_expenses', currentLanguage)}` },
-              { id: 'sec-review', label: `9. ${t('sec_review', currentLanguage)}` },
-            ].map((btn) => (
-              <button
-                key={btn.id}
-                type="button"
-                onClick={() => scrollToSection(btn.id)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-50 hover:text-purple-950 border border-black text-slate-800 transition-colors font-medium text-[11px]"
-              >
-                {btn.label}
-              </button>
-            ))}
+              { id: 'sec-consent', key: 'consent', label: t('sec_consent', currentLanguage) },
+              { id: 'sec-child', key: 'demographics', label: t('sec_demographics', currentLanguage) },
+              { id: 'sec-banking', key: 'banking', label: t('sec_banking', currentLanguage) },
+              { id: 'sec-household', key: 'household', label: t('sec_household', currentLanguage) },
+              { id: 'sec-health', key: 'health', label: t('sec_clinical', currentLanguage) },
+              { id: 'sec-nutrition', key: 'nutrition', label: t('sec_nutrition', currentLanguage) },
+              { id: 'sec-education', key: 'education', label: t('sec_education', currentLanguage) },
+              { id: 'sec-expenses', key: 'expenses', label: t('sec_expenses', currentLanguage) },
+              { id: 'sec-review', key: 'review', label: t('sec_review', currentLanguage) },
+            ]
+              .filter((btn) => isSectionApplicable(btn.key, selectedCategories))
+              .map((btn, idx) => (
+                <button
+                  key={btn.id}
+                  type="button"
+                  onClick={() => scrollToSection(btn.id)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-50 hover:text-purple-950 border border-black text-slate-800 transition-colors font-medium text-[11px]"
+                >
+                  {`${idx + 1}. ${btn.label}`}
+                </button>
+              ))}
           </div>
         </div>
+
+        {/* Support Category Indicator Banner */}
+        <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 border border-purple-200 text-xs">
+          <span className="text-purple-800 font-medium">
+            Showing sections for:{' '}
+            <strong>
+              {selectedCategories.length > 0
+                ? selectedCategories
+                    .map((c) =>
+                      c === 'education' ? 'Education' : c === 'nutrition' ? 'Nutrition' : 'HIV-related support'
+                    )
+                    .join(', ')
+                : 'All Support Areas (Legacy Mode)'}
+            </strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowCategoryModal(true)}
+            className="ml-3 text-purple-700 font-semibold underline underline-offset-2 hover:text-purple-900 cursor-pointer"
+          >
+            Change
+          </button>
+        </div>
+
+        {/* Category Selection Modal */}
+        {showCategoryModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4">
+              <CategorySelectionStep
+                selected={selectedCategories}
+                onChange={(cats) => setSelectedCategories(cats)}
+                onContinue={() => setShowCategoryModal(false)}
+                onBack={() => setShowCategoryModal(false)}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Global Error Notice */}
         {formError && (

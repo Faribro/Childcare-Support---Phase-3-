@@ -14,6 +14,8 @@ import { getCaregiverSignatureBlob } from '@/lib/db/dexieDb';
 import { isValidUuidV4, generateUuidV4 } from '@/features/submission/submissionTypes';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
+import { type SupportCategory, isSectionApplicable } from '@/lib/assessment/categoryApplicability';
+import { sanitizeSubmissionPayload } from '@/lib/validations/formRules';
 import {
   calculateAge,
   calculateBMI,
@@ -76,6 +78,29 @@ export default function DraftReviewPage() {
     }
     load();
   }, [draftId]);
+
+  const categories: SupportCategory[] = useMemo(() => {
+    const raw = (record?.supportCategories as SupportCategory[]) || ((record as any)?.categories as SupportCategory[]);
+    if (raw && Array.isArray(raw) && raw.length > 0) return raw;
+    // Infer categories for existing legacy drafts (e.g., DL-SOU-201300-01 Amit Singh)
+    const hasNutr = !!(
+      record?.nutrition?.appetite ||
+      record?.nutrition?.mealsPerDay ||
+      (record?.health?.weightKg && record?.health?.heightCm)
+    );
+    const hasEdu = !!(
+      (record?.educationStatus?.educationStatus && record?.educationStatus?.educationStatus === 'Currently going to school') ||
+      (record?.educationExpenses?.schoolFees && record?.educationExpenses?.schoolFees > 0)
+    );
+    if (hasNutr && !hasEdu) {
+      const inf: SupportCategory[] = ['nutrition'];
+      if (record?.health?.artStatus && record?.health?.artStatus !== 'Not on ART') {
+        inf.push('hiv_support');
+      }
+      return inf;
+    }
+    return [];
+  }, [record]);
 
   const ageResult = useMemo(() => {
     const dob = record?.demographics?.dob;
@@ -165,10 +190,14 @@ export default function DraftReviewPage() {
         stepIndex: 6,
         syncStatus: 'queued',
         updatedAt: new Date().toISOString(),
+        supportCategories: categories.length > 0 ? categories : undefined,
+        schemaVersion: categories.length > 0 ? 3 : (record.schemaVersion || 2),
       };
 
+      const sanitizedPayload = sanitizeSubmissionPayload(finalPayload);
+
       // BLOCKING: halt on ANY schema error — do not enqueue partial/invalid records
-      const schemaValidation = completeSubmissionSchema.safeParse(finalPayload);
+      const schemaValidation = completeSubmissionSchema.safeParse(sanitizedPayload);
       if (!schemaValidation.success) {
         handleSchemaValidationFailure({
           issues: schemaValidation.error.issues,
@@ -181,8 +210,8 @@ export default function DraftReviewPage() {
       // Enforce 3 MB total submission platform budget
       const payloadBytes =
         typeof Buffer !== 'undefined'
-          ? Buffer.byteLength(JSON.stringify(finalPayload), 'utf8')
-          : new Blob([JSON.stringify(finalPayload)]).size;
+          ? Buffer.byteLength(JSON.stringify(sanitizedPayload), 'utf8')
+          : new Blob([JSON.stringify(sanitizedPayload)]).size;
 
       if (payloadBytes > 3 * 1024 * 1024) {
         setError(
@@ -195,7 +224,7 @@ export default function DraftReviewPage() {
       await enqueueCreate({
         clientSubmissionId: canonicalUuid,
         createIdempotencyKey: `create-${canonicalUuid}`,
-        snapshot: finalPayload,
+        snapshot: sanitizedPayload,
       });
 
       // Immediate Autosync Trigger via canonical worker
@@ -281,6 +310,30 @@ export default function DraftReviewPage() {
           </div>
         </div>
 
+        {/* Category Indicator Banner */}
+        {categories.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">
+            <div className="flex items-center space-x-2">
+              <span className="font-semibold text-teal-800">Assessed Categories:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {categories.map((cat) => (
+                  <span
+                    key={cat}
+                    className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-teal-100/80 text-teal-800 border border-teal-300/60 capitalize"
+                  >
+                    {cat.replace('_', ' ')}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <Link href={`/assessment/draft/${draftId}`}>
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-teal-700 hover:text-teal-900 hover:bg-teal-100">
+                Change
+              </Button>
+            </Link>
+          </div>
+        )}
+
         {error && (
           <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-start space-x-3 text-xs">
             <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
@@ -312,18 +365,20 @@ export default function DraftReviewPage() {
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl border border-teal-200 bg-teal-50/50 text-teal-950">
-            <div className="flex items-center space-x-2 mb-1 text-teal-700">
-              <GraduationCap className="h-4 w-4" />
-              <span className="text-xs font-bold uppercase tracking-wider">Required Support</span>
+          {isSectionApplicable('expenses', categories) && (
+            <div className="p-4 rounded-2xl border border-teal-200 bg-teal-50/50 text-teal-950">
+              <div className="flex items-center space-x-2 mb-1 text-teal-700">
+                <GraduationCap className="h-4 w-4" />
+                <span className="text-xs font-bold uppercase tracking-wider">Required Support</span>
+              </div>
+              <div className="text-xl font-bold text-teal-900">
+                ₹{totalRequiredSupport.toLocaleString('en-IN')}
+              </div>
+              <div className="text-xs mt-1 text-teal-700">
+                Annual Cost: ₹{totalAnnualEducationCost.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="text-xl font-bold text-teal-900">
-              ₹{totalRequiredSupport.toLocaleString('en-IN')}
-            </div>
-            <div className="text-xs mt-1 text-teal-700">
-              Annual Cost: ₹{totalAnnualEducationCost.toLocaleString('en-IN')}
-            </div>
-          </div>
+          )}
 
           <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900">
             <div className="flex items-center space-x-2 mb-1 text-slate-600">
@@ -450,274 +505,294 @@ export default function DraftReviewPage() {
         </section>
 
         {/* SECTION 3: Banking & KYC Details */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
-              <ShieldCheck className="h-4 w-4 text-teal-700" />
-              <span>Section 3 — Banking & Identification (KYC) Details</span>
+        {isSectionApplicable('banking', categories) && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+                <ShieldCheck className="h-4 w-4 text-teal-700" />
+                <span>Section 3 — Banking & Identification (KYC) Details</span>
+              </div>
+              <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+                Edit
+              </Link>
             </div>
-            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
-              Edit
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <span className="text-slate-400 block mb-0.5">Account Holder Name</span>
-              <span className="font-semibold text-slate-800">
-                {record.bankingAndKyc?.bankAccountHolderName || record.bankDetails?.accountHolderName || '—'}
-              </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">Account Holder Name</span>
+                <span className="font-semibold text-slate-800">
+                  {record.bankingAndKyc?.bankAccountHolderName || record.bankDetails?.accountHolderName || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Account Number</span>
+                <span className="font-mono font-semibold text-slate-800">
+                  {record.bankingAndKyc?.bankAccountNumber || record.bankDetails?.accountNumber || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Bank IFSC Code</span>
+                <span className="font-mono font-semibold text-slate-800">
+                  {record.bankingAndKyc?.bankIfscCode || record.bankDetails?.ifscCode || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Bank Linked Mobile</span>
+                <span className="font-mono font-semibold text-slate-800">
+                  {record.bankingAndKyc?.bankLinkedMobileNumber || '—'}
+                </span>
+              </div>
+              <div className="sm:col-span-4 flex flex-wrap gap-4 pt-2 border-t border-slate-100 text-[11px]">
+                <span className="text-slate-500">KYC Verification Files:</span>
+                <span className="font-medium text-emerald-700">
+                  ✓ Passbook Front Page: {record.bankingAndKyc?.passbookPhotoUrl ? 'Attached' : 'Provided'}
+                </span>
+                <span className="font-medium text-emerald-700">
+                  ✓ Aadhaar Card: {record.bankingAndKyc?.aadhaarCardPhotoUrl ? 'Attached' : 'Provided'}
+                </span>
+                <span className="font-medium text-emerald-700">
+                  ✓ Passport Size Photo: {record.bankingAndKyc?.childPhotoUrl ? 'Attached' : 'Provided'}
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Account Number</span>
-              <span className="font-mono font-semibold text-slate-800">
-                {record.bankingAndKyc?.bankAccountNumber || record.bankDetails?.accountNumber || '—'}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Bank IFSC Code</span>
-              <span className="font-mono font-semibold text-slate-800">
-                {record.bankingAndKyc?.bankIfscCode || record.bankDetails?.ifscCode || '—'}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Bank Linked Mobile</span>
-              <span className="font-mono font-semibold text-slate-800">
-                {record.bankingAndKyc?.bankLinkedMobileNumber || '—'}
-              </span>
-            </div>
-            <div className="sm:col-span-4 flex flex-wrap gap-4 pt-2 border-t border-slate-100 text-[11px]">
-              <span className="text-slate-500">KYC Verification Files:</span>
-              <span className="font-medium text-emerald-700">
-                ✓ Passbook Front Page: {record.bankingAndKyc?.passbookPhotoUrl ? 'Attached' : 'Provided'}
-              </span>
-              <span className="font-medium text-emerald-700">
-                ✓ Aadhaar Card: {record.bankingAndKyc?.aadhaarCardPhotoUrl ? 'Attached' : 'Provided'}
-              </span>
-              <span className="font-medium text-emerald-700">
-                ✓ Passport Size Photo: {record.bankingAndKyc?.childPhotoUrl ? 'Attached' : 'Provided'}
-              </span>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* SECTION 4: Household & Financial */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
-              <Home className="h-4 w-4 text-teal-700" />
-              <span>Section 4 — Household & Financial Details</span>
+        {isSectionApplicable('household', categories) && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+                <Home className="h-4 w-4 text-teal-700" />
+                <span>Section 4 — Household & Financial Details</span>
+              </div>
+              <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+                Edit
+              </Link>
             </div>
-            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
-              Edit
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <span className="text-slate-400 block mb-0.5">Total Family Members</span>
-              <span className="font-medium text-slate-800">
-                {record.householdFinancial?.totalFamilyMembers || record.household?.numberOfSiblings || 1}
-              </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">Total Family Members</span>
+                <span className="font-medium text-slate-800">
+                  {record.householdFinancial?.totalFamilyMembers || record.household?.numberOfSiblings || 1}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Children (≤18 yrs)</span>
+                <span className="font-medium text-slate-800">
+                  {record.householdFinancial?.numberOfChildrenUnder18 ?? 1}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Monthly Income</span>
+                <span className="font-medium text-slate-800">
+                  ₹{(record.householdFinancial?.monthlyIncomeRs || record.household?.monthlyHouseholdIncome || 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Main Source of Income</span>
+                <span className="font-medium text-slate-800">
+                  {record.householdFinancial?.mainSourceOfIncome || record.household?.primaryCaregiverOccupation || '—'}
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Children (≤18 yrs)</span>
-              <span className="font-medium text-slate-800">
-                {record.householdFinancial?.numberOfChildrenUnder18 ?? 1}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Monthly Income</span>
-              <span className="font-medium text-slate-800">
-                ₹{(record.householdFinancial?.monthlyIncomeRs || record.household?.monthlyHouseholdIncome || 0).toLocaleString('en-IN')}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Main Source of Income</span>
-              <span className="font-medium text-slate-800">
-                {record.householdFinancial?.mainSourceOfIncome || record.household?.primaryCaregiverOccupation || '—'}
-              </span>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* SECTION 5: Clinical Health, ART & Viral Load */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
-              <HeartPulse className="h-4 w-4 text-teal-700" />
-              <span>Section 5 — Clinical Health, ART & Viral Load</span>
+        {isSectionApplicable('health', categories) && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+                <HeartPulse className="h-4 w-4 text-teal-700" />
+                <span>
+                  {categories.length > 0 && !categories.includes('hiv_support')
+                    ? 'Section 5 — Clinical Health & Nutrition Metrics'
+                    : 'Section 5 — Clinical Health, ART & Viral Load'}
+                </span>
+              </div>
+              <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+                Edit
+              </Link>
             </div>
-            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
-              Edit
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <span className="text-slate-400 block mb-0.5">Weight / Height</span>
-              <span className="font-medium text-slate-800">
-                {weightKg} kg / {heightCm} cm
-              </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">Weight / Height</span>
+                <span className="font-medium text-slate-800">
+                  {weightKg} kg / {heightCm} cm
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">BMI & Category</span>
+                <span className="font-medium text-slate-800">
+                  {bmiValue} kg/m² ({record.health?.bmiCategory || nutritionResult.nutritionStatus})
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Hemoglobin (g/dL)</span>
+                <span className="font-medium text-slate-800">
+                  {record.health?.haemoglobinGdl ? `${record.health.haemoglobinGdl} g/dL (${record.health.hbCategory || 'Normal'})` : 'Not recorded'}
+                </span>
+              </div>
+              {(categories.length === 0 || categories.includes('hiv_support')) && (
+                <>
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">ART Status</span>
+                    <span className="font-bold text-teal-900">{record.health?.artStatus || 'On ART'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">ART Registration Date</span>
+                    <span className="font-mono text-slate-800">{record.health?.artRegistrationDate || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">ART ID Number</span>
+                    <span className="font-mono text-slate-800">{record.health?.artIdNumber || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">Viral Load Status</span>
+                    <span className="font-semibold text-slate-800">{record.health?.vlStatus || 'Tested in last 6 months'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">Viral Load & Category</span>
+                    <span className="font-semibold text-slate-800">
+                      {record.health?.viralLoad || '< 50'} copies/mL ({record.health?.vlCategory || 'Undetectable'})
+                    </span>
+                  </div>
+                </>
+              )}
+              <div className="sm:col-span-4">
+                <span className="text-slate-400 block mb-0.5">Comorbidities / Other Health Conditions</span>
+                <span className="font-medium text-slate-800">
+                  {record.health?.otherHealthConditions && record.health.otherHealthConditions.length > 0
+                    ? record.health.otherHealthConditions.join(', ') +
+                      (record.health.otherHealthConditionSpecify
+                        ? ` (${record.health.otherHealthConditionSpecify})`
+                        : '')
+                    : 'None reported'}
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">BMI & Category</span>
-              <span className="font-medium text-slate-800">
-                {bmiValue} kg/m² ({record.health?.bmiCategory || nutritionResult.nutritionStatus})
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Hemoglobin (g/dL)</span>
-              <span className="font-medium text-slate-800">
-                {record.health?.haemoglobinGdl ? `${record.health.haemoglobinGdl} g/dL (${record.health.hbCategory || 'Normal'})` : 'Not recorded'}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">ART Status</span>
-              <span className="font-bold text-teal-900">{record.health?.artStatus || 'On ART'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">ART Registration Date</span>
-              <span className="font-mono text-slate-800">{record.health?.artRegistrationDate || '—'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">ART ID Number</span>
-              <span className="font-mono text-slate-800">{record.health?.artIdNumber || '—'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Viral Load Status</span>
-              <span className="font-semibold text-slate-800">{record.health?.vlStatus || 'Tested in last 6 months'}</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Viral Load & Category</span>
-              <span className="font-semibold text-slate-800">
-                {record.health?.viralLoad || '< 50'} copies/mL ({record.health?.vlCategory || 'Undetectable'})
-              </span>
-            </div>
-            <div className="sm:col-span-4">
-              <span className="text-slate-400 block mb-0.5">Comorbidities / Other Health Conditions</span>
-              <span className="font-medium text-slate-800">
-                {record.health?.otherHealthConditions && record.health.otherHealthConditions.length > 0
-                  ? record.health.otherHealthConditions.join(', ') +
-                    (record.health.otherHealthConditionSpecify
-                      ? ` (${record.health.otherHealthConditionSpecify})`
-                      : '')
-                  : 'None reported'}
-              </span>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* SECTION 6: Nutrition Habits */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
-              <Utensils className="h-4 w-4 text-teal-700" />
-              <span>Section 6 — Nutrition Habits</span>
+        {isSectionApplicable('nutrition', categories) && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+                <Utensils className="h-4 w-4 text-teal-700" />
+                <span>Section 6 — Nutrition Habits</span>
+              </div>
+              <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+                Edit
+              </Link>
             </div>
-            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
-              Edit
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <span className="text-slate-400 block mb-0.5">Child Appetite</span>
-              <span className="font-medium text-slate-800">{record.nutrition?.appetite || 'Good'}</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">Child Appetite</span>
+                <span className="font-medium text-slate-800">{record.nutrition?.appetite || 'Good'}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Meals Per Day</span>
+                <span className="font-medium text-slate-800">{record.nutrition?.mealsPerDay || 3} meals</span>
+              </div>
             </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Meals Per Day</span>
-              <span className="font-medium text-slate-800">{record.nutrition?.mealsPerDay || 3} meals</span>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* SECTION 7: Education Status */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
-              <GraduationCap className="h-4 w-4 text-teal-700" />
-              <span>Section 7 — Education Status</span>
-            </div>
-            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
-              Edit
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <span className="text-slate-400 block mb-0.5">Education Status</span>
-              <span className="font-medium text-slate-800">
-                {record.educationStatus?.educationStatus || (record.education?.schoolEnrolled ? 'Currently going to school' : 'Out of school')}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">School Type</span>
-              <span className="font-medium text-slate-800">
-                {record.educationStatus?.schoolType || record.education?.schoolType || '—'}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Current Class</span>
-              <span className="font-medium text-slate-800">
-                {formatCurrentClassDisplay(
-                  record.educationStatus?.currentClass || record.education?.schoolGrade,
-                  record.educationStatus?.currentClassSpecify
-                ) || '—'}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 block mb-0.5">Attendance</span>
-              <span className="font-medium text-slate-800">
-                {record.educationStatus?.attendance || `${record.education?.attendancePercentage || 0}%`}
-              </span>
-            </div>
-            {record.educationStatus?.schoolName && (
-              <div className="sm:col-span-2">
-                <span className="text-slate-400 block mb-0.5">School Name</span>
-                <span className="font-medium text-slate-800">{record.educationStatus.schoolName}</span>
+        {isSectionApplicable('education', categories) && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2 font-bold text-sm text-slate-900">
+                <GraduationCap className="h-4 w-4 text-teal-700" />
+                <span>Section 7 — Education Status</span>
               </div>
-            )}
-            {record.educationStatus?.schoolSessionStartDate && (
+              <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+                Edit
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
               <div>
-                <span className="text-slate-400 block mb-0.5">Session Start Date</span>
-                <span className="font-medium text-slate-800">{record.educationStatus.schoolSessionStartDate}</span>
+                <span className="text-slate-400 block mb-0.5">Education Status</span>
+                <span className="font-medium text-slate-800">
+                  {record.educationStatus?.educationStatus || (record.education?.schoolEnrolled ? 'Currently going to school' : 'Out of school')}
+                </span>
               </div>
-            )}
-          </div>
-        </section>
+              <div>
+                <span className="text-slate-400 block mb-0.5">School Type</span>
+                <span className="font-medium text-slate-800">
+                  {record.educationStatus?.schoolType || record.education?.schoolType || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Current Class</span>
+                <span className="font-medium text-slate-800">
+                  {formatCurrentClassDisplay(
+                    record.educationStatus?.currentClass || record.education?.schoolGrade,
+                    record.educationStatus?.currentClassSpecify
+                  ) || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">Attendance</span>
+                <span className="font-medium text-slate-800">
+                  {record.educationStatus?.attendance || `${record.education?.attendancePercentage || 0}%`}
+                </span>
+              </div>
+              {record.educationStatus?.schoolName && (
+                <div className="sm:col-span-2">
+                  <span className="text-slate-400 block mb-0.5">School Name</span>
+                  <span className="font-medium text-slate-800">{record.educationStatus.schoolName}</span>
+                </div>
+              )}
+              {record.educationStatus?.schoolSessionStartDate && (
+                <div>
+                  <span className="text-slate-400 block mb-0.5">Session Start Date</span>
+                  <span className="font-medium text-slate-800">{record.educationStatus.schoolSessionStartDate}</span>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* SECTION 8: Expenses & Programme Approval Grid */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900">
-              Section 8 — Education Expenses & Programme Support Breakdown
-            </h3>
-            <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
-              Edit Expenses
-            </Link>
-          </div>
-          <ExpensesAndApprovalGrid
-            isReadOnly={true}
-            currentExpenses={{
-              schoolFees: record.educationExpenses?.schoolFees || 0,
-              tuitionFees: record.educationExpenses?.tuitionFees || 0,
-              books: record.educationExpenses?.books || 0,
-              stationery: record.educationExpenses?.stationery || 0,
-              uniform: record.educationExpenses?.uniform || 0,
-              transport: record.educationExpenses?.transport || 0,
-              otherExpenses: record.educationExpenses?.otherExpenses || 0,
-              feeReceiptPhotoUrl: record.educationExpenses?.feeReceiptPhotoUrl,
-              marksheetPhotoUrl: record.educationExpenses?.marksheetPhotoUrl,
-              remarks: record.educationExpenses?.remarks,
-            }}
-            requiredSupport={{
-              requiredSchoolFees: record.educationSupportRequired?.requiredSchoolFees || 0,
-              requiredBooks: record.educationSupportRequired?.requiredBooks || 0,
-              requiredStationery: record.educationSupportRequired?.requiredStationery || 0,
-              requiredUniform: record.educationSupportRequired?.requiredUniform || 0,
-              requiredTransport: record.educationSupportRequired?.requiredTransport || 0,
-              requiredOtherSupport: record.educationSupportRequired?.requiredOtherSupport || 0,
-            }}
-            onCurrentExpenseChange={() => {}}
-            onRequiredSupportChange={() => {}}
-          />
-        </section>
+        {isSectionApplicable('expenses', categories) && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900">
+                Section 8 — Education Expenses & Programme Support Breakdown
+              </h3>
+              <Link href={`/assessment/draft/${draftId}`} className="text-xs text-teal-700 hover:underline">
+                Edit Expenses
+              </Link>
+            </div>
+            <ExpensesAndApprovalGrid
+              isReadOnly={true}
+              currentExpenses={{
+                schoolFees: record.educationExpenses?.schoolFees || 0,
+                tuitionFees: record.educationExpenses?.tuitionFees || 0,
+                books: record.educationExpenses?.books || 0,
+                stationery: record.educationExpenses?.stationery || 0,
+                uniform: record.educationExpenses?.uniform || 0,
+                transport: record.educationExpenses?.transport || 0,
+                otherExpenses: record.educationExpenses?.otherExpenses || 0,
+                feeReceiptPhotoUrl: record.educationExpenses?.feeReceiptPhotoUrl,
+                marksheetPhotoUrl: record.educationExpenses?.marksheetPhotoUrl,
+                remarks: record.educationExpenses?.remarks,
+              }}
+              requiredSupport={{
+                requiredSchoolFees: record.educationSupportRequired?.requiredSchoolFees || 0,
+                requiredBooks: record.educationSupportRequired?.requiredBooks || 0,
+                requiredStationery: record.educationSupportRequired?.requiredStationery || 0,
+                requiredUniform: record.educationSupportRequired?.requiredUniform || 0,
+                requiredTransport: record.educationSupportRequired?.requiredTransport || 0,
+                requiredOtherSupport: record.educationSupportRequired?.requiredOtherSupport || 0,
+              }}
+              onCurrentExpenseChange={() => {}}
+              onRequiredSupportChange={() => {}}
+            />
+          </section>
+        )}
 
         {/* SECTION 9: Programme Approval & Submitter Info */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">

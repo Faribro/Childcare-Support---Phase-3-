@@ -81,6 +81,15 @@ import {
   Activity,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
+import {
+  type SupportCategory,
+  isSectionApplicable,
+  getApplicableSections,
+} from '@/lib/assessment/categoryApplicability';
+import {
+  CATEGORY_SCHEMA_VERSION,
+  CURRENT_SCHEMA_VERSION,
+} from '@/lib/validations/formRules';
 
 async function computeDocumentCellHash(content: string): Promise<string> {
   const trimmed = (content || '').trim();
@@ -106,6 +115,7 @@ export default function EditRecordPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormValidationError[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<SupportCategory[]>([]);
 
   const errorsByField = useMemo(
     () => Object.fromEntries(validationErrors.map((e) => [e.elementId, e])),
@@ -547,6 +557,33 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
         const exp = foundRecord.educationExpenses || foundRecord;
         const req = foundRecord.educationSupportRequired || foundRecord;
         const fr = foundRecord.finalReview || foundRecord;
+
+        let restoredCategories: SupportCategory[] = [];
+        if (Array.isArray(foundRecord.supportCategories) && foundRecord.supportCategories.length > 0) {
+          restoredCategories = foundRecord.supportCategories;
+        } else if (Array.isArray(foundRecord.categories) && foundRecord.categories.length > 0) {
+          restoredCategories = foundRecord.categories;
+        } else {
+          // Content-based inference fallback for records without category array
+          const hasEducationData = Boolean(
+            ed.educationStatus ||
+            ed.schoolName ||
+            exp.feeReceiptPhotoUrl ||
+            exp.marksheetPhotoUrl ||
+            exp.remarks ||
+            (exp.totalAnnualCost && Number(exp.totalAnnualCost) > 0) ||
+            (exp.schoolFees && Number(exp.schoolFees) > 0)
+          );
+          const hasNutritionData = Boolean(n.appetite || n.malnutritionSymptoms || n.mealsPerDay);
+          const hasHivData = Boolean(h.artNumber || h.artStatus || h.artRegistrationDate || h.cd4Count || h.viralLoad);
+
+          if (!hasEducationData && hasNutritionData) {
+            restoredCategories = hasHivData ? ['nutrition', 'hiv_support'] : ['nutrition'];
+          }
+        }
+        if (restoredCategories.length > 0) {
+          setSelectedCategories(restoredCategories);
+        }
 
         const rev = Number(
           foundRecord.version ||
@@ -1184,6 +1221,8 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
       totalRequiredSupport: totalRequiredSupport,
       signatureDataUrl: existingSignatureUrl,
       signature_data_url: existingSignatureUrl,
+      schemaVersion: selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION,
+      ...(selectedCategories.length > 0 ? { supportCategories: selectedCategories } : {}),
     };
 
     let queuePayload: any = null;
@@ -1750,6 +1789,22 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           </div>
         )}
 
+        {/* Support Category Indicator Banner */}
+        <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 border border-purple-200 text-xs">
+          <span className="text-purple-800 font-medium">
+            Showing sections for:{' '}
+            <strong>
+              {selectedCategories.length > 0
+                ? selectedCategories
+                    .map((c) =>
+                      c === 'education' ? 'Education' : c === 'nutrition' ? 'Nutrition' : 'HIV-related support'
+                    )
+                    .join(', ')
+                : 'All Support Areas (Legacy Mode)'}
+            </strong>
+          </span>
+        </div>
+
         {/* Complete 9-Section Comprehensive Intake Edit Form matching New Assessment */}
         <form noValidate onSubmit={handleSaveRevision} onInvalidCapture={handleNativeInvalidCapture} className="space-y-6">
           {/* Unified Single Survey Entity Container (Zero Gaps) */}
@@ -2198,6 +2253,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
           </section>
 
           {/* SECTION 3: Banking & KYC Documents */}
+          {isSectionApplicable('banking', selectedCategories) && (
           <section
             id="sec-banking"
             className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
@@ -2281,8 +2337,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               />
             </div>
           </section>
+          )}
 
           {/* SECTION 4: Household & Socio-Economic Profile */}
+          {isSectionApplicable('household', selectedCategories) && (
           <section
             id="sec-household"
             className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
@@ -2351,8 +2409,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               </div>
             </div>
           </section>
+          )}
 
           {/* SECTION 5: Clinical Health, ART & Viral Load */}
+          {isSectionApplicable('health', selectedCategories) && (
           <section
             id="sec-health"
             className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
@@ -2815,8 +2875,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               </div>
             </div>
           </section>
+          )}
 
           {/* SECTION 6: Daily Nutrition Habits */}
+          {isSectionApplicable('nutrition', selectedCategories) && (
           <section
             id="sec-nutrition"
             className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
@@ -2859,8 +2921,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               </div>
             </div>
           </section>
+          )}
 
           {/* SECTION 7: Education Status */}
+          {isSectionApplicable('education', selectedCategories) && (
           <section id="sec-education" className="p-6 sm:p-8 space-y-5 scroll-mt-20">
             <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
               <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-teal-50 text-teal-800 font-bold text-xs border border-teal-200/80">
@@ -3127,8 +3191,10 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               </div>
             </div>
           </section>
+          )}
 
           {/* SECTION 8: Education Expenses & Aid Breakdown */}
+          {isSectionApplicable('expenses', selectedCategories) && (
           <section
             id="sec-expenses"
             className="bg-white rounded-2xl border border-[hsl(215,18%,85%)] p-5 sm:p-6 shadow-xs space-y-4 scroll-mt-20"
@@ -3206,6 +3272,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
               />
             </div>
           </section>
+          )}
 
           {/* SECTION 9: Review & Submitter Attestation */}
           <section

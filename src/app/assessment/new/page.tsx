@@ -828,6 +828,8 @@ export default function NewSinglePageAssessment() {
       },
       approvedAllianceIndia: formData.approvedAllianceIndia,
       reviewConfirmed: formData.allInfoCorrect ?? false,
+      schemaVersion: selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION,
+      supportCategories: selectedCategories,
       syncNeeded: 'NO',
       syncStatus: 'draft',
       updatedAt: new Date().toISOString(),
@@ -844,6 +846,7 @@ export default function NewSinglePageAssessment() {
     totalAnnualEducationCost,
     totalRequiredSupport,
     hasSavedSignature,
+    selectedCategories,
   ]);
 
   // Continuous Autosave to Dexie drafts table with all 73 fields
@@ -1101,8 +1104,19 @@ export default function NewSinglePageAssessment() {
         updatedAt: new Date().toISOString(),
       };
 
+      // Set schemaVersion & supportCategories before validation so all validation layers are category-aware
+      finalRecord.schemaVersion = selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION;
+      if (selectedCategories.length > 0) {
+        (finalRecord as any).supportCategories = selectedCategories;
+      }
+
       // Single Source of Truth Form Rules & Clinical Skip Logic Validation
-      const validationPayload = { ...formData, ...finalRecord };
+      const validationPayload = {
+        ...formData,
+        ...finalRecord,
+        schemaVersion: finalRecord.schemaVersion,
+        ...(selectedCategories.length > 0 ? { supportCategories: selectedCategories } : {}),
+      };
       const activeCategories = selectedCategories.length > 0 ? selectedCategories : undefined;
       const { valid: isFormValid, errors: fullFormErrors } = validateEntireForm(
         validationPayload,
@@ -1123,12 +1137,7 @@ export default function NewSinglePageAssessment() {
         return;
       }
 
-      // Sanitize payload: strip hidden skip-logic fields & set schemaVersion
-      // Use schema v3 for category-aware submissions, v2 for legacy
-      finalRecord.schemaVersion = selectedCategories.length > 0 ? CATEGORY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION;
-      if (selectedCategories.length > 0) {
-        (finalRecord as any).supportCategories = selectedCategories;
-      }
+      // Sanitize payload: strip hidden skip-logic fields & inactive category blocks
       const sanitizedFinalRecord = sanitizeSubmissionPayload(finalRecord);
 
       // BLOCKING PRE-SUBMISSION VALIDATION: Enforce Canonical Zod Schema

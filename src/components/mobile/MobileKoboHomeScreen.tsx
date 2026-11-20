@@ -190,8 +190,8 @@ export function MobileKoboHomeScreen({
       )}
 
       {/* ── Row 1: Start New Survey (Prominent Full-Width Primary Action, >=56px touch target) ── */}
-      <button
-        type="button"
+      <Link
+        href="/assessment/new"
         onClick={handleStartSurvey}
         className="w-full min-h-[56px] bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-800 hover:to-emerald-700 active:scale-[0.99] text-white rounded-2xl p-4 shadow-sm border border-teal-800 flex items-center justify-between transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600"
       >
@@ -209,7 +209,7 @@ export function MobileKoboHomeScreen({
           </div>
         </div>
         <ChevronRight className="w-5 h-5 text-white/80 shrink-0" aria-hidden="true" />
-      </button>
+      </Link>
 
       {/* ── Needs Attention Carousel (3D Status Orbs on Mobile) ── */}
       <section aria-labelledby="mobile-needs-attention-heading" className="pt-0.5 space-y-2">

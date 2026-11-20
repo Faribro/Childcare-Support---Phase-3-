@@ -1070,7 +1070,24 @@ export function validateEntireForm(
 
   // Cross-verify server intake requirements (proofs, caseworker org credentials, attachment bounds)
   if (data.consent !== undefined || data.caregiverConsent !== undefined || (data.finalReview && data.finalReview.organizationEmail)) {
-    const intakeCheck = validateServerSubmissionIntake(data);
+    const activeCategories = (categories && categories.length > 0)
+      ? categories
+      : (Array.isArray(data.supportCategories) && data.supportCategories.length > 0)
+      ? data.supportCategories
+      : (Array.isArray(data.categories) && data.categories.length > 0)
+      ? data.categories
+      : undefined;
+
+    const dataForIntake = {
+      ...data,
+      ...(activeCategories
+        ? {
+            supportCategories: activeCategories,
+            schemaVersion: CATEGORY_SCHEMA_VERSION,
+          }
+        : {}),
+    };
+    const intakeCheck = validateServerSubmissionIntake(dataForIntake);
     if (!intakeCheck.valid) {
       for (const err of intakeCheck.errors) {
         if (!errors.some((e) => e.fieldKey === err.field || e.path.join('.') === err.field)) {

@@ -149,7 +149,8 @@ export function validateServerSubmissionIntake(
     }
 
     // Support Categories Validation & Organisation Credentials enforcement (Schema V3)
-    const isV3 = rawBody.schemaVersion === 3 || rawBody.supportCategories !== undefined;
+    const incomingCategories = rawBody.supportCategories !== undefined ? rawBody.supportCategories : rawBody.categories;
+    const isV3 = rawBody.schemaVersion === 3 || incomingCategories !== undefined;
     let validatedCategories: SupportCategory[] = [];
     if (isV3) {
       const finalReviewObj = (rawBody.finalReview && typeof rawBody.finalReview === 'object') ? rawBody.finalReview : rawBody;
@@ -170,14 +171,14 @@ export function validateServerSubmissionIntake(
         });
       }
 
-      if (!Array.isArray(rawBody.supportCategories) || rawBody.supportCategories.length === 0) {
+      if (!Array.isArray(incomingCategories) || incomingCategories.length === 0) {
         errors.push({
           field: 'supportCategories',
           issue: 'Select at least one support category to continue.',
           code: 'CATEGORY_REQUIRED',
         });
       } else {
-        const valid = validateCategories(rawBody.supportCategories);
+        const valid = validateCategories(incomingCategories);
         if (!valid) {
           errors.push({
             field: 'supportCategories',
