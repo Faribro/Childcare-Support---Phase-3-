@@ -134,46 +134,36 @@ export function MobileKoboHomeScreen({
   };
 
   const handleStartSurvey = (e: React.MouseEvent) => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      e.preventDefault();
-      window.location.assign('/assessment/new');
-      return;
-    }
     if (onStartSurvey) {
       onStartSurvey(e);
+    } else {
+      window.location.assign('/assessment/new');
     }
   };
 
   return (
     <div className="md:hidden w-full max-w-md mx-auto px-4 py-3 sm:py-4 space-y-3.5 animate-in fade-in duration-150">
       {/* ── Row 1: Start New Survey (Prominent Full-Width Primary Action, >=56px touch target) ── */}
-      <Link
-        href="/assessment/new"
-        prefetch={true}
-        className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600 rounded-2xl"
+      <button
+        type="button"
         onClick={handleStartSurvey}
+        className="w-full min-h-[56px] bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-800 hover:to-emerald-700 active:scale-[0.99] text-white rounded-2xl p-4 shadow-sm border border-teal-800 flex items-center justify-between transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600"
       >
-        <button
-          type="button"
-          onClick={handleStartSurvey}
-          className="w-full min-h-[56px] bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-800 hover:to-emerald-700 active:scale-[0.99] text-white rounded-2xl p-4 shadow-sm border border-teal-800 flex items-center justify-between transition-all cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-              <Plus className="w-6 h-6 text-white stroke-[2.5]" aria-hidden="true" />
-            </div>
-            <div className="text-left">
-              <h3 className="text-base font-bold leading-tight text-white">
-                {DASHBOARD_COPY.mobile.startSurveyTitle}
-              </h3>
-              <p className="text-xs text-teal-50/90 font-medium">
-                {DASHBOARD_COPY.mobile.startSurveySubtitle}
-              </p>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+            <Plus className="w-6 h-6 text-white stroke-[2.5]" aria-hidden="true" />
           </div>
-          <ChevronRight className="w-5 h-5 text-white/80 shrink-0" aria-hidden="true" />
-        </button>
-      </Link>
+          <div className="text-left">
+            <h3 className="text-base font-bold leading-tight text-white">
+              {DASHBOARD_COPY.mobile.startSurveyTitle}
+            </h3>
+            <p className="text-xs text-teal-50/90 font-medium">
+              {DASHBOARD_COPY.mobile.startSurveySubtitle}
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="w-5 h-5 text-white/80 shrink-0" aria-hidden="true" />
+      </button>
 
       {/* ── Needs Attention Carousel (3D Status Orbs on Mobile) ── */}
       <section aria-labelledby="mobile-needs-attention-heading" className="pt-0.5 space-y-2">

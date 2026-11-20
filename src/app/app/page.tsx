@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -327,24 +329,20 @@ export default function FieldWorkspacePage() {
 
   const handleStartNewSurvey = useCallback(
     (e: React.MouseEvent) => {
-      // 1. Offline caseworker workflow must NEVER be blocked
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        return;
-      }
-
-      // 2. Returning user with valid verified session or existing stored profile proceeds directly
+      e.preventDefault();
+      // 1. Returning user with valid verified session or existing stored profile proceeds directly
       const hasStoredProfile = typeof window !== 'undefined' && Boolean(
         localStorage.getItem('field_user_profile') || localStorage.getItem('field_user_sr')
       );
       if (hasStoredProfile || user?.isVerified) {
+        router.push('/assessment/new');
         return;
       }
 
-      // 3. First-time unverified online user: open Welcome Kite onboarding to register once
-      e.preventDefault();
+      // 2. First-time unverified online user: open Welcome Kite onboarding to register once
       setIsOnboardingOpen(true);
     },
-    [user]
+    [user, router]
   );
 
   useEffect(() => {
@@ -503,22 +501,15 @@ export default function FieldWorkspacePage() {
                   <div className="waves wave-2"></div>
                   <div className="waves wave-3"></div>
                 </div>
-                <Link
-                  href="/assessment/new"
-                  prefetch={true}
-                  className="block"
+                <Button
+                  variant="primary"
+                  size="lg"
                   onClick={handleStartNewSurvey}
+                  className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
                 >
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handleStartNewSurvey}
-                    className="relative z-10 font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
-                  >
-                    <Plus className="w-5 h-5 stroke-[2.5]" />
-                    <span>Start New Survey</span>
-                  </Button>
-                </Link>
+                  <Plus className="w-5 h-5 stroke-[2.5]" />
+                  <span>Start New Survey</span>
+                </Button>
               </div>
             </div>
           </div>

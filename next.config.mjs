@@ -52,6 +52,18 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Enforce anti-caching / revalidation headers on all HTML page routes
+        // so intermediate CDNs (like Firebase Hosting) do not cache stale HTML
+        // pointing to old CSS/JS chunk hashes across revisions.
+        source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=0, must-revalidate',
+          },
+        ],
+      },
+      {
         // Enforce anti-caching headers on all API and auth routes so Firebase Hosting passes Set-Cookie through
         source: '/api/:path*',
         headers: [
