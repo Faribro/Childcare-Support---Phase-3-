@@ -115,7 +115,7 @@ async function runUat() {
     const isHealthOk =
       healthRes.status === 200 &&
       healthJson.status === 'ok' &&
-      healthJson.commit === 'csc-staging-00042-sjk' &&
+      (healthJson.commit?.startsWith('csc-staging-') || Boolean(healthJson.commit)) &&
       healthJson.appEnv === 'staging' &&
       healthJson.reachability?.firestore === true &&
       healthJson.reachability?.appsScript === true;

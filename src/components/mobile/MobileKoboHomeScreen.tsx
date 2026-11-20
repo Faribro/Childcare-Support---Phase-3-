@@ -58,7 +58,7 @@ export function MobileKoboHomeScreen({
 
   // Pendings consolidates Missing Documents + Bank Details Needed per user addendum
   const pendingsTotal = submittedMissingDocsCount + approvedBankPendingCount;
-  const [isPendingsExpanded, setIsPendingsExpanded] = useState(true);
+  const [isPendingsExpanded, setIsPendingsExpanded] = useState(false);
 
   const handleOfflineNav = (e: React.MouseEvent, url: string) => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {

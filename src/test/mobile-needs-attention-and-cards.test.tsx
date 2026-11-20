@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
 import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
@@ -38,9 +38,14 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
       const waitingLink = screen.getByText(DASHBOARD_COPY.mobile.waitingToSendTitle).closest('a');
       expect(waitingLink?.getAttribute('href')).toBe('/assessment/sync?tab=outbox');
 
-      // Row 4: Pendings (Combined count = 4 + 5 = 9)
+      // Row 4: Pendings (Combined count = 4 + 5 = 9) - Collapsed by default
       expect(screen.getByText(DASHBOARD_COPY.mobile.pendingsTitle)).toBeDefined();
       expect(screen.getByText('9')).toBeDefined();
+      expect(screen.getByText(DASHBOARD_COPY.mobile.showBreakdown)).toBeDefined();
+
+      // Expand breakdown
+      fireEvent.click(screen.getByText(DASHBOARD_COPY.mobile.showBreakdown));
+      expect(screen.getByText(DASHBOARD_COPY.mobile.hideBreakdown)).toBeDefined();
 
       // Sub-row 4a: Missing documents
       expect(screen.getByText(DASHBOARD_COPY.mobile.missingDocsTitle)).toBeDefined();
