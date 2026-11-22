@@ -146,20 +146,19 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   }, []);
 
   return (
-    <>
+    <header
+      ref={headerRef}
+      className={`sticky top-0 z-40 w-full transition-all duration-500 bg-transparent select-none ${
+        isDisintegrated
+          ? 'opacity-0 pointer-events-none -translate-y-4 scale-[0.98]'
+          : 'opacity-100 pointer-events-auto'
+      }`}
+    >
       <canvas
         ref={canvasRef}
         className="fixed inset-0 pointer-events-none z-50"
         aria-hidden="true"
       />
-      <header
-        ref={headerRef}
-        className={`sticky top-0 z-40 w-full transition-all duration-500 bg-transparent select-none ${
-          isDisintegrated
-            ? 'opacity-0 pointer-events-none -translate-y-4 scale-[0.98]'
-            : 'opacity-100 pointer-events-auto translate-y-0 scale-100'
-        }`}
-      >
       {/* ═══════════════════════════════════════════════════════════════════════
           DESKTOP (md:flex): Option B Floating White Cloud-Glass Pill Bar
       ═══════════════════════════════════════════════════════════════════════ */}
@@ -416,6 +415,5 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
         </div>
       </div>
     </header>
-  </>
-);
+  );
 }

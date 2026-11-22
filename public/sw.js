@@ -1,5 +1,5 @@
 // Alliance Child Nutrition & Education Support - High Reliability Offline PWA Service Worker
-const CACHE_NAME = 'alliance-pwa-v3.0.2';
+const CACHE_NAME = 'alliance-pwa-v3.0.4';
 const PRECACHE_URLS = [
   '/',
   '/app',
@@ -10,7 +10,10 @@ const PRECACHE_URLS = [
   '/alliance-india-logo.png',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
-  '/icons/apple-touch-icon.png'
+  '/icons/apple-touch-icon.png',
+  '/sounds/measured-horizon.mp3',
+  '/sounds/playground-children.mp3',
+  '/sounds/laughter-in-the-tall-grass.mp3'
 ];
 
 self.addEventListener('install', (event) => {

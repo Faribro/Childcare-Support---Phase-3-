@@ -549,10 +549,10 @@ export function WelcomeKiteOnboardingModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="welcome-kite-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(7,29,79,0.48)] backdrop-blur-md animate-in fade-in duration-150 motion-reduce:animate-none"
+      className="fixed inset-0 z-50 overflow-y-auto p-3 sm:p-4 bg-[rgba(7,29,79,0.52)] backdrop-blur-md flex items-start sm:items-center justify-center animate-in fade-in duration-150 motion-reduce:animate-none"
     >
       <div
-        className="w-full max-w-lg max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.28)] border border-blue-200/80 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+        className="relative w-full max-w-lg my-auto max-h-[min(90vh,680px)] flex flex-col bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.32)] border border-blue-200/80 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Playful & Pastoral Kite Header Banner — Cosmic Header Gradient */}

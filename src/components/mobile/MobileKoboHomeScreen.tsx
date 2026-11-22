@@ -11,9 +11,12 @@ import {
   CheckCircle2,
   ChevronRight,
   RotateCw,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import type { AssessmentRecord } from '@/types/domain';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
+import { useScrollSoundscape } from '@/lib/audio/useScrollSoundscape';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -126,6 +129,7 @@ export function MobileKoboHomeScreen({
   const [isPendingsExpanded, setIsPendingsExpanded] = useState(false);
   const [isLaunching, setIsLaunching]               = useState(false);
   const [animationsEnabled, setAnimationsEnabled]   = useState(true);
+  const { isSoundEnabled, toggleSound }             = useScrollSoundscape({ animationsEnabled });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -373,7 +377,7 @@ export function MobileKoboHomeScreen({
           <circle cx="20" cy="11" r="1.8" fill="#4C1D95" opacity="0.32" />
         </svg>
 
-        {/* Parted left-and-right fluffy horizon clouds (open blue sky in the center) */}
+        {/* Continuous soft horizon clouds (no sharp vertical center cutoffs) */}
         <svg
           viewBox="0 0 390 150"
           preserveAspectRatio="none"
@@ -382,18 +386,12 @@ export function MobileKoboHomeScreen({
           <defs>
             <linearGradient id="kobo-horizon-cloud" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.96" />
-              <stop offset="65%" stopColor="#E6F5FF" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.7" />
+              <stop offset="65%" stopColor="#E6F5FF" stopOpacity="0.88" />
+              <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.65" />
             </linearGradient>
           </defs>
-          {/* Left rising cloud bank (soft organic inner curve framing waterfall) */}
           <path
-            d="M-10 150 L-10 56 Q16 42 42 58 Q68 50 88 76 Q116 74 136 98 Q158 96 174 118 Q186 132 192 150 L-10 150 Z"
-            fill="url(#kobo-horizon-cloud)"
-          />
-          {/* Right rising cloud bank (soft organic inner curve framing waterfall) */}
-          <path
-            d="M400 150 L400 40 Q372 34 352 56 Q326 52 308 78 Q282 76 260 100 Q236 98 216 118 Q204 132 198 150 L400 150 Z"
+            d="M-10 150 L-10 68 Q30 48 70 65 Q110 52 150 78 Q175 82 195 86 Q215 82 240 78 Q280 52 320 65 Q360 48 400 68 L400 150 Z"
             fill="url(#kobo-horizon-cloud)"
           />
           {/* Soft luminous mist across the bottom behind the grass crest */}
@@ -1303,6 +1301,27 @@ export function MobileKoboHomeScreen({
             <svg viewBox="0 0 20 20" fill="#FFFFFF" width="15" height="15" aria-hidden="true">
               <path d="M6 4.2l10.5 5.8L6 15.8z" />
             </svg>
+          )}
+        </button>
+
+        {/* Translucent Sound Mute / Unmute control */}
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-label={isSoundEnabled ? 'Mute ambient sound' : 'Enable ambient sound'}
+          aria-pressed={!isSoundEnabled}
+          className="absolute bottom-[calc(100%+6px)] left-[58px] z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90"
+          style={{
+            background: 'rgba(100, 130, 175, 0.42)',
+            backdropFilter: 'blur(8px)',
+            border: '1.5px solid rgba(255, 255, 255, 0.72)',
+            boxShadow: '0 4px 12px rgba(8, 30, 82, 0.22)',
+          }}
+        >
+          {isSoundEnabled ? (
+            <Volume2 className="h-4 w-4 text-white" aria-hidden="true" />
+          ) : (
+            <VolumeX className="h-4 w-4 text-white/70" aria-hidden="true" />
           )}
         </button>
 

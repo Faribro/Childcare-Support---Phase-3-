@@ -2,6 +2,8 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
+import { drawAbrahamStatueAboveWaterfall } from './drawAbrahamStatue';
+import { cosmicSound } from '@/lib/audio/cosmicSoundEngine';
 
 interface MountainPeak {
   /** Center X as a 0..1 ratio of canvas width */
@@ -22,20 +24,21 @@ function drawAlpineMountains(
   height: number,
   baseY: number // Pass river far shoreline Y (e.g. height * 0.74)
 ) {
-  // Overlapping multi-peak ranges framing the central waterfall valley (~0.48)
+  // Overlapping multi-peak ranges framing the central waterfall valley (~0.48-0.52)
   const peaks: MountainPeak[] = [
     // Far atmospheric mountain range (cooler misty sage-teal for depth)
-    { xRatio: 0.14, halfWidthRatio: 0.14, heightRatio: 0.56, snowDepth: 0.34, layer: 'far' },
-    { xRatio: 0.33, halfWidthRatio: 0.13, heightRatio: 0.48, snowDepth: 0.30, layer: 'far' },
-    { xRatio: 0.66, halfWidthRatio: 0.14, heightRatio: 0.52, snowDepth: 0.32, layer: 'far' },
-    { xRatio: 0.86, halfWidthRatio: 0.15, heightRatio: 0.58, snowDepth: 0.36, layer: 'far' },
+    { xRatio: 0.12, halfWidthRatio: 0.14, heightRatio: 0.58, snowDepth: 0.35, layer: 'far' },
+    { xRatio: 0.31, halfWidthRatio: 0.13, heightRatio: 0.50, snowDepth: 0.30, layer: 'far' },
+    { xRatio: 0.49, halfWidthRatio: 0.13, heightRatio: 0.36, snowDepth: 0.22, layer: 'far' }, // Central misty pass behind waterfall gorge
+    { xRatio: 0.68, halfWidthRatio: 0.14, heightRatio: 0.52, snowDepth: 0.32, layer: 'far' },
+    { xRatio: 0.88, halfWidthRatio: 0.15, heightRatio: 0.60, snowDepth: 0.36, layer: 'far' },
 
     // Near lush alpine range (tucking smoothly toward the center waterfall gorge)
     { xRatio: 0.04, halfWidthRatio: 0.13, heightRatio: 0.44, snowDepth: 0.28, layer: 'near' },
-    { xRatio: 0.24, halfWidthRatio: 0.15, heightRatio: 0.60, snowDepth: 0.36, layer: 'near' },
-    { xRatio: 0.39, halfWidthRatio: 0.11, heightRatio: 0.36, snowDepth: 0.24, layer: 'near' },
-    { xRatio: 0.58, halfWidthRatio: 0.11, heightRatio: 0.38, snowDepth: 0.25, layer: 'near' },
-    { xRatio: 0.76, halfWidthRatio: 0.16, heightRatio: 0.62, snowDepth: 0.38, layer: 'near' },
+    { xRatio: 0.22, halfWidthRatio: 0.15, heightRatio: 0.62, snowDepth: 0.38, layer: 'near' },
+    { xRatio: 0.38, halfWidthRatio: 0.11, heightRatio: 0.38, snowDepth: 0.24, layer: 'near' },
+    { xRatio: 0.60, halfWidthRatio: 0.11, heightRatio: 0.40, snowDepth: 0.25, layer: 'near' },
+    { xRatio: 0.78, halfWidthRatio: 0.16, heightRatio: 0.64, snowDepth: 0.40, layer: 'near' },
     { xRatio: 0.96, halfWidthRatio: 0.13, heightRatio: 0.46, snowDepth: 0.28, layer: 'near' },
   ];
 
@@ -51,12 +54,12 @@ function drawAlpineMountains(
     const rightX = cx + hw;
     const isFar = p.layer === 'far';
 
-    // Define crisp mountain silhouette with a softly natural apex
+    // Define crisp alpine mountain silhouette with sharp summit apex
     const tracePeakPath = () => {
       ctx.beginPath();
       ctx.moveTo(leftX, baseY + 2);
-      ctx.lineTo(cx - hw * 0.09, topY + peakH * 0.07);
-      ctx.quadraticCurveTo(cx, topY - 1.5, cx + hw * 0.09, topY + peakH * 0.07);
+      ctx.lineTo(cx - hw * 0.04, topY + peakH * 0.03);
+      ctx.quadraticCurveTo(cx, topY - 1, cx + hw * 0.04, topY + peakH * 0.03);
       ctx.lineTo(rightX, baseY + 2);
       ctx.closePath();
     };
@@ -227,11 +230,11 @@ export function MiniatureGardenPlayground({
       return h * 0.90 - arch;
     };
 
-    // Soccer Goal Dimensions (scaled safely for narrow 360px phones)
+    // Soccer Goal Dimensions (scaled so goalie stands cleanly inside the net under crossbar)
     const goal = {
       mouthX: 44,
       backX: 14,
-      height: 22,
+      height: 38,
       netBulge: 0,
       netBulgeVel: 0,
     };
@@ -395,9 +398,9 @@ export function MiniatureGardenPlayground({
     const mangoTree = {
       xRatio: 0.24,
       mangoes: [
-        { id: 1, relX: -8, relY: -28, isFalling: false, curY: 0, vy: 0 },
-        { id: 2, relX: 6, relY: -26, isFalling: false, curY: 0, vy: 0 },
-        { id: 3, relX: -2, relY: -33, isFalling: false, curY: 0, vy: 0 },
+        { id: 1, relX: -11, relY: -82, isFalling: false, curY: 0, vy: 0 },
+        { id: 2, relX: 9, relY: -78, isFalling: false, curY: 0, vy: 0 },
+        { id: 3, relX: -2, relY: -92, isFalling: false, curY: 0, vy: 0 },
       ],
       slingshotPebble: { active: false, x: 0, y: 0, vx: 0, vy: 0, targetMangoId: 1 },
       basketMangoCount: 2,
@@ -406,7 +409,7 @@ export function MiniatureGardenPlayground({
     // Width-relative Butterflies (always visible on 360px phones)
     const butterflies = [
       { ratioX: 0.22, x: 0, y: 26, vx: 0.45, vy: 0, wingAngle: 0, wingSpeed: 0.28, color: '#f43f5e', size: 2.9 },
-      { ratioX: 0.56, x: 0, y: 22, vx: -0.5, vy: 0, wingAngle: 1.2, wingSpeed: 0.31, color: '#0ea5e9', size: 3.0 },
+      { ratioX: 0.42, x: 0, y: 22, vx: -0.4, vy: 0, wingAngle: 1.2, wingSpeed: 0.31, color: '#0ea5e9', size: 3.0 },
       { ratioX: 0.82, x: 0, y: 30, vx: 0.4, vy: 0, wingAngle: 2.1, wingSpeed: 0.26, color: '#f59e0b', size: 2.8 },
     ];
 
@@ -633,17 +636,25 @@ export function MiniatureGardenPlayground({
       staticCtx.ellipse(cliffR + 2, cliffBaseY + 1, 4.5, 2.5, 0, 0, Math.PI * 2);
       staticCtx.fill();
 
+      // 4b) Small Respectful Comic-Vector Statue of Prophet Abraham on Mossy Plinth
+      drawAbrahamStatueAboveWaterfall(staticCtx, {
+        waterfallCenterX: (cliffL + cliffR) / 2,
+        waterfallTopY: cliffTopY,
+        waterfallWidth: cliffR - cliffL,
+        scale: 1,
+      });
+
       // 3) Static trunks, basket & school building
       const tree1X = width * mangoTree.xRatio;
       const tree1GroundY = getGroundY(tree1X, width, height);
 
-      // Tree 1 trunk (canopy drawn live so it gently sways & shakes on tap)
+      // Tree 1 trunk (canopy drawn live so it gently sways & shakes on tap - grand tall fruit tree)
       staticCtx.strokeStyle = '#78350f';
-      staticCtx.lineWidth = 3.4;
+      staticCtx.lineWidth = 4.2;
       staticCtx.lineCap = 'round';
       staticCtx.beginPath();
       staticCtx.moveTo(tree1X, tree1GroundY);
-      staticCtx.lineTo(tree1X - 2, tree1GroundY - 25);
+      staticCtx.lineTo(tree1X - 2.5, tree1GroundY - 74);
       staticCtx.stroke();
 
       // Wicker fruit basket
@@ -846,11 +857,11 @@ export function MiniatureGardenPlayground({
       const tapY = clientY - rect.top;
       let hitInteractive = false;
 
-      // 1) Tap near soccer ball -> kick with squash & turf particles
+      // 1) Tap near soccer ball -> kick towards the goal net on the left!
       const distToBall = Math.hypot(tapX - ball.x, tapY - ball.y);
       if (distToBall < 36 && !ball.inNet) {
         hitInteractive = true;
-        ball.vx = (tapX > ball.x ? -1 : 1) * (4.0 + Math.random() * 1.8);
+        ball.vx = -Math.abs(4.2 + Math.random() * 1.6); // Kicks towards the goal net on the left
         ball.vy = -3.9;
         ball.rotSpeed = ball.vx * 0.16;
         ball.scaleX = 1.28;
@@ -868,10 +879,10 @@ export function MiniatureGardenPlayground({
         }
       }
 
-      // 2) Tap mango tree canopy -> shake & drop a ripe mango
+      // 2) Tap mango tree canopy -> shake & drop a ripe mango (grand tall canopy)
       const tree1X = width * mangoTree.xRatio;
       const tree1GroundY = getGroundY(tree1X, width, height);
-      if (Math.hypot(tapX - tree1X, tapY - (tree1GroundY - 30)) < 26) {
+      if (Math.hypot(tapX - tree1X, tapY - (tree1GroundY - 86)) < 42) {
         hitInteractive = true;
         treeShake = 1;
         const hanging = mangoTree.mangoes.find((m) => !m.isFalling);
@@ -907,7 +918,36 @@ export function MiniatureGardenPlayground({
         }
       });
 
-      // 4) Tap open sky -> playful wind gust that lifts kite & flutters butterflies
+      // 4) Tap near the statue above the waterfall -> dignified golden star shimmer
+      const statueX = width * 0.50;
+      const statueY = height * 0.58 - 18;
+      if (Math.hypot(tapX - statueX, tapY - statueY) < 22) {
+        hitInteractive = true;
+        for (let p = 0; p < 6; p++) {
+          spawnParticle(
+            statueX + (Math.random() - 0.5) * 12,
+            statueY + (Math.random() - 0.5) * 14,
+            (Math.random() - 0.5) * 1.4,
+            -0.7 - Math.random() * 1.2,
+            1.5,
+            '#fef08a',
+            0.80
+          );
+        }
+      }
+
+      // 5) Tap near the river boat / fisherman
+      const currentBoatX = width * 0.61 + Math.sin(time * 0.007) * (width * 0.065);
+      if (Math.hypot(tapX - currentBoatX, tapY - (height * 0.73)) < 30) {
+        hitInteractive = true;
+      }
+
+      // Record miniature interaction in sound engine (every 3 increases laughter sound by 1)
+      if (hitInteractive) {
+        cosmicSound.recordMiniatureInteraction();
+      }
+
+      // 6) Tap open sky -> playful wind gust that lifts kite & flutters butterflies
       if (!hitInteractive) {
         windGust = 2.6;
         butterflies.forEach((bf) => {
@@ -927,7 +967,7 @@ export function MiniatureGardenPlayground({
     const drawFrame = (dt: number) => {
       time += dt;
       if (goalState !== 'celebrating') {
-        hopscotchTimer += dt;
+        hopscotchTimer += dt * 0.52; // Gentle, relaxed pace so the two girls play hopscotch at a natural, delightful tempo
       }
 
       // Decay interactive impulses
@@ -1010,11 +1050,50 @@ export function MiniatureGardenPlayground({
         ctx.fill();
       }
 
-      // 1c) River Fisherman in Small Wooden Boat
-      const boatBaseX = width * 0.555;
+      // 1b2) Gentle Live Golden Halo & Aura around Prophet Abraham Statue ("reduce the statue glow a bit")
+      const statueCenterX = (cliffL + cliffR) / 2;
+      const statueCenterY = cliffTopY - 15;
+      const goldPulse = 0.08 + Math.sin(time * 0.04) * 0.03;
+      const liveAura = ctx.createRadialGradient(statueCenterX, statueCenterY, 2, statueCenterX, statueCenterY, 13);
+      liveAura.addColorStop(0, `rgba(254, 240, 138, ${goldPulse})`);
+      liveAura.addColorStop(0.60, `rgba(250, 204, 21, ${goldPulse * 0.25})`);
+      liveAura.addColorStop(1, 'rgba(245, 158, 11, 0)');
+      ctx.fillStyle = liveAura;
+      ctx.beginPath();
+      ctx.arc(statueCenterX, statueCenterY, 13, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle warm golden sparkles drifting around the statue
+      for (let sp = 0; sp < 2; sp++) {
+        const sTime = (time * 0.03 + sp * 0.5) % 1;
+        const sx = statueCenterX + Math.sin(time * 0.06 + sp * 2.1) * 7;
+        const sy = statueCenterY - 6 + Math.cos(time * 0.05 + sp * 1.7) * 6;
+        const sAlpha = Math.sin(sTime * Math.PI) * 0.28;
+        ctx.fillStyle = `rgba(254, 249, 195, ${sAlpha})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 1c) River Fisherman in Small Wooden Boat (Realistic Gliding River Motion)
+      const boatCycle = time * 0.007; // Slow, natural river drift
+      const boatBaseX = width * 0.61 + Math.sin(boatCycle) * (width * 0.065);
+      const boatSpeed = Math.cos(boatCycle); // Direction and speed of current
       const boatBobY = Math.sin(time * 0.055 + 1.2) * 1.5;
       const boatY = height * 0.73 + boatBobY;
-      const boatRock = Math.sin(time * 0.045) * 0.05;
+      const boatRock = Math.sin(time * 0.045) * 0.04 + boatSpeed * 0.02;
+
+      // Trailing water wake ripples behind boat
+      const wakeX = boatBaseX - Math.sign(boatSpeed || 1) * 12;
+      for (let wk = 0; wk < 3; wk++) {
+        const wkTime = (time * 0.025 + wk * 0.33) % 1;
+        const wkAlpha = (1 - wkTime) * 0.35;
+        ctx.strokeStyle = `rgba(224, 242, 254, ${wkAlpha})`;
+        ctx.lineWidth = 0.9;
+        ctx.beginPath();
+        ctx.ellipse(wakeX - Math.sign(boatSpeed || 1) * (wkTime * 14), boatY + 3.8, 3.5 + wkTime * 7, 1.2 + wkTime * 1.8, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       ctx.save();
       ctx.translate(boatBaseX, boatY);
@@ -1338,18 +1417,18 @@ export function MiniatureGardenPlayground({
       ctx.translate(canopySway, 0);
       ctx.fillStyle = '#22c55e';
       ctx.strokeStyle = '#15803d';
-      ctx.lineWidth = 1.35;
+      ctx.lineWidth = 1.45;
       ctx.beginPath();
-      ctx.arc(tree1X, tree1GroundY - 33, 12.2, 0, Math.PI * 2);
-      ctx.arc(tree1X - 7, tree1GroundY - 28, 8.8, 0, Math.PI * 2);
-      ctx.arc(tree1X + 7, tree1GroundY - 28, 8.8, 0, Math.PI * 2);
-      ctx.arc(tree1X, tree1GroundY - 38, 7.8, 0, Math.PI * 2);
+      ctx.arc(tree1X, tree1GroundY - 88, 20.5, 0, Math.PI * 2);
+      ctx.arc(tree1X - 13, tree1GroundY - 78, 15.5, 0, Math.PI * 2);
+      ctx.arc(tree1X + 13, tree1GroundY - 78, 15.5, 0, Math.PI * 2);
+      ctx.arc(tree1X, tree1GroundY - 100, 13.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       // Warm sun-kissed canopy highlight (from top-right sun)
       ctx.fillStyle = 'rgba(190, 242, 100, 0.38)';
       ctx.beginPath();
-      ctx.arc(tree1X + 3, tree1GroundY - 36, 6, 0, Math.PI * 2);
+      ctx.arc(tree1X + 5, tree1GroundY - 96, 9.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
@@ -1703,9 +1782,11 @@ export function MiniatureGardenPlayground({
           ball.x = goal.backX + ball.radius + 3;
           ball.vx = Math.abs(ball.vx) * 0.4;
         }
-        if (ball.x >= width - ball.radius - 8) {
-          ball.x = width - ball.radius - 8;
-          ball.vx = 0;
+        // Soccer pitch touchline boundary (stays in the soccer field, never rolls into river or past waterfall)
+        const maxPitchX = width * 0.38;
+        if (ball.x >= maxPitchX) {
+          ball.x = maxPitchX;
+          ball.vx = -Math.abs(ball.vx) * 0.65; // gentle rebound back towards goal
         }
 
         // Motionless watchdog
@@ -1826,19 +1907,31 @@ export function MiniatureGardenPlayground({
       ctx.restore();
 
       // 8) Butterflies
-      butterflies.forEach((bf) => {
+      butterflies.forEach((bf, idx) => {
         bf.x += (bf.vx + windGust * 0.25) * dt;
         bf.y += (bf.vy + Math.sin(time * 0.08 + bf.ratioX * 10) * 0.5) * dt;
         bf.wingAngle += bf.wingSpeed * dt;
 
-        if (Math.random() < 0.018 * dt) {
+        if (Math.random() < 0.02 * dt) {
           bf.vx = (Math.random() - 0.5) * 1.0;
           bf.vy = (Math.random() - 0.5) * 0.55;
         }
-        if (bf.x < 14) bf.vx = Math.abs(bf.vx) + 0.35;
-        if (bf.x > width - 14) bf.vx = -Math.abs(bf.vx) - 0.35;
-        if (bf.y < 10) bf.vy = 0.35;
-        if (bf.y > height * 0.62) bf.vy = -0.35;
+
+        if (idx === 1) {
+          // Dedicated meadow butterfly in the butterfly-catcher girl's wildflower area
+          const minM = width * 0.35;
+          const maxM = width * 0.472;
+          if (bf.x < minM) bf.vx = Math.abs(bf.vx) + 0.4;
+          if (bf.x > maxM) bf.vx = -Math.abs(bf.vx) - 0.4;
+          const groundAtBf = getGroundY(bf.x, width, height);
+          if (bf.y < groundAtBf - 38) bf.vy = Math.abs(bf.vy) + 0.25;
+          if (bf.y > groundAtBf - 10) bf.vy = -Math.abs(bf.vy) - 0.25;
+        } else {
+          if (bf.x < 14) bf.vx = Math.abs(bf.vx) + 0.35;
+          if (bf.x > width - 14) bf.vx = -Math.abs(bf.vx) - 0.35;
+          if (bf.y < 10) bf.vy = 0.35;
+          if (bf.y > height * 0.62) bf.vy = -0.35;
+        }
 
         ctx.save();
         ctx.translate(bf.x, bf.y);
@@ -1863,7 +1956,7 @@ export function MiniatureGardenPlayground({
         ctx.arc(pb.x, pb.y, 1.4, 0, Math.PI * 2);
         ctx.fill();
 
-        if (pb.y <= tree1GroundY - 26) {
+        if (pb.y <= tree1GroundY - 76) {
           pb.active = false;
           treeShake = 0.8;
           const target = mangoTree.mangoes.find((m) => m.id === pb.targetMangoId);
@@ -1928,12 +2021,8 @@ export function MiniatureGardenPlayground({
             c.facing = 1;
           } else if (goalState === 'play' && c.kickPhase === 'idle') {
             if (c.soccerIntent === 'hunt-ball') {
-              let kickDir: 1 | -1 = 1;
-              if (c.activity === 'soccer-passer') kickDir = -1;
-              else if (c.activity === 'soccer-striker') kickDir = passCount < 3 ? 1 : -1;
-              else kickDir = passCount < 3 ? (c.curX < ball.x ? 1 : -1) : -1;
-
-              const targetX = kickDir === 1 ? ball.x - 6 : ball.x + 6;
+              const kickDir: 1 | -1 = -1; // Outfield players ALWAYS kick towards the goal net on the left!
+              const targetX = ball.x + 6; // Position to the right of the ball to kick it left
               const dx = targetX - c.curX;
 
               if (Math.abs(dx) > 2) {
@@ -2012,23 +2101,37 @@ export function MiniatureGardenPlayground({
               active: true,
               x: c.curX - 6,
               y: groundY - 18,
-              vx: -1.2,
-              vy: -3.8,
+              vx: -1.0,
+              vy: -5.8,
               targetMangoId: nextMango.id,
             };
           }
         } else if (c.activity === 'butterfly-catcher') {
           const targetBf = butterflies[1];
-          const targetX = Math.max(width * 0.48, Math.min(width * 0.64, targetBf.x));
+          const minGirlX = width * 0.35;
+          const maxGirlX = width * 0.47;
+          const targetX = Math.max(minGirlX, Math.min(maxGirlX, targetBf.x));
           const dx = targetX - c.curX;
-          if (Math.abs(dx) > 2) {
-            c.curX += Math.sign(dx) * 0.72 * dt;
-            c.facing = Math.sign(dx) as 1 | -1;
-            c.runCycle += 0.2 * dt;
-            c.speed = 0.72;
+          if (Math.abs(dx) > 3) {
+            c.curX += Math.sign(dx) * 0.85 * dt;
+            c.facing = (Math.sign(dx) || 1) as 1 | -1;
+            c.runCycle += 0.24 * dt;
+            c.speed = 0.85;
           } else {
-            c.runCycle = 0;
-            c.speed = 0;
+            // Reached butterfly! Playful net swing and startled flutter!
+            c.speed = 0.15;
+            c.runCycle += 0.08 * dt;
+            // Playful hop
+            if (c.vy === 0 && Math.sin(time * 0.12) > 0.7) {
+              c.yOffset = -3.2;
+            } else if (c.vy === 0) {
+              c.yOffset = 0;
+            }
+            // Net swing startles butterfly to playfully flutter away
+            if (Math.random() < 0.03 * dt) {
+              targetBf.vx = (c.facing === 1 ? 0.95 : -0.95) + (Math.random() - 0.5) * 0.6;
+              targetBf.vy = -0.8 - Math.random() * 0.6;
+            }
           }
         } else if (c.activity === 'bicycle-rider') {
           const minBikeX = width * 0.65;
@@ -2226,29 +2329,18 @@ export function MiniatureGardenPlayground({
             ball.scaleY = 0.74;
 
             if (c.activity === 'soccer-goalie') {
-              ball.vx = 4.3 + Math.random() * 0.6;
+              ball.vx = 4.3 + Math.random() * 0.6; // Goalie kicks away from net into field
               ball.vy = -2.2;
               ball.rotSpeed = 0.28;
               passCount = 0;
-            } else if (c.facing === 1) {
-              ball.vx = 3.5 + Math.random() * 0.7;
-              ball.vy = -1.8;
-              ball.rotSpeed = 0.22;
-              passCount++;
             } else {
-              if (passCount < 3 && ball.x > width * 0.3) {
-                ball.vx = -(3.5 + Math.random() * 0.7);
-                ball.vy = -1.8;
-                ball.rotSpeed = -0.22;
-                passCount++;
-              } else {
-                const distToGoal = ball.x - goal.mouthX;
-                const power = Math.max(5.0, Math.min(6.6, distToGoal * 0.08 + 4.0));
-                ball.vx = -power;
-                ball.vy = -2.4 - Math.random() * 1.4;
-                ball.rotSpeed = -0.34;
-                passCount = 0;
-              }
+              // Outfield players ALWAYS shoot or pass left towards the goal net!
+              const distToGoal = ball.x - goal.mouthX;
+              const power = Math.max(4.2, Math.min(6.6, distToGoal * 0.08 + 3.8));
+              ball.vx = -power;
+              ball.vy = -2.2 - Math.random() * 1.2;
+              ball.rotSpeed = -0.32;
+              passCount = 0;
             }
 
             for (let k = 0; k < 4; k++) {
@@ -2591,8 +2683,8 @@ export function MiniatureGardenPlayground({
               ctx.lineTo(c.facing * 7.5, bodyY - 4);
               ctx.stroke();
             } else {
-              // Balance swinging arms while hopping
-              const swing = Math.sin(time * 0.3) * 3;
+              // Balance swinging arms while hopping (gentle natural motion)
+              const swing = Math.sin(time * 0.16) * 2.6;
               ctx.beginPath();
               ctx.moveTo(-c.facing * 2, bodyY + 3);
               ctx.lineTo(-c.facing * 6.5, bodyY - swing);
@@ -2601,8 +2693,8 @@ export function MiniatureGardenPlayground({
               ctx.stroke();
             }
           } else {
-            // Partner clapping encouragingly!
-            const clap = Math.sin(time * 0.35);
+            // Partner clapping encouragingly at relaxed tempo
+            const clap = Math.sin(time * 0.18);
             const clapX = 2.5 + clap * 2.0;
             ctx.beginPath();
             ctx.moveTo(-2, bodyY + 3);
@@ -2648,15 +2740,16 @@ export function MiniatureGardenPlayground({
           ctx.lineTo(pullHandX, pullHandY);
           ctx.stroke();
         } else if (c.activity === 'butterfly-catcher') {
+          const swing = c.speed > 0.2 ? Math.sin(c.runCycle) * 0.22 : Math.sin(time * 0.08) * 0.12;
           const netHandX = c.facing * 6;
-          const netHandY = bodyY + 1;
+          const netHandY = bodyY + 1 + swing * 2;
           ctx.beginPath();
           ctx.moveTo(0, bodyY + 3);
           ctx.lineTo(netHandX, netHandY);
           ctx.stroke();
 
-          const poleTipX = netHandX + c.facing * 13;
-          const poleTipY = netHandY - 10;
+          const poleTipX = netHandX + c.facing * (13 + Math.cos(swing) * 2);
+          const poleTipY = netHandY - 10 + Math.sin(swing) * 5;
           ctx.strokeStyle = '#b45309';
           ctx.lineWidth = 1.2;
           ctx.beginPath();

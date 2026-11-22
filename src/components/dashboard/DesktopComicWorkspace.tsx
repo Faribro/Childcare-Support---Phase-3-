@@ -12,11 +12,14 @@ import {
   ChevronRight,
   RotateCw,
   Plus,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import type { AssessmentRecord } from '@/types/domain';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { DraftCard } from '@/components/forms/DraftCard';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
+import { useScrollSoundscape } from '@/lib/audio/useScrollSoundscape';
 import { NeedsAttentionPanel } from './NeedsAttentionPanel';
 import { COSMIC_STYLES } from './cosmicStyles';
 
@@ -62,6 +65,7 @@ export function DesktopComicWorkspace({
   onRequireAuth,
 }: DesktopComicWorkspaceProps) {
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
+  const { isSoundEnabled, toggleSound } = useScrollSoundscape({ animationsEnabled });
 
   // Sync animation preferences with localStorage and prefers-reduced-motion
   useEffect(() => {
@@ -332,18 +336,13 @@ export function DesktopComicWorkspace({
           <defs>
             <linearGradient id="desk-horizon-cloud" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.96" />
-              <stop offset="65%" stopColor="#E6F5FF" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.7" />
+              <stop offset="65%" stopColor="#E6F5FF" stopOpacity="0.88" />
+              <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.65" />
             </linearGradient>
           </defs>
-          {/* Left rising cloud bank (soft organic inner curve framing waterfall) */}
+          {/* Continuous soft horizon cloud bank (no sharp vertical center cutoffs) */}
           <path
-            d="M-20 220 L-20 70 Q60 50 140 76 Q220 60 300 100 Q400 95 480 135 Q560 130 630 160 Q675 180 700 220 L-20 220 Z"
-            fill="url(#desk-horizon-cloud)"
-          />
-          {/* Right rising cloud bank (soft organic inner curve framing waterfall) */}
-          <path
-            d="M1460 220 L1460 60 Q1380 45 1300 78 Q1200 65 1120 105 Q1020 98 940 140 Q860 135 790 165 Q750 185 720 220 L1460 220 Z"
+            d="M-20 220 L-20 85 Q80 55 180 78 Q280 62 380 95 Q480 85 580 115 Q660 112 720 120 Q780 112 860 115 Q960 85 1060 95 Q1160 62 1260 78 Q1360 55 1460 85 L1460 220 Z"
             fill="url(#desk-horizon-cloud)"
           />
           {/* Soft luminous mist across the bottom behind grass crest */}
@@ -776,6 +775,27 @@ export function DesktopComicWorkspace({
             <svg viewBox="0 0 20 20" fill="#FFFFFF" width="15" height="15" aria-hidden="true">
               <path d="M6 4.2l10.5 5.8L6 15.8z" />
             </svg>
+          )}
+        </button>
+
+        {/* Translucent Sound Mute / Unmute control */}
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-label={isSoundEnabled ? 'Mute ambient sound' : 'Enable ambient sound'}
+          aria-pressed={!isSoundEnabled}
+          className="absolute bottom-[calc(100%+8px)] left-[74px] z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90"
+          style={{
+            background: 'rgba(100, 130, 175, 0.42)',
+            backdropFilter: 'blur(8px)',
+            border: '1.5px solid rgba(255, 255, 255, 0.72)',
+            boxShadow: '0 4px 12px rgba(8, 30, 82, 0.22)',
+          }}
+        >
+          {isSoundEnabled ? (
+            <Volume2 className="h-4 w-4 text-white" aria-hidden="true" />
+          ) : (
+            <VolumeX className="h-4 w-4 text-white/70" aria-hidden="true" />
           )}
         </button>
 

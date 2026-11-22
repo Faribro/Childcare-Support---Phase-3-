@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   Shield,
@@ -17,6 +18,7 @@ import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { getWaitingQueueCount } from '@/lib/db/syncQueueRepository';
 import { LeadershipOtpFlow } from './LeadershipOtpFlow';
 import { StateTeamAuthFlow } from './StateTeamAuthFlow';
+import { cosmicSound } from '@/lib/audio/cosmicSoundEngine';
 
 interface EvaluationLoginModalProps {
   isOpen: boolean;
@@ -43,6 +45,11 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [unsentCount, setUnsentCount] = useState(0);
   const [confirmingLogoutWithUnsent, setConfirmingLogoutWithUnsent] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -90,15 +97,15 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
     await performLogout();
   };
 
-  return (
+  const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="eval-login-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(7,29,79,0.48)] backdrop-blur-md animate-in fade-in duration-150 motion-reduce:animate-none"
+      className="fixed inset-0 z-50 overflow-y-auto p-3 sm:p-4 bg-[rgba(7,29,79,0.52)] backdrop-blur-md flex items-start sm:items-center justify-center animate-in fade-in duration-150 motion-reduce:animate-none"
     >
       <div
-        className="w-full max-w-md max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.28)] border border-blue-200/80 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+        className="relative w-full max-w-md my-auto max-h-[min(90vh,680px)] flex flex-col bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.32)] border border-blue-200/80 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header — Authority Cosmic Sky Gradient */}
@@ -298,6 +305,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
               {activeTab === 'state' && (
                 <StateTeamAuthFlow
                   onSuccess={() => {
+                    cosmicSound.playEvaluationUnlock();
                     if (typeof window !== 'undefined') {
                       window.dispatchEvent(new CustomEvent('child_nutrition:dissolve_navbar'));
                     }
@@ -314,6 +322,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                 <LeadershipOtpFlow
                   isModal={true}
                   onSuccess={() => {
+                    cosmicSound.playEvaluationUnlock();
                     if (typeof window !== 'undefined') {
                       window.dispatchEvent(new CustomEvent('child_nutrition:dissolve_navbar'));
                     }
@@ -330,4 +339,10 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
       </div>
     </div>
   );
+
+  if (mounted && typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+
+  return modalContent;
 }

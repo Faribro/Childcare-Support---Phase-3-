@@ -94,10 +94,10 @@ export function NeedsAttentionPanel({
         </div>
       </div>
 
-      {/* ── Free-Floating 3-Planet Orbital Trio ── */}
-      <div className="flex flex-row items-center justify-center gap-6 lg:gap-10 pt-2 pb-1">
-        {/* ── Planet 1: Forms to finish (Emerald-Teal) ── */}
-        <div className="kobo-float-d relative flex flex-col items-center">
+      {/* ── Free-Floating 3-Planet Orbital Trio (Strict Circles, Subtle 5-10px Max Difference, Red Planet 232px Untouched) ── */}
+      <div className="flex flex-row items-center justify-center gap-8 sm:gap-11 lg:gap-16 pt-3 pb-2">
+        {/* ── Planet 1: Forms to finish (Emerald-Teal, ~226px Circle) ── */}
+        <div className="kobo-float-d relative flex flex-col items-center shrink-0">
           <div
             aria-hidden="true"
             className={`pointer-events-none absolute -inset-3 rounded-full blur-xl ${
@@ -113,11 +113,18 @@ export function NeedsAttentionPanel({
             href={DASHBOARD_COPY.cards.formsToFinish.href}
             prefetch={true}
             aria-label={`${DASHBOARD_COPY.cards.formsToFinish.title}: ${localDraftsCount} - ${DASHBOARD_COPY.cards.formsToFinish.linkText}`}
-            className="group relative block h-[224px] w-[224px] cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="group relative block h-[226px] w-[226px] min-w-[226px] min-h-[226px] shrink-0 aspect-square cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{
+              width: '226px',
+              height: '226px',
+              minWidth: '226px',
+              minHeight: '226px',
+              borderRadius: '50%',
+            }}
           >
             {/* Luminous emerald sphere */}
             <div
-              className="absolute inset-0 overflow-hidden rounded-full"
+              className="absolute inset-0 overflow-hidden rounded-full aspect-square"
               style={{
                 background:
                   'radial-gradient(circle at 30% 26%, #B4FFE4 0%, #34E8A8 34%, #10B981 68%, #047857 100%)',
@@ -150,11 +157,11 @@ export function NeedsAttentionPanel({
               </svg>
             </div>
 
-            {/* Content overlay */}
-            <div className="relative z-10 flex h-full flex-col items-center justify-between px-3 py-4 text-center">
+            {/* Content overlay — positioned comfortably inside circle boundary */}
+            <div className="relative z-10 flex h-full flex-col items-center justify-between px-4 pt-7 pb-5 text-center">
               {/* Title pill */}
               <span
-                className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-emerald-950 shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wider text-emerald-950 shadow-xs"
                 style={{
                   background: 'rgba(255, 255, 255, 0.94)',
                   border: '1px solid rgba(255, 255, 255, 0.9)',
@@ -165,9 +172,9 @@ export function NeedsAttentionPanel({
               </span>
 
               {/* Big bold count + description */}
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center my-auto">
                 <span
-                  className="text-[3.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                  className="text-[3.1rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
                     WebkitTextStroke: '0.6px #09142A',
@@ -175,7 +182,7 @@ export function NeedsAttentionPanel({
                 >
                   {localDraftsCount}
                 </span>
-                <span className="mt-1 text-[11.5px] font-extrabold text-[#072920]">
+                <span className="mt-1 text-[10.5px] font-extrabold text-[#072920]">
                   {localDraftsCount === 0
                     ? 'No incomplete drafts'
                     : localDraftsCount === 1
@@ -185,15 +192,15 @@ export function NeedsAttentionPanel({
               </div>
 
               {/* Button */}
-              <span className="inline-flex items-center justify-center rounded-full bg-[#0C6E43] px-5 py-1.5 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-emerald-300/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
+              <span className="inline-flex items-center justify-center rounded-full bg-[#0C6E43] px-4.5 py-1 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-emerald-300/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
                 {DASHBOARD_COPY.cards.formsToFinish.linkText}
               </span>
             </div>
           </Link>
         </div>
 
-        {/* ── Planet 2: Waiting to send (Golden-Amber) ── */}
-        <div className="kobo-float-o relative flex flex-col items-center mt-3">
+        {/* ── Planet 2: Waiting to send (Golden-Amber, ~222px Circle) ── */}
+        <div className="kobo-float-o relative flex flex-col items-center shrink-0">
           <div
             aria-hidden="true"
             className={`pointer-events-none absolute -inset-3 rounded-full blur-xl ${
@@ -209,11 +216,18 @@ export function NeedsAttentionPanel({
             href={DASHBOARD_COPY.cards.waitingToSend.href}
             prefetch={true}
             aria-label={`${DASHBOARD_COPY.cards.waitingToSend.title}: ${outboxAttentionCount} - ${DASHBOARD_COPY.cards.waitingToSend.linkText}`}
-            className="group relative block h-[224px] w-[224px] cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="group relative block h-[222px] w-[222px] min-w-[222px] min-h-[222px] shrink-0 aspect-square cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{
+              width: '222px',
+              height: '222px',
+              minWidth: '222px',
+              minHeight: '222px',
+              borderRadius: '50%',
+            }}
           >
             {/* Luminous golden sphere */}
             <div
-              className="absolute inset-0 overflow-hidden rounded-full"
+              className="absolute inset-0 overflow-hidden rounded-full aspect-square"
               style={{
                 background:
                   'radial-gradient(circle at 30% 26%, #FFF8C2 0%, #FDE047 36%, #F59E0B 72%, #C26806 100%)',
@@ -244,11 +258,11 @@ export function NeedsAttentionPanel({
               </svg>
             </div>
 
-            {/* Content overlay */}
-            <div className="relative z-10 flex h-full flex-col items-center justify-between px-3 py-4 text-center">
+            {/* Content overlay — positioned comfortably inside circle boundary */}
+            <div className="relative z-10 flex h-full flex-col items-center justify-between px-4 pt-7 pb-5 text-center">
               {/* Title pill */}
               <span
-                className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-950 shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wider text-amber-950 shadow-xs"
                 style={{
                   background: 'rgba(255, 255, 255, 0.94)',
                   border: '1px solid rgba(255, 255, 255, 0.9)',
@@ -259,9 +273,9 @@ export function NeedsAttentionPanel({
               </span>
 
               {/* Big bold count + description */}
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center my-auto">
                 <span
-                  className="text-[3.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                  className="text-[3.1rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
                     WebkitTextStroke: '0.6px #09142A',
@@ -269,7 +283,7 @@ export function NeedsAttentionPanel({
                 >
                   {outboxAttentionCount}
                 </span>
-                <span className="mt-1 text-[11.5px] font-extrabold text-[#3B1E02]">
+                <span className="mt-1 text-[10.5px] font-extrabold text-[#3B1E02]">
                   {outboxAttentionCount === 0
                     ? 'Everything has been sent'
                     : outboxAttentionCount === 1
@@ -279,15 +293,15 @@ export function NeedsAttentionPanel({
               </div>
 
               {/* Button */}
-              <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-5 py-1.5 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
+              <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-4.5 py-1 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
                 {DASHBOARD_COPY.cards.waitingToSend.linkText}
               </span>
             </div>
           </Link>
         </div>
 
-        {/* ── Planet 3: Pendings (Coral-Rose with 3D Wrapped Saturn Ring) ── */}
-        <div className="kobo-float-p relative flex flex-col items-center -mt-1">
+        {/* ── Planet 3: Pendings (Coral-Rose Circle, ~232px with 3D Wrapped Saturn Ring — Untouched Size) ── */}
+        <div className="kobo-float-p relative flex flex-col items-center shrink-0">
           {/* Outer glow halo */}
           <div
             aria-hidden="true"
@@ -300,11 +314,20 @@ export function NeedsAttentionPanel({
             }}
           />
 
-          <div className="relative h-[232px] w-[232px]">
+          <div
+            className="relative h-[232px] w-[232px] min-w-[232px] min-h-[232px] shrink-0 aspect-square rounded-full"
+            style={{
+              width: '232px',
+              height: '232px',
+              minWidth: '232px',
+              minHeight: '232px',
+              borderRadius: '50%',
+            }}
+          >
             {/* Saturn Ring — BACK ARC (behind sphere, z-0) */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute left-1/2 top-[44%] z-0 h-[74px] w-[142%] -translate-x-1/2 -translate-y-1/2 -rotate-[24deg]"
+              className="pointer-events-none absolute left-1/2 top-[44%] z-0 h-[74px] w-[140%] -translate-x-1/2 -translate-y-1/2 -rotate-[24deg]"
             >
               <svg
                 viewBox="0 0 340 84"
@@ -349,7 +372,7 @@ export function NeedsAttentionPanel({
 
             {/* Luminous coral sphere (z-10) */}
             <div
-              className="relative z-10 h-full w-full overflow-hidden rounded-full"
+              className="relative z-10 h-full w-full overflow-hidden rounded-full aspect-square"
               style={{
                 background:
                   'radial-gradient(circle at 28% 26%, #FFD99A 0%, #FB923C 28%, #F45B69 62%, #C8235D 100%)',
@@ -385,7 +408,7 @@ export function NeedsAttentionPanel({
             {/* Saturn Ring — FRONT ARC (above sphere z-20, BELOW text z-30) */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute left-1/2 top-[44%] z-20 h-[74px] w-[142%] -translate-x-1/2 -translate-y-1/2 -rotate-[24deg]"
+              className="pointer-events-none absolute left-1/2 top-[44%] z-20 h-[74px] w-[140%] -translate-x-1/2 -translate-y-1/2 -rotate-[24deg]"
             >
               <svg
                 viewBox="0 0 340 84"
@@ -422,11 +445,11 @@ export function NeedsAttentionPanel({
               </svg>
             </div>
 
-            {/* Foreground UI Content (z-30 — razor-sharp above ring) */}
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-between px-2.5 py-3.5 text-center">
+            {/* Foreground UI Content (z-30 — razor-sharp above ring, positioned comfortably inside circle boundary) */}
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-between px-3 pt-6 pb-4 text-center">
               {/* Title pill */}
               <span
-                className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-900 shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-slate-900 shadow-xs"
                 style={{
                   background: 'rgba(255, 255, 255, 0.94)',
                   border: '1px solid rgba(255, 255, 255, 0.9)',
@@ -439,7 +462,7 @@ export function NeedsAttentionPanel({
               {/* Big bold count + description */}
               <div className="flex flex-col items-center -mt-0.5">
                 <span
-                  className="text-[3.3rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                  className="text-[3.1rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
                     WebkitTextStroke: '0.6px #09142A',
@@ -451,7 +474,7 @@ export function NeedsAttentionPanel({
                     pendingsTotal
                   )}
                 </span>
-                <span className="mt-0.5 text-[11px] font-extrabold text-[#2D0A14]">
+                <span className="mt-0.5 text-[10.5px] font-extrabold text-[#2D0A14]">
                   {pendingsTotal === 0
                     ? DASHBOARD_COPY.cards.pendings.allClearText
                     : pendingsTotal === 1
@@ -461,10 +484,10 @@ export function NeedsAttentionPanel({
               </div>
 
               {/* Two sub-pills: Missing documents & Bank details needed */}
-              <div className="flex flex-col items-center gap-1 w-full max-w-[200px]">
+              <div className="flex flex-col items-center gap-1 w-full max-w-[188px]">
                 <Link
                   href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
-                  className="group/pill inline-flex w-full items-center justify-between rounded-full px-2.5 py-0.5 text-[10px] font-bold text-slate-900 shadow-xs transition-transform duration-100 hover:scale-[1.02]"
+                  className="group/pill inline-flex w-full items-center justify-between rounded-full px-2.5 py-0.5 text-[9.5px] font-bold text-slate-900 shadow-xs transition-transform duration-100 hover:scale-[1.02]"
                   style={{
                     background: 'rgba(255, 255, 255, 0.94)',
                     border: '1px solid rgba(255, 255, 255, 0.88)',
@@ -484,7 +507,7 @@ export function NeedsAttentionPanel({
 
                 <Link
                   href={DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href}
-                  className="group/pill inline-flex w-full items-center justify-between rounded-full px-2.5 py-0.5 text-[10px] font-bold text-slate-900 shadow-xs transition-transform duration-100 hover:scale-[1.02]"
+                  className="group/pill inline-flex w-full items-center justify-between rounded-full px-2.5 py-0.5 text-[9.5px] font-bold text-slate-900 shadow-xs transition-transform duration-100 hover:scale-[1.02]"
                   style={{
                     background: 'rgba(255, 255, 255, 0.94)',
                     border: '1px solid rgba(255, 255, 255, 0.88)',
@@ -512,7 +535,7 @@ export function NeedsAttentionPanel({
                       : DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href
                     : DASHBOARD_COPY.cards.pendings.rows.missingDocs.href
                 }
-                className={`inline-flex items-center justify-center rounded-full px-5 py-1 text-[11px] font-extrabold text-white shadow-sm transition-transform duration-150 hover:scale-105 ${
+                className={`inline-flex items-center justify-center rounded-full px-4.5 py-1 text-[11px] font-extrabold text-white shadow-sm transition-transform duration-150 hover:scale-105 ${
                   pendingsTotal === 0
                     ? 'bg-[#0C8C52] ring-1 ring-emerald-300/50'
                     : 'bg-rose-800 ring-1 ring-rose-300/50'

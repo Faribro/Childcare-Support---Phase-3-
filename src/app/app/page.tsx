@@ -20,6 +20,7 @@ import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel'
 import { submissionEvents } from '@/features/submission/submissionEvents';
 import { useEvaluationAccess, setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
 import { WelcomeKiteOnboardingModal } from '@/components/auth/WelcomeKiteOnboardingModal';
+import { cosmicSound } from '@/lib/audio/cosmicSoundEngine';
 
 export default function FieldWorkspacePage() {
   const router = useRouter();
@@ -365,6 +366,7 @@ export default function FieldWorkspacePage() {
       e.preventDefault();
       // 1. Returning user with valid verified session or existing stored profile proceeds directly
       if (checkAuth()) {
+        cosmicSound.playRocketLaunch();
         router.push('/assessment/new');
         return;
       }
