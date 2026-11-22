@@ -336,14 +336,14 @@ export function DesktopComicWorkspace({
               <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.7" />
             </linearGradient>
           </defs>
-          {/* Left rising cloud bank */}
+          {/* Left rising cloud bank (soft organic inner curve framing waterfall) */}
           <path
-            d="M-20 220 L-20 70 Q60 50 140 76 Q220 60 300 100 Q400 95 480 135 Q580 130 660 165 L660 220 Z"
+            d="M-20 220 L-20 70 Q60 50 140 76 Q220 60 300 100 Q400 95 480 135 Q560 130 630 160 Q675 180 700 220 L-20 220 Z"
             fill="url(#desk-horizon-cloud)"
           />
-          {/* Right rising cloud bank */}
+          {/* Right rising cloud bank (soft organic inner curve framing waterfall) */}
           <path
-            d="M1460 220 L1460 60 Q1380 45 1300 78 Q1200 65 1120 105 Q1020 98 940 140 Q840 135 760 170 L760 220 Z"
+            d="M1460 220 L1460 60 Q1380 45 1300 78 Q1200 65 1120 105 Q1020 98 940 140 Q860 135 790 165 Q750 185 720 220 L1460 220 Z"
             fill="url(#desk-horizon-cloud)"
           />
           {/* Soft luminous mist across the bottom behind grass crest */}

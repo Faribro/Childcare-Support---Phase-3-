@@ -386,14 +386,14 @@ export function MobileKoboHomeScreen({
               <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.7" />
             </linearGradient>
           </defs>
-          {/* Left rising cloud bank */}
+          {/* Left rising cloud bank (soft organic inner curve framing waterfall) */}
           <path
-            d="M-10 150 L-10 56 Q16 42 42 58 Q68 50 88 76 Q116 74 136 98 Q162 96 184 114 L184 150 Z"
+            d="M-10 150 L-10 56 Q16 42 42 58 Q68 50 88 76 Q116 74 136 98 Q158 96 174 118 Q186 132 192 150 L-10 150 Z"
             fill="url(#kobo-horizon-cloud)"
           />
-          {/* Right rising cloud bank */}
+          {/* Right rising cloud bank (soft organic inner curve framing waterfall) */}
           <path
-            d="M400 150 L400 40 Q372 34 352 56 Q326 52 308 78 Q282 76 260 100 Q232 98 206 116 L206 150 Z"
+            d="M400 150 L400 40 Q372 34 352 56 Q326 52 308 78 Q282 76 260 100 Q236 98 216 118 Q204 132 198 150 L400 150 Z"
             fill="url(#kobo-horizon-cloud)"
           />
           {/* Soft luminous mist across the bottom behind the grass crest */}

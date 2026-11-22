@@ -3,6 +3,152 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 
+interface MountainPeak {
+  /** Center X as a 0..1 ratio of canvas width */
+  xRatio: number;
+  /** Half-width as a 0..1 ratio of canvas width */
+  halfWidthRatio: number;
+  /** Peak height above baseY as a 0..1 ratio of canvas height */
+  heightRatio: number;
+  /** Snow coverage down from summit (0.28 - 0.42 looks natural) */
+  snowDepth: number;
+  /** Distant misty ridge vs. foreground lush green ridge */
+  layer: 'far' | 'near';
+}
+
+function drawAlpineMountains(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  baseY: number // Pass river far shoreline Y (e.g. height * 0.74)
+) {
+  // Overlapping multi-peak ranges framing the central waterfall valley (~0.48)
+  const peaks: MountainPeak[] = [
+    // Far atmospheric mountain range (cooler misty sage-teal for depth)
+    { xRatio: 0.14, halfWidthRatio: 0.14, heightRatio: 0.56, snowDepth: 0.34, layer: 'far' },
+    { xRatio: 0.33, halfWidthRatio: 0.13, heightRatio: 0.48, snowDepth: 0.30, layer: 'far' },
+    { xRatio: 0.66, halfWidthRatio: 0.14, heightRatio: 0.52, snowDepth: 0.32, layer: 'far' },
+    { xRatio: 0.86, halfWidthRatio: 0.15, heightRatio: 0.58, snowDepth: 0.36, layer: 'far' },
+
+    // Near lush alpine range (tucking smoothly toward the center waterfall gorge)
+    { xRatio: 0.04, halfWidthRatio: 0.13, heightRatio: 0.44, snowDepth: 0.28, layer: 'near' },
+    { xRatio: 0.24, halfWidthRatio: 0.15, heightRatio: 0.60, snowDepth: 0.36, layer: 'near' },
+    { xRatio: 0.39, halfWidthRatio: 0.11, heightRatio: 0.36, snowDepth: 0.24, layer: 'near' },
+    { xRatio: 0.58, halfWidthRatio: 0.11, heightRatio: 0.38, snowDepth: 0.25, layer: 'near' },
+    { xRatio: 0.76, halfWidthRatio: 0.16, heightRatio: 0.62, snowDepth: 0.38, layer: 'near' },
+    { xRatio: 0.96, halfWidthRatio: 0.13, heightRatio: 0.46, snowDepth: 0.28, layer: 'near' },
+  ];
+
+  // Clamp peak width on narrow mobile screens so summits stay crisp & iconic
+  const minHalfW = Math.max(42, width * 0.08);
+
+  peaks.forEach((p) => {
+    const cx = p.xRatio * width;
+    const hw = Math.max(minHalfW, p.halfWidthRatio * width);
+    const peakH = Math.min(baseY - 6, p.heightRatio * height);
+    const topY = baseY - peakH;
+    const leftX = cx - hw;
+    const rightX = cx + hw;
+    const isFar = p.layer === 'far';
+
+    // Define crisp mountain silhouette with a softly natural apex
+    const tracePeakPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(leftX, baseY + 2);
+      ctx.lineTo(cx - hw * 0.09, topY + peakH * 0.07);
+      ctx.quadraticCurveTo(cx, topY - 1.5, cx + hw * 0.09, topY + peakH * 0.07);
+      ctx.lineTo(rightX, baseY + 2);
+      ctx.closePath();
+    };
+
+    ctx.save();
+    tracePeakPath();
+
+    // 1) Base sunlit mountain gradient (sunlight from upper-right)
+    const bodyGrad = ctx.createLinearGradient(cx, topY, cx, baseY);
+    if (isFar) {
+      bodyGrad.addColorStop(0, '#4E8F85');
+      bodyGrad.addColorStop(0.55, '#3A7C6A');
+      bodyGrad.addColorStop(1, '#2B6456');
+    } else {
+      bodyGrad.addColorStop(0, '#3C9154');
+      bodyGrad.addColorStop(0.55, '#2A7343');
+      bodyGrad.addColorStop(1, '#1D5635');
+    }
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+
+    // Clip all ridge shading & snow strictly inside the mountain silhouette
+    ctx.clip();
+
+    // 2) Shaded left facet split down a gently curved central ridge line
+    const ridgeOffset = hw * 0.06;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY - 2);
+    ctx.quadraticCurveTo(cx - ridgeOffset, topY + peakH * 0.45, cx + ridgeOffset * 0.8, baseY + 2);
+    ctx.lineTo(leftX - 4, baseY + 2);
+    ctx.closePath();
+    ctx.fillStyle = isFar ? 'rgba(20, 62, 74, 0.32)' : 'rgba(12, 48, 38, 0.34)';
+    ctx.fill();
+
+    // 3) Organic draped snowcap (never flat sawtooth teeth)
+    const snowY = topY + peakH * p.snowDepth;
+    const snowSpan = hw * (p.snowDepth + 0.12);
+
+    ctx.beginPath();
+    ctx.moveTo(cx - snowSpan, topY - 4);
+    ctx.lineTo(cx + snowSpan, topY - 4);
+    ctx.lineTo(cx + snowSpan, snowY + 2);
+    // Natural draped snowline with 3 smooth asymmetrical lobes
+    ctx.bezierCurveTo(
+      cx + snowSpan * 0.58, snowY - 5,
+      cx + snowSpan * 0.34, snowY + 8,
+      cx + snowSpan * 0.08, snowY + 1
+    );
+    ctx.bezierCurveTo(
+      cx - snowSpan * 0.14, snowY - 4,
+      cx - snowSpan * 0.42, snowY + 7,
+      cx - snowSpan, snowY - 1
+    );
+    ctx.closePath();
+
+    // Sunlit warm-white snow fill
+    const snowGrad = ctx.createLinearGradient(cx, topY, cx, snowY + 6);
+    snowGrad.addColorStop(0, '#FFFFFF');
+    snowGrad.addColorStop(0.75, '#F0F9FF');
+    snowGrad.addColorStop(1, '#D8F1FF');
+    ctx.fillStyle = snowGrad;
+    ctx.fill();
+
+    // Cool glacial blue-ice shadow on the left half of the snowcap (keeps it visible against white clouds!)
+    ctx.beginPath();
+    ctx.moveTo(cx, topY - 2);
+    ctx.quadraticCurveTo(cx - ridgeOffset * 0.7, topY + peakH * 0.22, cx + ridgeOffset * 0.2, snowY + 10);
+    ctx.lineTo(cx - snowSpan, snowY + 10);
+    ctx.lineTo(cx - snowSpan, topY - 4);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(125, 211, 252, 0.42)';
+    ctx.fill();
+
+    // 4) Soft atmospheric base mist right above the river bank
+    const mistGrad = ctx.createLinearGradient(0, baseY - peakH * 0.24, 0, baseY);
+    mistGrad.addColorStop(0, 'rgba(224, 247, 255, 0)');
+    mistGrad.addColorStop(1, isFar ? 'rgba(186, 230, 253, 0.28)' : 'rgba(186, 230, 253, 0.14)');
+    ctx.fillStyle = mistGrad;
+    ctx.fillRect(leftX, baseY - peakH * 0.24, hw * 2, peakH * 0.26);
+
+    ctx.restore();
+
+    // 5) Crisp subtle glacial rim outline along the upper summit so snow pops over white clouds
+    ctx.save();
+    tracePeakPath();
+    ctx.strokeStyle = isFar ? 'rgba(125, 211, 252, 0.55)' : 'rgba(96, 165, 250, 0.52)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
 export interface MiniatureGardenPlaygroundProps {
   hideControls?: boolean;
   isPaused?: boolean;
@@ -79,38 +225,6 @@ export function MiniatureGardenPlayground({
       const normalizedX = Math.max(0, Math.min(1, x / (w || 1)));
       const arch = Math.sin(normalizedX * Math.PI) * (h * 0.12);
       return h * 0.90 - arch;
-    };
-
-    // 1) Far Mountain Ridge (Taller Snow-Capped Mountain Range matching target profile)
-    const getFarMountainY = (x: number, w: number, h: number) => {
-      const n = Math.max(0, Math.min(1, x / (w || 1)));
-      if (n < 0.485) {
-        // Left Mountain Range: Prominent peak rising around n ≈ 0.34
-        const peakLeft = Math.exp(-Math.pow((n - 0.34) / 0.12, 2)) * (h * 0.28);
-        const shoulder = Math.sin(n * Math.PI * 3.2) * (h * 0.04);
-        const gorgeSlope = n > 0.38 ? ((n - 0.38) / 0.105) * (h * 0.22) : 0;
-        return h * 0.58 - peakLeft + shoulder + gorgeSlope;
-      } else if (n > 0.515) {
-        // Right Mountain Range: Grand Peak soaring around n ≈ 0.73 (above school/bike)
-        const peakRight = Math.exp(-Math.pow((n - 0.73) / 0.14, 2)) * (h * 0.35);
-        const ridgeWave = Math.sin((n - 0.52) * Math.PI * 2.8) * (h * 0.04);
-        const gorgeRise = n < 0.60 ? ((0.60 - n) / 0.085) * (h * 0.16) : 0;
-        return h * 0.62 - peakRight + ridgeWave + gorgeRise;
-      } else {
-        // Center Waterfall Gorge Gap
-        return h * 0.68;
-      }
-    };
-
-    // 2) Mid-Ground Mountain Ridge (Deeper Verdant Leaf-Green with rocky gorge in center)
-    const getMidMountainY = (x: number, w: number, h: number) => {
-      const n = Math.max(0, Math.min(1, x / (w || 1)));
-      const centerDist = Math.abs(n - 0.50);
-      const cleftDip = centerDist < 0.035 ? (0.035 - centerDist) * (h * 1.8) : 0;
-      const wave =
-        Math.sin(n * Math.PI * 1.75 + 0.5) * (h * 0.09) +
-        Math.sin(n * Math.PI * 3.5) * (h * 0.035);
-      return h * 0.69 - wave + cleftDip;
     };
 
     // Soccer Goal Dimensions (scaled safely for narrow 360px phones)
@@ -444,114 +558,9 @@ export function MiniatureGardenPlayground({
         staticCtx.fillRect(0, 0, width, height);
       }
 
-      // 1) Far Mountain Ridge (Taller Snow-Capped Alpine Range)
-      staticCtx.beginPath();
-      staticCtx.moveTo(0, height);
-      for (let i = 0; i <= 60; i++) {
-        const px = (i / 60) * width;
-        staticCtx.lineTo(px, getFarMountainY(px, width, height));
-      }
-      staticCtx.lineTo(width, height);
-      staticCtx.closePath();
-      const farMountainGrad = staticCtx.createLinearGradient(0, height * 0.25, 0, height * 0.85);
-      farMountainGrad.addColorStop(0, '#336644');
-      farMountainGrad.addColorStop(0.45, '#245437');
-      farMountainGrad.addColorStop(1, '#183e28');
-      staticCtx.fillStyle = farMountainGrad;
-      staticCtx.fill();
-
-      // Far mountain subtle sunlit rim
-      staticCtx.strokeStyle = 'rgba(187, 247, 208, 0.55)';
-      staticCtx.lineWidth = 1.1;
-      staticCtx.beginPath();
-      for (let i = 0; i <= 60; i++) {
-        const px = (i / 60) * width;
-        const py = getFarMountainY(px, width, height);
-        if (i === 0) staticCtx.moveTo(px, py);
-        else staticCtx.lineTo(px, py);
-      }
-      staticCtx.stroke();
-
-      // 1b) Crisp Snowcaps on Upper Mountain Peaks
-      // Snowcap on Left Peak (n ≈ 0.22 to 0.42)
-      staticCtx.save();
-      staticCtx.beginPath();
-      const leftSnowStart = 0.22 * width;
-      const leftSnowEnd = 0.42 * width;
-      staticCtx.moveTo(leftSnowStart, getFarMountainY(leftSnowStart, width, height));
-      for (let px = leftSnowStart; px <= leftSnowEnd; px += 3) {
-        staticCtx.lineTo(px, getFarMountainY(px, width, height));
-      }
-      // Jagged snowline tongues across lower boundary
-      const snowLineY1 = height * 0.41;
-      for (let px = leftSnowEnd; px >= leftSnowStart; px -= 4) {
-        const tongue = Math.sin(px * 0.45) * (height * 0.02) + ((Math.floor(px) % 3 === 0) ? 2.5 : -1.5);
-        staticCtx.lineTo(px, snowLineY1 + tongue);
-      }
-      staticCtx.closePath();
-      const leftSnowGrad = staticCtx.createLinearGradient(0, height * 0.26, 0, height * 0.44);
-      leftSnowGrad.addColorStop(0, '#ffffff');
-      leftSnowGrad.addColorStop(0.65, '#f0f9ff');
-      leftSnowGrad.addColorStop(1, '#bae6fd');
-      staticCtx.fillStyle = leftSnowGrad;
-      staticCtx.fill();
-      staticCtx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-      staticCtx.lineWidth = 1.2;
-      staticCtx.stroke();
-
-      // Snowcap on Right Grand Peak (n ≈ 0.61 to 0.85)
-      staticCtx.beginPath();
-      const rightSnowStart = 0.61 * width;
-      const rightSnowEnd = 0.85 * width;
-      staticCtx.moveTo(rightSnowStart, getFarMountainY(rightSnowStart, width, height));
-      for (let px = rightSnowStart; px <= rightSnowEnd; px += 3) {
-        staticCtx.lineTo(px, getFarMountainY(px, width, height));
-      }
-      // Jagged snowline tongues across lower boundary
-      const snowLineY2 = height * 0.39;
-      for (let px = rightSnowEnd; px >= rightSnowStart; px -= 4) {
-        const tongue = Math.sin(px * 0.42) * (height * 0.025) + ((Math.floor(px) % 3 === 0) ? 2.8 : -1.8);
-        staticCtx.lineTo(px, snowLineY2 + tongue);
-      }
-      staticCtx.closePath();
-      const rightSnowGrad = staticCtx.createLinearGradient(0, height * 0.24, 0, height * 0.42);
-      rightSnowGrad.addColorStop(0, '#ffffff');
-      rightSnowGrad.addColorStop(0.65, '#f0f9ff');
-      rightSnowGrad.addColorStop(1, '#bae6fd');
-      staticCtx.fillStyle = rightSnowGrad;
-      staticCtx.fill();
-      staticCtx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-      staticCtx.lineWidth = 1.25;
-      staticCtx.stroke();
-      staticCtx.restore();
-
-      // 2) Mid-Ground Mountain Ridge (Deeper Verdant Leaf-Green)
-      staticCtx.beginPath();
-      staticCtx.moveTo(0, height);
-      for (let i = 0; i <= 44; i++) {
-        const px = (i / 44) * width;
-        staticCtx.lineTo(px, getMidMountainY(px, width, height));
-      }
-      staticCtx.lineTo(width, height);
-      staticCtx.closePath();
-      const midMountainGrad = staticCtx.createLinearGradient(0, height * 0.52, 0, height * 0.90);
-      midMountainGrad.addColorStop(0, '#388e3c');
-      midMountainGrad.addColorStop(0.42, '#2e7d32');
-      midMountainGrad.addColorStop(1, '#1b5e20');
-      staticCtx.fillStyle = midMountainGrad;
-      staticCtx.fill();
-
-      // Mid-mountain sunlit crest highlight
-      staticCtx.strokeStyle = 'rgba(217, 249, 157, 0.65)';
-      staticCtx.lineWidth = 1.3;
-      staticCtx.beginPath();
-      for (let i = 0; i <= 44; i++) {
-        const px = (i / 44) * width;
-        const py = getMidMountainY(px, width, height);
-        if (i === 0) staticCtx.moveTo(px, py);
-        else staticCtx.lineTo(px, py);
-      }
-      staticCtx.stroke();
+      // 1) Layered Alpine Mountain Ranges with Clipped Two-Tone Snowcaps
+      const riverFarShoreY = height * 0.74;
+      drawAlpineMountains(staticCtx, width, height, riverFarShoreY);
 
       // 3) Mid-Ground Turquoise River (flowing behind foreground meadow)
       const riverTopY = height * 0.70;
