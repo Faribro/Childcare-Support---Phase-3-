@@ -1711,14 +1711,29 @@ export function MiniatureGardenPlayground({
 
         if (c.activity === 'soccer-striker' || c.activity === 'soccer-midfield') {
           if (goalState === 'celebrating') {
+            const celebrX =
+              c.activity === 'soccer-striker'
+                ? Math.max(width * 0.185, goal.mouthX + 42)
+                : width * 0.26;
+            const dx = celebrX - c.curX;
+            if (Math.abs(dx) > 2) {
+              c.curX += Math.sign(dx) * 0.8 * dt;
+              c.facing = Math.sign(dx) as 1 | -1;
+              c.runCycle += 0.2 * dt;
+            } else {
+              c.facing = 1;
+              c.runCycle = 0;
+            }
             c.yOffset = -Math.abs(Math.sin(time * 0.22 + c.id)) * 4.2;
-            c.runCycle = 0;
             c.speed = 0;
-            c.facing = 1;
           } else if (goalState === 'play' && c.kickPhase === 'idle') {
             if (c.soccerIntent === 'hunt-ball') {
               const kickDir: 1 | -1 = -1;
-              const targetX = ball.x + 5.0;
+              const minPlayX =
+                c.activity === 'soccer-striker'
+                  ? goal.mouthX + 38
+                  : width * 0.21;
+              const targetX = Math.max(minPlayX, ball.x + 5.0);
               const dx = targetX - c.curX;
 
               if (Math.abs(dx) > 2) {
@@ -1736,7 +1751,10 @@ export function MiniatureGardenPlayground({
                 }
               }
             } else {
-              const homeX = c.activity === 'soccer-striker' ? width * 0.175 : width * 0.26;
+              const homeX =
+                c.activity === 'soccer-striker'
+                  ? Math.max(width * 0.185, goal.mouthX + 42)
+                  : width * 0.26;
               const dx = homeX - c.curX;
               if (Math.abs(dx) > 3) {
                 c.curX += Math.sign(dx) * 0.6 * dt;
@@ -1752,7 +1770,7 @@ export function MiniatureGardenPlayground({
           }
 
           if (c.activity === 'soccer-striker') {
-            c.curX = Math.max(goal.mouthX + 10, Math.min(width * 0.23, c.curX));
+            c.curX = Math.max(goal.mouthX + 38, Math.min(width * 0.24, c.curX));
           } else {
             c.curX = Math.max(width * 0.21, Math.min(width * 0.285, c.curX));
           }
