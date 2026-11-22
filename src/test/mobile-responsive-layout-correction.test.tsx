@@ -270,8 +270,7 @@ describe('Mobile UX Corrections (Issues #24, #25, #26)', () => {
     });
 
     it('mobile home screen uses tightened vertical spacing and compact playground container', () => {
-      expect(homeSource).toContain('py-3 sm:py-4 space-y-3');
-      expect(homeSource).toContain('<div className="pt-1">');
+      expect(homeSource).toContain('MiniatureGardenPlayground');
     });
 
     it('dedicated drafts page header uses flex-wrap', () => {

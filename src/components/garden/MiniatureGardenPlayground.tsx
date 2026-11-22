@@ -12,54 +12,73 @@ interface MountainPeak {
   halfWidthRatio: number;
   /** Peak height above baseY as a 0..1 ratio of canvas height */
   heightRatio: number;
-  /** Snow coverage down from summit (0.28 - 0.42 looks natural) */
+  /** Snow coverage down from summit (0.24 - 0.38 looks natural) */
   snowDepth: number;
   /** Distant misty ridge vs. foreground lush green ridge */
   layer: 'far' | 'near';
+}
+
+function getSceneScale(width: number, height: number): number {
+  const widthScale = width < 400 ? 0.72 : width < 640 ? 0.85 : 1.0;
+  const heightScale = Math.min(1.0, Math.max(0.68, height / 112));
+  return Math.max(0.66, Math.min(widthScale, heightScale));
 }
 
 function drawAlpineMountains(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  baseY: number // Pass river far shoreline Y (e.g. height * 0.74)
+  baseY: number,
+  sceneScale: number
 ) {
-  // Overlapping multi-peak ranges framing the central waterfall valley (~0.48-0.52)
-  const peaks: MountainPeak[] = [
-    // Far atmospheric mountain range (cooler misty sage-teal for depth)
-    { xRatio: 0.12, halfWidthRatio: 0.14, heightRatio: 0.58, snowDepth: 0.35, layer: 'far' },
-    { xRatio: 0.31, halfWidthRatio: 0.13, heightRatio: 0.50, snowDepth: 0.30, layer: 'far' },
-    { xRatio: 0.49, halfWidthRatio: 0.13, heightRatio: 0.36, snowDepth: 0.22, layer: 'far' }, // Central misty pass behind waterfall gorge
-    { xRatio: 0.68, halfWidthRatio: 0.14, heightRatio: 0.52, snowDepth: 0.32, layer: 'far' },
-    { xRatio: 0.88, halfWidthRatio: 0.15, heightRatio: 0.60, snowDepth: 0.36, layer: 'far' },
+  const isCompactMobile = width < 480;
 
-    // Near lush alpine range (tucking smoothly toward the center waterfall gorge)
-    { xRatio: 0.04, halfWidthRatio: 0.13, heightRatio: 0.44, snowDepth: 0.28, layer: 'near' },
-    { xRatio: 0.22, halfWidthRatio: 0.15, heightRatio: 0.62, snowDepth: 0.38, layer: 'near' },
-    { xRatio: 0.38, halfWidthRatio: 0.11, heightRatio: 0.38, snowDepth: 0.24, layer: 'near' },
-    { xRatio: 0.60, halfWidthRatio: 0.11, heightRatio: 0.40, snowDepth: 0.25, layer: 'near' },
-    { xRatio: 0.78, halfWidthRatio: 0.16, heightRatio: 0.64, snowDepth: 0.40, layer: 'near' },
-    { xRatio: 0.96, halfWidthRatio: 0.13, heightRatio: 0.46, snowDepth: 0.28, layer: 'near' },
-  ];
+  // Mountain ranges framing the center waterfall valley cleanly (open pass at ~0.48-0.52)
+  const peaks: MountainPeak[] = isCompactMobile
+    ? [
+        // Far atmospheric range
+        { xRatio: 0.14, halfWidthRatio: 0.18, heightRatio: 0.40, snowDepth: 0.30, layer: 'far' },
+        { xRatio: 0.36, halfWidthRatio: 0.14, heightRatio: 0.32, snowDepth: 0.22, layer: 'far' },
+        { xRatio: 0.64, halfWidthRatio: 0.15, heightRatio: 0.34, snowDepth: 0.24, layer: 'far' },
+        { xRatio: 0.87, halfWidthRatio: 0.18, heightRatio: 0.42, snowDepth: 0.30, layer: 'far' },
+        // Near alpine range framing the center waterfall valley (gap at 0.50)
+        { xRatio: 0.05, halfWidthRatio: 0.15, heightRatio: 0.30, snowDepth: 0.22, layer: 'near' },
+        { xRatio: 0.26, halfWidthRatio: 0.15, heightRatio: 0.42, snowDepth: 0.30, layer: 'near' },
+        { xRatio: 0.76, halfWidthRatio: 0.16, heightRatio: 0.44, snowDepth: 0.32, layer: 'near' },
+      ]
+    : [
+        // Far atmospheric mountain range
+        { xRatio: 0.12, halfWidthRatio: 0.13, heightRatio: 0.44, snowDepth: 0.30, layer: 'far' },
+        { xRatio: 0.31, halfWidthRatio: 0.12, heightRatio: 0.38, snowDepth: 0.26, layer: 'far' },
+        { xRatio: 0.50, halfWidthRatio: 0.10, heightRatio: 0.22, snowDepth: 0.14, layer: 'far' }, // Low misty notch behind statue
+        { xRatio: 0.69, halfWidthRatio: 0.13, heightRatio: 0.40, snowDepth: 0.28, layer: 'far' },
+        { xRatio: 0.88, halfWidthRatio: 0.14, heightRatio: 0.46, snowDepth: 0.32, layer: 'far' },
+        // Near lush alpine range
+        { xRatio: 0.04, halfWidthRatio: 0.12, heightRatio: 0.34, snowDepth: 0.22, layer: 'near' },
+        { xRatio: 0.22, halfWidthRatio: 0.14, heightRatio: 0.46, snowDepth: 0.32, layer: 'near' },
+        { xRatio: 0.36, halfWidthRatio: 0.10, heightRatio: 0.28, snowDepth: 0.18, layer: 'near' },
+        { xRatio: 0.62, halfWidthRatio: 0.10, heightRatio: 0.30, snowDepth: 0.20, layer: 'near' },
+        { xRatio: 0.79, halfWidthRatio: 0.15, heightRatio: 0.48, snowDepth: 0.34, layer: 'near' },
+        { xRatio: 0.96, halfWidthRatio: 0.12, heightRatio: 0.34, snowDepth: 0.22, layer: 'near' },
+      ];
 
-  // Clamp peak width on narrow mobile screens so summits stay crisp & iconic
-  const minHalfW = Math.max(42, width * 0.08);
+  const minHalfW = Math.max(26, width * (isCompactMobile ? 0.085 : 0.075));
+  const maxPeakHeight = Math.max(18, baseY - height * 0.2);
 
   peaks.forEach((p) => {
     const cx = p.xRatio * width;
     const hw = Math.max(minHalfW, p.halfWidthRatio * width);
-    const peakH = Math.min(baseY - 6, p.heightRatio * height);
+    const peakH = Math.min(maxPeakHeight, p.heightRatio * height * (0.8 + sceneScale * 0.2));
     const topY = baseY - peakH;
     const leftX = cx - hw;
     const rightX = cx + hw;
     const isFar = p.layer === 'far';
 
-    // Define crisp alpine mountain silhouette with sharp summit apex
     const tracePeakPath = () => {
       ctx.beginPath();
       ctx.moveTo(leftX, baseY + 2);
-      ctx.lineTo(cx - hw * 0.04, topY + peakH * 0.03);
-      ctx.quadraticCurveTo(cx, topY - 1, cx + hw * 0.04, topY + peakH * 0.03);
+      ctx.lineTo(cx - hw * 0.06, topY + peakH * 0.04);
+      ctx.quadraticCurveTo(cx, topY - 1, cx + hw * 0.06, topY + peakH * 0.04);
       ctx.lineTo(rightX, baseY + 2);
       ctx.closePath();
     };
@@ -67,7 +86,7 @@ function drawAlpineMountains(
     ctx.save();
     tracePeakPath();
 
-    // 1) Base sunlit mountain gradient (sunlight from upper-right)
+    // 1) Base sunlit mountain gradient
     const bodyGrad = ctx.createLinearGradient(cx, topY, cx, baseY);
     if (isFar) {
       bodyGrad.addColorStop(0, '#4E8F85');
@@ -81,59 +100,57 @@ function drawAlpineMountains(
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // Clip all ridge shading & snow strictly inside the mountain silhouette
+    // Clip ridge shading & snow strictly inside silhouette
     ctx.clip();
 
-    // 2) Shaded left facet split down a gently curved central ridge line
+    // 2) Shaded left facet
     const ridgeOffset = hw * 0.06;
     ctx.beginPath();
     ctx.moveTo(cx, topY - 2);
     ctx.quadraticCurveTo(cx - ridgeOffset, topY + peakH * 0.45, cx + ridgeOffset * 0.8, baseY + 2);
     ctx.lineTo(leftX - 4, baseY + 2);
     ctx.closePath();
-    ctx.fillStyle = isFar ? 'rgba(20, 62, 74, 0.32)' : 'rgba(12, 48, 38, 0.34)';
+    ctx.fillStyle = isFar ? 'rgba(20, 62, 74, 0.30)' : 'rgba(12, 48, 38, 0.34)';
     ctx.fill();
 
-    // 3) Organic draped snowcap (never flat sawtooth teeth)
+    // 3) Draped snowcap with cool ice tint so it stays legible against white clouds
     const snowY = topY + peakH * p.snowDepth;
-    const snowSpan = hw * (p.snowDepth + 0.12);
+    const snowSpan = hw * (p.snowDepth + 0.14);
 
     ctx.beginPath();
     ctx.moveTo(cx - snowSpan, topY - 4);
     ctx.lineTo(cx + snowSpan, topY - 4);
     ctx.lineTo(cx + snowSpan, snowY + 2);
-    // Natural draped snowline with 3 smooth asymmetrical lobes
     ctx.bezierCurveTo(
-      cx + snowSpan * 0.58, snowY - 5,
-      cx + snowSpan * 0.34, snowY + 8,
+      cx + snowSpan * 0.58, snowY - 4,
+      cx + snowSpan * 0.34, snowY + 6,
       cx + snowSpan * 0.08, snowY + 1
     );
     ctx.bezierCurveTo(
-      cx - snowSpan * 0.14, snowY - 4,
-      cx - snowSpan * 0.42, snowY + 7,
+      cx - snowSpan * 0.14, snowY - 3,
+      cx - snowSpan * 0.42, snowY + 5,
       cx - snowSpan, snowY - 1
     );
     ctx.closePath();
 
-    // Sunlit warm-white snow fill
     const snowGrad = ctx.createLinearGradient(cx, topY, cx, snowY + 6);
-    snowGrad.addColorStop(0, '#FFFFFF');
-    snowGrad.addColorStop(0.75, '#F0F9FF');
-    snowGrad.addColorStop(1, '#D8F1FF');
+    snowGrad.addColorStop(0, '#F8FDFF');
+    snowGrad.addColorStop(0.7, '#E0F2FE');
+    snowGrad.addColorStop(1, '#BAE6FD');
     ctx.fillStyle = snowGrad;
     ctx.fill();
 
-    // Cool glacial blue-ice shadow on the left half of the snowcap (keeps it visible against white clouds!)
+    // Cool glacial shadow on left half of snowcap
     ctx.beginPath();
     ctx.moveTo(cx, topY - 2);
-    ctx.quadraticCurveTo(cx - ridgeOffset * 0.7, topY + peakH * 0.22, cx + ridgeOffset * 0.2, snowY + 10);
-    ctx.lineTo(cx - snowSpan, snowY + 10);
+    ctx.quadraticCurveTo(cx - ridgeOffset * 0.7, topY + peakH * 0.22, cx + ridgeOffset * 0.2, snowY + 8);
+    ctx.lineTo(cx - snowSpan, snowY + 8);
     ctx.lineTo(cx - snowSpan, topY - 4);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(125, 211, 252, 0.42)';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.34)';
     ctx.fill();
 
-    // 4) Soft atmospheric base mist right above the river bank
+    // 4) Soft atmospheric base mist
     const mistGrad = ctx.createLinearGradient(0, baseY - peakH * 0.24, 0, baseY);
     mistGrad.addColorStop(0, 'rgba(224, 247, 255, 0)');
     mistGrad.addColorStop(1, isFar ? 'rgba(186, 230, 253, 0.28)' : 'rgba(186, 230, 253, 0.14)');
@@ -142,11 +159,11 @@ function drawAlpineMountains(
 
     ctx.restore();
 
-    // 5) Crisp subtle glacial rim outline along the upper summit so snow pops over white clouds
+    // 5) Crisp alpine rim outline for contrast over light skies/clouds
     ctx.save();
     tracePeakPath();
-    ctx.strokeStyle = isFar ? 'rgba(125, 211, 252, 0.55)' : 'rgba(96, 165, 250, 0.52)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = isFar ? 'rgba(14, 116, 144, 0.28)' : 'rgba(15, 118, 110, 0.34)';
+    ctx.lineWidth = 0.85;
     ctx.stroke();
     ctx.restore();
   });
@@ -175,7 +192,6 @@ export function MiniatureGardenPlayground({
   const pausedRef = useRef(isPaused);
   const resumeLoopRef = useRef<(() => void) | null>(null);
 
-  // Sync external/internal pause state without resetting the simulation
   useEffect(() => {
     pausedRef.current = isPaused;
     if (!isPaused) {
@@ -183,7 +199,6 @@ export function MiniatureGardenPlayground({
     }
   }, [isPaused]);
 
-  // Respect prefers-reduced-motion only when uncontrolled
   useEffect(() => {
     if (externalPaused !== undefined) return;
     if (
@@ -204,7 +219,6 @@ export function MiniatureGardenPlayground({
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
-    // Offscreen static scenery cache (rebuilt only on resize)
     const staticCanvas = document.createElement('canvas');
     const staticCtx = staticCanvas.getContext('2d', { alpha: true });
 
@@ -213,39 +227,46 @@ export function MiniatureGardenPlayground({
     let isVisible = true;
     let isDocVisible = typeof document !== 'undefined' ? !document.hidden : true;
     let lastTimestamp = 0;
-    let time = 0; // Normalized 60fps-equivalent tick clock
+    let time = 0;
 
     let width = 0;
     let height = 0;
     let dpr = 1;
+    let sceneScale = 1;
 
-    // Interactive wind gust & mango tree shake
     let windGust = 0;
     let treeShake = 0;
 
-    // Rolling hill elevation formula
+    // Gentle foreground meadow hill leaving a crisp, visible turquoise river strip behind it
     const getGroundY = (x: number, w: number, h: number) => {
       const normalizedX = Math.max(0, Math.min(1, x / (w || 1)));
-      const arch = Math.sin(normalizedX * Math.PI) * (h * 0.12);
-      return h * 0.90 - arch;
+      const arch = Math.sin(normalizedX * Math.PI) * (h * 0.085);
+      return h * 0.91 - arch;
     };
 
-    // Soccer Goal Dimensions (scaled so goalie stands cleanly inside the net under crossbar)
+    // Height-safe mango tree geometry so the canopy NEVER clips at the top edge
+    const getMangoTreeMetrics = (w: number, h: number, scale: number) => {
+      const x = w * mangoTree.xRatio;
+      const groundY = getGroundY(x, w, h);
+      const trunkH = Math.min(h * 0.35, 42 * scale);
+      const canopyR = Math.min(h * 0.14, 14.5 * scale);
+      const sideR = canopyR * 0.74;
+      const canopyCenterY = Math.max(canopyR + 4, groundY - trunkH - canopyR * 0.45);
+      return { x, groundY, trunkH, canopyR, sideR, canopyCenterY };
+    };
+
     const goal = {
-      mouthX: 44,
-      backX: 14,
-      height: 38,
+      mouthX: 36,
+      backX: 10,
+      height: 30,
       netBulge: 0,
       netBulgeVel: 0,
     };
 
-    // Goal event tracking
     let goalState: 'play' | 'celebrating' = 'play';
-    let passCount = 0;
     let goalTimer = 0;
     let scorerId: number | null = null;
 
-    // ─── Hopscotch & Beanbag Toss Game State ───
     let hopscotchTimer = 0;
     const beanbag = {
       x: 0,
@@ -253,7 +274,6 @@ export function MiniatureGardenPlayground({
       visible: true,
     };
 
-    // ─── River Jumping Fish & Splash Ripples State ───
     interface RiverFish {
       baseRatio: number;
       curX: number;
@@ -272,49 +292,19 @@ export function MiniatureGardenPlayground({
 
     const riverFish: RiverFish[] = [
       {
-        baseRatio: 0.22,
-        curX: 0,
-        curY: 0,
-        facing: 1,
-        state: 'underwater',
-        timer: 45,
-        leapDuration: 34,
-        leapProgress: 0,
-        startX: 0,
-        targetX: 0,
-        apexHeight: 11,
-        color: '#f97316',
-        bellyColor: '#fef08a',
+        baseRatio: 0.20, curX: 0, curY: 0, facing: 1, state: 'underwater',
+        timer: 45, leapDuration: 34, leapProgress: 0, startX: 0, targetX: 0,
+        apexHeight: 9, color: '#f97316', bellyColor: '#fef08a',
       },
       {
-        baseRatio: 0.65,
-        curX: 0,
-        curY: 0,
-        facing: -1,
-        state: 'underwater',
-        timer: 155,
-        leapDuration: 36,
-        leapProgress: 0,
-        startX: 0,
-        targetX: 0,
-        apexHeight: 13,
-        color: '#fb923c',
-        bellyColor: '#ffffff',
+        baseRatio: 0.69, curX: 0, curY: 0, facing: -1, state: 'underwater',
+        timer: 155, leapDuration: 36, leapProgress: 0, startX: 0, targetX: 0,
+        apexHeight: 10, color: '#fb923c', bellyColor: '#ffffff',
       },
       {
-        baseRatio: 0.88,
-        curX: 0,
-        curY: 0,
-        facing: 1,
-        state: 'underwater',
-        timer: 265,
-        leapDuration: 32,
-        leapProgress: 0,
-        startX: 0,
-        targetX: 0,
-        apexHeight: 10,
-        color: '#0284c7',
-        bellyColor: '#e0f2fe',
+        baseRatio: 0.86, curX: 0, curY: 0, facing: 1, state: 'underwater',
+        timer: 265, leapDuration: 32, leapProgress: 0, startX: 0, targetX: 0,
+        apexHeight: 8, color: '#0284c7', bellyColor: '#e0f2fe',
       },
     ];
 
@@ -337,7 +327,6 @@ export function MiniatureGardenPlayground({
     }
     const riverDroplets: RiverDroplet[] = [];
 
-    // Capped particle list for zero-stutter GC on mid-range Android
     const MAX_PARTICLES = 48;
     const celebrationParticles: Array<{
       x: number;
@@ -364,25 +353,18 @@ export function MiniatureGardenPlayground({
         celebrationParticles.shift();
       }
       celebrationParticles.push({
-        x,
-        y,
-        vx,
-        vy,
-        size,
-        color,
-        life,
+        x, y, vx, vy, size, color, life,
         rot: Math.random() * Math.PI * 2,
         vrot: (Math.random() - 0.5) * 0.25,
       });
     };
 
-    // Interactive Soccer Ball with squash & stretch
     const ball = {
       x: 0,
       y: 0,
       vx: 0,
       vy: 0,
-      radius: 5.2,
+      radius: 4.5,
       rotation: 0,
       rotSpeed: 0,
       bounciness: 0.54,
@@ -394,30 +376,28 @@ export function MiniatureGardenPlayground({
       scaleY: 1,
     };
 
-    // Mango Tree state
+    // Mango tree positioned cleanly between soccer pitch and butterfly girl
     const mangoTree = {
-      xRatio: 0.24,
+      xRatio: 0.325,
       mangoes: [
-        { id: 1, relX: -10, relY: -64, isFalling: false, curY: 0, vy: 0 },
-        { id: 2, relX: 8, relY: -60, isFalling: false, curY: 0, vy: 0 },
-        { id: 3, relX: -2, relY: -74, isFalling: false, curY: 0, vy: 0 },
+        { id: 1, normX: -0.58, normY: 0.15, isFalling: false, curY: 0, vy: 0 },
+        { id: 2, normX: 0.52, normY: 0.25, isFalling: false, curY: 0, vy: 0 },
+        { id: 3, normX: -0.05, normY: -0.35, isFalling: false, curY: 0, vy: 0 },
       ],
       slingshotPebble: { active: false, x: 0, y: 0, vx: 0, vy: 0, targetMangoId: 1 },
       basketMangoCount: 2,
     };
 
-    // Width-relative Butterflies (always visible on 360px phones)
     const butterflies = [
-      { ratioX: 0.22, x: 0, y: 26, vx: 0.45, vy: 0, wingAngle: 0, wingSpeed: 0.28, color: '#f43f5e', size: 2.9 },
-      { ratioX: 0.42, x: 0, y: 22, vx: -0.4, vy: 0, wingAngle: 1.2, wingSpeed: 0.31, color: '#0ea5e9', size: 3.0 },
-      { ratioX: 0.82, x: 0, y: 30, vx: 0.4, vy: 0, wingAngle: 2.1, wingSpeed: 0.26, color: '#f59e0b', size: 2.8 },
+      { ratioX: 0.18, x: 0, y: 20, vx: 0.42, vy: 0, wingAngle: 0, wingSpeed: 0.28, color: '#f43f5e', size: 2.5 },
+      { ratioX: 0.43, x: 0, y: 24, vx: -0.38, vy: 0, wingAngle: 1.2, wingSpeed: 0.31, color: '#0ea5e9', size: 2.7 },
+      { ratioX: 0.84, x: 0, y: 22, vx: 0.36, vy: 0, wingAngle: 2.1, wingSpeed: 0.26, color: '#f59e0b', size: 2.5 },
     ];
 
-    // Width-relative Clouds (only drawn if sky is not transparent, or ultra-soft wisps)
     const clouds = [
-      { ratioX: 0.16, x: 0, y: 16, speed: 0.14, scale: 0.72, opacity: 0.65 },
-      { ratioX: 0.54, x: 0, y: 12, speed: 0.11, scale: 0.85, opacity: 0.72 },
-      { ratioX: 0.86, x: 0, y: 18, speed: 0.16, scale: 0.66, opacity: 0.6 },
+      { ratioX: 0.16, x: 0, y: 14, speed: 0.14, scale: 0.72, opacity: 0.65 },
+      { ratioX: 0.54, x: 0, y: 10, speed: 0.11, scale: 0.85, opacity: 0.72 },
+      { ratioX: 0.86, x: 0, y: 15, speed: 0.16, scale: 0.66, opacity: 0.6 },
     ];
 
     interface PlayingChild {
@@ -430,12 +410,10 @@ export function MiniatureGardenPlayground({
         | 'soccer-striker'
         | 'slingshot-hunter'
         | 'soccer-midfield'
-        | 'soccer-passer'
         | 'soccer-goalie'
         | 'butterfly-catcher'
         | 'bicycle-rider'
-        | 'kite-flyer'
-        | 'cheerer';
+        | 'hopscotch-player';
       facing: 1 | -1;
       hairColor: string;
       hairStyle:
@@ -464,7 +442,7 @@ export function MiniatureGardenPlayground({
 
     const children: PlayingChild[] = [
       {
-        id: 8, baseRatioX: 0.12, curX: 0, yOffset: 0, vy: 0,
+        id: 8, baseRatioX: 0.105, curX: 0, yOffset: 0, vy: 0,
         activity: 'soccer-goalie', facing: 1,
         hairColor: '#1e293b', hairStyle: 'beanie',
         shirtColor: '#22c55e', pantsColor: '#0f172a', skinColor: '#fde68a',
@@ -472,7 +450,7 @@ export function MiniatureGardenPlayground({
         kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
       {
-        id: 1, baseRatioX: 0.18, curX: 0, yOffset: 0, vy: 0,
+        id: 1, baseRatioX: 0.175, curX: 0, yOffset: 0, vy: 0,
         activity: 'soccer-striker', facing: 1,
         hairColor: '#b45309', hairStyle: 'short-brown',
         shirtColor: '#0284c7', pantsColor: '#1e293b', skinColor: '#fde68a',
@@ -480,7 +458,15 @@ export function MiniatureGardenPlayground({
         kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'hunt-ball',
       },
       {
-        id: 2, baseRatioX: 0.28, curX: 0, yOffset: 0, vy: 0,
+        id: 3, baseRatioX: 0.255, curX: 0, yOffset: 0, vy: 0,
+        activity: 'soccer-midfield', facing: -1,
+        hairColor: '#1e293b', hairStyle: 'spiky-black',
+        shirtColor: '#f59e0b', pantsColor: '#1e3a8a', skinColor: '#fde68a',
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
+      },
+      {
+        id: 2, baseRatioX: 0.36, curX: 0, yOffset: 0, vy: 0,
         activity: 'slingshot-hunter', facing: -1,
         hairColor: '#7c2d12', hairStyle: 'beanie',
         shirtColor: '#ea580c', pantsColor: '#15803d', skinColor: '#fef3c7',
@@ -488,15 +474,7 @@ export function MiniatureGardenPlayground({
         kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
       {
-        id: 3, baseRatioX: 0.33, curX: 0, yOffset: 0, vy: 0,
-        activity: 'soccer-midfield', facing: 1,
-        hairColor: '#334155', hairStyle: 'spiky-black',
-        shirtColor: '#f59e0b', pantsColor: '#1e3a8a', skinColor: '#fde68a',
-        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
-        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
-      },
-      {
-        id: 4, baseRatioX: 0.42, curX: 0, yOffset: 0, vy: 0,
+        id: 4, baseRatioX: 0.43, curX: 0, yOffset: 0, vy: 0,
         activity: 'butterfly-catcher', facing: 1,
         hairColor: '#facc15', hairStyle: 'blonde-bob',
         shirtColor: '#ec4899', pantsColor: '#ec4899', skinColor: '#fef3c7',
@@ -505,7 +483,7 @@ export function MiniatureGardenPlayground({
         kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
       {
-        id: 5, baseRatioX: 0.69, curX: 0, yOffset: 0, vy: 0,
+        id: 5, baseRatioX: 0.65, curX: 0, yOffset: 0, vy: 0,
         activity: 'bicycle-rider', facing: 1,
         hairColor: '#ea580c', hairStyle: 'ponytail-red',
         shirtColor: '#10b981', pantsColor: '#047857', skinColor: '#fde68a',
@@ -513,8 +491,8 @@ export function MiniatureGardenPlayground({
         kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
       {
-        id: 6, baseRatioX: 0.855, curX: 0, yOffset: 0, vy: 0,
-        activity: 'cheerer', facing: 1,
+        id: 6, baseRatioX: 0.82, curX: 0, yOffset: 0, vy: 0,
+        activity: 'hopscotch-player', facing: 1,
         hairColor: '#ea580c', hairStyle: 'orange-pigtails',
         shirtColor: '#3b82f6', pantsColor: '#3b82f6', skinColor: '#fef3c7',
         hasDress: true,
@@ -523,7 +501,7 @@ export function MiniatureGardenPlayground({
       },
       {
         id: 7, baseRatioX: 0.94, curX: 0, yOffset: 0, vy: 0,
-        activity: 'cheerer', facing: -1,
+        activity: 'hopscotch-player', facing: -1,
         hairColor: '#451a03', hairStyle: 'curly-brown',
         shirtColor: '#a855f7', pantsColor: '#a855f7', skinColor: '#fde047',
         hasDress: true,
@@ -533,16 +511,35 @@ export function MiniatureGardenPlayground({
     ];
 
     const flowers = [
-      { ratioX: 0.08, color: '#f43f5e', size: 2.5, sway: 0.0 },
-      { ratioX: 0.19, color: '#a855f7', size: 2.3, sway: 1.2 },
-      { ratioX: 0.34, color: '#38bdf8', size: 2.6, sway: 2.4 },
-      { ratioX: 0.49, color: '#f59e0b', size: 2.4, sway: 0.8 },
-      { ratioX: 0.64, color: '#ec4899', size: 2.8, sway: 3.1 },
-      { ratioX: 0.78, color: '#f97316', size: 2.5, sway: 1.7 },
-      { ratioX: 0.91, color: '#a855f7', size: 2.5, sway: 2.1 },
+      { ratioX: 0.13, color: '#f43f5e', size: 2.1, sway: 0.0 },
+      { ratioX: 0.28, color: '#a855f7', size: 2.0, sway: 1.2 },
+      { ratioX: 0.39, color: '#38bdf8', size: 2.2, sway: 2.4 },
+      { ratioX: 0.53, color: '#f59e0b', size: 2.1, sway: 0.8 },
+      { ratioX: 0.62, color: '#ec4899', size: 2.2, sway: 3.1 },
+      { ratioX: 0.78, color: '#f97316', size: 2.1, sway: 1.7 },
+      { ratioX: 0.88, color: '#a855f7', size: 2.0, sway: 2.1 },
     ];
 
-    // ─── Pre-render static scenery onto offscreen canvas (huge mobile FPS win) ──
+    const getHopscotchBounds = (w: number) => {
+      const rightEdge = w - 13;
+      const c7BaseX = Math.min(rightEdge, w * 0.945);
+      const c6BaseX = Math.max(w * 0.79, Math.min(c7BaseX - 32, w * 0.82));
+      const span = Math.max(22, Math.min(48, c7BaseX - c6BaseX - 8));
+      const centerX = (c6BaseX + c7BaseX) * 0.5;
+      const leftX = centerX - span * 0.5;
+      const rightX = centerX + span * 0.5;
+      const sqW = span / 3;
+      return {
+        c6HomeX: Math.max(w * 0.785, leftX - 4),
+        c7HomeX: Math.min(rightEdge, rightX + 4),
+        leftX,
+        sqW,
+        sq1X: leftX + sqW * 0.5,
+        sq2X: leftX + sqW * 1.5,
+        sq3X: leftX + sqW * 2.5,
+      };
+    };
+
     const rebuildStaticLayer = () => {
       if (!staticCtx || width <= 0 || height <= 0) return;
 
@@ -551,7 +548,6 @@ export function MiniatureGardenPlayground({
       staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       staticCtx.clearRect(0, 0, width, height);
 
-      // Only paint the pale-mint box sky when NOT embedded in the cosmic dashboard
       if (!transparentSky) {
         const skyGrad = staticCtx.createLinearGradient(0, 0, 0, height);
         skyGrad.addColorStop(0, 'rgba(238, 248, 255, 0.95)');
@@ -561,164 +557,127 @@ export function MiniatureGardenPlayground({
         staticCtx.fillRect(0, 0, width, height);
       }
 
-      // 1) Layered Alpine Mountain Ranges with Clipped Two-Tone Snowcaps
-      const riverFarShoreY = height * 0.74;
-      drawAlpineMountains(staticCtx, width, height, riverFarShoreY);
+      // 1) Layered Alpine Mountain Ranges
+      const riverFarShoreY = height * 0.68;
+      drawAlpineMountains(staticCtx, width, height, riverFarShoreY, sceneScale);
 
-      // 3) Mid-Ground Turquoise River (flowing behind foreground meadow)
-      const riverTopY = height * 0.70;
+      // 2) Mid-Ground Turquoise River (generous band visible above meadow hill)
+      const riverTopY = height * 0.67;
       staticCtx.beginPath();
       staticCtx.moveTo(0, height);
       for (let i = 0; i <= 32; i++) {
         const px = (i / 32) * width;
-        staticCtx.lineTo(px, riverTopY + Math.sin(i * 0.4) * 1.5);
+        staticCtx.lineTo(px, riverTopY + Math.sin(i * 0.4) * 1.2);
       }
       staticCtx.lineTo(width, height);
       staticCtx.closePath();
+
       const riverGrad = staticCtx.createLinearGradient(0, riverTopY, 0, height * 0.88);
       riverGrad.addColorStop(0, '#38bdf8');
-      riverGrad.addColorStop(0.5, '#0ea5e9');
+      riverGrad.addColorStop(0.45, '#0ea5e9');
       riverGrad.addColorStop(1, '#0284c7');
       staticCtx.fillStyle = riverGrad;
       staticCtx.fill();
 
-      // River flow streaks / soft water ribbons
-      staticCtx.strokeStyle = 'rgba(224, 242, 254, 0.55)';
-      staticCtx.lineWidth = 1.0;
+      // Far shoreline highlight
+      staticCtx.strokeStyle = 'rgba(224, 242, 254, 0.6)';
+      staticCtx.lineWidth = 0.95;
       staticCtx.beginPath();
-      staticCtx.moveTo(width * 0.15, riverTopY + 2.5);
-      staticCtx.lineTo(width * 0.35, riverTopY + 2.0);
-      staticCtx.moveTo(width * 0.52, riverTopY + 3.0);
-      staticCtx.lineTo(width * 0.75, riverTopY + 2.2);
+      staticCtx.moveTo(width * 0.08, riverTopY + 2.2);
+      staticCtx.lineTo(width * 0.34, riverTopY + 1.8);
+      staticCtx.moveTo(width * 0.56, riverTopY + 2.4);
+      staticCtx.lineTo(width * 0.86, riverTopY + 2.0);
       staticCtx.stroke();
 
-      // 4) Rocky Cliff & Wet Stone Framing the Waterfall in Center Gap
+      // 3) Rocky Cliff Framing Waterfall in Center Gap
       const cliffL = width * 0.485;
       const cliffR = width * 0.515;
-      const cliffTopY = height * 0.58;
-      const cliffBaseY = height * 0.73;
+      const cliffTopY = height * 0.55;
+      const cliffBaseY = height * 0.71;
+      const rockW = Math.max(5.0, Math.min(8.0, width * 0.013));
 
-      // Left framing rocks
+      // Left rock cliff
       staticCtx.fillStyle = '#334155';
       staticCtx.strokeStyle = '#1e293b';
-      staticCtx.lineWidth = 1.1;
+      staticCtx.lineWidth = 0.9;
       staticCtx.beginPath();
       if (typeof staticCtx.roundRect === 'function') {
-        staticCtx.roundRect(cliffL - 8, cliffTopY, 8, cliffBaseY - cliffTopY + 2, [3, 1, 1, 3]);
+        staticCtx.roundRect(cliffL - rockW, cliffTopY, rockW, cliffBaseY - cliffTopY + 2, [3, 1, 1, 3]);
       } else {
-        staticCtx.rect(cliffL - 8, cliffTopY, 8, cliffBaseY - cliffTopY + 2);
+        staticCtx.rect(cliffL - rockW, cliffTopY, rockW, cliffBaseY - cliffTopY + 2);
       }
       staticCtx.fill();
       staticCtx.stroke();
-      // Left rock moss highlight
       staticCtx.fillStyle = '#166534';
-      staticCtx.fillRect(cliffL - 8, cliffTopY, 8, 2.5);
+      staticCtx.fillRect(cliffL - rockW, cliffTopY, rockW, 2.0);
 
-      // Right framing rocks
+      // Right rock cliff
       staticCtx.fillStyle = '#334155';
-      staticCtx.strokeStyle = '#1e293b';
       staticCtx.beginPath();
       if (typeof staticCtx.roundRect === 'function') {
-        staticCtx.roundRect(cliffR, cliffTopY, 8, cliffBaseY - cliffTopY + 2, [1, 3, 3, 1]);
+        staticCtx.roundRect(cliffR, cliffTopY, rockW, cliffBaseY - cliffTopY + 2, [1, 3, 3, 1]);
       } else {
-        staticCtx.rect(cliffR, cliffTopY, 8, cliffBaseY - cliffTopY + 2);
+        staticCtx.rect(cliffR, cliffTopY, rockW, cliffBaseY - cliffTopY + 2);
       }
       staticCtx.fill();
       staticCtx.stroke();
-      // Right rock moss highlight
       staticCtx.fillStyle = '#166534';
-      staticCtx.fillRect(cliffR, cliffTopY, 8, 2.5);
+      staticCtx.fillRect(cliffR, cliffTopY, rockW, 2.0);
 
-      // Base rocky pool boulders
       staticCtx.fillStyle = '#1e293b';
       staticCtx.beginPath();
-      staticCtx.ellipse(cliffL - 2, cliffBaseY + 1, 4.5, 2.5, 0, 0, Math.PI * 2);
-      staticCtx.ellipse(cliffR + 2, cliffBaseY + 1, 4.5, 2.5, 0, 0, Math.PI * 2);
+      staticCtx.ellipse(cliffL - 2, cliffBaseY + 1, 3.6, 2.0, 0, 0, Math.PI * 2);
+      staticCtx.ellipse(cliffR + 2, cliffBaseY + 1, 3.6, 2.0, 0, 0, Math.PI * 2);
       staticCtx.fill();
 
-      // 4b) Small Respectful Comic-Vector Statue of Prophet Abraham on Mossy Plinth
-      drawAbrahamStatueAboveWaterfall(staticCtx, {
-        waterfallCenterX: (cliffL + cliffR) / 2,
-        waterfallTopY: cliffTopY,
-        waterfallWidth: cliffR - cliffL,
-        scale: 1,
-      });
-
-      // 3) Static trunks, basket & school building
-      const tree1X = width * mangoTree.xRatio;
-      const tree1GroundY = getGroundY(tree1X, width, height);
-
-      // Tree 1 trunk (canopy drawn live so it gently sways & shakes on tap - grand tall fruit tree)
-      staticCtx.strokeStyle = '#78350f';
-      staticCtx.lineWidth = 4.2;
-      staticCtx.lineCap = 'round';
-      staticCtx.beginPath();
-      staticCtx.moveTo(tree1X, tree1GroundY);
-      staticCtx.lineTo(tree1X - 2.5, tree1GroundY - 56);
-      staticCtx.stroke();
-
-      // Wicker fruit basket
-      const basketX = tree1X + 8;
-      const basketY = tree1GroundY - 1;
-      staticCtx.fillStyle = '#b45309';
-      staticCtx.strokeStyle = '#78350f';
-      staticCtx.lineWidth = 1.1;
-      staticCtx.beginPath();
-      staticCtx.moveTo(basketX - 5, basketY);
-      staticCtx.lineTo(basketX - 4, basketY - 5);
-      staticCtx.lineTo(basketX + 4, basketY - 5);
-      staticCtx.lineTo(basketX + 5, basketY);
-      staticCtx.closePath();
-      staticCtx.fill();
-      staticCtx.stroke();
-      staticCtx.fillStyle = '#f59e0b';
-      staticCtx.beginPath();
-      staticCtx.arc(basketX - 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
-      staticCtx.arc(basketX + 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
-      staticCtx.fill();
-
-      // Tree 2 (Shade Tree)
-      const tree2X = width * 0.61;
+      // 4) Background Shade Tree & School Building (drawn behind foreground hill for depth)
+      const tree2X = width * 0.565;
       const tree2GroundY = getGroundY(tree2X, width, height);
+      const shadeH = Math.min(height * 0.2, 19 * sceneScale);
+      const shadeR = Math.min(height * 0.09, 8.5 * sceneScale);
+
       staticCtx.strokeStyle = '#854d0e';
-      staticCtx.lineWidth = 2.8;
+      staticCtx.lineWidth = Math.max(2, 2.4 * sceneScale);
       staticCtx.beginPath();
       staticCtx.moveTo(tree2X, tree2GroundY);
-      staticCtx.lineTo(tree2X - 2, tree2GroundY - 22);
+      staticCtx.lineTo(tree2X - 1, tree2GroundY - shadeH);
       staticCtx.stroke();
+
       staticCtx.fillStyle = '#86efac';
       staticCtx.strokeStyle = '#10b981';
-      staticCtx.lineWidth = 1.3;
+      staticCtx.lineWidth = 1.1;
       staticCtx.beginPath();
-      staticCtx.arc(tree2X, tree2GroundY - 30, 10, 0, Math.PI * 2);
-      staticCtx.arc(tree2X - 5, tree2GroundY - 25, 7, 0, Math.PI * 2);
-      staticCtx.arc(tree2X + 5, tree2GroundY - 25, 7, 0, Math.PI * 2);
+      staticCtx.arc(tree2X, tree2GroundY - shadeH - shadeR * 0.55, shadeR, 0, Math.PI * 2);
       staticCtx.fill();
       staticCtx.stroke();
 
-      // School Building (flag drawn live so it ripples with wind)
-      const schoolX = width * 0.77;
+      // School Building (tucked neatly at 0.755)
+      const schoolX = width * 0.755;
       const schoolGroundY = getGroundY(schoolX, width, height);
-      staticCtx.fillStyle = '#f5f5f4';
-      staticCtx.strokeStyle = '#57534e';
-      staticCtx.lineWidth = 1.25;
-      staticCtx.fillRect(schoolX - 11, schoolGroundY - 20, 22, 20);
-      staticCtx.strokeRect(schoolX - 11, schoolGroundY - 20, 22, 20);
-      // Warm little doorway + window
-      staticCtx.fillStyle = '#d6d3d1';
-      staticCtx.fillRect(schoolX - 2.5, schoolGroundY - 8, 5, 8);
+      const sw = 17 * (0.78 + sceneScale * 0.22);
+      const sh = 14.5 * (0.78 + sceneScale * 0.22);
+      staticCtx.fillStyle = '#f8fafc';
+      staticCtx.strokeStyle = '#64748b';
+      staticCtx.lineWidth = 1.0;
+      staticCtx.fillRect(schoolX - sw * 0.5, schoolGroundY - sh, sw, sh);
+      staticCtx.strokeRect(schoolX - sw * 0.5, schoolGroundY - sh, sw, sh);
+
+      // Tiny school door & windows
+      staticCtx.fillStyle = '#94a3b8';
+      staticCtx.fillRect(schoolX - 1.8, schoolGroundY - sh * 0.45, 3.6, sh * 0.45);
       staticCtx.fillStyle = '#bae6fd';
-      staticCtx.fillRect(schoolX + 4, schoolGroundY - 15, 4, 4);
-      staticCtx.fillRect(schoolX - 8, schoolGroundY - 15, 4, 4);
+      staticCtx.fillRect(schoolX - sw * 0.36, schoolGroundY - sh * 0.76, 3, 3);
+      staticCtx.fillRect(schoolX + sw * 0.36 - 3, schoolGroundY - sh * 0.76, 3, 3);
+
       // Flagpole
-      staticCtx.strokeStyle = '#78716c';
-      staticCtx.lineWidth = 1.2;
+      staticCtx.strokeStyle = '#64748b';
+      staticCtx.lineWidth = 1.0;
       staticCtx.beginPath();
-      staticCtx.moveTo(schoolX - 5, schoolGroundY - 20);
-      staticCtx.lineTo(schoolX - 5, schoolGroundY - 32);
+      staticCtx.moveTo(schoolX - 2, schoolGroundY - sh);
+      staticCtx.lineTo(schoolX - 2, schoolGroundY - sh - 8.5 * sceneScale);
       staticCtx.stroke();
 
-      // 4) Foreground Rolling Sunlit Meadow Hill
+      // 5) Foreground Rolling Sunlit Meadow Hill
       staticCtx.beginPath();
       staticCtx.moveTo(0, height);
       for (let i = 0; i <= 44; i++) {
@@ -728,7 +687,7 @@ export function MiniatureGardenPlayground({
       staticCtx.lineTo(width, height);
       staticCtx.closePath();
 
-      const hillGrad = staticCtx.createLinearGradient(0, height * 0.7, 0, height);
+      const hillGrad = staticCtx.createLinearGradient(0, height * 0.75, 0, height);
       hillGrad.addColorStop(0, '#bef264');
       hillGrad.addColorStop(0.28, '#84cc16');
       hillGrad.addColorStop(0.72, '#65a30d');
@@ -736,55 +695,56 @@ export function MiniatureGardenPlayground({
       staticCtx.fillStyle = hillGrad;
       staticCtx.fill();
 
-      // Sunlit rim highlight along hill crest
-      staticCtx.strokeStyle = 'rgba(236, 252, 203, 0.75)';
-      staticCtx.lineWidth = 1.6;
+      staticCtx.strokeStyle = 'rgba(236, 252, 203, 0.78)';
+      staticCtx.lineWidth = 1.3;
       staticCtx.beginPath();
       for (let i = 0; i <= 44; i++) {
         const px = (i / 44) * width;
-        const py = getGroundY(px, width, height) + 0.6;
+        const py = getGroundY(px, width, height) + 0.5;
         if (i === 0) staticCtx.moveTo(px, py);
         else staticCtx.lineTo(px, py);
       }
       staticCtx.stroke();
 
-      // 4b) Compact 3-Square Pastel Chalk Hopscotch Court between Girls 6 & 7
-      const hsC6BaseX = width * 0.855;
-      const hsC7BaseX = width * 0.94;
-      const hsCourtSpan = Math.min(Math.max(hsC7BaseX - hsC6BaseX - 14, 28), 52);
-      const hsCourtCenterX = (hsC6BaseX + hsC7BaseX) * 0.5;
-      const hsCourtLeft = hsCourtCenterX - hsCourtSpan * 0.5;
-      const hsSqW = hsCourtSpan / 3;
+      // 6) Mango Tree Trunk (planted firmly on foreground meadow)
+      const tm = getMangoTreeMetrics(width, height, sceneScale);
+      staticCtx.fillStyle = 'rgba(15, 23, 42, 0.16)';
+      staticCtx.beginPath();
+      staticCtx.ellipse(tm.x, tm.groundY + 1, 7 * sceneScale, 1.8, 0, 0, Math.PI * 2);
+      staticCtx.fill();
 
+      staticCtx.strokeStyle = '#78350f';
+      staticCtx.lineWidth = Math.max(2.6, 3.8 * sceneScale);
+      staticCtx.lineCap = 'round';
+      staticCtx.beginPath();
+      staticCtx.moveTo(tm.x, tm.groundY);
+      staticCtx.quadraticCurveTo(tm.x - 1.5, tm.groundY - tm.trunkH * 0.5, tm.x - 1, tm.canopyCenterY + tm.canopyR * 0.4);
+      staticCtx.stroke();
+
+      // 7) Compact 3-Square Pastel Chalk Hopscotch Court on Right
+      const hs = getHopscotchBounds(width);
+      const chalkFills = [
+        'rgba(254, 205, 211, 0.35)',
+        'rgba(186, 230, 253, 0.35)',
+        'rgba(254, 240, 138, 0.35)',
+      ];
       for (let s = 0; s < 3; s++) {
-        const sqX = hsCourtLeft + s * hsSqW;
-        const sqMidX = sqX + hsSqW * 0.5;
-        const sqGroundY = getGroundY(sqMidX, width, height);
+        const sqX = hs.leftX + s * hs.sqW;
+        const sqMidX = sqX + hs.sqW * 0.5;
+        const sqGroundY = getGroundY(sqMidX, width, height) + 2.2;
+        const sqH = 5.6;
 
-        // Soft pastel chalk fill
-        const chalkFills = [
-          'rgba(254, 205, 211, 0.24)', // Soft pastel pink (Square 1)
-          'rgba(186, 230, 253, 0.24)', // Soft pastel sky (Square 2)
-          'rgba(254, 240, 138, 0.24)', // Soft pastel yellow (Square 3)
-        ];
         staticCtx.fillStyle = chalkFills[s];
         staticCtx.beginPath();
-        const sqH = 7.0;
-        staticCtx.moveTo(sqX + 1.2, sqGroundY - sqH * 0.5);
-        staticCtx.lineTo(sqX + hsSqW - 1.2, sqGroundY - sqH * 0.5);
-        staticCtx.lineTo(sqX + hsSqW - 1.2, sqGroundY + sqH * 0.5);
-        staticCtx.lineTo(sqX + 1.2, sqGroundY + sqH * 0.5);
-        staticCtx.closePath();
+        staticCtx.rect(sqX + 0.8, sqGroundY - sqH * 0.5, Math.max(2, hs.sqW - 1.6), sqH);
         staticCtx.fill();
 
-        // Chalk outline
-        staticCtx.strokeStyle = 'rgba(254, 240, 138, 0.72)';
-        staticCtx.lineWidth = 1.15;
+        staticCtx.strokeStyle = 'rgba(254, 240, 138, 0.85)';
+        staticCtx.lineWidth = 1.0;
         staticCtx.stroke();
 
-        // Chalk number "1", "2", "3"
-        staticCtx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        staticCtx.font = 'bold 5.5px sans-serif';
+        staticCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        staticCtx.font = 'bold 5px sans-serif';
         staticCtx.textAlign = 'center';
         staticCtx.textBaseline = 'middle';
         staticCtx.fillText(String(s + 1), sqMidX, sqGroundY);
@@ -795,13 +755,15 @@ export function MiniatureGardenPlayground({
       const rect = container.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
 
+      const prevWidth = width;
       width = rect.width;
       height = rect.height;
       dpr = Math.min(window.devicePixelRatio || 1, 2);
+      sceneScale = getSceneScale(width, height);
 
-      // Scale goal cleanly on compact screens
-      goal.mouthX = Math.max(38, Math.min(50, width * 0.12));
-      goal.backX = Math.max(10, goal.mouthX - 28);
+      goal.mouthX = Math.max(26, Math.min(44, width * 0.092));
+      goal.backX = Math.max(6, goal.mouthX - Math.round(18 * sceneScale + 5));
+      goal.height = Math.round(Math.min(height * 0.31, 32 * (0.8 + sceneScale * 0.2)));
 
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
@@ -811,31 +773,32 @@ export function MiniatureGardenPlayground({
 
       rebuildStaticLayer();
 
+      const scaleXRatio = prevWidth > 0 ? width / prevWidth : 1;
+
       children.forEach((c) => {
-        if (!c.curX) c.curX = c.baseRatioX * width;
-        else c.curX = Math.max(12, Math.min(width - 12, c.curX));
+        c.curX = c.curX ? c.curX * scaleXRatio : c.baseRatioX * width;
+        c.curX = Math.max(12, Math.min(width - 13, c.curX));
       });
 
       butterflies.forEach((bf) => {
-        if (!bf.x) bf.x = bf.ratioX * width;
-        else bf.x = Math.min(width - 12, bf.x);
+        bf.x = bf.x ? bf.x * scaleXRatio : bf.ratioX * width;
+        bf.x = Math.max(12, Math.min(width - 14, bf.x));
       });
 
       clouds.forEach((cl) => {
-        if (!cl.x) cl.x = cl.ratioX * width;
+        cl.x = cl.x ? cl.x * scaleXRatio : cl.ratioX * width;
       });
 
       if (!ball.initialized) {
-        ball.x = width * 0.25;
+        ball.x = width * 0.21;
         ball.y = getGroundY(ball.x, width, height) - ball.radius;
         ball.vx = 0;
         ball.vy = 0;
         ball.initialized = true;
       } else {
-        ball.x = Math.max(goal.backX + ball.radius + 3, Math.min(width - ball.radius - 8, ball.x));
+        ball.x = Math.max(goal.backX + ball.radius + 3, Math.min(width * 0.29, ball.x * scaleXRatio));
       }
 
-      // Repaint a crisp single frame immediately if paused
       if (pausedRef.current) {
         drawFrame(0);
       }
@@ -846,71 +809,66 @@ export function MiniatureGardenPlayground({
       c.kickProgress = 0;
       c.facing = kickDirection;
       c.kickLegAngle = 0;
-      c.kickCooldown = 60;
+      c.kickCooldown = 56;
       c.kickHasContacted = false;
     };
 
-    // Unified Pointer Interaction (handles mouse + touch seamlessly with 44px hit targets)
     const handleTap = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       const tapX = clientX - rect.left;
       const tapY = clientY - rect.top;
       let hitInteractive = false;
 
-      // 1) Tap near soccer ball -> kick towards the goal net on the left!
       const distToBall = Math.hypot(tapX - ball.x, tapY - ball.y);
-      if (distToBall < 36 && !ball.inNet) {
+      if (distToBall < 32 && !ball.inNet) {
         hitInteractive = true;
-        ball.vx = -Math.abs(4.2 + Math.random() * 1.6); // Kicks towards the goal net on the left
-        ball.vy = -3.9;
+        ball.vx = -Math.abs((3.4 + Math.random() * 1.2) * (0.78 + sceneScale * 0.22));
+        ball.vy = -3.1 * (0.8 + sceneScale * 0.2);
         ball.rotSpeed = ball.vx * 0.16;
-        ball.scaleX = 1.28;
-        ball.scaleY = 0.76;
+        ball.scaleX = 1.26;
+        ball.scaleY = 0.78;
         for (let k = 0; k < 5; k++) {
           spawnParticle(
             ball.x,
             ball.y + 3,
-            (Math.random() - 0.5) * 2.4,
-            -1.2 - Math.random() * 1.5,
-            1.8,
+            (Math.random() - 0.5) * 2.1,
+            -1.0 - Math.random() * 1.3,
+            1.6,
             '#84cc16',
             0.75
           );
         }
       }
 
-      // 2) Tap mango tree canopy -> shake & drop a ripe mango (grand tall canopy)
-      const tree1X = width * mangoTree.xRatio;
-      const tree1GroundY = getGroundY(tree1X, width, height);
-      if (Math.hypot(tapX - tree1X, tapY - (tree1GroundY - 68)) < 38) {
+      const tm = getMangoTreeMetrics(width, height, sceneScale);
+      if (Math.hypot(tapX - tm.x, tapY - tm.canopyCenterY) < Math.max(24, tm.canopyR * 1.8)) {
         hitInteractive = true;
         treeShake = 1;
         const hanging = mangoTree.mangoes.find((m) => !m.isFalling);
         if (hanging) {
           hanging.isFalling = true;
-          hanging.curY = tree1GroundY + hanging.relY;
-          hanging.vy = 0.4;
+          hanging.curY = tm.canopyCenterY + hanging.normY * tm.canopyR;
+          hanging.vy = 0.35;
         }
       }
 
-      // 3) Tap near any child -> playful gravity hop + colorful stars
       children.forEach((c) => {
         const gy = getGroundY(c.curX, width, height);
         if (
-          Math.abs(tapX - c.curX) < 26 &&
-          Math.abs(tapY - (gy - 14)) < 28 &&
+          Math.abs(tapX - c.curX) < 22 &&
+          Math.abs(tapY - (gy - 12)) < 24 &&
           c.yOffset >= -0.5 &&
           c.kickPhase === 'idle'
         ) {
           hitInteractive = true;
-          c.vy = -3.6;
+          c.vy = -3.0 * (0.82 + sceneScale * 0.18);
           for (let p = 0; p < 5; p++) {
             spawnParticle(
-              c.curX + (Math.random() - 0.5) * 10,
-              gy - 24,
-              (Math.random() - 0.5) * 2.2,
-              -1.6 - Math.random() * 1.8,
-              2.0,
+              c.curX + (Math.random() - 0.5) * 9,
+              gy - 18,
+              (Math.random() - 0.5) * 1.9,
+              -1.3 - Math.random() * 1.5,
+              1.8,
               ['#f59e0b', '#ec4899', '#38bdf8', '#10b981'][p % 4],
               0.9
             );
@@ -918,41 +876,35 @@ export function MiniatureGardenPlayground({
         }
       });
 
-      // 4) Tap near the statue above the waterfall -> dignified golden star shimmer
-      const statueX = width * 0.50;
-      const statueY = height * 0.58 - 18;
-      if (Math.hypot(tapX - statueX, tapY - statueY) < 22) {
+      const statueX = width * 0.5;
+      const statueY = height * 0.55 - 16 * sceneScale;
+      if (Math.hypot(tapX - statueX, tapY - statueY) < 24) {
         hitInteractive = true;
-        for (let p = 0; p < 6; p++) {
+        for (let p = 0; p < 8; p++) {
           spawnParticle(
             statueX + (Math.random() - 0.5) * 12,
-            statueY + (Math.random() - 0.5) * 14,
+            statueY + (Math.random() - 0.5) * 12,
             (Math.random() - 0.5) * 1.4,
-            -0.7 - Math.random() * 1.2,
-            1.5,
+            -0.8 - Math.random() * 1.2,
+            1.6,
             '#fef08a',
-            0.80
+            0.9
           );
         }
       }
 
-      // 5) Tap near the river boat / fisherman
-      const currentBoatX = width * 0.61 + Math.sin(time * 0.007) * (width * 0.065);
-      if (Math.hypot(tapX - currentBoatX, tapY - (height * 0.73)) < 30) {
+      const currentBoatX = width * 0.64 + Math.sin(time * 0.007) * (width * 0.04);
+      if (Math.hypot(tapX - currentBoatX, tapY - height * 0.74) < 24) {
         hitInteractive = true;
       }
 
-      // Record miniature interaction in sound engine (every 3 increases laughter sound by 1)
       if (hitInteractive) {
         cosmicSound.recordMiniatureInteraction();
-      }
-
-      // 6) Tap open sky -> playful wind gust that lifts kite & flutters butterflies
-      if (!hitInteractive) {
-        windGust = 2.6;
+      } else {
+        windGust = 2.2;
         butterflies.forEach((bf) => {
-          bf.vx += (Math.random() - 0.5) * 1.2;
-          bf.vy -= 0.6;
+          bf.vx += (Math.random() - 0.5) * 1.0;
+          bf.vy -= 0.45;
         });
       }
     };
@@ -963,30 +915,41 @@ export function MiniatureGardenPlayground({
 
     canvas.addEventListener('pointerdown', onPointerDown, { passive: true });
 
-    // ─── Frame Render Function (dt = 1.0 at 60fps, 0.5 at 120fps) ─────────────
     const drawFrame = (dt: number) => {
       time += dt;
-      if (goalState !== 'celebrating') {
-        hopscotchTimer += dt * 0.22; // Very gentle, slow, and graceful pace so the girls play hopscotch calmly without glitching
-      }
 
-      // Decay interactive impulses
+      // Hopscotch game progresses continuously at a slow, peaceful, joyful pace
+      hopscotchTimer += dt * 0.15;
+
       windGust *= Math.pow(0.95, dt);
       treeShake *= Math.pow(0.88, dt);
 
-      const globalWind = Math.sin(time * 0.045) * 1.2 + windGust;
+      const breeze = Math.sin(time * 0.045) * 0.8 + windGust;
 
       ctx.clearRect(0, 0, width, height);
 
-      // 1) Blit cached static scenery in ONE draw call
+      // 1) Blit cached static scenery (mountains, river, hill, school, tree trunk)
       ctx.drawImage(staticCanvas, 0, 0, width, height);
 
-      // 1b) Realistic Animated Waterfall (Center Gap)
+      // 1a) Gentle river shimmer lines
+      const riverShimmerY = height * 0.725;
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.36)';
+      ctx.lineWidth = 0.85;
+      for (let s = 0; s < 4; s++) {
+        const sx = ((width * (0.12 + s * 0.24) + time * 0.18) % width);
+        const sy = riverShimmerY + (s % 2) * 3.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + 10, sy);
+        ctx.stroke();
+      }
+
+      // 1b) Animated Waterfall (Center Gap)
       const cliffL = width * 0.485;
       const cliffR = width * 0.515;
-      const cliffTopY = height * 0.58;
-      const cliffBaseY = height * 0.73;
-      const cascadeW = Math.max(12, cliffR - cliffL);
+      const cliffTopY = height * 0.55;
+      const cliffBaseY = height * 0.71;
+      const cascadeW = Math.max(9, cliffR - cliffL);
       const cascadeH = cliffBaseY - cliffTopY;
 
       ctx.save();
@@ -994,22 +957,20 @@ export function MiniatureGardenPlayground({
       ctx.rect(cliffL, cliffTopY, cascadeW, cascadeH + 2);
       ctx.clip();
 
-      // Translucent aqua-turquoise water column (#38BDF8 -> #0EA5E9 -> #E0F2FE)
       const waterGrad = ctx.createLinearGradient(0, cliffTopY, 0, cliffBaseY);
-      waterGrad.addColorStop(0, 'rgba(56, 189, 248, 0.82)');
-      waterGrad.addColorStop(0.5, 'rgba(14, 165, 233, 0.88)');
-      waterGrad.addColorStop(1, 'rgba(224, 242, 254, 0.94)');
+      waterGrad.addColorStop(0, 'rgba(56, 189, 248, 0.88)');
+      waterGrad.addColorStop(0.5, 'rgba(14, 165, 233, 0.92)');
+      waterGrad.addColorStop(1, 'rgba(224, 242, 254, 0.96)');
       ctx.fillStyle = waterGrad;
       ctx.fillRect(cliffL, cliffTopY, cascadeW, cascadeH + 2);
 
-      // Downward-scrolling white speed streaks / foam lines
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.88)';
-      ctx.lineWidth = 1.1;
-      const streakCount = Math.max(3, Math.floor(cascadeW / 3.5));
+      ctx.lineWidth = 0.95;
+      const streakCount = Math.max(3, Math.floor(cascadeW / 3.4));
       for (let s = 0; s < streakCount; s++) {
-        const sx = cliffL + 1.5 + s * ((cascadeW - 3) / Math.max(1, streakCount - 1));
-        const streakLen = 5 + (s % 3) * 2;
-        const offset = (time * 2.6 + s * 6.5) % (cascadeH + streakLen);
+        const sx = cliffL + 1.4 + s * ((cascadeW - 2.8) / Math.max(1, streakCount - 1));
+        const streakLen = 4.2 + (s % 3) * 1.6;
+        const offset = (time * 2.4 + s * 6.2) % (cascadeH + streakLen);
         ctx.beginPath();
         ctx.moveTo(sx, cliffTopY + offset - streakLen);
         ctx.lineTo(sx, cliffTopY + offset);
@@ -1017,199 +978,130 @@ export function MiniatureGardenPlayground({
       }
       ctx.restore();
 
-      // Splash pool foam ring at waterfall base
       const cascadeCenterX = (cliffL + cliffR) / 2;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
       ctx.beginPath();
-      ctx.ellipse(cascadeCenterX, cliffBaseY + 1, cascadeW * 0.75, 2.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(cascadeCenterX, cliffBaseY + 1, cascadeW * 0.72, 2.0, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Expanding water ripples at pool base
+      // Waterfall base splash ripples
       for (let r = 0; r < 3; r++) {
         const rTime = (time * 0.035 + r * 0.33) % 1;
-        const rw = cascadeW * 0.5 + rTime * 14;
-        const rh = 1.8 + rTime * 3.5;
+        const rw = cascadeW * 0.5 + rTime * 10;
+        const rh = 1.4 + rTime * 2.6;
         const rAlpha = (1 - rTime) * 0.55;
         ctx.strokeStyle = `rgba(224, 242, 254, ${rAlpha})`;
-        ctx.lineWidth = 1.0;
+        ctx.lineWidth = 0.85;
         ctx.beginPath();
-        ctx.ellipse(cascadeCenterX, cliffBaseY + 1.5, rw, rh, 0, 0, Math.PI * 2);
+        ctx.ellipse(cascadeCenterX, cliffBaseY + 1.4, rw, rh, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // Rising mist puffs (soft fading white particles drifting upward)
-      for (let m = 0; m < 5; m++) {
-        const mTime = (time * 0.04 + m * 0.22) % 1;
-        const mx = cascadeCenterX + Math.sin(time * 0.08 + m * 2) * (cascadeW * 0.5);
-        const my = cliffBaseY - mTime * 12;
-        const mAlpha = Math.sin(mTime * Math.PI) * 0.42;
-        const mRadius = 2.5 + mTime * 5.5;
+      // Waterfall rising mist puffs
+      for (let m = 0; m < 4; m++) {
+        const mTime = (time * 0.04 + m * 0.25) % 1;
+        const mx = cascadeCenterX + Math.sin(time * 0.08 + m * 2) * (cascadeW * 0.42);
+        const my = cliffBaseY - mTime * 9;
+        const mAlpha = Math.sin(mTime * Math.PI) * 0.38;
+        const mRadius = 1.8 + mTime * 3.8;
         ctx.fillStyle = `rgba(255, 255, 255, ${mAlpha})`;
         ctx.beginPath();
         ctx.arc(mx, my, mRadius, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // 1b2) Gentle Live Golden Halo & Aura around Prophet Abraham Statue ("reduce the statue glow a bit")
-      const statueCenterX = (cliffL + cliffR) / 2;
-      const statueCenterY = cliffTopY - 15;
-      const goldPulse = 0.08 + Math.sin(time * 0.04) * 0.03;
-      const liveAura = ctx.createRadialGradient(statueCenterX, statueCenterY, 2, statueCenterX, statueCenterY, 13);
-      liveAura.addColorStop(0, `rgba(254, 240, 138, ${goldPulse})`);
-      liveAura.addColorStop(0.60, `rgba(250, 204, 21, ${goldPulse * 0.25})`);
-      liveAura.addColorStop(1, 'rgba(245, 158, 11, 0)');
-      ctx.fillStyle = liveAura;
-      ctx.beginPath();
-      ctx.arc(statueCenterX, statueCenterY, 13, 0, Math.PI * 2);
-      ctx.fill();
+      // 1b2) Dignified Golden Statue of Prophet Abraham with Live Breathing Aura & Glints
+      drawAbrahamStatueAboveWaterfall(ctx, {
+        waterfallCenterX: cascadeCenterX,
+        waterfallTopY: cliffTopY,
+        waterfallWidth: Math.max(22, cliffR - cliffL),
+        scale: Math.max(0.78, sceneScale * 0.96),
+        time: time,
+      });
 
-      // Subtle warm golden sparkles drifting around the statue
-      for (let sp = 0; sp < 2; sp++) {
-        const sTime = (time * 0.03 + sp * 0.5) % 1;
-        const sx = statueCenterX + Math.sin(time * 0.06 + sp * 2.1) * 7;
-        const sy = statueCenterY - 6 + Math.cos(time * 0.05 + sp * 1.7) * 6;
-        const sAlpha = Math.sin(sTime * Math.PI) * 0.28;
-        ctx.fillStyle = `rgba(254, 249, 195, ${sAlpha})`;
-        ctx.beginPath();
-        ctx.arc(sx, sy, 0.7, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 1c) River Fisherman in Small Wooden Boat (Realistic Gliding River Motion)
-      const boatCycle = time * 0.007; // Slow, natural river drift
-      const boatBaseX = width * 0.61 + Math.sin(boatCycle) * (width * 0.065);
-      const boatSpeed = Math.cos(boatCycle); // Direction and speed of current
-      const boatBobY = Math.sin(time * 0.055 + 1.2) * 1.5;
-      const boatY = height * 0.73 + boatBobY;
-      const boatRock = Math.sin(time * 0.045) * 0.04 + boatSpeed * 0.02;
-
-      // Trailing water wake ripples behind boat
-      const wakeX = boatBaseX - Math.sign(boatSpeed || 1) * 12;
-      for (let wk = 0; wk < 3; wk++) {
-        const wkTime = (time * 0.025 + wk * 0.33) % 1;
-        const wkAlpha = (1 - wkTime) * 0.35;
-        ctx.strokeStyle = `rgba(224, 242, 254, ${wkAlpha})`;
-        ctx.lineWidth = 0.9;
-        ctx.beginPath();
-        ctx.ellipse(wakeX - Math.sign(boatSpeed || 1) * (wkTime * 14), boatY + 3.8, 3.5 + wkTime * 7, 1.2 + wkTime * 1.8, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      // 1c) River Fisherman in Small Wooden Boat (clearly visible on the river band)
+      const boatCycle = time * 0.007;
+      const boatBaseX = width * 0.64 + Math.sin(boatCycle) * (width * 0.04);
+      const boatSpeed = Math.cos(boatCycle);
+      const boatBobY = Math.sin(time * 0.055 + 1.2) * 1.0;
+      const boatY = height * 0.735 + boatBobY;
+      const boatRock = Math.sin(time * 0.045) * 0.032 + boatSpeed * 0.018;
+      const boatScale = 0.72 + sceneScale * 0.28;
 
       ctx.save();
       ctx.translate(boatBaseX, boatY);
+      ctx.scale(boatScale, boatScale);
       ctx.rotate(boatRock);
 
-      // Water reflection shadow beneath boat
       ctx.fillStyle = 'rgba(14, 116, 144, 0.30)';
       ctx.beginPath();
-      ctx.ellipse(0, 4.2, 11.5, 2.2, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 3.8, 9.8, 1.8, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Wooden Boat Hull (#92400E / #B45309)
       ctx.fillStyle = '#92400e';
       ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = 0.95;
       ctx.beginPath();
-      ctx.moveTo(-11, -1);
-      ctx.quadraticCurveTo(-12.5, 3.2, -8, 4);
-      ctx.lineTo(8, 4);
-      ctx.quadraticCurveTo(12.5, 3.2, 11, -1);
-      ctx.quadraticCurveTo(0, 1.2, -11, -1);
+      ctx.moveTo(-9.5, -1);
+      ctx.quadraticCurveTo(-10.8, 2.8, -7.0, 3.5);
+      ctx.lineTo(7.0, 3.5);
+      ctx.quadraticCurveTo(10.8, 2.8, 9.5, -1);
+      ctx.quadraticCurveTo(0, 0.9, -9.5, -1);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
-      // Wood plank lines
-      ctx.strokeStyle = '#b45309';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(-9, 1.5);
-      ctx.lineTo(9, 1.5);
-      ctx.stroke();
-
-      // Seated Fisherman in Shirt
+      // Fisherman torso + head + straw hat
       ctx.fillStyle = '#38bdf8';
-      ctx.strokeStyle = '#0284c7';
-      ctx.lineWidth = 0.9;
-      ctx.beginPath();
-      if (typeof ctx.roundRect === 'function') {
-        ctx.roundRect(-4.5, -6, 5, 5.5, 1.2);
-      } else {
-        ctx.rect(-4.5, -6, 5, 5.5);
-      }
-      ctx.fill();
-      ctx.stroke();
+      ctx.fillRect(-3.8, -5.2, 4.2, 4.6);
 
-      // Head
       ctx.fillStyle = '#fde68a';
       ctx.beginPath();
-      ctx.arc(-2, -7.8, 2.4, 0, Math.PI * 2);
+      ctx.arc(-1.7, -6.9, 2.0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Straw Sun-Hat (#FACC15 / #EAB308)
       ctx.fillStyle = '#facc15';
       ctx.strokeStyle = '#ca8a04';
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = 0.7;
       ctx.beginPath();
-      ctx.ellipse(-2, -9.2, 6.5, 2, -0.08, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(-2, -10.2, 2.8, Math.PI, 0);
+      ctx.ellipse(-1.7, -8.2, 5.2, 1.6, -0.08, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
-      // Curved Fishing Rod with gentle tip motion
+      // Fishing rod + line + bobber
       ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 1.1;
-      ctx.lineCap = 'round';
-      const rodWiggle = Math.sin(time * 0.08) * 0.9;
-      const rodTipX = 14 + rodWiggle * 0.4;
-      const rodTipY = -12 + rodWiggle;
+      ctx.lineWidth = 0.95;
+      const rodWiggle = Math.sin(time * 0.08) * 0.7;
+      const rodTipX = 11.5 + rodWiggle * 0.4;
+      const rodTipY = -9.5 + rodWiggle;
       ctx.beginPath();
-      ctx.moveTo(-1.5, -4);
-      ctx.quadraticCurveTo(6, -11, rodTipX, rodTipY);
+      ctx.moveTo(-1.0, -3.2);
+      ctx.quadraticCurveTo(4.5, -9, rodTipX, rodTipY);
       ctx.stroke();
 
-      // Thin Fishing Line
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.70)';
-      ctx.lineWidth = 0.75;
-      const bobberX = 18;
-      const bobberY = 3.2 + Math.sin(time * 0.09) * 0.8;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+      ctx.lineWidth = 0.65;
+      const bobberX = 14.5;
+      const bobberY = 2.8 + Math.sin(time * 0.09) * 0.6;
       ctx.beginPath();
       ctx.moveTo(rodTipX, rodTipY);
-      ctx.quadraticCurveTo(rodTipX + 1, (rodTipY + bobberY) / 2, bobberX, bobberY);
+      ctx.lineTo(bobberX, bobberY);
       ctx.stroke();
 
-      // Floating Bobber (red/white)
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
-      ctx.arc(bobberX, bobberY - 0.9, 1.2, 0, Math.PI * 2);
+      ctx.arc(bobberX, bobberY - 0.7, 1.0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(bobberX, bobberY + 0.4, 1.2, 0, Math.PI * 2);
+      ctx.arc(bobberX, bobberY + 0.3, 1.0, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
 
-      // Ripple rings around bobber
-      const globalBobberX = boatBaseX + 18;
-      const globalBobberY = boatY + 3.2 + Math.sin(time * 0.09) * 0.8;
-      for (let br = 0; br < 2; br++) {
-        const brTime = (time * 0.032 + br * 0.5) % 1;
-        const brAlpha = (1 - brTime) * 0.45;
-        ctx.strokeStyle = `rgba(224, 242, 254, ${brAlpha})`;
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.ellipse(globalBobberX, globalBobberY, 2 + brTime * 5, 0.8 + brTime * 1.8, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      // 1d) Jumping Fish & Splash Ripples in River
+      const riverWaterY = height * 0.72;
 
-      // 1d) Animated Jumping Fish & Water Splash Ripples in the River
-      const riverWaterY = height * 0.70;
-
-      // Update & Draw Expanding River Ripples
       for (let ri = riverRipples.length - 1; ri >= 0; ri--) {
         const rp = riverRipples[ri];
         rp.r += rp.speed * dt;
@@ -1219,18 +1111,17 @@ export function MiniatureGardenPlayground({
           continue;
         }
         ctx.strokeStyle = `rgba(224, 242, 254, ${rp.alpha})`;
-        ctx.lineWidth = 0.9;
+        ctx.lineWidth = 0.8;
         ctx.beginPath();
         ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.32, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // Update & Draw River Droplets
       for (let di = riverDroplets.length - 1; di >= 0; di--) {
         const dp = riverDroplets[di];
         dp.x += dp.vx * dt;
         dp.y += dp.vy * dt;
-        dp.vy += 0.18 * dt; // gravity
+        dp.vy += 0.18 * dt;
         dp.alpha -= 0.045 * dt;
         if (dp.alpha <= 0 || dp.y > riverWaterY + 4) {
           riverDroplets.splice(di, 1);
@@ -1238,48 +1129,37 @@ export function MiniatureGardenPlayground({
         }
         ctx.fillStyle = `rgba(255, 255, 255, ${dp.alpha})`;
         ctx.beginPath();
-        ctx.arc(dp.x, dp.y, 1.1, 0, Math.PI * 2);
+        ctx.arc(dp.x, dp.y, 0.95, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Update & Render each Leaping Fish
       riverFish.forEach((f) => {
         const nominalX = width * f.baseRatio;
         if (f.state === 'underwater') {
           f.timer -= dt;
-          // Underwater subtle wake shimmer
-          const swimWiggle = Math.sin(time * 0.08 + f.baseRatio * 10) * 4;
-          const wakeAlpha = 0.18 + Math.sin(time * 0.05 + f.baseRatio * 5) * 0.08;
-          ctx.strokeStyle = `rgba(255, 255, 255, ${wakeAlpha})`;
-          ctx.lineWidth = 0.7;
-          ctx.beginPath();
-          ctx.ellipse(nominalX + swimWiggle, riverWaterY + 2.5, 4.5, 1.4, 0, 0, Math.PI * 2);
-          ctx.stroke();
-
           if (f.timer <= 0) {
             f.state = 'leaping';
-            f.startX = nominalX + (Math.random() - 0.5) * 14;
-            const leapDist = f.facing * (14 + Math.random() * 8);
+            f.startX = nominalX + (Math.random() - 0.5) * 8;
+            const leapDist = f.facing * (10 + Math.random() * 5) * (0.72 + sceneScale * 0.28);
             f.targetX = f.startX + leapDist;
-            f.apexHeight = 8 + Math.random() * 6;
-            f.leapDuration = 32 + Math.random() * 8;
+            f.apexHeight = (6.5 + Math.random() * 3.5) * (0.72 + sceneScale * 0.28);
+            f.leapDuration = 32;
             f.leapProgress = 0;
 
-            // Spawn launch ripples and splash
             riverRipples.push({
               x: f.startX,
               y: riverWaterY + 1,
-              r: 1.5,
-              maxR: 9 + Math.random() * 4,
+              r: 1.4,
+              maxR: 8.0,
               alpha: 0.8,
-              speed: 0.38,
+              speed: 0.35,
             });
             for (let d = 0; d < 3; d++) {
               riverDroplets.push({
-                x: f.startX + (Math.random() - 0.5) * 4,
+                x: f.startX + (Math.random() - 0.5) * 3.5,
                 y: riverWaterY - 1,
-                vx: -f.facing * (0.3 + Math.random() * 0.6),
-                vy: -1.2 - Math.random() * 0.8,
+                vx: -f.facing * (0.3 + Math.random() * 0.45),
+                vy: -1.0 - Math.random() * 0.65,
                 alpha: 0.9,
               });
             }
@@ -1287,257 +1167,202 @@ export function MiniatureGardenPlayground({
         } else if (f.state === 'leaping') {
           f.leapProgress += (1 / f.leapDuration) * dt;
           if (f.leapProgress >= 1) {
-            // Re-entered water!
             f.state = 'underwater';
-            f.timer = 180 + Math.random() * 200; // unhurried cooldown interval
+            f.timer = 190 + Math.random() * 190;
             f.facing = (f.facing === 1 ? -1 : 1) as 1 | -1;
 
-            // Dive ripples & splash
             riverRipples.push({
               x: f.targetX,
               y: riverWaterY + 1,
-              r: 1.5,
-              maxR: 11 + Math.random() * 4,
+              r: 1.4,
+              maxR: 9.0,
               alpha: 0.85,
-              speed: 0.42,
+              speed: 0.38,
             });
-            for (let d = 0; d < 4; d++) {
-              riverDroplets.push({
-                x: f.targetX + (Math.random() - 0.5) * 5,
-                y: riverWaterY - 1,
-                vx: (Math.random() - 0.5) * 1.2,
-                vy: -1.4 - Math.random() * 0.9,
-                alpha: 0.95,
-              });
-            }
           } else {
-            // In aerial parabolic arc
             f.curX = f.startX + f.leapProgress * (f.targetX - f.startX);
             const arcY = Math.sin(f.leapProgress * Math.PI) * f.apexHeight;
             f.curY = riverWaterY - arcY;
 
-            // Velocity vector angle for realistic comic fish tilt
             const vx = f.targetX - f.startX;
             const vy = -Math.cos(f.leapProgress * Math.PI) * Math.PI * f.apexHeight;
             const fishAngle = Math.atan2(vy, vx);
 
             ctx.save();
             ctx.translate(f.curX, f.curY);
+            ctx.scale(0.76 + sceneScale * 0.24, 0.76 + sceneScale * 0.24);
             ctx.rotate(fishAngle);
 
-            // Fish body
             ctx.fillStyle = f.color;
             ctx.strokeStyle = '#9a3412';
-            ctx.lineWidth = 0.85;
+            ctx.lineWidth = 0.75;
             ctx.beginPath();
-            ctx.moveTo(4.5, 0);
-            ctx.quadraticCurveTo(1.5, -2.6, -3, -1.8);
-            ctx.lineTo(-4.5, -2.8);
-            ctx.lineTo(-3.8, 0);
-            ctx.lineTo(-4.5, 2.8);
-            ctx.lineTo(-3, 1.8);
-            ctx.quadraticCurveTo(1.5, 2.6, 4.5, 0);
+            ctx.moveTo(3.8, 0);
+            ctx.quadraticCurveTo(1.1, -2.1, -2.6, -1.5);
+            ctx.lineTo(-3.8, -2.2);
+            ctx.lineTo(-3.2, 0);
+            ctx.lineTo(-3.8, 2.2);
+            ctx.lineTo(-2.6, 1.5);
+            ctx.quadraticCurveTo(1.1, 2.1, 3.8, 0);
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
-
-            // Light belly
-            ctx.fillStyle = f.bellyColor;
-            ctx.beginPath();
-            ctx.moveTo(3.5, 0.4);
-            ctx.quadraticCurveTo(1, 2.1, -2.5, 1.3);
-            ctx.lineTo(3.5, 0.4);
-            ctx.fill();
-
-            // Eye
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(2.8, -0.6, 1.0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#0f172a';
-            ctx.beginPath();
-            ctx.arc(3.1, -0.6, 0.5, 0, Math.PI * 2);
-            ctx.fill();
 
             ctx.restore();
           }
         }
       });
 
-      // 2) Drifting fluffy clouds (only drawn if sky is not transparent; dashboard provides horizon clouds)
+      // 2) Clouds if not transparentSky
       if (!transparentSky) {
         clouds.forEach((cloud) => {
-          cloud.x += (cloud.speed + windGust * 0.2) * dt;
+          cloud.x += (cloud.speed + breeze * 0.16) * dt;
           if (cloud.x > width + 44) cloud.x = -44;
-
           ctx.save();
           ctx.translate(cloud.x, cloud.y);
           ctx.scale(cloud.scale, cloud.scale);
           ctx.fillStyle = `rgba(186, 230, 253, ${cloud.opacity})`;
-          ctx.strokeStyle = `rgba(125, 211, 252, ${cloud.opacity * 0.85})`;
-          ctx.lineWidth = 1.2;
-
           ctx.beginPath();
-          ctx.arc(0, 0, 9.5, Math.PI * 0.5, Math.PI * 1.5);
-          ctx.arc(8, -5.5, 11, Math.PI * 1, Math.PI * 1.85);
-          ctx.arc(21, -4.5, 9.5, Math.PI * 1.35, Math.PI * 2.05);
-          ctx.arc(28, 0, 7.5, Math.PI * 1.6, Math.PI * 0.5);
-          ctx.closePath();
+          ctx.arc(0, 0, 9, 0, Math.PI * 2);
+          ctx.arc(8, 2, 7, 0, Math.PI * 2);
+          ctx.arc(-8, 2, 6.5, 0, Math.PI * 2);
           ctx.fill();
-          ctx.stroke();
           ctx.restore();
         });
       }
 
       // 3) Distant gliding birds
-      ctx.strokeStyle = transparentSky ? 'rgba(15, 45, 98, 0.52)' : '#64748b';
-      ctx.lineWidth = 1.1;
+      ctx.strokeStyle = transparentSky ? 'rgba(15, 45, 98, 0.45)' : '#64748b';
+      ctx.lineWidth = 0.95;
       ctx.lineCap = 'round';
-      const birdOffset = (time * 0.34) % (width + 70);
+      const birdOffset = (time * 0.3) % (width + 60);
       for (let b = 0; b < 3; b++) {
-        const bx = ((width - birdOffset + b * 14) % (width + 70)) - 20;
-        const flap = Math.sin(time * 0.14 + b * 1.2) * 1.6;
-        const by = 16 + b * 4 + flap * 0.7;
+        const bx = ((width - birdOffset + b * 12) % (width + 60)) - 16;
+        const flap = Math.sin(time * 0.14 + b * 1.2) * 1.3;
+        const by = Math.max(8, height * 0.12) + b * 3.2 + flap * 0.5;
         ctx.beginPath();
-        ctx.moveTo(bx - 4.5, by + flap * 0.35);
-        ctx.quadraticCurveTo(bx - 2, by - 2.4, bx, by);
-        ctx.quadraticCurveTo(bx + 2, by - 2.4, bx + 4.5, by + flap * 0.35);
+        ctx.moveTo(bx - 3.6, by + flap * 0.3);
+        ctx.quadraticCurveTo(bx - 1.6, by - 1.9, bx, by);
+        ctx.quadraticCurveTo(bx + 1.6, by - 1.9, bx + 3.6, by + flap * 0.3);
         ctx.stroke();
       }
 
-      // 4) Live Mango Tree Canopy (sways with wind & shakes on tap) + Mangoes
-      const tree1X = width * mangoTree.xRatio;
-      const tree1GroundY = getGroundY(tree1X, width, height);
+      // 4) Live Mango Tree Canopy, Mangoes & Basket
+      const tm = getMangoTreeMetrics(width, height, sceneScale);
       const canopySway =
-        Math.sin(time * 0.05) * 0.7 +
-        Math.sin(time * 0.75) * treeShake * 3.2 +
-        windGust * 0.4;
+        breeze * 0.35 + Math.sin(time * 0.75) * treeShake * 2.4;
 
       ctx.save();
       ctx.translate(canopySway, 0);
       ctx.fillStyle = '#22c55e';
       ctx.strokeStyle = '#15803d';
-      ctx.lineWidth = 1.45;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(tree1X, tree1GroundY - 70, 19.5, 0, Math.PI * 2);
-      ctx.arc(tree1X - 12, tree1GroundY - 60, 15, 0, Math.PI * 2);
-      ctx.arc(tree1X + 12, tree1GroundY - 60, 15, 0, Math.PI * 2);
-      ctx.arc(tree1X, tree1GroundY - 81, 13, 0, Math.PI * 2);
+      ctx.arc(tm.x, tm.canopyCenterY, tm.canopyR, 0, Math.PI * 2);
+      ctx.arc(tm.x - tm.canopyR * 0.62, tm.canopyCenterY + tm.canopyR * 0.44, tm.sideR, 0, Math.PI * 2);
+      ctx.arc(tm.x + tm.canopyR * 0.62, tm.canopyCenterY + tm.canopyR * 0.44, tm.sideR, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      // Warm sun-kissed canopy highlight (from top-right sun)
-      ctx.fillStyle = 'rgba(190, 242, 100, 0.38)';
-      ctx.beginPath();
-      ctx.arc(tree1X + 5, tree1GroundY - 78, 9, 0, Math.PI * 2);
-      ctx.fill();
       ctx.restore();
 
-      // Mangoes (hanging or falling)
+      // Woven basket + collected mangoes at base of tree
+      const basketX = tm.x + 6.5 * sceneScale;
+      const basketY = tm.groundY;
+      const visibleBasketMangoes = Math.min(4, mangoTree.basketMangoCount);
+      for (let bm = 0; bm < visibleBasketMangoes; bm++) {
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.ellipse(
+          basketX - 2.4 + bm * 1.6,
+          basketY - 4.2 - (bm % 2) * 0.8,
+          1.4,
+          1.8,
+          0.2,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+      ctx.fillStyle = '#b45309';
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(basketX - 4.2, basketY);
+      ctx.lineTo(basketX - 3.3, basketY - 4.2);
+      ctx.lineTo(basketX + 3.3, basketY - 4.2);
+      ctx.lineTo(basketX + 4.2, basketY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
       mangoTree.mangoes.forEach((m) => {
+        const homeY = tm.canopyCenterY + m.normY * tm.canopyR;
         if (m.isFalling) {
           m.vy += 0.22 * dt;
           m.curY += m.vy * dt;
-          if (m.curY >= tree1GroundY - 4) {
+          if (m.curY >= tm.groundY - 4) {
             m.isFalling = false;
-            m.curY = tree1GroundY + m.relY;
+            m.curY = homeY;
             mangoTree.basketMangoCount++;
-            for (let sp = 0; sp < 4; sp++) {
-              spawnParticle(
-                tree1X + m.relX,
-                tree1GroundY - 5,
-                (Math.random() - 0.5) * 1.6,
-                -1.0 - Math.random() * 1.4,
-                1.7,
-                '#f59e0b',
-                0.75
-              );
-            }
           }
         }
-
-        const mx = tree1X + m.relX + (m.isFalling ? 0 : canopySway);
-        const my = m.isFalling ? m.curY : tree1GroundY + m.relY;
-
-        ctx.strokeStyle = '#15803d';
-        ctx.lineWidth = 0.85;
-        ctx.beginPath();
-        ctx.moveTo(mx, my - 3.4);
-        ctx.lineTo(mx + 0.7, my - 1.5);
-        ctx.stroke();
-
+        const mx = tm.x + m.normX * tm.canopyR + (m.isFalling ? 0 : canopySway);
+        const my = m.isFalling ? m.curY : homeY;
         ctx.fillStyle = '#f59e0b';
-        ctx.strokeStyle = '#d97706';
-        ctx.lineWidth = 0.75;
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 0.55;
         ctx.beginPath();
-        ctx.ellipse(mx, my, 2.5, 3.4, 0.25, 0, Math.PI * 2);
+        ctx.ellipse(mx, my, 1.9, 2.5, 0.25, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.48)';
-        ctx.beginPath();
-        ctx.arc(mx + 0.7, my - 0.7, 1.2, 0, Math.PI * 2);
-        ctx.fill();
       });
 
       // School animated wind flag
-      const schoolX = width * 0.77;
+      const schoolX = width * 0.755;
       const schoolGroundY = getGroundY(schoolX, width, height);
-      const flagWave = Math.sin(time * 0.14) * (1.5 + windGust * 0.9);
+      const sh = 14.5 * (0.78 + sceneScale * 0.22);
+      const poleTopY = schoolGroundY - sh - 8.5 * sceneScale;
+      const flagWave = Math.sin(time * 0.14) * (1.0 + Math.abs(breeze) * 0.45);
       ctx.fillStyle = '#10b981';
       ctx.beginPath();
-      ctx.moveTo(schoolX - 5, schoolGroundY - 32);
-      ctx.quadraticCurveTo(
-        schoolX,
-        schoolGroundY - 34 + flagWave,
-        schoolX + 6.5,
-        schoolGroundY - 30 + flagWave * 0.5
-      );
-      ctx.lineTo(schoolX + 6.5, schoolGroundY - 25 + flagWave * 0.4);
-      ctx.lineTo(schoolX - 5, schoolGroundY - 26);
+      ctx.moveTo(schoolX - 2, poleTopY);
+      ctx.quadraticCurveTo(schoolX + 2, poleTopY - 1 + flagWave, schoolX + 6.5, poleTopY + 1.8);
+      ctx.lineTo(schoolX - 2, poleTopY + 4.2);
       ctx.closePath();
       ctx.fill();
 
-      // 5) Wind-swaying Grass Tufts & Wildflowers
+      // 5) Grass Tufts & Flowers
       ctx.strokeStyle = '#365314';
-      ctx.lineWidth = 1.05;
-      for (let g = 0; g < 14; g++) {
-        const gx = ((g + 0.5) / 14) * width;
+      ctx.lineWidth = 0.9;
+      for (let g = 0; g < 12; g++) {
+        const gx = ((g + 0.5) / 12) * width;
         const gy = getGroundY(gx, width, height);
-        const sway = Math.sin(time * 0.05 + g * 0.7) * 1.4 + windGust * 1.1;
+        const sway = Math.sin(time * 0.05 + g * 0.7) * 1.0 + breeze * 0.55;
         ctx.beginPath();
-        ctx.moveTo(gx - 2, gy);
-        ctx.lineTo(gx - 3 + sway, gy - 4);
-        ctx.moveTo(gx, gy);
-        ctx.lineTo(gx + sway, gy - 5);
-        ctx.moveTo(gx + 2, gy);
-        ctx.lineTo(gx + 3 + sway, gy - 4);
+        ctx.moveTo(gx - 1.4, gy);
+        ctx.lineTo(gx - 2.3 + sway, gy - 3.2);
+        ctx.moveTo(gx + 1.4, gy);
+        ctx.lineTo(gx + 2.3 + sway, gy - 3.2);
         ctx.stroke();
       }
 
       flowers.forEach((fl) => {
         const fx = fl.ratioX * width;
         const fy = getGroundY(fx, width, height);
-        const sway = Math.sin(time * 0.055 + fl.sway) * 1.2 + windGust * 0.9;
-
+        const sway = Math.sin(time * 0.055 + fl.sway) * 0.95 + breeze * 0.5;
         ctx.strokeStyle = '#15803d';
-        ctx.lineWidth = 1.05;
+        ctx.lineWidth = 0.9;
         ctx.beginPath();
         ctx.moveTo(fx, fy);
-        ctx.lineTo(fx + sway, fy - 7.5);
+        ctx.lineTo(fx + sway, fy - 5.8);
         ctx.stroke();
-
         ctx.fillStyle = fl.color;
         ctx.beginPath();
-        ctx.arc(fx + sway, fy - 8.5, fl.size, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#fef08a';
-        ctx.beginPath();
-        ctx.arc(fx + sway, fy - 8.5, fl.size * 0.38, 0, Math.PI * 2);
+        ctx.arc(fx + sway, fy - 6.5, fl.size * (0.8 + sceneScale * 0.2), 0, Math.PI * 2);
         ctx.fill();
       });
 
-      // 6) Miniature Soccer Net (Back Layer)
+      // 6) Miniature Soccer Net
       const mouthGroundY = getGroundY(goal.mouthX, width, height);
       const backGroundY = getGroundY(goal.backX, width, height);
       const crossbarY = mouthGroundY - goal.height;
@@ -1547,85 +1372,46 @@ export function MiniatureGardenPlayground({
       goal.netBulge += goal.netBulgeVel * dt;
       const currentBulge = Math.max(0, goal.netBulge);
 
-      // Goal line + soft shadow
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-      ctx.lineWidth = 1.35;
-      ctx.beginPath();
-      ctx.moveTo(goal.mouthX, mouthGroundY - 1);
-      ctx.lineTo(goal.mouthX, mouthGroundY + 3);
-      ctx.stroke();
-
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.14)';
-      ctx.beginPath();
-      ctx.ellipse(
-        (goal.mouthX + goal.backX) * 0.5 - 1.5,
-        mouthGroundY + 1,
-        (goal.mouthX - goal.backX) * 0.6,
-        2.5,
-        0,
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-
-      // Netting Mesh
-      ctx.save();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-      ctx.beginPath();
-      ctx.moveTo(goal.mouthX, crossbarY);
-      ctx.lineTo(goal.backX - currentBulge, backTopY);
-      ctx.lineTo(goal.backX - currentBulge, backGroundY);
-      ctx.lineTo(goal.mouthX, mouthGroundY);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
-      ctx.lineWidth = 0.85;
-      for (let r = 1; r <= 5; r++) {
-        const t = r / 6;
+      // Net mesh
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.68)';
+      ctx.lineWidth = 0.75;
+      for (let r = 1; r <= 4; r++) {
+        const t = r / 5;
         const frontY = crossbarY + t * (mouthGroundY - crossbarY);
         const rearY = backTopY + t * (backGroundY - backTopY);
         const rearX = goal.backX - currentBulge * (1 - t * 0.3);
         ctx.beginPath();
         ctx.moveTo(goal.mouthX, frontY);
-        ctx.quadraticCurveTo(
-          (goal.mouthX + rearX) * 0.5,
-          (frontY + rearY) * 0.5 + 1,
-          rearX,
-          rearY
-        );
+        ctx.lineTo(rearX, rearY);
         ctx.stroke();
       }
-      for (let col = 1; col <= 5; col++) {
-        const t = col / 6;
-        const topX = goal.mouthX - t * (goal.mouthX - (goal.backX - currentBulge));
-        const topY = crossbarY - t * (crossbarY - backTopY);
-        const botX = goal.mouthX - t * (goal.mouthX - (goal.backX - currentBulge));
-        const botY = mouthGroundY - t * (mouthGroundY - backGroundY);
+      for (let c = 1; c <= 3; c++) {
+        const t = c / 4;
+        const topX = goal.mouthX - t * (goal.mouthX - goal.backX + currentBulge * 0.4);
+        const topY = crossbarY + t * (backTopY - crossbarY);
+        const botX = goal.mouthX - t * (goal.mouthX - goal.backX);
+        const botY = mouthGroundY + t * (backGroundY - mouthGroundY);
         ctx.beginPath();
         ctx.moveTo(topX, topY);
         ctx.lineTo(botX, botY);
         ctx.stroke();
       }
 
-      ctx.strokeStyle = '#cbd5e1';
-      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.9;
       ctx.beginPath();
-      ctx.moveTo(goal.backX - currentBulge, backGroundY);
-      ctx.lineTo(goal.backX - currentBulge, backTopY);
+      ctx.moveTo(goal.mouthX, mouthGroundY);
       ctx.lineTo(goal.mouthX, crossbarY);
-      ctx.moveTo(goal.backX - currentBulge, backGroundY);
-      ctx.lineTo(goal.mouthX, mouthGroundY);
+      ctx.lineTo(goal.backX - currentBulge * 0.4, backTopY);
+      ctx.lineTo(goal.backX, backGroundY);
       ctx.stroke();
-      ctx.restore();
 
-      // 7) Ball Physics & Goalie Retrieval (Delta-Time Normalized)
+      // 7) Ball Physics
       const ballGroundY = getGroundY(ball.x, width, height) - ball.radius;
       const slopeDelta =
         (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
       const slopeAngle = Math.atan(slopeDelta);
 
-      // Spring ball squash-and-stretch back to 1.0
       ball.scaleX += (1 - ball.scaleX) * Math.min(1, 0.24 * dt);
       ball.scaleY += (1 - ball.scaleY) * Math.min(1, 0.24 * dt);
 
@@ -1644,21 +1430,21 @@ export function MiniatureGardenPlayground({
       ) {
         ball.inNet = true;
         goalState = 'celebrating';
-        goalTimer = 175;
+        goalTimer = 170;
         scorerId = ball.lastKickerId || 1;
-        goal.netBulge = Math.min(14, Math.abs(ball.vx) * 2.2 + 6);
+        goal.netBulge = Math.min(10, Math.abs(ball.vx) * 1.8 + 4.5);
         goal.netBulgeVel = -goal.netBulge * 0.25;
         ball.vx *= 0.1;
         ball.vy = Math.min(ball.vy * 0.2, 0.4);
 
-        for (let i = 0; i < 18; i++) {
+        for (let i = 0; i < 16; i++) {
           spawnParticle(
-            goal.mouthX + (Math.random() - 0.5) * 16,
+            goal.mouthX + (Math.random() - 0.5) * 12,
             crossbarY + Math.random() * goal.height,
-            (Math.random() - 0.5) * 3.4,
-            -1.8 - Math.random() * 2.8,
-            2 + Math.random() * 2,
-            ['#10b981', '#f59e0b', '#ec4899', '#38bdf8', '#fbbf24', '#ffffff'][i % 6],
+            (Math.random() - 0.5) * 2.8,
+            -1.4 - Math.random() * 2.2,
+            1.7 + Math.random() * 1.4,
+            ['#10b981', '#f59e0b', '#ec4899', '#38bdf8', '#fbbf24'][i % 5],
             1
           );
         }
@@ -1675,12 +1461,8 @@ export function MiniatureGardenPlayground({
           ball.vy = 0;
           ball.vx = 0;
         }
-        if (ball.x < goal.backX + ball.radius + 4) {
-          ball.x = goal.backX + ball.radius + 4;
-          ball.vx = 0;
-        }
-        if (ball.x > goal.mouthX - 3 && goalTimer > 60) {
-          ball.x = goal.mouthX - 3;
+        if (ball.x < goal.backX + ball.radius + 3) {
+          ball.x = goal.backX + ball.radius + 3;
           ball.vx = 0;
         }
 
@@ -1690,39 +1472,29 @@ export function MiniatureGardenPlayground({
           const goalie = children.find((c) => c.activity === 'soccer-goalie');
 
           if (goalie) {
-            if (goalTimer > 115) {
+            if (goalTimer > 110) {
               goalie.facing = -1;
               const gdx = ball.x + 5 - goalie.curX;
               if (Math.abs(gdx) > 1.5) {
-                goalie.curX += Math.sign(gdx) * 1.0 * dt;
-                goalie.runCycle += 0.24 * dt;
-                goalie.speed = 1;
-              } else {
-                goalie.runCycle = 0;
-                goalie.speed = 0;
-              }
-            } else if (goalTimer > 48) {
-              goalie.facing = 1;
-              const gdx = goal.mouthX + 8 - goalie.curX;
-              if (Math.abs(gdx) > 1.5) {
                 goalie.curX += Math.sign(gdx) * 0.95 * dt;
+                goalie.runCycle += 0.24 * dt;
+              }
+            } else if (goalTimer > 46) {
+              goalie.facing = 1;
+              const gdx = goal.mouthX + 6 - goalie.curX;
+              if (Math.abs(gdx) > 1.5) {
+                goalie.curX += Math.sign(gdx) * 0.9 * dt;
                 goalie.runCycle += 0.22 * dt;
-                goalie.speed = 0.95;
-              } else {
-                goalie.runCycle = 0;
-                goalie.speed = 0;
               }
               ball.x = goalie.curX + goalie.facing * 3;
-              ball.y = getGroundY(goalie.curX, width, height) - 10;
+              ball.y = getGroundY(goalie.curX, width, height) - 8.5;
               ball.vx = 0;
               ball.vy = 0;
             } else if (goalTimer > 15) {
-              ball.x = goal.mouthX + 10;
+              ball.x = goal.mouthX + 8;
               ball.y = getGroundY(ball.x, width, height) - ball.radius;
-              goalie.curX = ball.x - 6;
+              goalie.curX = ball.x - 5;
               goalie.facing = 1;
-              goalie.runCycle = 0;
-              goalie.speed = 0;
             } else if (prevGoalTimer > 15 && goalTimer <= 15) {
               triggerPlayerKick(goalie, 1);
             }
@@ -1732,14 +1504,13 @@ export function MiniatureGardenPlayground({
             goalState = 'play';
             ball.inNet = false;
             scorerId = null;
-            passCount = 0;
           }
         }
       } else {
         const onGround = ball.y >= ballGroundY - 0.8;
         if (onGround) {
           ball.y = ballGroundY;
-          const slopeForce = Math.sin(slopeAngle) * 0.16;
+          const slopeForce = Math.sin(slopeAngle) * 0.14;
           ball.vx += slopeForce * dt;
           ball.vx *= Math.pow(0.982, dt);
 
@@ -1755,21 +1526,14 @@ export function MiniatureGardenPlayground({
             ball.vy = 0;
           } else {
             ball.vy = -ball.vy * ball.bounciness;
-            ball.scaleX = 1.2;
-            ball.scaleY = 0.82;
+            ball.scaleX = 1.18;
+            ball.scaleY = 0.84;
           }
         } else {
           ball.vy += 0.24 * dt;
-          ball.vx *= Math.pow(0.995, dt);
-          ball.vy *= Math.pow(0.995, dt);
           ball.rotation += ball.rotSpeed * dt;
-
           if (ball.y + ball.vy * dt >= ballGroundY) {
             ball.y = ballGroundY;
-            if (Math.abs(ball.vy) > 1.2) {
-              ball.scaleX = 1.22;
-              ball.scaleY = 0.8;
-            }
             ball.vy = -ball.vy * ball.bounciness;
             ball.rotSpeed = ball.vx * 0.16;
           }
@@ -1782,41 +1546,18 @@ export function MiniatureGardenPlayground({
           ball.x = goal.backX + ball.radius + 3;
           ball.vx = Math.abs(ball.vx) * 0.4;
         }
-        // Soccer pitch touchline boundary (stays in the soccer field, never rolls into river or past waterfall)
-        const maxPitchX = width * 0.38;
+        const maxPitchX = width * 0.29;
         if (ball.x >= maxPitchX) {
           ball.x = maxPitchX;
-          ball.vx = -Math.abs(ball.vx) * 0.65; // gentle rebound back towards goal
+          ball.vx = -Math.abs(ball.vx) * 0.65;
         }
 
-        // Motionless watchdog
         if (goalState === 'play') {
           if (Math.abs(ball.vx) < 0.05 && Math.abs(ball.vy) < 0.05) {
             ball.stillFrames += dt;
-            if (ball.stillFrames > 95) {
-              const outfielders = children.filter(
-                (c) =>
-                  c.activity === 'soccer-striker' ||
-                  c.activity === 'soccer-midfield' ||
-                  c.activity === 'soccer-passer'
-              );
-              let closest = outfielders[0];
-              let minD = Infinity;
-              outfielders.forEach((p) => {
-                const d = Math.abs(p.curX - ball.x);
-                if (d < minD) {
-                  minD = d;
-                  closest = p;
-                }
-              });
-              if (closest) {
-                closest.kickCooldown = 0;
-                closest.soccerIntent = 'hunt-ball';
-              }
-            }
-            if (ball.stillFrames > 190) {
-              ball.vx = ball.x < width * 0.35 ? 3.5 : -3.5;
-              ball.vy = -2.0;
+            if (ball.stillFrames > 160) {
+              ball.vx = ball.x < width * 0.2 ? 2.6 : -2.6;
+              ball.vy = -1.6;
               ball.stillFrames = 0;
             }
           } else {
@@ -1825,31 +1566,20 @@ export function MiniatureGardenPlayground({
         }
       }
 
-      // Altitude-reactive directional ball shadow (sun at top-right -> shadow slightly left)
-      const ballHeightAboveGround = Math.max(0, ballGroundY - ball.y);
-      const shadowScale = Math.max(0.45, 1 - ballHeightAboveGround / 48);
-      ctx.fillStyle = `rgba(15, 23, 42, ${0.19 * shadowScale})`;
+      // Ball shadow & soccer ball
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.18)';
       ctx.beginPath();
-      ctx.ellipse(
-        ball.x - 1.2 - ballHeightAboveGround * 0.12,
-        ballGroundY + 2.6,
-        ball.radius * 1.15 * shadowScale,
-        ball.radius * 0.35 * shadowScale,
-        0,
-        0,
-        Math.PI * 2
-      );
+      ctx.ellipse(ball.x - 0.8, ballGroundY + 2.2, ball.radius * 1.05, ball.radius * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Render Soccer Ball (32-panel geometric look + squash/stretch)
       ctx.save();
       ctx.translate(ball.x, ball.y);
-      ctx.scale(ball.scaleX, ball.scaleY);
+      const bScale = 0.82 + sceneScale * 0.18;
+      ctx.scale(ball.scaleX * bScale, ball.scaleY * bScale);
       ctx.rotate(ball.rotation);
-
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1.05;
+      ctx.lineWidth = 0.95;
       ctx.beginPath();
       ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
       ctx.fill();
@@ -1857,80 +1587,40 @@ export function MiniatureGardenPlayground({
 
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
-      const pentaRadius = ball.radius * 0.44;
-      for (let p = 0; p < 5; p++) {
-        const pAngle = (p * Math.PI * 2) / 5 - Math.PI / 2;
-        const px = Math.cos(pAngle) * pentaRadius;
-        const py = Math.sin(pAngle) * pentaRadius;
-        if (p === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
+      ctx.arc(0, 0, ball.radius * 0.34, 0, Math.PI * 2);
       ctx.fill();
-
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 0.75;
-      for (let p = 0; p < 5; p++) {
-        const pAngle = (p * Math.PI * 2) / 5 - Math.PI / 2;
+      for (let p = 0; p < 3; p++) {
+        const ang = (p * Math.PI * 2) / 3;
         ctx.beginPath();
-        ctx.moveTo(Math.cos(pAngle) * pentaRadius, Math.sin(pAngle) * pentaRadius);
-        ctx.lineTo(Math.cos(pAngle) * ball.radius, Math.sin(pAngle) * ball.radius);
-        ctx.stroke();
+        ctx.arc(Math.cos(ang) * ball.radius * 0.72, Math.sin(ang) * ball.radius * 0.72, ball.radius * 0.2, 0, Math.PI * 2);
+        ctx.fill();
       }
-
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-      ctx.beginPath();
-      ctx.arc(ball.radius * 0.3, -ball.radius * 0.32, ball.radius * 0.28, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // Front Goal Post & Crossbar (in front of ball for 3D depth)
-      ctx.save();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2.4;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(goal.mouthX, mouthGroundY);
-      ctx.lineTo(goal.mouthX, crossbarY);
-      ctx.moveTo(goal.mouthX, crossbarY);
-      ctx.lineTo(goal.backX - currentBulge * 0.5, crossbarY - 2);
-      ctx.stroke();
-
-      ctx.strokeStyle = '#64748b';
-      ctx.lineWidth = 0.75;
-      ctx.beginPath();
-      ctx.moveTo(goal.mouthX - 1.2, mouthGroundY);
-      ctx.lineTo(goal.mouthX - 1.2, crossbarY - 1);
-      ctx.moveTo(goal.mouthX + 1.2, mouthGroundY);
-      ctx.lineTo(goal.mouthX + 1.2, crossbarY - 1);
-      ctx.stroke();
       ctx.restore();
 
       // 8) Butterflies
       butterflies.forEach((bf, idx) => {
-        bf.x += (bf.vx + windGust * 0.25) * dt;
-        bf.y += (bf.vy + Math.sin(time * 0.08 + bf.ratioX * 10) * 0.5) * dt;
+        bf.x += (bf.vx + breeze * 0.18) * dt;
+        bf.y += (bf.vy + Math.sin(time * 0.08 + bf.ratioX * 10) * 0.4) * dt;
         bf.wingAngle += bf.wingSpeed * dt;
 
         if (Math.random() < 0.02 * dt) {
-          bf.vx = (Math.random() - 0.5) * 1.0;
-          bf.vy = (Math.random() - 0.5) * 0.55;
+          bf.vx = (Math.random() - 0.5) * 0.85;
+          bf.vy = (Math.random() - 0.5) * 0.45;
         }
 
         if (idx === 1) {
-          // Dedicated meadow butterfly in the butterfly-catcher girl's wildflower area
-          const minM = width * 0.35;
-          const maxM = width * 0.472;
-          if (bf.x < minM) bf.vx = Math.abs(bf.vx) + 0.4;
-          if (bf.x > maxM) bf.vx = -Math.abs(bf.vx) - 0.4;
-          const groundAtBf = getGroundY(bf.x, width, height);
-          if (bf.y < groundAtBf - 38) bf.vy = Math.abs(bf.vy) + 0.25;
-          if (bf.y > groundAtBf - 10) bf.vy = -Math.abs(bf.vy) - 0.25;
+          const minM = width * 0.395;
+          const maxM = width * 0.465;
+          if (bf.x < minM) bf.vx = Math.abs(bf.vx) + 0.3;
+          if (bf.x > maxM) bf.vx = -Math.abs(bf.vx) - 0.3;
+          const gAtBf = getGroundY(bf.x, width, height);
+          if (bf.y < Math.max(12, gAtBf - 32 * sceneScale)) bf.vy = Math.abs(bf.vy) + 0.2;
+          if (bf.y > gAtBf - 10) bf.vy = -Math.abs(bf.vy) - 0.2;
         } else {
-          if (bf.x < 14) bf.vx = Math.abs(bf.vx) + 0.35;
-          if (bf.x > width - 14) bf.vx = -Math.abs(bf.vx) - 0.35;
-          if (bf.y < 10) bf.vy = 0.35;
-          if (bf.y > height * 0.62) bf.vy = -0.35;
+          if (bf.x < 12) bf.vx = Math.abs(bf.vx) + 0.25;
+          if (bf.x > width - 14) bf.vx = -Math.abs(bf.vx) - 0.25;
+          if (bf.y < 10) bf.vy = 0.28;
+          if (bf.y > height * 0.56) bf.vy = -0.28;
         }
 
         ctx.save();
@@ -1949,31 +1639,28 @@ export function MiniatureGardenPlayground({
         const pb = mangoTree.slingshotPebble;
         pb.x += pb.vx * dt;
         pb.y += pb.vy * dt;
-        pb.vy += 0.15 * dt;
-
+        pb.vy += 0.14 * dt;
         ctx.fillStyle = '#475569';
         ctx.beginPath();
-        ctx.arc(pb.x, pb.y, 1.4, 0, Math.PI * 2);
+        ctx.arc(pb.x, pb.y, 1.25, 0, Math.PI * 2);
         ctx.fill();
 
-        if (pb.y <= tree1GroundY - 60) {
+        const distToCanopy = Math.hypot(pb.x - tm.x, pb.y - tm.canopyCenterY);
+        if (distToCanopy <= tm.canopyR * 0.9 || pb.y <= tm.canopyCenterY) {
           pb.active = false;
-          treeShake = 0.8;
+          treeShake = 0.85;
           const target = mangoTree.mangoes.find((m) => m.id === pb.targetMangoId);
           if (target && !target.isFalling) {
             target.isFalling = true;
-            target.curY = tree1GroundY + target.relY;
-            target.vy = 0.2;
+            target.curY = tm.canopyCenterY + target.normY * tm.canopyR;
+            target.vy = 0.25;
           }
         }
       }
 
-      // 10) Intelligent Soccer AI Coordination
+      // 10) Soccer AI
       const outfielders = children.filter(
-        (c) =>
-          c.activity === 'soccer-striker' ||
-          c.activity === 'soccer-midfield' ||
-          c.activity === 'soccer-passer'
+        (c) => c.activity === 'soccer-striker' || c.activity === 'soccer-midfield'
       );
 
       if (goalState === 'play' && !ball.inNet) {
@@ -1991,6 +1678,8 @@ export function MiniatureGardenPlayground({
         });
       }
 
+      const hs = getHopscotchBounds(width);
+
       // 11) Update & Draw Playing Children
       children.forEach((c) => {
         const groundY = getGroundY(c.curX, width, height);
@@ -1998,61 +1687,62 @@ export function MiniatureGardenPlayground({
 
         if (c.kickCooldown > 0) c.kickCooldown = Math.max(0, c.kickCooldown - dt);
 
-        // Actual gravity physics for tap-to-hop!
-        if (c.vy !== 0 || c.yOffset < 0) {
-          c.yOffset += c.vy * dt;
-          c.vy += 0.28 * dt;
-          if (c.yOffset >= 0) {
-            c.yOffset = 0;
-            c.vy = 0;
+        if (c.activity !== 'hopscotch-player') {
+          if (c.vy !== 0 || c.yOffset < 0) {
+            c.yOffset += c.vy * dt;
+            c.vy += 0.28 * dt;
+            if (c.yOffset >= 0) {
+              c.yOffset = 0;
+              c.vy = 0;
+            }
+          }
+        } else {
+          // Hopscotch players have dedicated continuous sinusoidal hopping curves.
+          // Only simulate ballistic gravity if player was directly tapped by user (c.vy !== 0).
+          if (c.vy !== 0) {
+            c.yOffset += c.vy * dt;
+            c.vy += 0.28 * dt;
+            if (c.yOffset >= 0) {
+              c.yOffset = 0;
+              c.vy = 0;
+            }
           }
         }
 
-        // Outfield soccer players
-        if (
-          c.activity === 'soccer-striker' ||
-          c.activity === 'soccer-midfield' ||
-          c.activity === 'soccer-passer'
-        ) {
+        if (c.activity === 'soccer-striker' || c.activity === 'soccer-midfield') {
           if (goalState === 'celebrating') {
-            c.yOffset = -Math.abs(Math.sin(time * 0.22 + c.id)) * 5.2;
+            c.yOffset = -Math.abs(Math.sin(time * 0.22 + c.id)) * 4.2;
             c.runCycle = 0;
             c.speed = 0;
             c.facing = 1;
           } else if (goalState === 'play' && c.kickPhase === 'idle') {
             if (c.soccerIntent === 'hunt-ball') {
-              const kickDir: 1 | -1 = -1; // Outfield players ALWAYS kick towards the goal net on the left!
-              const targetX = ball.x + 6; // Position to the right of the ball to kick it left
+              const kickDir: 1 | -1 = -1;
+              const targetX = ball.x + 5.0;
               const dx = targetX - c.curX;
 
               if (Math.abs(dx) > 2) {
-                c.curX += Math.sign(dx) * 1.35 * dt;
+                c.curX += Math.sign(dx) * 1.1 * dt;
                 c.facing = Math.sign(dx) as 1 | -1;
-                c.runCycle += 0.32 * dt;
-                c.speed = 1.35;
+                c.runCycle += 0.28 * dt;
+                c.speed = 1.1;
               } else {
                 c.facing = kickDir;
                 c.runCycle = 0;
                 c.speed = 0;
                 const dist = Math.hypot(c.curX - targetX, groundY - ball.y);
-                if (dist < 22 && c.kickCooldown <= 0 && !ball.inNet) {
+                if (dist < 20 && c.kickCooldown <= 0 && !ball.inNet) {
                   triggerPlayerKick(c, kickDir);
                 }
               }
             } else {
-              const homeX =
-                c.activity === 'soccer-striker'
-                  ? width * 0.21
-                  : c.activity === 'soccer-midfield'
-                    ? width * 0.36
-                    : width * 0.47;
-              const zoneTarget = homeX + (ball.x - homeX) * 0.25;
-              const dx = zoneTarget - c.curX;
+              const homeX = c.activity === 'soccer-striker' ? width * 0.175 : width * 0.26;
+              const dx = homeX - c.curX;
               if (Math.abs(dx) > 3) {
-                c.curX += Math.sign(dx) * 0.72 * dt;
+                c.curX += Math.sign(dx) * 0.6 * dt;
                 c.facing = Math.sign(dx) as 1 | -1;
-                c.runCycle += 0.18 * dt;
-                c.speed = 0.72;
+                c.runCycle += 0.16 * dt;
+                c.speed = 0.6;
               } else {
                 c.facing = ball.x > c.curX ? 1 : -1;
                 c.runCycle = 0;
@@ -2061,85 +1751,67 @@ export function MiniatureGardenPlayground({
             }
           }
 
-          // Zone clamps
           if (c.activity === 'soccer-striker') {
-            c.curX = Math.max(goal.mouthX + 14, Math.min(width * 0.32, c.curX));
-          } else if (c.activity === 'soccer-midfield') {
-            c.curX = Math.max(width * 0.26, Math.min(width * 0.44, c.curX));
+            c.curX = Math.max(goal.mouthX + 10, Math.min(width * 0.23, c.curX));
           } else {
-            c.curX = Math.max(width * 0.38, Math.min(width * 0.56, c.curX));
+            c.curX = Math.max(width * 0.21, Math.min(width * 0.285, c.curX));
           }
         } else if (c.activity === 'soccer-goalie') {
           if (goalState === 'play') {
-            const homeX = goal.mouthX + 6;
-            const targetX = Math.max(
-              goal.mouthX + 2,
-              Math.min(goal.mouthX + 12, homeX + (ball.x - width * 0.3) * 0.04)
-            );
-            const dx = targetX - c.curX;
-            if (Math.abs(dx) > 1.5) {
-              c.curX += Math.sign(dx) * 0.6 * dt;
-              c.runCycle += 0.16 * dt;
-              c.speed = 0.6;
-            } else {
-              c.runCycle = 0;
-              c.speed = 0;
+            const homeX = goal.mouthX + 5;
+            const dx = homeX - c.curX;
+            if (Math.abs(dx) > 1.2) {
+              c.curX += Math.sign(dx) * 0.55 * dt;
+              c.runCycle += 0.15 * dt;
             }
             c.facing = 1;
-            if (ball.vx < -2.0 && ball.x < width * 0.28) {
-              c.yOffset = -Math.abs(Math.sin(time * 0.3)) * 5.8;
-            }
           }
         } else if (c.activity === 'slingshot-hunter') {
-          c.curX = tree1X + 15;
+          c.curX = tm.x + Math.max(11, 14 * sceneScale);
           c.facing = -1;
           c.slingshotTimer += dt;
-          if (c.slingshotTimer > 180) {
+          if (c.slingshotTimer > 175) {
             c.slingshotTimer = 0;
             const nextMango = mangoTree.mangoes[Math.floor(Math.random() * mangoTree.mangoes.length)];
+            const startX = c.curX - 4.5;
+            const startY = groundY - 14 * sceneScale;
+            const flightFrames = 14;
             mangoTree.slingshotPebble = {
               active: true,
-              x: c.curX - 6,
-              y: groundY - 18,
-              vx: -1.0,
-              vy: -4.8,
+              x: startX,
+              y: startY,
+              vx: (tm.x - startX) / flightFrames,
+              vy: (tm.canopyCenterY - startY) / flightFrames - 0.5 * 0.14 * flightFrames,
               targetMangoId: nextMango.id,
             };
           }
         } else if (c.activity === 'butterfly-catcher') {
           const targetBf = butterflies[1];
-          const minGirlX = width * 0.35;
-          const maxGirlX = width * 0.47;
+          const minGirlX = width * 0.405;
+          const maxGirlX = width * 0.455;
           const targetX = Math.max(minGirlX, Math.min(maxGirlX, targetBf.x));
           const dx = targetX - c.curX;
-          if (Math.abs(dx) > 3) {
-            c.curX += Math.sign(dx) * 0.85 * dt;
+          if (Math.abs(dx) > 2.5) {
+            c.curX += Math.sign(dx) * 0.7 * dt;
             c.facing = (Math.sign(dx) || 1) as 1 | -1;
-            c.runCycle += 0.24 * dt;
-            c.speed = 0.85;
+            c.runCycle += 0.22 * dt;
+            c.speed = 0.7;
           } else {
-            // Reached butterfly! Playful net swing and startled flutter!
             c.speed = 0.15;
             c.runCycle += 0.08 * dt;
-            // Playful hop
-            if (c.vy === 0 && Math.sin(time * 0.12) > 0.7) {
-              c.yOffset = -3.2;
+            if (c.vy === 0 && Math.sin(time * 0.12) > 0.72) {
+              c.yOffset = -2.4;
             } else if (c.vy === 0) {
               c.yOffset = 0;
             }
-            // Net swing startles butterfly to playfully flutter away
-            if (Math.random() < 0.03 * dt) {
-              targetBf.vx = (c.facing === 1 ? 0.95 : -0.95) + (Math.random() - 0.5) * 0.6;
-              targetBf.vy = -0.8 - Math.random() * 0.6;
-            }
           }
         } else if (c.activity === 'bicycle-rider') {
-          const minBikeX = width * 0.65;
-          const maxBikeX = width * 0.81;
-          c.curX += c.facing * 0.85 * dt;
-          c.bikeDistance += 0.85 * dt;
-          c.runCycle += 0.18 * dt;
-          c.speed = 0.85;
+          const minBikeX = width * 0.60;
+          const maxBikeX = width * 0.705;
+          c.curX += c.facing * 0.72 * dt;
+          c.bikeDistance += 0.72 * dt;
+          c.runCycle += 0.16 * dt;
+          c.speed = 0.72;
           if (c.curX >= maxBikeX) {
             c.curX = maxBikeX;
             c.facing = -1;
@@ -2147,581 +1819,421 @@ export function MiniatureGardenPlayground({
             c.curX = minBikeX;
             c.facing = 1;
           }
-        } else if (c.activity === 'kite-flyer') {
-          c.curX = width * c.baseRatioX;
-          c.facing = -1;
-          if (c.vy === 0) c.yOffset = -Math.sin(time * 0.08) * 1.2;
-        } else if (c.activity === 'cheerer') {
-          if (c.id === 6 || c.id === 7) {
-            const hsC6BaseX = width * 0.855;
-            const hsC7BaseX = width * 0.94;
-            const hsCourtSpan = Math.min(Math.max(hsC7BaseX - hsC6BaseX - 14, 28), 52);
-            const hsCourtCenterX = (hsC6BaseX + hsC7BaseX) * 0.5;
-            const hsCourtLeft = hsCourtCenterX - hsCourtSpan * 0.5;
-            const hsCourtRight = hsCourtCenterX + hsCourtSpan * 0.5;
-            const hsSqW = hsCourtSpan / 3;
-            const sq1X = hsCourtLeft + hsSqW * 0.5;
-            const sq2X = hsCourtLeft + hsSqW * 1.5;
-            const sq3X = hsCourtLeft + hsSqW * 2.5;
-            const c6HomeX = hsCourtLeft - 5.5;
-            const c7HomeX = hsCourtRight + 5.5;
+        } else if (c.activity === 'hopscotch-player') {
+          // ── Calm, Graceful, Cooperative Hopscotch Game ──
+          // Full 800-frame cycle (~80s total session, ~40s per girl's turn at dt * 0.15)
+          const CYCLE = 800;
+          const ht = hopscotchTimer % CYCLE;
+          const sq2GroundY = getGroundY(hs.sq2X, width, height) + 1.0;
 
-            if (goalState === 'celebrating') {
-              c.curX = c.id === 6 ? c6HomeX : c7HomeX;
-              c.facing = c.id === 6 ? 1 : -1;
-              if (c.vy === 0) {
-                c.yOffset = -Math.abs(Math.sin(time * 0.24)) * 5.2;
-              }
-            } else {
-              // Active cooperative hopscotch & beanbag toss game (slow, graceful, no glitching)
-              const CYCLE = 600;
-              const ht = hopscotchTimer % CYCLE;
-
-              if (ht < 300) {
-                // ── Phase A: Girl 6 (Blue dress, orange cap) Turn ──
-                if (c.id === 6) {
-                  c.facing = 1;
-                  if (ht < 30) {
-                    // Ready pose at home
-                    c.curX = c6HomeX;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = c.curX + 4;
-                    beanbag.y = groundY - 10;
-                  } else if (ht < 75) {
-                    // Gentle, graceful toss of beanbag to square 2
-                    c.curX = c6HomeX;
-                    if (c.vy === 0) c.yOffset = 0;
-                    const prog = (ht - 30) / 45;
-                    beanbag.x = (c6HomeX + 4) + prog * (sq2X - (c6HomeX + 4));
-                    beanbag.y =
-                      (groundY - 10) +
-                      prog * (getGroundY(sq2X, width, height) - 1.5 - (groundY - 10)) -
-                      Math.sin(prog * Math.PI) * 11;
-                  } else if (ht < 100) {
-                    // Pause to prepare before hopping
-                    c.curX = c6HomeX;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = sq2X;
-                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 145) {
-                    // Hop 1: Home -> Square 1
-                    const prog = (ht - 100) / 45;
-                    c.curX = c6HomeX + prog * (sq1X - c6HomeX);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
-                    beanbag.x = sq2X;
-                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 165) {
-                    // Calm balance pause on Square 1
-                    c.curX = sq1X;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = sq2X;
-                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 210) {
-                    // Hop 2: Square 1 -> Square 2 (smoothly picks up beanbag)
-                    const prog = (ht - 165) / 45;
-                    c.curX = sq1X + prog * (sq2X - sq1X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
-                    if (prog < 0.75) {
-                      beanbag.x = sq2X;
-                      beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                    } else {
-                      beanbag.x = c.curX + 4;
-                      beanbag.y = groundY + c.yOffset - 10;
-                    }
-                  } else if (ht < 230) {
-                    // Calm balance pause on Square 2 with beanbag
-                    c.curX = sq2X;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = c.curX + 4;
-                    beanbag.y = groundY - 10;
-                  } else if (ht < 265) {
-                    // Hop 3: Square 2 -> Square 3
-                    const prog = (ht - 230) / 35;
-                    c.curX = sq2X + prog * (sq3X - sq2X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.0;
-                    beanbag.x = c.curX + 4;
-                    beanbag.y = groundY + c.yOffset - 10;
-                  } else {
-                    // Smooth, graceful walk/hop back to home, tossing beanbag across to Girl 7
-                    const prog = (ht - 265) / 35;
-                    c.curX = sq3X - prog * (sq3X - c6HomeX);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 4.0;
-                    const tossProg = Math.min(1, (ht - 265) / 30);
-                    beanbag.x = sq3X + tossProg * (c7HomeX - 4 - sq3X);
-                    beanbag.y =
-                      getGroundY(sq3X, width, height) - 10 +
-                      tossProg * (getGroundY(c7HomeX, width, height) - 10 - (getGroundY(sq3X, width, height) - 10)) -
-                      Math.sin(tossProg * Math.PI) * 8;
-                  }
-                } else if (c.id === 7) {
-                  // Girl 7 stands peacefully cheering (gentle subtle breathing, no fast vibrating)
-                  c.facing = -1;
-                  c.curX = c7HomeX;
-                  if (c.vy === 0) {
-                    c.yOffset = -Math.abs(Math.sin(time * 0.06)) * 1.0;
-                  }
-                }
+          if (ht < 400) {
+            // ── Phase A: Girl 6's Turn (Home Left -> Sq1 -> Sq2 [retrieve] -> Sq3 -> Trot Home -> Toss to Partner) ──
+            if (c.id === 6) {
+              c.facing = 1;
+              if (ht < 40) {
+                // 1. Ready pose at Home Left holding beanbag
+                c.curX = hs.c6HomeX;
+                if (c.vy === 0) c.yOffset = 0;
+                beanbag.visible = true;
+                beanbag.x = c.curX + 3.2;
+                beanbag.y = groundY - 8.5;
+              } else if (ht < 100) {
+                // 2. Slow, graceful underhand toss of beanbag to Square 2
+                c.curX = hs.c6HomeX;
+                if (c.vy === 0) c.yOffset = 0;
+                const prog = (ht - 40) / 60;
+                beanbag.visible = true;
+                beanbag.x = (hs.c6HomeX + 3.2) + prog * (hs.sq2X - (hs.c6HomeX + 3.2));
+                beanbag.y = (groundY - 8.5) + prog * (sq2GroundY - (groundY - 8.5)) - Math.sin(prog * Math.PI) * 11.5;
+              } else if (ht < 140) {
+                // 3. Calm standing balance pause before hopping
+                c.curX = hs.c6HomeX;
+                if (c.vy === 0) c.yOffset = 0;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (ht < 200) {
+                // 4. Hop 1: Home Left -> Square 1 (gentle floating arc)
+                const prog = (ht - 140) / 60;
+                c.curX = hs.c6HomeX + prog * (hs.sq1X - hs.c6HomeX);
+                if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (ht < 230) {
+                // 5. Standing balance pause on Square 1
+                c.curX = hs.sq1X;
+                if (c.vy === 0) c.yOffset = 0;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (ht < 290) {
+                // 6. Hop 2: Square 1 -> Square 2
+                const prog = (ht - 230) / 60;
+                c.curX = hs.sq1X + prog * (hs.sq2X - hs.sq1X);
+                if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (ht < 330) {
+                // 7. Bends down gracefully on Square 2 to pick up the beanbag
+                c.curX = hs.sq2X;
+                const bendProg = Math.sin(((ht - 290) / 40) * Math.PI);
+                if (c.vy === 0) c.yOffset = bendProg * 1.5;
+                beanbag.visible = true;
+                beanbag.x = c.curX + 3.2;
+                beanbag.y = groundY + c.yOffset - 8.5;
+              } else if (ht < 380) {
+                // 8. Hop 3: Square 2 -> Square 3
+                const prog = (ht - 330) / 50;
+                c.curX = hs.sq2X + prog * (hs.sq3X - hs.sq2X);
+                if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.2;
+                beanbag.visible = true;
+                beanbag.x = c.curX + 3.2;
+                beanbag.y = groundY + c.yOffset - 8.5;
               } else {
-                // ── Phase B: Girl 7 (Purple dress, curly hair) Turn ──
-                if (c.id === 7) {
-                  c.facing = -1;
-                  if (ht < 330) {
-                    // Ready pose at home
-                    c.curX = c7HomeX;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = c.curX - 4;
-                    beanbag.y = groundY - 10;
-                  } else if (ht < 375) {
-                    // Gentle, graceful toss of beanbag to square 2
-                    c.curX = c7HomeX;
-                    if (c.vy === 0) c.yOffset = 0;
-                    const prog = (ht - 330) / 45;
-                    beanbag.x = (c7HomeX - 4) + prog * (sq2X - (c7HomeX - 4));
-                    beanbag.y =
-                      (groundY - 10) +
-                      prog * (getGroundY(sq2X, width, height) - 1.5 - (groundY - 10)) -
-                      Math.sin(prog * Math.PI) * 11;
-                  } else if (ht < 400) {
-                    // Pause to prepare before hopping
-                    c.curX = c7HomeX;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = sq2X;
-                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 445) {
-                    // Hop 1: Home -> Square 3
-                    const prog = (ht - 400) / 45;
-                    c.curX = c7HomeX - prog * (c7HomeX - sq3X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
-                    beanbag.x = sq2X;
-                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 465) {
-                    // Calm balance pause on Square 3
-                    c.curX = sq3X;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = sq2X;
-                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 510) {
-                    // Hop 2: Square 3 -> Square 2 (smoothly picks up beanbag)
-                    const prog = (ht - 465) / 45;
-                    c.curX = sq3X - prog * (sq3X - sq2X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
-                    if (prog < 0.75) {
-                      beanbag.x = sq2X;
-                      beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                    } else {
-                      beanbag.x = c.curX - 4;
-                      beanbag.y = groundY + c.yOffset - 10;
-                    }
-                  } else if (ht < 530) {
-                    // Calm balance pause on Square 2 with beanbag
-                    c.curX = sq2X;
-                    if (c.vy === 0) c.yOffset = 0;
-                    beanbag.x = c.curX - 4;
-                    beanbag.y = groundY - 10;
-                  } else if (ht < 565) {
-                    // Hop 3: Square 2 -> Square 1
-                    const prog = (ht - 530) / 35;
-                    c.curX = sq2X - prog * (sq2X - sq1X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.0;
-                    beanbag.x = c.curX - 4;
-                    beanbag.y = groundY + c.yOffset - 10;
-                  } else {
-                    // Smooth, graceful walk/hop back to home, tossing beanbag back to Girl 6
-                    const prog = (ht - 565) / 35;
-                    c.curX = sq1X + prog * (c7HomeX - sq1X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 4.0;
-                    const tossProg = Math.min(1, (ht - 565) / 30);
-                    beanbag.x = sq1X + tossProg * (c6HomeX + 4 - sq1X);
-                    beanbag.y =
-                      getGroundY(sq1X, width, height) - 10 +
-                      tossProg * (getGroundY(c6HomeX, width, height) - 10 - (getGroundY(sq1X, width, height) - 10)) -
-                      Math.sin(tossProg * Math.PI) * 8;
-                  }
-                } else if (c.id === 6) {
-                  // Girl 6 stands peacefully cheering (gentle subtle breathing, no fast vibrating)
-                  c.facing = 1;
-                  c.curX = c6HomeX;
-                  if (c.vy === 0) {
-                    c.yOffset = -Math.abs(Math.sin(time * 0.06)) * 1.0;
-                  }
-                }
+                // 9. Turnaround, trot back to Home Left, and toss beanbag across to Partner (Girl 7)
+                const prog = (ht - 380) / 20;
+                c.curX = hs.sq3X - prog * (hs.sq3X - hs.c6HomeX);
+                if (c.vy === 0) c.yOffset = -Math.abs(Math.sin(prog * Math.PI * 2)) * 2.5;
+
+                const tossProg = Math.min(1, Math.max(0, (ht - 382) / 18));
+                beanbag.visible = true;
+                beanbag.x = hs.sq3X + tossProg * (hs.c7HomeX - 3.2 - hs.sq3X);
+                beanbag.y = (groundY - 8.5) - Math.sin(tossProg * Math.PI) * 9.0;
+              }
+            } else if (c.id === 7) {
+              // Girl 7 stands at Home Right, smiling and clapping gently to encourage her friend
+              c.facing = -1;
+              c.curX = hs.c7HomeX;
+              if (c.vy === 0) {
+                c.yOffset = -Math.abs(Math.sin(time * 0.06)) * 1.2;
               }
             }
           } else {
-            c.curX = width * c.baseRatioX;
-            c.facing = -1;
-            if (c.vy === 0) {
-              const amp = goalState === 'celebrating' ? 4.8 : 2.0;
-              c.yOffset = -Math.abs(Math.sin(time * (goalState === 'celebrating' ? 0.24 : 0.14))) * amp;
+            // ── Phase B: Girl 7's Turn (Home Right -> Sq3 -> Sq2 [retrieve] -> Sq1 -> Trot Home -> Toss to Partner) ──
+            const t = ht - 400;
+            if (c.id === 7) {
+              c.facing = -1;
+              if (t < 40) {
+                // 1. Ready pose at Home Right holding beanbag
+                c.curX = hs.c7HomeX;
+                if (c.vy === 0) c.yOffset = 0;
+                beanbag.visible = true;
+                beanbag.x = c.curX - 3.2;
+                beanbag.y = groundY - 8.5;
+              } else if (t < 100) {
+                // 2. Slow, graceful underhand toss of beanbag to Square 2
+                c.curX = hs.c7HomeX;
+                if (c.vy === 0) c.yOffset = 0;
+                const prog = (t - 40) / 60;
+                beanbag.visible = true;
+                beanbag.x = (hs.c7HomeX - 3.2) - prog * ((hs.c7HomeX - 3.2) - hs.sq2X);
+                beanbag.y = (groundY - 8.5) + prog * (sq2GroundY - (groundY - 8.5)) - Math.sin(prog * Math.PI) * 11.5;
+              } else if (t < 140) {
+                // 3. Calm standing balance pause before hopping
+                c.curX = hs.c7HomeX;
+                if (c.vy === 0) c.yOffset = 0;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (t < 200) {
+                // 4. Hop 1: Home Right -> Square 3 (gentle floating arc)
+                const prog = (t - 140) / 60;
+                c.curX = hs.c7HomeX - prog * (hs.c7HomeX - hs.sq3X);
+                if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (t < 230) {
+                // 5. Standing balance pause on Square 3
+                c.curX = hs.sq3X;
+                if (c.vy === 0) c.yOffset = 0;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (t < 290) {
+                // 6. Hop 2: Square 3 -> Square 2
+                const prog = (t - 230) / 60;
+                c.curX = hs.sq3X - prog * (hs.sq3X - hs.sq2X);
+                if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                beanbag.visible = true;
+                beanbag.x = hs.sq2X;
+                beanbag.y = sq2GroundY;
+              } else if (t < 330) {
+                // 7. Bends down gracefully on Square 2 to pick up beanbag
+                c.curX = hs.sq2X;
+                const bendProg = Math.sin(((t - 290) / 40) * Math.PI);
+                if (c.vy === 0) c.yOffset = bendProg * 1.5;
+                beanbag.visible = true;
+                beanbag.x = c.curX - 3.2;
+                beanbag.y = groundY + c.yOffset - 8.5;
+              } else if (t < 380) {
+                // 8. Hop 3: Square 2 -> Square 1
+                const prog = (t - 330) / 50;
+                c.curX = hs.sq2X - prog * (hs.sq2X - hs.sq1X);
+                if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.2;
+                beanbag.visible = true;
+                beanbag.x = c.curX - 3.2;
+                beanbag.y = groundY + c.yOffset - 8.5;
+              } else {
+                // 9. Turnaround, trot back to Home Right, and toss beanbag across to Partner (Girl 6)
+                const prog = (t - 380) / 20;
+                c.curX = hs.sq1X + prog * (hs.c7HomeX - hs.sq1X);
+                if (c.vy === 0) c.yOffset = -Math.abs(Math.sin(prog * Math.PI * 2)) * 2.5;
+
+                const tossProg = Math.min(1, Math.max(0, (t - 382) / 18));
+                beanbag.visible = true;
+                beanbag.x = hs.sq1X - tossProg * (hs.sq1X - (hs.c6HomeX + 3.2));
+                beanbag.y = (groundY - 8.5) - Math.sin(tossProg * Math.PI) * 9.0;
+              }
+            } else if (c.id === 6) {
+              // Girl 6 stands at Home Left, smiling and clapping gently to encourage her friend
+              c.facing = 1;
+              c.curX = hs.c6HomeX;
+              if (c.vy === 0) {
+                c.yOffset = -Math.abs(Math.sin(time * 0.06)) * 1.2;
+              }
             }
           }
+          c.curX = Math.max(12, Math.min(width - 13, c.curX));
         }
 
-        // Kicking state machine (physical foot-to-ball contact)
+        // Kick phase updates
         if (c.kickPhase === 'windup') {
           c.kickProgress += 0.2 * dt;
-          c.kickLegAngle = -0.75 * Math.sin(Math.min(1, c.kickProgress) * Math.PI * 0.5);
+          c.kickLegAngle = -0.72 * Math.sin(Math.min(1, c.kickProgress) * Math.PI * 0.5);
           if (c.kickProgress >= 1) {
             c.kickPhase = 'strike';
             c.kickProgress = 0;
           }
         } else if (c.kickPhase === 'strike') {
           c.kickProgress += 0.28 * dt;
-          c.kickLegAngle = 0.85 * Math.sin(Math.min(1, c.kickProgress) * Math.PI * 0.5);
-
+          c.kickLegAngle = 0.88 * Math.sin(Math.min(1, c.kickProgress) * Math.PI * 0.5);
           if (c.kickProgress >= 0.4 && !c.kickHasContacted) {
             c.kickHasContacted = true;
-            c.kickCooldown = 40;
+            c.kickCooldown = 42;
             ball.lastKickerId = c.id;
-            ball.scaleX = 1.3;
-            ball.scaleY = 0.74;
-
+            ball.scaleX = 1.26;
+            ball.scaleY = 0.78;
             if (c.activity === 'soccer-goalie') {
-              ball.vx = 4.3 + Math.random() * 0.6; // Goalie kicks away from net into field
-              ball.vy = -2.2;
-              ball.rotSpeed = 0.28;
-              passCount = 0;
+              ball.vx = 3.4 * (0.8 + sceneScale * 0.2);
+              ball.vy = -1.9;
+              ball.rotSpeed = 0.26;
             } else {
-              // Outfield players ALWAYS shoot or pass left towards the goal net!
               const distToGoal = ball.x - goal.mouthX;
-              const power = Math.max(4.2, Math.min(6.6, distToGoal * 0.08 + 3.8));
+              const power = Math.max(3.4, Math.min(5.6, distToGoal * 0.08 + 3.0));
               ball.vx = -power;
-              ball.vy = -2.2 - Math.random() * 1.2;
-              ball.rotSpeed = -0.32;
-              passCount = 0;
-            }
-
-            for (let k = 0; k < 4; k++) {
-              spawnParticle(
-                c.curX + c.facing * 6,
-                groundY - 1,
-                c.facing * (1 + Math.random() * 2),
-                -1 - Math.random() * 1.2,
-                1.7,
-                '#65a30d',
-                0.65
-              );
+              ball.vy = -1.9 - Math.random() * 0.9;
+              ball.rotSpeed = -0.3;
             }
           }
-
           if (c.kickProgress >= 1) {
             c.kickPhase = 'followthrough';
             c.kickProgress = 0;
           }
         } else if (c.kickPhase === 'followthrough') {
           c.kickProgress += 0.16 * dt;
-          c.kickLegAngle = 0.85 * Math.max(0, 1 - c.kickProgress);
+          c.kickLegAngle = 0.88 * Math.max(0, 1 - c.kickProgress);
           if (c.kickProgress >= 1) {
             c.kickPhase = 'idle';
             c.kickLegAngle = 0;
           }
         }
 
-        // Grounded directional shadow (shrinks softly during jump)
-        const jumpHeight = Math.max(0, -c.yOffset);
-        const childShadowScale = Math.max(0.65, 1 - jumpHeight / 28);
-        ctx.fillStyle = `rgba(15, 23, 42, ${0.2 * childShadowScale})`;
+        // Ground contact shadow
+        const charScale = Math.max(0.68, Math.min(1.0, 0.56 + sceneScale * 0.44));
+        const shadowScale = Math.max(0.55, 1 + c.yOffset * 0.04);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
         ctx.beginPath();
         ctx.ellipse(
-          c.curX - 1.2,
-          groundY + 1,
-          (c.activity === 'bicycle-rider' ? 14 : 8.5) * childShadowScale,
-          2.6 * childShadowScale,
+          c.curX,
+          groundY + 0.8,
+          (c.activity === 'bicycle-rider' ? 11 : 4.6) * charScale * shadowScale,
+          1.4 * charScale,
           0,
           0,
           Math.PI * 2
         );
         ctx.fill();
 
-        // Draw child in articulated side-profile with subtle sprint lean & bounce
+        // Draw character scaled cleanly for mobile
         ctx.save();
-        const runBob = c.speed > 0.2 ? -Math.abs(Math.sin(c.runCycle)) * 1.3 : 0;
+        const runBob = c.speed > 0.2 ? -Math.abs(Math.sin(c.runCycle)) * 1.0 : 0;
         ctx.translate(c.curX, groundY + c.yOffset + runBob);
+        ctx.scale(charScale, charScale);
 
-        const headY = -27;
-        const headRadius = 5.4;
-        const bodyY = -17;
-        const waistY = -9;
+        const headY = -24;
+        const headRadius = 4.7;
+        const bodyY = -15.0;
+        const waistY = -8.0;
 
-        // 1) Bicycle or Articulated Legs
+        // Legs or Bicycle
         if (c.activity === 'bicycle-rider') {
-          const wheelRadius = 5.0;
-          const wheelSpan = 10;
+          const wheelRadius = 4.5;
+          const wheelSpan = 8.5;
           const rearHubX = -c.facing * wheelSpan;
           const frontHubX = c.facing * wheelSpan;
           const hubY = -wheelRadius;
+          const spokeAngle = c.bikeDistance * 0.25 * c.facing;
 
           [rearHubX, frontHubX].forEach((hx) => {
             ctx.strokeStyle = '#0f172a';
-            ctx.lineWidth = 1.35;
+            ctx.lineWidth = 1.25;
             ctx.beginPath();
             ctx.arc(hx, hubY, wheelRadius, 0, Math.PI * 2);
             ctx.stroke();
 
-            ctx.strokeStyle = '#94a3b8';
-            ctx.lineWidth = 0.7;
-            const spokeRot = c.bikeDistance * 0.25;
-            for (let s = 0; s < 4; s++) {
-              const sa = spokeRot + (s * Math.PI) / 2;
-              ctx.beginPath();
-              ctx.moveTo(hx, hubY);
-              ctx.lineTo(hx + Math.cos(sa) * wheelRadius, hubY + Math.sin(sa) * wheelRadius);
-              ctx.stroke();
-            }
+            // Spinning spokes
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.85)';
+            ctx.lineWidth = 0.65;
+            ctx.beginPath();
+            ctx.moveTo(hx + Math.cos(spokeAngle) * wheelRadius, hubY + Math.sin(spokeAngle) * wheelRadius);
+            ctx.lineTo(hx - Math.cos(spokeAngle) * wheelRadius, hubY - Math.sin(spokeAngle) * wheelRadius);
+            ctx.moveTo(hx - Math.sin(spokeAngle) * wheelRadius, hubY + Math.cos(spokeAngle) * wheelRadius);
+            ctx.lineTo(hx + Math.sin(spokeAngle) * wheelRadius, hubY - Math.cos(spokeAngle) * wheelRadius);
+            ctx.stroke();
           });
 
+          // Frame + handlebars + seat
           ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 1.6;
-          ctx.lineCap = 'round';
-          const seatPostX = -c.facing * 3;
-          const seatPostY = bodyY + 3;
-          const handlePostX = c.facing * 6;
-          const handlePostY = bodyY - 1;
-
+          ctx.lineWidth = 1.45;
           ctx.beginPath();
           ctx.moveTo(rearHubX, hubY);
-          ctx.lineTo(seatPostX, seatPostY);
-          ctx.lineTo(0, hubY);
-          ctx.lineTo(rearHubX, hubY);
-          ctx.moveTo(0, hubY);
-          ctx.lineTo(handlePostX, handlePostY);
-          ctx.lineTo(seatPostX, seatPostY);
-          ctx.moveTo(handlePostX, handlePostY);
+          ctx.lineTo(-c.facing * 2.2, waistY + 1.5);
+          ctx.lineTo(c.facing * 5.2, bodyY + 1.5);
           ctx.lineTo(frontHubX, hubY);
+          ctx.moveTo(-c.facing * 2.2, waistY + 1.5);
+          ctx.lineTo(c.facing * 0.5, hubY);
+          ctx.lineTo(c.facing * 5.2, bodyY + 1.5);
           ctx.stroke();
 
           ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.4;
+          ctx.lineWidth = 1.3;
           ctx.beginPath();
-          ctx.moveTo(handlePostX, handlePostY);
-          ctx.lineTo(handlePostX + c.facing * 2, handlePostY - 4);
+          ctx.moveTo(c.facing * 4.5, bodyY + 0.5);
+          ctx.lineTo(c.facing * 6.5, bodyY - 0.5);
+          ctx.stroke();
+        } else if (c.activity === 'hopscotch-player') {
+          // Continuous, smooth leg interpolation for hopscotch hops (zero glitching or popping)
+          const hopLift = Math.min(1, Math.max(0, -c.yOffset / 6.0));
+          const frontHipX = c.facing * 1.5;
+          const backLegX = -c.facing * 1.5;
+
+          ctx.strokeStyle = '#334155';
+          ctx.lineWidth = 1.6;
+          ctx.lineCap = 'round';
+
+          // Back plant leg extends down to ground
+          ctx.beginPath();
+          ctx.moveTo(backLegX, waistY);
+          ctx.lineTo(backLegX, 0);
+          ctx.stroke();
+
+          // Front leg bends smoothly and continuously as character rises
+          const kneeX = frontHipX + c.facing * (2.0 * hopLift);
+          const kneeY = waistY + 4.5 * (1 - hopLift) + 3.8 * hopLift;
+          const footX = frontHipX + c.facing * (0.8 * hopLift);
+          const footY = (waistY + 9.0) * (1 - hopLift) + (waistY + 6.8) * hopLift;
+
+          ctx.beginPath();
+          ctx.moveTo(frontHipX, waistY);
+          ctx.lineTo(kneeX, kneeY);
+          ctx.lineTo(footX, footY);
           ctx.stroke();
 
           ctx.fillStyle = '#0f172a';
           ctx.beginPath();
-          ctx.ellipse(seatPostX, seatPostY - 1, 3.2, 1.2, 0, 0, Math.PI * 2);
-          ctx.fill();
-
-          const pedalAngle = c.runCycle * 2;
-          const pedalFootX = Math.cos(pedalAngle) * 3.4;
-          const pedalFootY = hubY + Math.sin(pedalAngle) * 3.4;
-
-          ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.75;
-          ctx.beginPath();
-          ctx.moveTo(seatPostX, waistY);
-          ctx.lineTo(pedalFootX, pedalFootY);
-          ctx.stroke();
-
-          ctx.fillStyle = '#0f172a';
-          ctx.beginPath();
-          ctx.arc(pedalFootX, pedalFootY, 1.7, 0, Math.PI * 2);
+          ctx.arc(backLegX, 0.5, 1.75, 0, Math.PI * 2);
+          ctx.arc(footX, footY, 1.75, 0, Math.PI * 2);
           ctx.fill();
         } else {
           ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.8;
+          ctx.lineWidth = 1.6;
           ctx.lineCap = 'round';
+          const stride = Math.sin(c.runCycle) * 3.5;
 
+          // Back/planting leg
+          ctx.beginPath();
+          ctx.moveTo(-c.facing * 1.2, waistY);
+          ctx.lineTo(-c.facing * 1.2 - c.facing * stride, 0);
+          ctx.stroke();
+
+          // Front/kicking leg (uses kickLegAngle during active kick)
+          ctx.beginPath();
+          ctx.moveTo(c.facing * 1.2, waistY);
           if (c.kickPhase !== 'idle') {
-            const plantLegX = -c.facing * 2.4;
-            ctx.beginPath();
-            ctx.moveTo(plantLegX, waistY);
-            ctx.lineTo(plantLegX, 0);
-            ctx.stroke();
-
-            ctx.fillStyle = '#0f172a';
-            ctx.beginPath();
-            ctx.arc(plantLegX, 0, 1.8, 0, Math.PI * 2);
-            ctx.fill();
-
-            const kickHipX = c.facing * 2.1;
-            const legLen = 9.2;
-            const footX = kickHipX + Math.sin(c.kickLegAngle * c.facing) * legLen;
-            const footY = waistY + Math.cos(c.kickLegAngle * c.facing) * legLen;
-
-            ctx.beginPath();
-            ctx.moveTo(kickHipX, waistY);
-            ctx.lineTo(footX, footY);
-            ctx.stroke();
-
-            ctx.fillStyle = '#dc2626';
-            ctx.beginPath();
-            ctx.arc(footX, footY, 2.0, 0, Math.PI * 2);
-            ctx.fill();
-          } else if (c.id === 6 || c.id === 7) {
-            ctx.strokeStyle = '#334155';
-            ctx.lineWidth = 1.75;
-            ctx.lineCap = 'round';
-
-            // Continuous lift interpolation (0 = grounded stick legs, 1 = graceful knee lift) - NO boolean snapping
-            const hopLift = Math.min(1, Math.max(0, -c.yOffset / 6.5));
-            const backLegX = -c.facing * 1.5;
-            const frontHipX = c.facing * 1.5;
-
-            // Back plant leg extends down to ground
-            ctx.beginPath();
-            ctx.moveTo(backLegX, waistY);
-            ctx.lineTo(backLegX, 0);
-            ctx.stroke();
-
-            // Front leg bends smoothly and continuously as character rises
-            const kneeX = frontHipX + c.facing * (2.0 * hopLift);
-            const kneeY = waistY + 4.5 * (1 - hopLift) + 3.8 * hopLift;
-            const footX = frontHipX + c.facing * (0.8 * hopLift);
-            const footY = (waistY + 9.0) * (1 - hopLift) + (waistY + 6.8) * hopLift;
-
-            ctx.beginPath();
-            ctx.moveTo(frontHipX, waistY);
-            ctx.lineTo(kneeX, kneeY);
-            ctx.lineTo(footX, footY);
-            ctx.stroke();
-
-            ctx.fillStyle = '#0f172a';
-            ctx.beginPath();
-            ctx.arc(backLegX, 0, 1.75, 0, Math.PI * 2);
-            ctx.arc(footX, footY, 1.75, 0, Math.PI * 2);
-            ctx.fill();
+            const legLen = Math.abs(waistY);
+            const kickX = c.facing * 1.2 + c.facing * Math.sin(c.kickLegAngle) * legLen;
+            const kickY = waistY + Math.cos(c.kickLegAngle) * legLen;
+            ctx.lineTo(kickX, kickY);
           } else {
-            const stride = Math.sin(c.runCycle) * 4.2;
-            const liftA = Math.max(0, -Math.cos(c.runCycle)) * (c.speed > 0.2 ? 2.1 : 0);
-            const liftB = Math.max(0, Math.cos(c.runCycle)) * (c.speed > 0.2 ? 2.1 : 0);
-
-            // Back leg with subtle knee bend
-            const footAX = -c.facing * 1.4 - c.facing * stride;
-            const footAY = -liftA;
-            ctx.beginPath();
-            ctx.moveTo(-c.facing * 1.4, waistY);
-            ctx.quadraticCurveTo(
-              (-c.facing * 1.4 + footAX) * 0.5 + c.facing * 1.2,
-              waistY * 0.45,
-              footAX,
-              footAY
-            );
-            ctx.stroke();
-
-            // Front leg
-            const footBX = c.facing * 1.4 + c.facing * stride;
-            const footBY = -liftB;
-            ctx.beginPath();
-            ctx.moveTo(c.facing * 1.4, waistY);
-            ctx.quadraticCurveTo(
-              (c.facing * 1.4 + footBX) * 0.5 + c.facing * 1.2,
-              waistY * 0.45,
-              footBX,
-              footBY
-            );
-            ctx.stroke();
-
-            ctx.fillStyle = '#0f172a';
-            ctx.beginPath();
-            ctx.arc(footAX, footAY, 1.75, 0, Math.PI * 2);
-            ctx.arc(footBX, footBY, 1.75, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.lineTo(c.facing * 1.2 + c.facing * stride, 0);
           }
+          ctx.stroke();
         }
 
-        // Subtle forward torso lean when sprinting
-        const runLean = c.activity !== 'bicycle-rider' && c.speed > 0.5 ? c.facing * 0.08 : 0;
-        ctx.save();
-        ctx.rotate(runLean);
-
-        // 2) Torso & Clothes
+        // Torso / Dress
         if (c.hasDress) {
-          const dressOutline = c.id === 6 ? '#1e3a8a' : (c.id === 7 ? '#581c87' : '#475569');
           ctx.fillStyle = c.shirtColor;
-          ctx.strokeStyle = dressOutline;
-          ctx.lineWidth = (c.id === 6 || c.id === 7) ? 1.25 : 1.05;
+          ctx.strokeStyle = c.id === 6 ? '#1e3a8a' : c.id === 7 ? '#581c87' : '#9d174d';
+          ctx.lineWidth = 1.0;
           ctx.beginPath();
-          ctx.moveTo(c.facing * 1.5, bodyY);
-          ctx.lineTo(-c.facing * 6.5, waistY + 1.2);
-          ctx.lineTo(c.facing * 6.5, waistY + 1.2);
+          ctx.moveTo(c.facing * 1.2, bodyY);
+          ctx.lineTo(-c.facing * 5.4, waistY + 1.2);
+          ctx.lineTo(c.facing * 5.4, waistY + 1.2);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
-
-          // Signature inner diagonal line/strap from image_803fdb.png
-          if (c.id === 6) {
-            ctx.strokeStyle = '#1d4ed8';
-            ctx.lineWidth = 1.15;
-            ctx.beginPath();
-            ctx.moveTo(-c.facing * 1.5, bodyY + 3);
-            ctx.lineTo(c.facing * 2.5, waistY - 1);
-            ctx.stroke();
-          } else if (c.id === 7) {
-            ctx.strokeStyle = '#7e22ce';
-            ctx.lineWidth = 1.15;
-            ctx.beginPath();
-            ctx.moveTo(c.facing * 1.5, bodyY + 3);
-            ctx.lineTo(-c.facing * 2.5, waistY - 1);
-            ctx.stroke();
-          }
         } else {
           ctx.fillStyle = c.pantsColor;
-          ctx.fillRect(-3.5, waistY - 1.5, 7, 5);
+          ctx.fillRect(-3.0, waistY - 1.2, 6.0, 4.2);
           ctx.fillStyle = c.shirtColor;
-          ctx.fillRect(-4, bodyY, 8, 9);
+          ctx.fillRect(-3.4, bodyY, 6.8, 7.8);
         }
 
-        // 3) Arms & Props
+        // Arms & Signature Activity Props
         ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 1.75;
+        ctx.lineWidth = 1.5;
         ctx.lineCap = 'round';
 
-        if (c.activity === 'soccer-goalie') {
-          const gloveOffset = isScorerCelebrating ? 0 : Math.sin(time * 0.12) * 1.5;
-          const g1X = c.facing * 5;
-          const g1Y = bodyY - 1 + gloveOffset;
-          const g2X = c.facing * 7;
-          const g2Y = bodyY + 3 - gloveOffset;
-
+        if (isScorerCelebrating) {
           ctx.beginPath();
-          ctx.moveTo(-1, bodyY + 3);
-          ctx.lineTo(g1X, g1Y);
-          ctx.moveTo(1, bodyY + 3);
-          ctx.lineTo(g2X, g2Y);
+          ctx.moveTo(-2.4, bodyY + 2.2);
+          ctx.lineTo(-6.8, bodyY - 8.5);
+          ctx.moveTo(2.4, bodyY + 2.2);
+          ctx.lineTo(6.8, bodyY - 8.5);
           ctx.stroke();
-
-          ctx.fillStyle = '#facc15';
-          ctx.strokeStyle = '#ca8a04';
-          ctx.lineWidth = 0.8;
-          [
-            [g1X, g1Y],
-            [g2X, g2Y],
-          ].forEach(([gx, gy]) => {
-            ctx.beginPath();
-            ctx.arc(gx, gy, 2.4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          });
-        } else if (isScorerCelebrating || (c.activity === 'cheerer' && goalState === 'celebrating')) {
-          const wiggle = Math.sin(time * 0.25) * 2;
-          ctx.beginPath();
-          ctx.moveTo(-3, bodyY + 3);
-          ctx.lineTo(-8.5 + wiggle, bodyY - 10.5);
-          ctx.moveTo(3, bodyY + 3);
-          ctx.lineTo(8.5 - wiggle, bodyY - 10.5);
-          ctx.stroke();
-        } else if (c.id === 6 || c.id === 7) {
-          // Cooperative Hopscotch & Beanbag Toss Arms (slow, graceful, no glitching)
-          const ht = hopscotchTimer % 600;
-          const isGirl6Active = ht < 300;
-          const isActive = (c.id === 6 && isGirl6Active) || (c.id === 7 && !isGirl6Active);
+        } else if (c.activity === 'hopscotch-player') {
+          // Cooperative Hopscotch Arms (natural toss, balance swing, or gentle clapping)
+          const CYCLE = 800;
+          const ht = hopscotchTimer % CYCLE;
+          const isGirl6Turn = ht < 400;
+          const isActive = (c.id === 6 && isGirl6Turn) || (c.id === 7 && !isGirl6Turn);
 
           if (isActive) {
-            const turnT = isGirl6Active ? ht : (ht - 300);
-            if (turnT < 75) {
-              // Gentle, slow tossing arm motion
-              const tossProg = Math.min(1, Math.max(0, (turnT - 30) / 45));
-              const armAngle = Math.sin(tossProg * Math.PI) * 4.5;
+            const turnT = isGirl6Turn ? ht : (ht - 400);
+            if (turnT < 100) {
+              // Graceful underhand toss forward
+              const tossProg = Math.min(1, Math.max(0, (turnT - 40) / 60));
+              const armLift = Math.sin(tossProg * Math.PI) * 4.5;
               ctx.beginPath();
               ctx.moveTo(-c.facing * 2, bodyY + 3);
               ctx.lineTo(-c.facing * 4, bodyY + 6);
               ctx.moveTo(c.facing * 1, bodyY + 2);
-              ctx.lineTo(c.facing * (5.0 + tossProg * 2.5), bodyY - armAngle);
+              ctx.lineTo(c.facing * (5.0 + tossProg * 2.5), bodyY - armLift);
+              ctx.stroke();
+            } else if (turnT >= 290 && turnT < 330) {
+              // Bending down to pick up beanbag
+              ctx.beginPath();
+              ctx.moveTo(-c.facing * 1.5, bodyY + 3);
+              ctx.lineTo(-c.facing * 3, bodyY + 6);
+              ctx.moveTo(c.facing * 1.5, bodyY + 3);
+              ctx.lineTo(c.facing * 4.5, bodyY + 8);
               ctx.stroke();
             } else {
-              // Balance swinging arms while hopping (slow, gentle natural motion)
-              const swing = Math.sin(time * 0.08) * 2.2;
+              // Gentle balance swinging arms during hops
+              const swing = Math.sin(time * 0.08) * 2.0;
               ctx.beginPath();
               ctx.moveTo(-c.facing * 2, bodyY + 3);
               ctx.lineTo(-c.facing * 6.0, bodyY - swing);
@@ -2730,7 +2242,7 @@ export function MiniatureGardenPlayground({
               ctx.stroke();
             }
           } else {
-            // Partner clapping encouragingly at relaxed, peaceful tempo
+            // Resting partner claps hands gently at a calm, delightful tempo
             const clap = Math.sin(time * 0.08);
             const clapX = 2.0 + clap * 1.5;
             ctx.beginPath();
@@ -2740,349 +2252,163 @@ export function MiniatureGardenPlayground({
             ctx.lineTo(c.facing * clapX, bodyY + 2);
             ctx.stroke();
           }
-        } else if (c.activity === 'slingshot-hunter') {
-          const handX = c.facing * 8;
-          const handY = bodyY + 1;
+        } else if (c.activity === 'butterfly-catcher') {
+          // Arm holding butterfly net angled toward the blue butterfly
+          const armEndX = c.facing * 5.5;
+          const armEndY = bodyY - 1.5;
           ctx.beginPath();
-          ctx.moveTo(0, bodyY + 3);
+          ctx.moveTo(0, bodyY + 2.2);
+          ctx.lineTo(armEndX, armEndY);
+          ctx.stroke();
+
+          // Net pole & mesh hoop
+          const netTipX = armEndX + c.facing * 7.5;
+          const netTipY = armEndY - 7.5 + Math.sin(time * 0.16) * 1.6;
+          ctx.strokeStyle = '#92400e';
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.moveTo(armEndX, armEndY);
+          ctx.lineTo(netTipX, netTipY);
+          ctx.stroke();
+
+          ctx.fillStyle = 'rgba(224, 242, 254, 0.55)';
+          ctx.strokeStyle = '#0284c7';
+          ctx.lineWidth = 0.9;
+          ctx.beginPath();
+          ctx.ellipse(netTipX + c.facing * 2.2, netTipY - 1.5, 3.2, 2.2, c.facing * -0.4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else if (c.activity === 'slingshot-hunter') {
+          // Aiming arm + Y-shaped wooden slingshot
+          const handX = c.facing * 5.8;
+          const handY = bodyY - 0.5;
+          ctx.beginPath();
+          ctx.moveTo(0, bodyY + 2.2);
           ctx.lineTo(handX, handY);
           ctx.stroke();
 
           ctx.strokeStyle = '#78350f';
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 1.15;
           ctx.beginPath();
-          ctx.moveTo(handX, handY);
-          ctx.lineTo(handX + c.facing * 3, handY - 4);
-          ctx.lineTo(handX + c.facing * 1, handY - 8);
-          ctx.moveTo(handX + c.facing * 3, handY - 4);
-          ctx.lineTo(handX + c.facing * 5, handY - 7);
+          ctx.moveTo(handX, handY + 1);
+          ctx.lineTo(handX, handY - 2.2);
+          ctx.lineTo(handX - 1.8, handY - 4.5);
+          ctx.moveTo(handX, handY - 2.2);
+          ctx.lineTo(handX + 1.8, handY - 4.5);
           ctx.stroke();
 
-          const pullAmount = 3 + Math.sin(c.slingshotTimer * 0.1) * 2.4;
-          const pullHandX = -c.facing * pullAmount;
-          const pullHandY = bodyY + 2;
-
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 0.9;
-          ctx.beginPath();
-          ctx.moveTo(handX + c.facing * 1, handY - 8);
-          ctx.lineTo(pullHandX, pullHandY);
-          ctx.lineTo(handX + c.facing * 5, handY - 7);
-          ctx.stroke();
-
-          ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.75;
-          ctx.beginPath();
-          ctx.moveTo(-c.facing * 2, bodyY + 3);
-          ctx.lineTo(pullHandX, pullHandY);
-          ctx.stroke();
-        } else if (c.activity === 'butterfly-catcher') {
-          const swing = c.speed > 0.2 ? Math.sin(c.runCycle) * 0.22 : Math.sin(time * 0.08) * 0.12;
-          const netHandX = c.facing * 6;
-          const netHandY = bodyY + 1 + swing * 2;
-          ctx.beginPath();
-          ctx.moveTo(0, bodyY + 3);
-          ctx.lineTo(netHandX, netHandY);
-          ctx.stroke();
-
-          const poleTipX = netHandX + c.facing * (13 + Math.cos(swing) * 2);
-          const poleTipY = netHandY - 10 + Math.sin(swing) * 5;
-          ctx.strokeStyle = '#b45309';
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.moveTo(netHandX - c.facing * 2, netHandY + 4);
-          ctx.lineTo(poleTipX, poleTipY);
-          ctx.stroke();
-
-          ctx.strokeStyle = '#0284c7';
-          ctx.lineWidth = 1.1;
-          ctx.beginPath();
-          ctx.ellipse(poleTipX + c.facing * 3, poleTipY - 2, 4.4, 2.9, 0.4, 0, Math.PI * 2);
-          ctx.stroke();
-
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.48)';
-          ctx.beginPath();
-          ctx.moveTo(poleTipX, poleTipY);
-          ctx.lineTo(poleTipX - c.facing * 5.5, poleTipY - 7.5);
-          ctx.lineTo(poleTipX + c.facing * 5.5, poleTipY - 3.5);
-          ctx.closePath();
-          ctx.fill();
-        } else if (c.activity === 'bicycle-rider') {
-          ctx.beginPath();
-          ctx.moveTo(0, bodyY + 3);
-          ctx.lineTo(c.facing * 7, bodyY - 1);
-          ctx.stroke();
-        } else if (c.activity === 'kite-flyer') {
-          ctx.beginPath();
-          ctx.moveTo(0, bodyY + 3);
-          ctx.lineTo(c.facing * 5, bodyY - 2);
-          ctx.stroke();
-
-          ctx.fillStyle = '#b45309';
-          ctx.fillRect(c.facing * 4, bodyY - 4, 3, 4);
-
-          // Only draw flying diamond kite if NOT transparentSky (keeps dashboard sky clean & matches target)
-          if (!transparentSky) {
-            const kiteX = c.curX - 38 + globalWind * 2.4;
-            const kiteY = 20 + Math.sin(time * 0.055) * 3 - windGust * 2.2;
-            const relKiteX = kiteX - c.curX;
-            const relKiteY = kiteY - (groundY + c.yOffset);
-
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.moveTo(c.facing * 4, bodyY - 3);
-            ctx.quadraticCurveTo(relKiteX * 0.45, bodyY - 22, relKiteX, relKiteY);
-            ctx.stroke();
-
-            ctx.save();
-            ctx.translate(relKiteX, relKiteY);
-            ctx.rotate(0.14 + Math.sin(time * 0.06) * 0.1 + windGust * 0.08);
-
-            const kw = 6.5;
-            const kh = 9.5;
-            ctx.fillStyle = '#ef4444';
-            ctx.beginPath();
-            ctx.moveTo(0, -kh);
-            ctx.lineTo(kw, 0);
-            ctx.lineTo(0, kh);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.fillStyle = '#3b82f6';
-            ctx.beginPath();
-            ctx.moveTo(0, -kh);
-            ctx.lineTo(-kw, 0);
-            ctx.lineTo(0, kh);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.strokeStyle = '#ffffff';
+          // Elastic pull-back just before firing
+          if (c.slingshotTimer > 145) {
+            ctx.strokeStyle = '#ef4444';
             ctx.lineWidth = 0.75;
             ctx.beginPath();
-            ctx.moveTo(0, -kh);
-            ctx.lineTo(0, kh);
-            ctx.moveTo(-kw, 0);
-            ctx.lineTo(kw, 0);
+            ctx.moveTo(handX - 1.8, handY - 4.5);
+            ctx.lineTo(handX - c.facing * 3.0, handY - 2.2);
+            ctx.lineTo(handX + 1.8, handY - 4.5);
             ctx.stroke();
-
-            ctx.strokeStyle = '#f59e0b';
-            ctx.lineWidth = 1.0;
-            ctx.beginPath();
-            ctx.moveTo(0, kh);
-            for (let t = 1; t <= 3; t++) {
-              const tx = Math.sin(time * 0.16 + t) * (2.6 + windGust * 0.9);
-              ctx.lineTo(tx, kh + t * 3.8);
-            }
-            ctx.stroke();
-            ctx.restore();
           }
-        } else if (c.kickPhase !== 'idle') {
+        } else if (c.activity === 'bicycle-rider') {
           ctx.beginPath();
-          ctx.moveTo(c.facing * 3, bodyY + 2);
-          ctx.lineTo(c.facing * 9, bodyY - 3);
-          ctx.moveTo(-c.facing * 3, bodyY + 2);
-          ctx.lineTo(-c.facing * 7, bodyY + 6);
+          ctx.moveTo(c.facing * 1.0, bodyY + 2.0);
+          ctx.lineTo(c.facing * 5.6, bodyY + 0.2);
           ctx.stroke();
         } else {
-          const armSwing = Math.cos(c.runCycle) * 3.5;
+          const swing = Math.cos(c.runCycle) * 2.8;
           ctx.beginPath();
-          ctx.moveTo(0, bodyY + 3);
-          ctx.lineTo(c.facing * armSwing, bodyY + 7);
+          ctx.moveTo(0, bodyY + 2.2);
+          ctx.lineTo(c.facing * swing, bodyY + 6.2);
           ctx.stroke();
         }
 
-        // 4) Head & Side-Profile Face
+        // Head
         ctx.fillStyle = c.skinColor;
         ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 1.15;
+        ctx.lineWidth = 1.05;
         ctx.beginPath();
         ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
+        // Eye
         ctx.fillStyle = '#0f172a';
         ctx.beginPath();
-        ctx.arc(c.facing * 2.3, headY - 1, 0.9, 0, Math.PI * 2);
+        ctx.arc(c.facing * 1.9, headY - 0.7, 0.8, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = '#7c2d12';
-        ctx.lineWidth = 1.05;
-        ctx.beginPath();
-        ctx.arc(c.facing * 1.4, headY + 1, 1.9, 0, Math.PI * 0.75);
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.42)';
-        ctx.beginPath();
-        ctx.arc(c.facing * 1.1, headY + 1.2, 1.15, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 5) Hair Styles
+        // Hair / Cap styles
         ctx.fillStyle = c.hairColor;
-        ctx.strokeStyle = c.hairColor;
-        ctx.lineWidth = 1.2;
-
-        if (c.hairStyle === 'short-brown') {
+        if (c.hairStyle === 'orange-pigtails') {
           ctx.beginPath();
-          ctx.arc(0, headY - 1.5, headRadius + 0.5, Math.PI * 0.9, Math.PI * 2.1);
+          ctx.arc(0, headY - 1.0, headRadius + 0.4, Math.PI * 0.85, Math.PI * 2.15);
           ctx.fill();
+          ctx.beginPath();
+          ctx.arc(-headRadius - 0.6, headY - 0.5, 1.9, 0, Math.PI * 2);
+          ctx.arc(headRadius + 0.6, headY - 0.5, 1.9, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (c.hairStyle === 'curly-brown') {
+          for (let cp = -2; cp <= 2; cp++) {
+            ctx.beginPath();
+            ctx.arc(cp * 2.0, headY - 4.5, 1.9, 0, Math.PI * 2);
+            ctx.fill();
+          }
         } else if (c.hairStyle === 'ponytail-red') {
           ctx.beginPath();
-          ctx.arc(0, headY - 1.5, headRadius + 0.5, Math.PI * 0.85, Math.PI * 2.15);
+          ctx.arc(0, headY - 1.1, headRadius + 0.35, Math.PI * 0.9, Math.PI * 2.1);
           ctx.fill();
           ctx.beginPath();
-          ctx.moveTo(-c.facing * headRadius, headY - 1);
-          ctx.quadraticCurveTo(
-            -c.facing * (headRadius + 5),
-            headY + 2,
-            -c.facing * (headRadius + 4),
-            headY + 7
-          );
-          ctx.stroke();
-        } else if (c.hairStyle === 'spiky-black') {
-          ctx.beginPath();
-          ctx.moveTo(-c.facing * headRadius, headY);
-          ctx.lineTo(-c.facing * 4, headY - 9);
-          ctx.lineTo(0, headY - 10);
-          ctx.lineTo(c.facing * 4, headY - 6);
-          ctx.lineTo(c.facing * headRadius, headY);
-          ctx.closePath();
+          ctx.ellipse(-c.facing * (headRadius + 1.5), headY - 0.6, 2.4, 1.4, c.facing * 0.4, 0, Math.PI * 2);
           ctx.fill();
         } else if (c.hairStyle === 'blonde-bob') {
           ctx.beginPath();
-          ctx.arc(0, headY - 1.5, headRadius + 1, Math.PI * 0.8, Math.PI * 2.2);
-          ctx.lineTo(c.facing * (headRadius + 2), headY + 2);
-          ctx.lineTo(-c.facing * (headRadius + 2), headY + 2);
+          ctx.arc(0, headY - 0.6, headRadius + 0.5, Math.PI * 0.75, Math.PI * 2.25);
+          ctx.fill();
+        } else if (c.hairStyle === 'spiky-black') {
+          ctx.beginPath();
+          ctx.moveTo(-4.2, headY - 2.2);
+          ctx.lineTo(-2.5, headY - 6.6);
+          ctx.lineTo(-0.4, headY - 4.2);
+          ctx.lineTo(1.2, headY - 6.8);
+          ctx.lineTo(2.6, headY - 4.0);
+          ctx.lineTo(4.4, headY - 5.4);
+          ctx.lineTo(4.2, headY - 2.0);
           ctx.closePath();
           ctx.fill();
         } else if (c.hairStyle === 'beanie') {
-          ctx.fillStyle = '#991b1b';
           ctx.beginPath();
-          ctx.arc(0, headY - 2, headRadius + 0.8, Math.PI, Math.PI * 2);
+          ctx.arc(0, headY - 1.3, headRadius + 0.45, Math.PI, Math.PI * 2);
           ctx.fill();
-          ctx.fillRect(c.facing > 0 ? 0 : -headRadius - 3, headY - 3, headRadius + 3, 2);
-        } else if (c.hairStyle === 'orange-pigtails') {
-          // Orange cap with backward flap from image_803fdb.png
-          ctx.fillStyle = '#ea580c';
           ctx.beginPath();
-          ctx.arc(0, headY - 1, headRadius + 0.6, Math.PI * 0.85, Math.PI * 2.15);
+          ctx.arc(0, headY - headRadius - 1.4, 1.4, 0, Math.PI * 2);
           ctx.fill();
-          // Backward cap flap / strap
-          ctx.lineWidth = 2.2;
-          ctx.strokeStyle = '#ea580c';
-          ctx.lineCap = 'round';
+        } else {
           ctx.beginPath();
-          ctx.moveTo(-c.facing * (headRadius * 0.7), headY);
-          ctx.lineTo(-c.facing * (headRadius + 5), headY + 4);
-          ctx.stroke();
-        } else if (c.hairStyle === 'curly-brown') {
-          // Curly hair puffs across top and side from image_803fdb.png
-          ctx.fillStyle = '#451a03';
-          for (let cp = -2; cp <= 2; cp++) {
-            ctx.beginPath();
-            ctx.arc(cp * 2.3, headY - 5.2, 2.3, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          ctx.beginPath();
-          ctx.arc(-headRadius - 0.5, headY - 2.5, 2.0, 0, Math.PI * 2);
-          ctx.arc(headRadius + 0.5, headY - 2.5, 2.0, 0, Math.PI * 2);
+          ctx.arc(0, headY - 1.2, headRadius + 0.35, Math.PI * 0.9, Math.PI * 2.1);
           ctx.fill();
         }
 
-        ctx.restore(); // End sprint lean
-
-        // 6) "GOAL! ⚽" Comic Speech Bubble (skipped in dashboard transparentSky mode to keep sky pristine)
-        if (!transparentSky && isScorerCelebrating) {
-          const bubbleAnim = Math.min(1, (175 - goalTimer) / 12);
-          const bounce = 1 + Math.sin(time * 0.22) * 0.07;
-
-          ctx.save();
-          ctx.translate(0, headY - 21);
-          ctx.scale(bubbleAnim * bounce, bubbleAnim * bounce);
-
-          const bw = 46;
-          const bh = 18;
-          const br = 7;
-
-          const drawBubbleRect = (rx: number, ry: number) => {
-            ctx.beginPath();
-            if (typeof ctx.roundRect === 'function') {
-              ctx.roundRect(rx, ry, bw, bh, br);
-            } else {
-              ctx.moveTo(rx + br, ry);
-              ctx.lineTo(rx + bw - br, ry);
-              ctx.quadraticCurveTo(rx + bw, ry, rx + bw, ry + br);
-              ctx.lineTo(rx + bw, ry + bh - br);
-              ctx.quadraticCurveTo(rx + bw, ry + bh, rx + bw - br, ry + bh);
-              ctx.lineTo(rx + br, ry + bh);
-              ctx.quadraticCurveTo(rx, ry + bh, rx, ry + bh - br);
-              ctx.lineTo(rx, ry + br);
-              ctx.quadraticCurveTo(rx, ry, rx + br, ry);
-              ctx.closePath();
-            }
-          };
-
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
-          drawBubbleRect(-bw / 2 + 1, -bh / 2 + 1);
-          ctx.fill();
-
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = '#059669';
-          ctx.lineWidth = 1.4;
-          drawBubbleRect(-bw / 2, -bh / 2);
-          ctx.fill();
-          ctx.stroke();
-
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.moveTo(-3, bh / 2 - 0.5);
-          ctx.lineTo(0, bh / 2 + 5);
-          ctx.lineTo(4, bh / 2 - 0.5);
-          ctx.fill();
-          ctx.stroke();
-          ctx.fillRect(-2.2, bh / 2 - 2, 5.2, 2.5);
-
-          ctx.font = 'bold 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#047857';
-          ctx.fillText('GOAL! ⚽', 0, 0.5);
-          ctx.restore();
-        }
-
-        ctx.restore(); // End child transform
+        ctx.restore();
       });
 
-      // 11.5) Hopscotch Beanbag (tossed between Character 6 and 7)
-      if (beanbag.visible && goalState !== 'celebrating') {
+      // 11.5) Hopscotch Beanbag
+      if (beanbag.visible) {
         ctx.save();
         ctx.translate(beanbag.x, beanbag.y);
         ctx.fillStyle = '#f43f5e';
         ctx.strokeStyle = '#9f1239';
         ctx.lineWidth = 0.85;
         ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-          ctx.roundRect(-2.2, -2.2, 4.4, 4.4, 1.2);
-        } else {
-          ctx.rect(-2.2, -2.2, 4.4, 4.4);
-        }
+        ctx.arc(0, 0, 2.1, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        // Inner contrast stitch
-        ctx.fillStyle = '#fef08a';
-        ctx.beginPath();
-        ctx.arc(0, 0, 0.9, 0, Math.PI * 2);
-        ctx.fill();
         ctx.restore();
       }
 
-      // 12) Confetti & Sparkle Particles (pooled & rotated)
+      // 12) Confetti Particles
       for (let cp = celebrationParticles.length - 1; cp >= 0; cp--) {
         const pt = celebrationParticles[cp];
         pt.x += pt.vx * dt;
         pt.y += pt.vy * dt;
         pt.vy += 0.08 * dt;
-        pt.vx *= Math.pow(0.98, dt);
         pt.rot += pt.vrot * dt;
         pt.life -= 0.02 * dt;
 
@@ -3100,7 +2426,6 @@ export function MiniatureGardenPlayground({
       }
     };
 
-    // ─── Smart Battery-Safe Animation Loop ────────────────────────────────────
     const loop = (timestamp: number) => {
       if (pausedRef.current || !isVisible || !isDocVisible) {
         isRunning = false;
@@ -3113,7 +2438,6 @@ export function MiniatureGardenPlayground({
       const elapsed = timestamp - lastTimestamp;
       lastTimestamp = timestamp;
 
-      // Clamp dt to avoid physics jumps after switching tabs
       const dt = Math.min(Math.max(elapsed / 16.667, 0.25), 2.0);
       drawFrame(dt);
 
@@ -3129,7 +2453,6 @@ export function MiniatureGardenPlayground({
 
     resumeLoopRef.current = startIfActive;
 
-    // ResizeObserver for crisp layout & orientation changes
     const resizeObserver =
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => handleResize())
@@ -3137,7 +2460,6 @@ export function MiniatureGardenPlayground({
     resizeObserver?.observe(container);
     window.addEventListener('resize', handleResize);
 
-    // Pause automatically when scrolled out of view
     const intersectionObserver =
       typeof IntersectionObserver !== 'undefined'
         ? new IntersectionObserver(
@@ -3150,14 +2472,12 @@ export function MiniatureGardenPlayground({
         : null;
     intersectionObserver?.observe(container);
 
-    // Pause automatically when phone screen locks or app is backgrounded
     const onVisibilityChange = () => {
       isDocVisible = !document.hidden;
       if (isDocVisible) startIfActive();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
-    // Initial layout & first frame
     handleResize();
     drawFrame(0);
     startIfActive();
@@ -3179,8 +2499,8 @@ export function MiniatureGardenPlayground({
       ref={containerRef}
       className={
         transparentSky
-          ? `w-full h-28 sm:h-32 relative select-none ${className}`
-          : `w-full h-24 sm:h-28 md:h-30 rounded-2xl border border-emerald-200/90 shadow-xs relative overflow-hidden select-none ${className}`
+          ? `w-full h-24 sm:h-28 md:h-32 relative select-none ${className}`
+          : `w-full h-24 sm:h-28 md:h-32 rounded-2xl border border-emerald-200/90 shadow-xs relative overflow-hidden select-none ${className}`
       }
     >
       <canvas

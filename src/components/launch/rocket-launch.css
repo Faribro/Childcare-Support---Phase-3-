@@ -1,0 +1,91 @@
+@keyframes rsl-flame-idle {
+  0%, 100% { transform: scaleX(0.92); opacity: 0.85; }
+  50% { transform: scaleX(1.08); opacity: 1; }
+}
+
+@keyframes rsl-flame-boost {
+  0%, 100% { transform: scaleX(0.92) scaleY(0.95); }
+  50% { transform: scaleX(1.22) scaleY(1.12); }
+}
+
+/* 0.00s - 0.95s: Recoil, ignite, then blast right across viewport */
+@keyframes rsl-rocket-flight {
+  0% { transform: translate3d(0px, 0px, 0) scale(1) rotate(0deg); opacity: 1; }
+  4% { transform: translate3d(calc(var(--rsl-recoil) * 0.45), 1.5px, 0) scale(1.02) rotate(-1.2deg); opacity: 1; }
+  8% { transform: translate3d(var(--rsl-recoil), -1.5px, 0) scale(1.04) rotate(0.8deg); opacity: 1; }
+  11% { transform: translate3d(calc(var(--rsl-recoil) * 0.96), 1px, 0) scale(1.05) rotate(-0.6deg); opacity: 1; }
+  31% { transform: translate3d(var(--rsl-travel), -14px, 0) scale(1.06) rotate(-2deg); opacity: 1; }
+  34%, 100% { transform: translate3d(var(--rsl-travel), -14px, 0) scale(1.06) rotate(-2deg); opacity: 0; }
+}
+
+@keyframes rsl-launch-puff {
+  0% { transform: translate3d(-50%, -50%, 0) scale(0.2); opacity: 0; }
+  10% { transform: translate3d(-50%, -50%, 0) scale(0.9); opacity: 0.9; }
+  26% { transform: translate3d(-72%, -50%, 0) scale(2.1); opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@keyframes rsl-contrail {
+  0%, 9% { transform: scaleX(0); opacity: 0; }
+  18% { transform: scaleX(0.55); opacity: 0.85; }
+  30% { transform: scaleX(1.15); opacity: 0.7; }
+  44%, 100% { transform: scaleX(1.25); opacity: 0; }
+}
+
+@keyframes rsl-sky-backdrop {
+  0%, 18% { opacity: 0; }
+  34% { opacity: 0.96; }
+  76% { opacity: 0.96; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes rsl-cloud-left-in-out {
+  0%, 22% { transform: translate3d(-115%, 0, 0) scale(1.06); opacity: 0; }
+  39% { transform: translate3d(-12%, 0, 0) scale(1.02); opacity: 1; }
+  75% { transform: translate3d(-6%, -6px, 0) scale(1.04); opacity: 1; }
+  100% { transform: translate3d(-120%, -10px, 0) scale(1.12); opacity: 0; }
+}
+
+@keyframes rsl-cloud-right-in-out {
+  0%, 22% { transform: translate3d(115%, 0, 0) scale(1.06); opacity: 0; }
+  39% { transform: translate3d(12%, 0, 0) scale(1.02); opacity: 1; }
+  75% { transform: translate3d(6%, 6px, 0) scale(1.04); opacity: 1; }
+  100% { transform: translate3d(120%, 10px, 0) scale(1.12); opacity: 0; }
+}
+
+@keyframes rsl-cloud-bottom-in-out {
+  0%, 24% { transform: translate3d(0, 115%, 0) scale(1.04); opacity: 0; }
+  41% { transform: translate3d(0, 8%, 0) scale(1); opacity: 1; }
+  76% { transform: translate3d(0, 2%, 0) scale(1.02); opacity: 1; }
+  100% { transform: translate3d(0, 118%, 0) scale(1.08); opacity: 0; }
+}
+
+@keyframes rsl-cloud-top-in-out {
+  0%, 24% { transform: translate3d(0, -110%, 0) scale(1.04); opacity: 0; }
+  41% { transform: translate3d(0, -8%, 0) scale(1); opacity: 0.92; }
+  76% { transform: translate3d(0, -3%, 0) scale(1.02); opacity: 0.92; }
+  100% { transform: translate3d(0, -115%, 0) scale(1.08); opacity: 0; }
+}
+
+/* Pure GPU transform + opacity (no animated filter: blur() repaints on mobile) */
+@keyframes rsl-logo-showcase {
+  0%, 31% { transform: translate3d(0, 24px, 0) scale(0.76); opacity: 0; }
+  43% { transform: translate3d(0, -2px, 0) scale(1.03); opacity: 1; }
+  52% { transform: translate3d(0, 0px, 0) scale(1); opacity: 1; }
+  76% { transform: translate3d(0, -4px, 0) scale(1.015); opacity: 1; }
+  92%, 100% { transform: translate3d(0, -24px, 0) scale(1.08); opacity: 0; }
+}
+
+@keyframes rsl-progress-fill {
+  0%, 34% { transform: scaleX(0); }
+  78%, 100% { transform: scaleX(1); }
+}
+
+@keyframes rsl-twinkle {
+  0%, 100% { transform: scale(0.75); opacity: 0.35; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+
+.rsl-flame-idle { animation: rsl-flame-idle 0.55s ease-in-out infinite; }
+.rsl-flame-boost { animation: rsl-flame-boost 0.14s ease-in-out infinite; }
+.rsl-gpu { will-change: transform, opacity; }

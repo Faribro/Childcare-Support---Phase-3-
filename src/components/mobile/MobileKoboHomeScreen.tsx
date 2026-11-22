@@ -17,6 +17,8 @@ import {
 import type { AssessmentRecord } from '@/types/domain';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { useScrollSoundscape } from '@/lib/audio/useScrollSoundscape';
+import { RocketSurveyButton } from '@/components/launch/RocketSurveyButton';
+import { useLaunchTransitionStore, selectIsLaunching } from '@/store/useLaunchTransitionStore';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -40,6 +42,7 @@ interface MobileKoboHomeScreenProps {
   onStartSurvey?: (e: React.MouseEvent) => void;
   isAuthenticated?: boolean;
   onRequireAuth?: () => void;
+  onFormReady?: () => void;
 }
 
 // ─── GPU-Composited Keyframes (transform + opacity only for 60fps WebView) ───
@@ -112,6 +115,7 @@ export function MobileKoboHomeScreen({
   onStartSurvey,
   isAuthenticated = true,
   onRequireAuth,
+  onFormReady,
 }: MobileKoboHomeScreenProps) {
   // ── Counts ──────────────────────────────────────────────────────────────────
   const draftsLoading    = isDraftsLoading    ?? isLoading;
@@ -126,6 +130,7 @@ export function MobileKoboHomeScreen({
   const totalActionable       = count + effectiveWaitingCount + pendingsTotal;
 
   // ── State ───────────────────────────────────────────────────────────────────
+  const isGlobalLaunching = useLaunchTransitionStore(selectIsLaunching);
   const [isPendingsExpanded, setIsPendingsExpanded] = useState(false);
   const [isLaunching, setIsLaunching]               = useState(false);
   const [animationsEnabled, setAnimationsEnabled]   = useState(true);
@@ -192,19 +197,17 @@ export function MobileKoboHomeScreen({
   };
 
   const handleStartSurvey = (e: React.MouseEvent) => {
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && !navigator.onLine) {
+      window.location.assign('/assessment/new');
+      return false;
+    }
     if (!isAuthenticated && onRequireAuth) {
       e.preventDefault();
       onRequireAuth();
-      return;
-    }
-    if (animationsEnabled) {
-      setIsLaunching(true);
-      window.setTimeout(() => setIsLaunching(false), 280);
+      return false;
     }
     if (onStartSurvey) {
       onStartSurvey(e);
-    } else {
-      window.location.assign('/assessment/new');
     }
   };
 
@@ -406,7 +409,7 @@ export function MobileKoboHomeScreen({
       {/* ═══════════════════════════════════════════════════════════════════════
           LAYER 1 — INTERACTIVE DASHBOARD CONTENT
       ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="relative z-10 mx-auto w-full max-w-[412px] px-3 pt-2.5 pb-2 space-y-3">
+      <div className="relative z-10 mx-auto w-full max-w-[412px] px-3 py-3 sm:py-4 space-y-3">
         {/* ── Unauthenticated Notice ── */}
         {!isAuthenticated && (
           <div className="w-full rounded-2xl border border-white/35 bg-white/18 p-3 backdrop-blur-md flex items-center justify-between shadow-sm">
@@ -432,132 +435,18 @@ export function MobileKoboHomeScreen({
           </div>
         )}
 
-        {/* ── 1. UNIFIED SPACESHIP "Start New Survey" CTA (Pointing Right) ── */}
+        {/* ── 1. UNIFIED SPACESHIP "Start New Survey" CTA (Pointing Right) with 3.0s Zustand Launch ── */}
         <div className="flex justify-center pt-0.5">
-          <Link
-            href="/assessment/new"
-            onClick={handleStartSurvey}
-            className={`group relative flex h-[56px] w-full max-w-[332px] items-center cursor-pointer transition-transform duration-200 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-blue-800 rounded-full ${
-              isLaunching ? 'translate-x-2' : ''
-            }`}
-          >
-            {/* Full cohesive comic spaceship SVG hull */}
-            <svg
-              viewBox="0 0 360 70"
-              className="pointer-events-none absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_8px_16px_rgba(6,24,78,0.42)]"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="kobo-ship-hull" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FFFFFF" />
-                  <stop offset="56%" stopColor="#F0F7FF" />
-                  <stop offset="86%" stopColor="#CBE4FF" />
-                  <stop offset="100%" stopColor="#93C5FD" />
-                </linearGradient>
-                <linearGradient id="kobo-ship-fin" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#FDE047" />
-                  <stop offset="50%" stopColor="#F97316" />
-                  <stop offset="100%" stopColor="#C2410C" />
-                </linearGradient>
-                <linearGradient id="kobo-ship-flame" x1="1" y1="0.5" x2="0" y2="0.5">
-                  <stop offset="0%" stopColor="#FEF9C3" />
-                  <stop offset="35%" stopColor="#FACC15" />
-                  <stop offset="72%" stopColor="#F97316" />
-                  <stop offset="100%" stopColor="#EF4444" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-
-              {/* Horizontal flickering exhaust flame shooting LEFT */}
-              <g className="kobo-flame">
-                <path
-                  d="M54 27 C34 25 18 30 2 35 C18 40 34 45 54 43 Z"
-                  fill="url(#kobo-ship-flame)"
-                />
-                <path
-                  d="M54 30.5 C42 30.5 31 32.5 20 35 C31 37.5 42 39.5 54 39.5 Z"
-                  fill="#FEFCE8"
-                />
-              </g>
-
-              {/* Metallic thruster nozzle */}
-              <path
-                d="M51 25 L63 22 L63 48 L51 45 Z"
-                fill="#475569"
-                stroke="#1E293B"
-                strokeWidth="1.4"
-              />
-              <line
-                x1="56"
-                y1="24"
-                x2="56"
-                y2="46"
-                stroke="#94A3B8"
-                strokeWidth="1.5"
-                opacity="0.7"
-              />
-
-              {/* Top & bottom aerodynamic orange rear fins */}
-              <path
-                d="M65 20 C76 9 95 7 110 11 L86 22 Z"
-                fill="url(#kobo-ship-fin)"
-                stroke="#9A3412"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M65 50 C76 61 95 63 110 59 L86 48 Z"
-                fill="url(#kobo-ship-fin)"
-                stroke="#9A3412"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-
-              {/* Main aerodynamic white fuselage pointing RIGHT */}
-              <path
-                d="M62 22 C88 10 164 6 254 7 C308 8 349 18 354 35 C349 52 308 62 254 63 C164 64 88 60 62 48 Z"
-                fill="url(#kobo-ship-hull)"
-                stroke="#2563EB"
-                strokeWidth="1.6"
-              />
-
-              {/* Glossy comic upper specular highlight */}
-              <path
-                d="M88 16 C158 11 246 11 312 16"
-                fill="none"
-                stroke="#FFFFFF"
-                strokeWidth="3.2"
-                strokeLinecap="round"
-                opacity="0.95"
-              />
-              {/* Subtle nose panel contour */}
-              <path
-                d="M312 15 C329 19 341 26 346 35 C341 44 329 51 312 55"
-                fill="none"
-                stroke="#3B82F6"
-                strokeWidth="2"
-                strokeLinecap="round"
-                opacity="0.32"
-              />
-            </svg>
-
-            {/* Foreground CTA content cleanly centered inside fuselage */}
-            <div className="relative z-10 flex w-full items-center justify-between pl-[74px] pr-7">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600 text-white shadow-[0_3px_8px_rgba(13,148,136,0.45)] ring-2 ring-white/85">
-                  <span className="text-[20px] font-black leading-none -mt-[1px]">+</span>
-                </span>
-                <span className="truncate text-[15px] font-extrabold tracking-[-0.015em] text-[#0B132B]">
-                  {DASHBOARD_COPY.mobile.startSurveyTitle}
-                </span>
-              </div>
-              <ChevronRight
-                className="h-5 w-5 shrink-0 text-[#0B132B] transition-transform duration-200 group-hover:translate-x-0.5"
-                strokeWidth={2.5}
-                aria-hidden="true"
-              />
-            </div>
-          </Link>
+          <RocketSurveyButton
+            logoSrc="/images/alliance-india-logo.png"
+            label={DASHBOARD_COPY.mobile.startSurveyTitle}
+            onPreLaunch={handleStartSurvey}
+            onFormReady={onFormReady || (() => {
+              if (typeof window !== 'undefined') {
+                window.location.assign('/assessment/new');
+              }
+            })}
+          />
         </div>
 
         {/* ── 2. "Needs Attention" Header Row ── */}
@@ -1199,7 +1088,11 @@ export function MobileKoboHomeScreen({
                     }}
                   >
                     {submittedLoading ? (
-                      <span className="inline-block h-6 w-6 animate-pulse rounded-full bg-amber-900/20" />
+                      <span
+                        className="inline-block h-6 w-6 animate-pulse rounded-full bg-amber-900/20"
+                        role="status"
+                        aria-label="Loading submitted count"
+                      />
                     ) : (
                       (submittedCount ?? 0)
                     )}
@@ -1243,7 +1136,15 @@ export function MobileKoboHomeScreen({
                     <span className="truncate text-[13.5px] font-extrabold tracking-[-0.01em] text-[#0B132B]">
                       Submitted surveys
                     </span>
-                    <span className="sr-only">Confirmed on central server</span>
+                    <span className="sr-only">
+                      {submittedLoading
+                        ? 'Checking server...'
+                        : submittedStatus === 'error'
+                        ? 'Server unreachable (tap Retry)'
+                        : submittedStatus === 'offline'
+                        ? 'Showing locally confirmed (offline)'
+                        : 'Confirmed on central server'}
+                    </span>
                   </div>
                   <ChevronRight
                     className="h-4 w-4 shrink-0 text-[#0B132B] transition-transform duration-150 group-hover:translate-x-0.5"
@@ -1260,13 +1161,14 @@ export function MobileKoboHomeScreen({
                 <button
                   type="button"
                   onClick={onRetrySubmitted}
+                  aria-label="Retry loading submitted count"
                   className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-0.5 text-[10.5px] font-bold text-slate-800 shadow-xs backdrop-blur-xs hover:bg-white cursor-pointer"
                 >
                   <RotateCw className="h-3 w-3" aria-hidden="true" />
                   <span>
                     {submittedStatus === 'offline'
                       ? 'Offline · Tap to retry sync'
-                      : 'Retry server count'}
+                      : 'Retry'}
                   </span>
                 </button>
               )}
@@ -1325,7 +1227,11 @@ export function MobileKoboHomeScreen({
           )}
         </button>
 
-        <MiniatureGardenPlayground transparentSky hideControls isPaused={!animationsEnabled} />
+        <MiniatureGardenPlayground
+          transparentSky
+          hideControls
+          isPaused={!animationsEnabled || isGlobalLaunching}
+        />
       </div>
     </div>
   );

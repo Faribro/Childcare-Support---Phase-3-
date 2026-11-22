@@ -307,11 +307,11 @@ describe('Service Worker Response Safety Suite (PR #7 PWA Hotfix)', () => {
   });
 
   // ── 8. Service Worker versioning and precache definitions ──
-  it('8. Service Worker contains version alliance-pwa-v3.0.2 and precaches /assessment/drafts', () => {
+  it('8. Service Worker contains version alliance-pwa-v3.0.4 and precaches /assessment/drafts', () => {
     const swPath = path.resolve(process.cwd(), 'public/sw.js');
     const swContent = fs.readFileSync(swPath, 'utf8');
 
-    expect(swContent).toContain("CACHE_NAME = 'alliance-pwa-v3.0.2'");
+    expect(swContent).toContain("CACHE_NAME = 'alliance-pwa-v3.0.4'");
     expect(swContent).toContain("'/assessment/drafts'");
     expect(swContent).toContain("'/assessment/new'");
     expect(swContent).toContain("'/assessment/sync'");

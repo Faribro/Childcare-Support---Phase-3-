@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { PwaRegistration } from '@/components/pwa/PwaRegistration';
 import { SyncProvider } from '@/components/sync/SyncProvider';
+import { RocketLaunchOverlay } from '@/components/launch/RocketLaunchOverlay';
 
 export const metadata: Metadata = {
   title: 'Child Nutrition & Education Support | India HIV/AIDS Alliance',
@@ -55,6 +56,7 @@ export default function RootLayout({
         <SyncProvider>
           {children}
         </SyncProvider>
+        <RocketLaunchOverlay />
       </body>
     </html>
   );

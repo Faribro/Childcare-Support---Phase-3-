@@ -84,110 +84,98 @@ function StatusChip({ chipStatus }: { chipStatus: UnifiedAssessmentItem['chipSta
   switch (chipStatus) {
     case 'Submitted':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
           Submitted
         </span>
       );
     case 'Submitted — documents processing':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-300">
-          <Clock className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200 shadow-2xs">
+          <Clock className="w-3 h-3 text-teal-600" />
           Submitted — documents processing
         </span>
       );
     case 'Submitted — document upload needs retry':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
-          <RefreshCw className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-200 shadow-2xs">
+          <RefreshCw className="w-3 h-3 text-orange-600" />
           Submitted — document upload needs retry
         </span>
       );
     case 'Sending':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 animate-pulse">
-          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
+          <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
           Sending…
         </span>
       );
     case 'Checking submission status':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-300 animate-pulse">
-          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 shadow-2xs animate-pulse">
+          <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
           Checking submission status
         </span>
       );
     case 'Sign in again':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-300">
-          <AlertCircle className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-200 shadow-2xs">
+          <AlertCircle className="w-3 h-3 text-yellow-600" />
           Sign in again
         </span>
       );
     case 'Waiting to retry':
     case 'Retrying':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
-          <RefreshCw className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-200 shadow-2xs">
+          <RefreshCw className="w-3 h-3 text-orange-600" />
           Waiting to retry
         </span>
       );
     case 'Conflict':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-300">
-          <AlertTriangle className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-200 shadow-2xs">
+          <AlertTriangle className="w-3 h-3 text-purple-600" />
           Conflict
         </span>
       );
     case 'Needs correction':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
-          <AlertCircle className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs">
+          <AlertCircle className="w-3 h-3 text-rose-600" />
           Needs correction
         </span>
       );
     case 'Validation blocked':
-      return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
-          <AlertCircle className="w-2.5 h-2.5" />
-          Validation blocked
-        </span>
-      );
     case 'Server validation rejection':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-300">
-          <AlertCircle className="w-2.5 h-2.5" />
-          Server validation rejection
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs">
+          <AlertCircle className="w-3 h-3 text-rose-600" />
+          {chipStatus}
         </span>
       );
     case 'Network failure':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-300">
-          <RefreshCw className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-200 shadow-2xs">
+          <RefreshCw className="w-3 h-3 text-orange-600" />
           Network failure — retrying
         </span>
       );
     case 'Waiting to send':
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300">
-          <Clock className="w-2.5 h-2.5" />
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs">
+          <Clock className="w-3 h-3 text-amber-600" />
           Waiting to send
         </span>
       );
     case 'Draft':
-      return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
-          <Clock className="w-2.5 h-2.5" />
-          Draft
-        </span>
-      );
     case 'Saved on this device':
     case 'Local':
     default:
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
-          <Clock className="w-2.5 h-2.5" />
-          Saved on this device
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
+          <Clock className="w-3 h-3 text-slate-500" />
+          {chipStatus}
         </span>
       );
   }
@@ -1166,6 +1154,14 @@ function SyncCentreContent() {
     router.replace('/assessment/sync', { scroll: false });
   };
 
+  const triggerHaptic = () => {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(10);
+      } catch (_) {}
+    }
+  };
+
   const renderItemCard = (item: UnifiedAssessmentItem) => {
     const isExpanded = expandedId === item.localId;
     const revisionCount = item.revisionNumber || 1;
@@ -1176,41 +1172,41 @@ function SyncCentreContent() {
     return (
       <div
         key={item.localId}
-        className={`flex bg-white rounded-xl border transition-colors shadow-2xs overflow-hidden ${
-          item.isOutbox ? 'border-amber-200 hover:border-amber-300' : 'border-slate-200 hover:border-slate-300'
+        className={`flex bg-white rounded-2xl border transition-all duration-150 shadow-[0_2px_12px_rgba(37,99,235,0.05)] hover:shadow-[0_6px_20px_rgba(37,99,235,0.08)] overflow-hidden ${
+          item.isOutbox ? 'border-amber-200 hover:border-amber-300' : 'border-sky-100 hover:border-sky-300'
         }`}
       >
         {/* Left Vertical ID Column (Tablet / Desktop) */}
-        <div className="hidden sm:flex w-12 sm:w-14 bg-slate-50 border-r border-slate-200/80 items-center justify-center shrink-0 py-3.5 select-all">
+        <div className="hidden sm:flex w-12 sm:w-14 bg-sky-50/70 border-r border-sky-100 items-center justify-center shrink-0 py-3.5 select-all">
           <div className="flex items-center gap-1.5 [writing-mode:vertical-rl] rotate-180">
-            <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-sky-400">
               Id
             </span>
-            <span className="text-slate-300">•</span>
-            <span className="font-mono font-bold text-teal-800 text-xs tracking-wider">
+            <span className="text-sky-300">•</span>
+            <span className="font-mono font-bold text-[#093282] text-xs tracking-wider">
               {item.id}
             </span>
           </div>
         </div>
 
         {/* Main Card Content */}
-        <div className="p-3 sm:p-5 flex-1 flex flex-col justify-between gap-2.5 min-w-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-3 sm:p-5 flex-1 flex flex-col justify-between gap-3 min-w-0">
+          <div className="flex flex-col gap-2.5">
             <div className="space-y-1.5 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="sm:hidden font-mono font-bold text-teal-800 text-[11px] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                <span className="sm:hidden font-mono font-bold text-[#093282] text-[11px] bg-sky-50 px-2.5 py-0.5 rounded-lg border border-sky-200 select-all">
                   {item.id}
                 </span>
-                <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+                <h3 className="font-black text-slate-900 text-sm sm:text-base tracking-tight truncate">
                   {item.childName}
                 </h3>
-                <span className="text-slate-400">•</span>
+                <span className="text-slate-300 hidden xs:inline">•</span>
                 <span className="text-xs text-slate-600">
-                  Caregiver: <strong className="text-slate-800">{item.caregiverName}</strong>
+                  Caregiver: <strong className="text-slate-800 font-semibold">{item.caregiverName}</strong>
                 </span>
                 {item.district && (
                   <>
-                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-300 hidden sm:inline">•</span>
                     <span className="text-xs text-slate-500">
                       {item.district}{item.state ? `, ${item.state}` : ''}
                     </span>
@@ -1229,12 +1225,15 @@ function SyncCentreContent() {
 
               {/* Timestamps & Outbox Context */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-1 text-[11px] text-slate-500">
-                <p>
-                  Saved on {new Date(item.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
-                  at {new Date(item.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                <p className="flex items-center gap-1.5 flex-wrap">
+                  <Clock className="w-3 h-3 text-slate-400 shrink-0 inline" />
+                  <span>
+                    Saved on {new Date(item.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
+                    at {new Date(item.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                  </span>
                   {item.lastEditedAt && (
-                    <span>
-                      {' '}• Last updated on {new Date(item.lastEditedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
+                    <span className="text-slate-400">
+                      {' '}• Updated {new Date(item.lastEditedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}{' '}
                       at {new Date(item.lastEditedAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
                     </span>
                   )}
@@ -1262,19 +1261,25 @@ function SyncCentreContent() {
             </div>
 
             {/* Action Buttons: View, Edit, per-status action, History */}
-            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t border-slate-100 sm:border-t-0 justify-end flex-wrap">
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2.5 border-t border-slate-100 justify-end flex-wrap">
               <button
                 type="button"
-                onClick={() => setViewingItem(item)}
-                className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
+                onClick={() => {
+                  triggerHaptic();
+                  setViewingItem(item);
+                }}
+                className="touch-target-44 min-h-[44px] text-xs px-4 font-bold bg-white hover:bg-sky-50 text-[#093282] border border-sky-200 rounded-xl transition-all active:scale-[0.97] shadow-2xs cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
               >
                 View
               </button>
 
               <button
                 type="button"
-                onClick={() => handleEditSubmission(item)}
-                className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
+                onClick={() => {
+                  triggerHaptic();
+                  handleEditSubmission(item);
+                }}
+                className="touch-target-44 min-h-[44px] text-xs px-4 font-bold bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl transition-all active:scale-[0.97] shadow-xs shadow-sky-500/20 cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
               >
                 Edit
               </button>
@@ -1301,11 +1306,14 @@ function SyncCentreContent() {
               {item.status === 'failed_retryable' && item.queueId && (
                 <button
                   type="button"
-                  onClick={() => handleRetryItem(item)}
+                  onClick={() => {
+                    triggerHaptic();
+                    handleRetryItem(item);
+                  }}
                   disabled={retryingItemId === item.queueId || isSyncing || !isOnline}
                   aria-label="Try sending this record again"
                   aria-live="polite"
-                  className={`touch-target-44 min-h-[44px] text-xs px-3.5 font-bold border rounded-xl transition-colors flex items-center justify-center gap-1.5 flex-1 sm:flex-initial ${
+                  className={`touch-target-44 min-h-[44px] text-xs px-3.5 font-bold border rounded-xl transition-all active:scale-[0.97] flex items-center justify-center gap-1.5 flex-1 sm:flex-initial ${
                     retryingItemId === item.queueId
                       ? 'bg-orange-100 border-orange-200 text-orange-800 cursor-wait'
                       : 'bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-800 cursor-pointer'
@@ -1332,9 +1340,12 @@ function SyncCentreContent() {
                 return (
                   <button
                     type="button"
-                    onClick={() => handleEditSubmission(item)}
+                    onClick={() => {
+                      triggerHaptic();
+                      handleEditSubmission(item);
+                    }}
                     aria-label={isInterviewerNameIssue ? 'Edit assessment' : 'Open and correct this record'}
-                    className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                    className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-xl transition-all active:scale-[0.97] cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
                   >
                     <AlertCircle className="w-3 h-3" />
                     {isInterviewerNameIssue ? 'Edit assessment' : 'Open and correct'}
@@ -1347,7 +1358,7 @@ function SyncCentreContent() {
                   type="button"
                   onClick={() => router.push('/login')}
                   aria-label="Sign in again to resume synchronization"
-                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                  className="touch-target-44 min-h-[44px] text-xs px-3.5 font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl transition-all active:scale-[0.97] cursor-pointer flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
                 >
                   Sign in again
                 </button>
@@ -1355,23 +1366,25 @@ function SyncCentreContent() {
 
               <button
                 type="button"
-                onClick={() => setExpandedId(isExpanded ? null : item.localId)}
+                onClick={() => {
+                  triggerHaptic();
+                  setExpandedId(isExpanded ? null : item.localId);
+                }}
                 className="touch-target-44 min-h-[44px] text-xs px-3 font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors cursor-pointer flex items-center justify-center flex-1 sm:flex-initial"
               >
                 {isExpanded ? 'Hide' : 'History'}
               </button>
             </div>
-
           </div>
 
           {/* Expandable Technical Details & History Drawer */}
           {isExpanded && (
-            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-2.5 pt-3">
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-                <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+            <div className="p-3.5 rounded-xl bg-sky-50/50 border border-sky-100 text-xs space-y-2.5 pt-3">
+              <div className="flex items-center justify-between pb-1.5 border-b border-sky-200/60">
+                <span className="font-bold text-[#093282] text-[11px] uppercase tracking-wider">
                   Technical details &amp; History
                 </span>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-slate-500 font-mono">
                   Id: {item.id}
                 </span>
               </div>
@@ -1388,7 +1401,7 @@ function SyncCentreContent() {
                     <button
                       type="button"
                       onClick={() => handleCopyId(item.submissionId)}
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold transition-colors flex-shrink-0 cursor-pointer"
+                      className="text-[10px] px-2 py-0.5 rounded-lg bg-sky-100 hover:bg-sky-200 text-[#093282] font-semibold transition-colors flex-shrink-0 cursor-pointer"
                     >
                       {copiedId === item.submissionId ? 'Copied' : 'Copy'}
                     </button>
@@ -1406,20 +1419,20 @@ function SyncCentreContent() {
               </div>
 
               {item.editReason && (
-                <div className="p-2.5 rounded bg-blue-50 border border-blue-200 text-blue-900 text-[11px]">
+                <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-[11px]">
                   <span className="font-bold block">Reason for Update (Revision {item.revisionNumber}):</span>
                   <span>{item.editReason}</span>
                 </div>
               )}
 
               {item.lastError && (
-                <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-900 text-[11px]">
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-[11px]">
                   <span className="font-bold block">Status Note:</span>
                   <span>{item.lastError}</span>
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 pt-1 border-t border-slate-200">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 pt-1 border-t border-sky-100">
                 <span>Storage: {item.isOutbox ? 'Saved on this device' : 'Central register'}</span>
                 <span>
                   {item.sheetRow ? `Report Row: ${item.sheetRow}` : 'Report Status: In queue'}
@@ -1434,352 +1447,406 @@ function SyncCentreContent() {
 
   return (
     <AppShell pendingSyncCount={pendingCount} submittedCount={submittedCount}>
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5 animate-in fade-in duration-200">
-        {/* Navigation Bar / Return to Dashboard */}
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href="/app"
-            className="inline-flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold shadow-2xs transition-colors touch-target"
-            aria-label="Return to Dashboard"
-          >
-            <ArrowLeft className="w-4 h-4 text-slate-500" />
-            <span>Back to Dashboard</span>
-          </Link>
-        </div>
-
-        {/* Truthful Submission Status Banner */}
-        {justSubmitted && !bannerDismissed && (
-          <SubmissionStatusBanner
-            submittedRef={submittedRef}
-            status={submittedStatus}
-            errorMessage={submittedErr}
-            isOnline={isOnline}
-            onDismiss={handleDismissBanner}
-          />
-        )}
-
-        {/* Top Control Bar: Search, Date Filter & Sync Actions Bar */}
-        <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
-          {/* Explicit visible reason when send attempted without eligible items */}
-          {noEligibleWarning && (
-            <div role="alert" className="flex items-center justify-between gap-2.5 p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 animate-in fade-in">
-              <div className="flex items-center gap-2.5">
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <p className="text-xs font-semibold">{noEligibleWarning}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setNoEligibleWarning(null)}
-                aria-label="Dismiss warning"
-                className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-rose-100"
+      <div
+        className="min-h-[calc(100vh-64px)] w-full overflow-x-hidden"
+        style={{
+          background: 'linear-gradient(180deg, #E8F2FF 0%, #F5F9FF 36%, #FFFFFF 100%)',
+        }}
+      >
+        <div className="w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-3 sm:pt-5 pb-12 space-y-4 sm:space-y-5 animate-in fade-in duration-200">
+          {/* Desktop Compact Header Banner (Hidden on mobile < 768px for clean top spacing) */}
+          <div className="hidden md:flex items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-[#093282] to-[#1E6EEB] text-white shadow-sm">
+            <div className="flex items-center gap-3">
+              <Link
+                href="/app"
+                className="inline-flex items-center gap-2 min-h-[40px] px-3.5 py-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-semibold backdrop-blur-md transition-all active:scale-[0.97]"
+                aria-label="Return to Dashboard"
               >
-                <X className="w-3.5 h-3.5" />
-              </button>
+                <ArrowLeft className="w-4 h-4 text-white" />
+                <span>Back to Dashboard</span>
+              </Link>
+              <div className="h-5 w-px bg-white/20" />
+              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+                <span>Submitted Surveys &amp; Records</span>
+              </h1>
             </div>
+            <div className="flex items-center gap-2 text-xs font-medium text-white/90">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 border border-white/20">
+                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                {isOnline ? 'Online' : 'Offline'}
+              </span>
+              <span className="px-3 py-1 rounded-full bg-white/15 border border-white/20 font-bold tabular-nums">
+                {unifiedItems.length} Total Records
+              </span>
+            </div>
+          </div>
+
+          {/* Truthful Submission Status Banner */}
+          {justSubmitted && !bannerDismissed && (
+            <SubmissionStatusBanner
+              submittedRef={submittedRef}
+              status={submittedStatus}
+              errorMessage={submittedErr}
+              isOnline={isOnline}
+              onDismiss={handleDismissBanner}
+            />
           )}
 
-          {/* Waiting/Retry Banner */}
-          {actionableCount > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
-              <div className="flex items-center gap-2.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+          {/* Top Control Bar: Search, Date Filter & Sync Actions Bar */}
+          <div className="bg-white rounded-3xl border border-sky-200/80 shadow-[0_4px_24px_rgba(37,99,235,0.06)] p-4 sm:p-6 space-y-4">
+            {/* Explicit visible reason when send attempted without eligible items */}
+            {noEligibleWarning && (
+              <div role="alert" className="flex items-center justify-between gap-2.5 p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  <p className="text-xs font-semibold">{noEligibleWarning}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNoEligibleWarning(null)}
+                  aria-label="Dismiss warning"
+                  className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-rose-100"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Waiting/Retry Banner */}
+            {actionableCount > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <div>
+                    <p className="text-xs font-bold text-amber-950">
+                      {actionableCount} assessment{actionableCount === 1 ? '' : 's'} saved on this device
+                    </p>
+                    <p className="text-[11px] text-amber-800">
+                      {isOnline
+                        ? 'Sending your assessment… Submissions send automatically when online.'
+                        : 'Saved on this device. It will send automatically when you reconnect.'}
+                    </p>
+                  </div>
+                </div>
+
+                {retryableCount > 0 && isOnline && (
+                  <Button
+                    variant="secondary"
+                    onClick={handleRetryAll}
+                    disabled={isSyncing}
+                    aria-live="polite"
+                    className="font-bold px-4 py-2 text-xs shadow-xs flex-shrink-0 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 cursor-pointer touch-target min-h-[44px]"
+                  >
+                    {isSyncing ? (
+                      <span className="flex items-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Sending…
+                      </span>
+                    ) : (
+                      'Try again now'
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Correction Required Banner */}
+            {attentionCount > 0 && (
+              <div className="flex items-center gap-2.5 p-3.5 bg-rose-50/80 border border-rose-200 rounded-2xl">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
                 <div>
-                  <p className="text-xs font-bold text-amber-950">
-                    {actionableCount} assessment{actionableCount === 1 ? '' : 's'} saved on this device
+                  <p className="text-xs font-bold text-rose-900">
+                    {attentionCount === 1
+                      ? 'One item needs correction before it can be submitted.'
+                      : `${attentionCount} items need correction before they can be submitted.`}
                   </p>
-                  <p className="text-[11px] text-amber-800">
-                    {isOnline
-                      ? 'Sending your assessment… Submissions send automatically when online.'
-                      : 'Saved on this device. It will send automatically when you reconnect.'}
+                  <p className="text-[11px] text-rose-700">
+                    Select &quot;Open and correct&quot; on any affected record below.
                   </p>
                 </div>
               </div>
+            )}
 
-              {retryableCount > 0 && isOnline && (
-                <Button
-                  variant="secondary"
-                  onClick={handleRetryAll}
-                  disabled={isSyncing}
-                  aria-live="polite"
-                  className="font-bold px-4 py-2 text-xs shadow-xs flex-shrink-0 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 cursor-pointer touch-target min-h-[44px]"
-                >
-                  {isSyncing ? (
-                    <span className="flex items-center gap-2">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Sending…
-                    </span>
-                  ) : (
-                    'Try again now'
-                  )}
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* Correction Required Banner */}
-          {attentionCount > 0 && (
-            <div className="flex items-center gap-2.5 p-3.5 bg-rose-50/80 border border-rose-200 rounded-xl">
-              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-              <div>
-                <p className="text-xs font-bold text-rose-900">
-                  {attentionCount === 1
-                    ? 'One item needs correction before it can be submitted.'
-                    : `${attentionCount} items need correction before they can be submitted.`}
-                </p>
-                <p className="text-[11px] text-rose-700">
-                  Select &quot;Open and correct&quot; on any affected record below.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Tab Navigation: Responsive Segmented Control */}
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:border-b sm:border-slate-200 sm:pb-3">
-            <button
-              type="button"
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
-                activeTab === 'all'
-                  ? 'bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-transparent'
-              }`}
-            >
-              <span className="truncate">All Records</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
-                activeTab === 'all' ? 'bg-purple-200 text-purple-950 border border-purple-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
-              }`}>
-                {unifiedItems.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('outbox')}
-              className={`px-3 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
-                activeTab === 'outbox'
-                  ? 'bg-amber-100 text-amber-950 border border-amber-300 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-transparent'
-              }`}
-            >
-              <span className="truncate">On Device</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
-                outboxItems.length > 0 ? 'bg-amber-200 text-amber-900 border-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
-              }`}>
-                {outboxItems.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('drafts')}
-              className={`px-3 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
-                activeTab === 'drafts'
-                  ? 'bg-blue-100 text-blue-950 border border-blue-300 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-transparent'
-              }`}
-            >
-              <span className="truncate">Drafts</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
-                activeTab === 'drafts' ? 'bg-blue-200 text-blue-950 border border-blue-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
-              }`}>
-                {drafts.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('synced')}
-              className={`px-3 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
-                activeTab === 'synced'
-                  ? 'bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-transparent'
-              }`}
-            >
-              <span className="truncate">Submitted Records</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
-                activeTab === 'synced' ? 'bg-emerald-200 text-emerald-950 border border-emerald-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
-              }`}>
-                {submittedCount}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('bank_pending')}
-              className={`px-3 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
-                activeTab === 'bank_pending'
-                  ? 'bg-amber-100 text-amber-950 border border-amber-300 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-transparent'
-              }`}
-            >
-              <span className="truncate">Approved — Bank Details Pending</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
-                bankPendingItems.length > 0 ? 'bg-amber-200 text-amber-950 border border-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
-              }`}>
-                {bankPendingItems.length}
-              </span>
-            </button>
-          </div>
-
-
-          {/* Search Bar & Date Range Filters */}
-          <div className="space-y-2.5">
-            {/* Search Input */}
-            <div className="relative w-full">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search by child name, ART number, caregiver..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
-              />
-            </div>
-
-            {/* Accessible Stacked From/To Date Range Inputs with Calendar Affordance */}
-            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 pt-0.5">
-              {/* From Date */}
-              <div className="flex flex-col space-y-1">
-                <label htmlFor="filter-from-date" className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>From Date</span>
-                </label>
-                <input
-                  id="filter-from-date"
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full px-3 py-2 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
-                />
-              </div>
-
-              {/* To Date */}
-              <div className="flex flex-col space-y-1">
-                <label htmlFor="filter-to-date" className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>To Date</span>
-                </label>
-                <input
-                  id="filter-to-date"
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className="w-full px-3 py-2 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-400/40 focus:border-purple-600 transition-colors"
-                />
-              </div>
-            </div>
-          </div>
-
-          {(searchQuery || fromDate || toDate) && (
-            <div className="flex items-center justify-between text-xs pt-1 text-slate-500">
-              <span>Showing {filteredItems.length} filtered results</span>
+            {/* Tab Navigation: Responsive Segmented Control */}
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:border-b sm:border-slate-200/80 sm:pb-3">
               <button
                 type="button"
                 onClick={() => {
-                  setSearchQuery('');
-                  setFromDate('');
-                  setToDate('');
+                  triggerHaptic();
+                  setActiveTab('all');
                 }}
-                className="text-xs font-semibold text-purple-700 hover:text-purple-900 cursor-pointer underline flex items-center gap-1 touch-target min-h-[44px]"
+                className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                  activeTab === 'all'
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
+                    : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'
+                }`}
               >
-                <X className="h-3.5 w-3.5" />
-                <span>Clear filters</span>
+                <span className="whitespace-nowrap">All Records</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                  activeTab === 'all' ? 'bg-white/25 text-white border border-white/30' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {unifiedItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  setActiveTab('outbox');
+                }}
+                className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                  activeTab === 'outbox'
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
+                    : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'
+                }`}
+              >
+                <span className="whitespace-nowrap">On Device</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                  activeTab === 'outbox'
+                    ? 'bg-white/25 text-white border border-white/30'
+                    : outboxItems.length > 0 ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {outboxItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  setActiveTab('drafts');
+                }}
+                className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                  activeTab === 'drafts'
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
+                    : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'
+                }`}
+              >
+                <span className="whitespace-nowrap">Drafts</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                  activeTab === 'drafts' ? 'bg-white/25 text-white border border-white/30' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {drafts.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  setActiveTab('synced');
+                }}
+                className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                  activeTab === 'synced'
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
+                    : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'
+                }`}
+              >
+                <span className="whitespace-nowrap hidden sm:inline">Submitted Records</span>
+                <span className="whitespace-nowrap sm:hidden">Submitted</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                  activeTab === 'synced' ? 'bg-white/25 text-white border border-white/30' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {submittedCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  setActiveTab('bank_pending');
+                }}
+                className={`col-span-2 sm:col-span-1 px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                  activeTab === 'bank_pending'
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
+                    : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'
+                }`}
+              >
+                <span className="whitespace-nowrap hidden sm:inline">Approved — Bank Details Pending</span>
+                <span className="whitespace-nowrap sm:hidden">Approved — Bank</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                  activeTab === 'bank_pending'
+                    ? 'bg-white/25 text-white border border-white/30'
+                    : bankPendingItems.length > 0 ? 'bg-amber-100 text-amber-950 border border-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {bankPendingItems.length}
+                </span>
               </button>
             </div>
-          )}
-        </div>
 
-        {/* Survey Lists Section */}
-        <section className="space-y-4">
-          {activeTab === 'drafts' ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between px-1">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Local Drafts ({drafts.length})
-                </h3>
-                <span className="text-[11px] text-slate-500">Saved on this device</span>
-              </div>
-              {drafts.length === 0 ? (
-                <div className="p-6 sm:p-8 rounded-2xl border border-dashed border-slate-300 text-center space-y-2 bg-white shadow-2xs">
-                  <p className="text-xs sm:text-sm font-semibold text-slate-800">No active drafts on this device</p>
-                  <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto">
-                    When you start a survey, your edits will save locally so you can continue anytime.
-                  </p>
+            {/* Search Bar & Date Range Filters */}
+            <div className="space-y-3 pt-1">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                {/* Search Input */}
+                <div className="relative w-full md:col-span-6">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sky-500/70 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search by child name, ART number, caregiver..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="input-cosmic w-full pl-10 pr-3 py-2.5 min-h-[44px] text-xs sm:text-sm"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {drafts.map((d) => (
-                    <DraftCard
-                      key={d.id || d.uuid}
-                      draft={d}
-                      onResume={handleResumeDraft}
-                      onDelete={handleDeleteDraft}
+
+                {/* Accessible Stacked From/To Date Range Inputs with Calendar Affordance */}
+                <div className="md:col-span-6 grid grid-cols-1 xs:grid-cols-2 gap-2.5 pt-0.5">
+                  {/* From Date */}
+                  <div className="flex flex-col space-y-1">
+                    <label htmlFor="filter-from-date" className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-sky-600" />
+                      <span>From Date</span>
+                    </label>
+                    <input
+                      id="filter-from-date"
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className="input-cosmic w-full px-3 py-2 min-h-[44px] text-xs sm:text-sm"
                     />
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="p-6 sm:p-8 rounded-2xl border border-dashed border-slate-300 text-center space-y-2 bg-white shadow-2xs">
-              <p className="text-xs sm:text-sm font-semibold text-slate-800">
-                {searchQuery || fromDate || toDate
-                  ? 'No surveys match your search or date filter'
-                  : activeTab === 'outbox'
-                  ? 'All records have been sent to the server. No pending items on this device.'
-                  : activeTab === 'bank_pending'
-                  ? 'No approved records awaiting bank details.'
-                  : activeTab === 'synced'
-                  ? 'No confirmed server records found.'
-                  : 'No submitted surveys yet'}
-              </p>
-              <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto">
-                {searchQuery || fromDate || toDate
-                  ? 'Try clearing or changing your search criteria.'
-                  : 'When you complete a survey, it will appear here so you can verify that it has been safely sent for reporting.'}
-              </p>
-            </div>
-          ) : activeTab === 'all' ? (
-            /* When 'all' is selected: visually separate pending device items from submitted */
-            <div className="space-y-6">
-              {/* Pending device items section */}
-              {filteredItems.some((i) => i.isOutbox) && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between px-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900">
-                        Saved on this device ({filteredItems.filter((i) => i.isOutbox).length})
-                      </h3>
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                    </div>
-                    <span className="text-[11px] text-slate-500">Saved on this device</span>
                   </div>
-                  <div className="space-y-3">
-                    {filteredItems.filter((i) => i.isOutbox).map(renderItemCard)}
-                  </div>
-                </div>
-              )}
 
-              {/* Confirmed Submissions Section (if any items match filter) */}
-              {filteredItems.some((i) => !i.isOutbox) && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between px-1">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      Submitted records ({filteredItems.filter((i) => !i.isOutbox).length})
-                    </h3>
-                    <span className="text-[11px] text-emerald-700 font-medium">Confirmed on server</span>
-                  </div>
-                  <div className="space-y-3">
-                    {filteredItems.filter((i) => !i.isOutbox).map(renderItemCard)}
+                  {/* To Date */}
+                  <div className="flex flex-col space-y-1">
+                    <label htmlFor="filter-to-date" className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-sky-600" />
+                      <span>To Date</span>
+                    </label>
+                    <input
+                      id="filter-to-date"
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className="input-cosmic w-full px-3 py-2 min-h-[44px] text-xs sm:text-sm"
+                    />
                   </div>
                 </div>
-              )}
+              </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredItems.map(renderItemCard)}
-            </div>
-          )}
-        </section>
+
+            {(searchQuery || fromDate || toDate) && (
+              <div className="flex items-center justify-between text-xs pt-1 text-slate-500">
+                <span>Showing {filteredItems.length} filtered results</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFromDate('');
+                    setToDate('');
+                  }}
+                  className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer underline flex items-center gap-1 touch-target min-h-[44px]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Clear filters</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Survey Lists Section */}
+          <section className="space-y-4">
+            {activeTab === 'drafts' ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Local Drafts ({drafts.length})
+                  </h3>
+                  <span className="text-[11px] text-slate-500">Saved on this device</span>
+                </div>
+                {drafts.length === 0 ? (
+                  <div className="p-6 sm:p-8 rounded-2xl border border-dashed border-slate-300 text-center space-y-2 bg-white shadow-2xs">
+                    <p className="text-xs sm:text-sm font-semibold text-slate-800">No active drafts on this device</p>
+                    <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto">
+                      When you start a survey, your edits will save locally so you can continue anytime.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {drafts.map((d) => (
+                      <DraftCard
+                        key={d.id || d.uuid}
+                        draft={d}
+                        onResume={handleResumeDraft}
+                        onDelete={handleDeleteDraft}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="p-6 sm:p-8 rounded-2xl border border-dashed border-slate-300 text-center space-y-2 bg-white shadow-2xs">
+                <p className="text-xs sm:text-sm font-semibold text-slate-800">
+                  {searchQuery || fromDate || toDate
+                    ? 'No surveys match your search or date filter'
+                    : activeTab === 'outbox'
+                    ? 'All records have been sent to the server. No pending items on this device.'
+                    : activeTab === 'bank_pending'
+                    ? 'No approved records awaiting bank details.'
+                    : activeTab === 'synced'
+                    ? 'No confirmed server records found.'
+                    : 'No submitted surveys yet'}
+                </p>
+                <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto">
+                  {searchQuery || fromDate || toDate
+                    ? 'Try clearing or changing your search criteria.'
+                    : 'When you complete a survey, it will appear here so you can verify that it has been safely sent for reporting.'}
+                </p>
+              </div>
+            ) : activeTab === 'all' ? (
+              /* When 'all' is selected: visually separate pending device items from submitted */
+              <div className="space-y-6">
+                {/* Pending device items section */}
+                {filteredItems.some((i) => i.isOutbox) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                          Saved on this device ({filteredItems.filter((i) => i.isOutbox).length})
+                        </h3>
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                      </div>
+                      <span className="text-[11px] text-slate-500">Saved on this device</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredItems.filter((i) => i.isOutbox).map(renderItemCard)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Confirmed Submissions Section (if any items match filter) */}
+                {filteredItems.some((i) => !i.isOutbox) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Submitted records ({filteredItems.filter((i) => !i.isOutbox).length})
+                      </h3>
+                      <span className="text-[11px] text-emerald-700 font-medium">Confirmed on server</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredItems.filter((i) => !i.isOutbox).map(renderItemCard)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredItems.map(renderItemCard)}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
       {viewingItem && (

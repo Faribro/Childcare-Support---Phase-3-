@@ -23,6 +23,11 @@ import * as draftRepo from '@/lib/db/draftRepository';
 import * as syncRepo from '@/lib/db/syncQueueRepository';
 
 const mockPush = vi.fn();
+const mockRouter = {
+  push: mockPush,
+  replace: vi.fn(),
+  prefetch: vi.fn(),
+};
 
 // Mock Next.js Link & useRouter
 vi.mock('next/link', () => ({
@@ -34,11 +39,7 @@ vi.mock('next/link', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    push: mockPush,
-    replace: vi.fn(),
-    prefetch: vi.fn(),
-  }),
+  useRouter: () => mockRouter,
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -72,6 +73,10 @@ const mockDrafts = [
 describe('Dedicated Drafts Page (/assessment/drafts)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.setItem(
+      'field_user_profile',
+      JSON.stringify({ id: 'worker-1', name: 'Test Worker', assignedState: 'Delhi' })
+    );
     vi.spyOn(draftRepo, 'getAllDrafts').mockResolvedValue(mockDrafts as any);
     vi.spyOn(draftRepo, 'deleteDraft').mockResolvedValue(undefined as any);
     vi.spyOn(syncRepo, 'getAllQueueItems').mockResolvedValue([] as any);

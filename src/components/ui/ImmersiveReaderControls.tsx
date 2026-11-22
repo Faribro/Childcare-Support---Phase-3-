@@ -15,6 +15,7 @@ interface ImmersiveReaderProps {
 
 export interface ReadingItem {
   id: string;
+  aliases?: string[];
   textKey: string;
   isFilled?: (fd: Record<string, unknown>, sig: boolean) => boolean;
 }
@@ -24,84 +25,142 @@ const num = (v: unknown) => typeof v === 'number' && !isNaN(v) && v > 0;
 const bool = (v: unknown) => v === true || v === false;
 
 export const FORM_READING_SEQUENCE: ReadingItem[] = [
+  // SECTION 1: Consent
   { id: 'sec-consent',          textKey: 'sec_consent_full' },
-  { id: 'consent-audio-notice', textKey: 'consent_audio_statement' },
-  { id: 'q-consent-decision',   textKey: 'consent_q',
+  { id: 'q-consent-decision',   aliases: ['caregiver-consent'],   textKey: 'consent_q',
     isFilled: (fd) => bool(fd.agreeToParticipate) },
-  { id: 'q-caregiver-name',  textKey: 'caregiver_name',
+  { id: 'q-caregiver-name',     aliases: ['caregiver-name'],     textKey: 'caregiver_name',
     isFilled: (fd) => str(fd.caregiverName) },
-  { id: 'q-caregiver-rel',   textKey: 'caregiver_relationship',
+  { id: 'q-caregiver-rel',      aliases: ['caregiver-relationship'],      textKey: 'caregiver_relationship',
     isFilled: (fd) => str(fd.caregiverRelationship) },
-  { id: 'q-caregiver-contact', textKey: 'caregiver_contact',
-    isFilled: (fd) => {
-      const v = fd.contactNumber ?? fd.caregiverContactNumber;
-      return typeof v === 'string' && v.replace(/\D/g, '').length >= 10;
-    }},
-  { id: 'q-caregiver-sig',   textKey: 'caregiver_signature_sub',
+  { id: 'q-caregiver-sig',      aliases: ['caregiver-signature'],      textKey: 'caregiver_signature_sub',
     isFilled: (_fd, sig) => sig },
 
-  { id: 'sec-child',        textKey: 'sec_demographics_full' },
-  { id: 'q-child-name',     textKey: 'child_name',
+  // SECTION 2: Demographics & Child Profile
+  { id: 'sec-child',            textKey: 'sec_demographics_full' },
+  { id: 'q-child-date',         textKey: 'child_date_of_intake',
+    isFilled: (fd) => str(fd.dateOfFilling) },
+  { id: 'q-child-name',         aliases: ['demographics-childName'],         textKey: 'child_name',
     isFilled: (fd) => str(fd.childName) },
-  { id: 'q-child-gender',   textKey: 'gender',
-    isFilled: (fd) => str(fd.gender) },
-  { id: 'q-child-age',      textKey: 'age',
+  { id: 'q-child-dob',          aliases: ['demographics-dob', 'q-child-age'],          textKey: 'dob',
     isFilled: (fd) => str(fd.dob) || num(Number(fd.ageYears)) },
-  { id: 'q-child-address',  textKey: 'address',
-    isFilled: (fd) => str(fd.fullAddress) },
-  { id: 'q-child-orphan',   textKey: 'orphan_status',
+  { id: 'q-child-gender',       aliases: ['demographics-gender'],       textKey: 'gender',
+    isFilled: (fd) => str(fd.gender) },
+  { id: 'q-child-orphan',       aliases: ['demographics-orphanStatus'],       textKey: 'orphan_status',
     isFilled: (fd) => str(fd.orphanStatus) },
+  { id: 'q-child-address',      aliases: ['demographics-fullAddress'],      textKey: 'address',
+    isFilled: (fd) => str(fd.fullAddress) || str(fd.villageCity) || str(fd.district) },
+  { id: 'q-child-aadhaar',      aliases: ['sec-child-aadhaar'],      textKey: 'child_aadhaar_number',
+    isFilled: (fd) => typeof fd.childAadhaarNumber === 'string' && fd.childAadhaarNumber.length >= 12 },
 
-  { id: 'sec-banking',      textKey: 'sec_banking_full' },
-  { id: 'q-bank-holder',    textKey: 'bank_acc_holder',
+  // SECTION 3: Banking
+  { id: 'sec-banking',          textKey: 'sec_banking_full' },
+  { id: 'q-bank-holder',        textKey: 'bank_acc_holder',
     isFilled: (fd) => str(fd.bankAccountHolderName) },
-  { id: 'q-bank-num',       textKey: 'bank_acc_num',
+  { id: 'q-bank-num',           textKey: 'bank_acc_num',
     isFilled: (fd) => str(fd.bankAccountNumber) },
-  { id: 'q-bank-ifsc',      textKey: 'bank_ifsc',
+  { id: 'q-bank-ifsc',          textKey: 'bank_ifsc',
     isFilled: (fd) => str(fd.bankIfscCode) },
+  { id: 'q-bank-phone',         aliases: ['bankLinkedMobileNumber'],         textKey: 'bank_linked_phone',
+    isFilled: (fd) => typeof fd.bankLinkedMobileNumber === 'string' && fd.bankLinkedMobileNumber.length >= 10 },
 
-  { id: 'sec-household',    textKey: 'sec_household_full' },
-  { id: 'q-hh-members',     textKey: 'hh_members',
+  // SECTION 4: Household Economics
+  { id: 'sec-household',        textKey: 'sec_household_full' },
+  { id: 'q-hh-members',         aliases: ['household-totalFamilyMembers'],         textKey: 'hh_members',
     isFilled: (fd) => num(fd.totalFamilyMembers as number) },
-  { id: 'q-hh-children',    textKey: 'hh_children',
-    isFilled: (fd) => typeof fd.numberOfChildrenUnder18 === 'number' },
-  { id: 'q-hh-income',      textKey: 'hh_income',
+  { id: 'q-hh-children',        aliases: ['household-numberOfChildrenUnder18'],        textKey: 'hh_children',
+    isFilled: (fd) => typeof fd.numberOfChildrenUnder18 === 'number' && !isNaN(fd.numberOfChildrenUnder18 as number) },
+  { id: 'q-hh-income',          aliases: ['household-monthlyIncomeRs'],          textKey: 'hh_income',
     isFilled: (fd) => typeof fd.monthlyIncomeRs === 'number' && (fd.monthlyIncomeRs as number) >= 0 },
-  { id: 'q-hh-source',      textKey: 'hh_income_source',
+  { id: 'q-hh-source',          aliases: ['household-mainSourceOfIncome'],          textKey: 'hh_income_source',
     isFilled: (fd) => str(fd.mainSourceOfIncome) },
 
-  { id: 'sec-health',       textKey: 'sec_clinical_full' },
-  { id: 'q-cli-weight',     textKey: 'weight',
+  // SECTION 5: Clinical / Health Measurements
+  { id: 'sec-health',           textKey: 'sec_clinical_full' },
+  { id: 'q-cli-weight',         aliases: ['health-weightKg'],         textKey: 'weight',
     isFilled: (fd) => num(fd.weightKg as number) },
-  { id: 'q-cli-height',     textKey: 'height',
+  { id: 'q-cli-height',         aliases: ['health-heightCm'],         textKey: 'height',
     isFilled: (fd) => num(fd.heightCm as number) },
-  { id: 'q-cli-bmi',        textKey: 'bmi',
+  { id: 'q-cli-bmi',            textKey: 'bmi',
     isFilled: (fd) => num(fd.weightKg as number) && num(fd.heightCm as number) },
-  { id: 'q-cli-art-num',    textKey: 'art_num',
-    isFilled: (fd) => str(fd.artIdNumber) },
-  { id: 'q-cli-vl',         textKey: 'viral_load',
-    isFilled: (fd) => str(fd.viralLoad) || str(fd.vlStatus) },
+  { id: 'q-cli-art-status',     aliases: ['health-artStatus'],     textKey: 'art_status_q',
+    isFilled: (fd) => str(fd.artStatus) },
+  { id: 'q-cli-currently-on-art', aliases: ['health-currentlyOnArt'], textKey: 'currently_on_art_q',
+    isFilled: (fd) => fd.artStatus !== 'Transferred In' || str(fd.currentlyOnArt) },
+  { id: 'q-cli-art-num',        aliases: ['health-artIdNumber'],        textKey: 'art_num',
+    isFilled: (fd) => fd.artStatus !== 'On ART' || str(fd.artIdNumber) },
+  { id: 'q-cli-art-init-date',  aliases: ['health-artInitiationDate'],  textKey: 'art_init_date_q',
+    isFilled: (fd) => !fd.artStatus || fd.artStatus !== 'On ART' || str(fd.artInitiationDate) },
+  { id: 'q-cli-art-med-type',   aliases: ['health-artMedicineType'],   textKey: 'art_regimen',
+    isFilled: (fd) => fd.artStatus !== 'On ART' || str(fd.artMedicineType) },
+  { id: 'q-cli-cd4',            aliases: ['health-cd4Count'],            textKey: 'cd4_count_q',
+    isFilled: (fd) => str(fd.cd4Count) },
+  { id: 'q-cli-hb',             aliases: ['health-haemoglobinGdl'],             textKey: 'hemoglobin',
+    isFilled: (fd) => num(Number(fd.haemoglobinGdl)) },
+  { id: 'q-cli-vl-status',      aliases: ['health-vlStatus'],      textKey: 'vl_status_q',
+    isFilled: (fd) => str(fd.vlStatus) },
+  { id: 'q-cli-vl-date',        textKey: 'vl_date_q',
+    isFilled: (fd) => !fd.vlStatus || fd.vlStatus === 'Not tested' || str(fd.vlDate) },
+  { id: 'q-cli-vl',             aliases: ['health-viralLoad'],             textKey: 'viral_load',
+    isFilled: (fd) => !fd.vlStatus || fd.vlStatus === 'Not tested' || fd.vlStatus === 'Awaiting results' || str(fd.viralLoad) },
+  { id: 'q-cli-other-conditions', textKey: 'co_morbidities_q',
+    isFilled: (fd) => Array.isArray(fd.otherHealthConditions) && fd.otherHealthConditions.length > 0 },
+  { id: 'q-cli-disability',     aliases: ['health-hasDisability'],     textKey: 'disability_q',
+    isFilled: (fd) => str(fd.hasDisability) },
+  { id: 'q-cli-disability-type', aliases: ['health-disabilityType'], textKey: 'disability_type_q',
+    isFilled: (fd) => fd.hasDisability !== 'Yes' || str(fd.disabilityType) },
+  { id: 'q-cli-disability-cert', aliases: ['health-disabilityCertificateStatus'], textKey: 'disability_cert_q',
+    isFilled: (fd) => fd.hasDisability !== 'Yes' || str(fd.disabilityCertificateStatus) },
 
-  { id: 'sec-nutrition',    textKey: 'sec_nutrition_full' },
-  { id: 'q-nut-appetite',   textKey: 'appetite',
-    isFilled: (fd) => str(fd.appetite) },
-  { id: 'q-nut-meals',      textKey: 'meals_per_day',
+  // SECTION 6: Nutrition Habits
+  { id: 'sec-nutrition',        textKey: 'sec_nutrition_full' },
+  { id: 'q-nut-meals',          aliases: ['nutrition-mealsPerDay', 'input-nutrition-meals'],          textKey: 'meals_per_day',
     isFilled: (fd) => num(fd.mealsPerDay as number) },
+  { id: 'q-nut-appetite',       aliases: ['nutrition-appetite'],       textKey: 'appetite',
+    isFilled: (fd) => str(fd.appetite) },
+  { id: 'q-nut-symptoms',       aliases: ['nutrition-malnutritionSymptoms'],       textKey: 'nut_symptoms_q',
+    isFilled: (fd) => str(fd.malnutritionSymptoms) },
 
-  { id: 'sec-education',    textKey: 'sec_education_full' },
-  { id: 'q-edu-status',     textKey: 'edu_status',
+  // SECTION 7: Education Status
+  { id: 'sec-education',        textKey: 'sec_education_full' },
+  { id: 'q-edu-status',         aliases: ['education-educationStatus'],         textKey: 'edu_status',
     isFilled: (fd) => str(fd.educationStatus) },
-  { id: 'q-edu-school',     textKey: 'school_name',
-    isFilled: (fd) => str(fd.schoolName) || str(fd.educationStatus) },
-  { id: 'q-edu-class',      textKey: 'current_class',
-    isFilled: (fd) => str(fd.currentClass) },
+  { id: 'q-edu-status-specify', aliases: ['education-educationStatusSpecify'], textKey: 'edu_status_specify_q',
+    isFilled: (fd) => fd.educationStatus !== 'Other' || str(fd.educationStatusSpecify) },
+  { id: 'q-edu-school',         aliases: ['education-schoolName'],         textKey: 'school_name',
+    isFilled: (fd) => fd.educationStatus !== 'Currently going to school' || str(fd.schoolName) },
+  { id: 'q-edu-start-date',     aliases: ['education-schoolSessionStartDate'],     textKey: 'school_start_date_q',
+    isFilled: (fd) => fd.educationStatus !== 'Currently going to school' || str(fd.schoolSessionStartDate) },
+  { id: 'q-edu-type',           aliases: ['education-schoolType'],           textKey: 'school_type',
+    isFilled: (fd) => fd.educationStatus !== 'Currently going to school' || str(fd.schoolType) },
+  { id: 'q-edu-class',          aliases: ['education-currentClass'],          textKey: 'current_class',
+    isFilled: (fd) => fd.educationStatus !== 'Currently going to school' || str(fd.currentClass) },
+  { id: 'q-edu-class-specify',  aliases: ['education-currentClassSpecify'],  textKey: 'current_class_specify_q',
+    isFilled: (fd) => fd.educationStatus !== 'Currently going to school' || fd.currentClass !== 'Other' || str(fd.currentClassSpecify) },
+  { id: 'q-edu-attendance',     aliases: ['education-attendance'],     textKey: 'attendance',
+    isFilled: (fd) => fd.educationStatus !== 'Currently going to school' || str(fd.attendance) },
+  { id: 'q-edu-scheme',         aliases: ['education-receivingEducationSchemeBenefit', 'education-scheme-benefit'],         textKey: 'edu_scheme_benefit_q',
+    isFilled: (fd) => str(fd.receivingEducationSchemeBenefit) },
+  { id: 'q-edu-scheme-name',    aliases: ['education-scheme-name-container', 'education-scheme-name'],    textKey: 'edu_scheme_name_q',
+    isFilled: (fd) => (fd.receivingEducationSchemeBenefit !== 'Yes' && fd.receivingEducationSchemeBenefit !== 'Applied / Under Review') || str(fd.educationSchemeName) },
+  { id: 'q-edu-scheme-specify', aliases: ['education-scheme-specify-container', 'education-scheme-name-specify'], textKey: 'edu_scheme_specify_q',
+    isFilled: (fd) => !str(fd.educationSchemeNameSpecify) || str(fd.educationSchemeNameSpecify) },
 
-  { id: 'sec-expenses',     textKey: 'sec_expenses_full' },
-  { id: 'sec-review',       textKey: 'sec_review_full' },
-  { id: 'q-rev-confirm',    textKey: 'review_confirmed',
+  // SECTION 8: Expenses & Programme Support
+  { id: 'sec-expenses',         textKey: 'sec_expenses_full' },
+  { id: 'q-exp-grid',           textKey: 'edu_expenses_q',
+    isFilled: (fd) => typeof fd.schoolFees === 'number' || typeof fd.books === 'number' || typeof fd.uniform === 'number' || typeof fd.requiredSchoolFees === 'number' || typeof fd.requiredBooks === 'number' },
+
+  // SECTION 9: Programme Approval & Final Review
+  { id: 'sec-review',           textKey: 'sec_review_full' },
+  { id: 'q-rev-confirm',        aliases: ['review-allInfoCorrect'],        textKey: 'review_confirmed',
     isFilled: (fd) => fd.allInfoCorrect === true },
-  { id: 'q-rev-interviewer', textKey: 'interviewer_name',
+  { id: 'q-rev-interviewer',    aliases: ['review-formSubmittedBy'],    textKey: 'interviewer_name',
     isFilled: (fd) => str(fd.formSubmittedBy) },
+  { id: 'q-rev-sr',             aliases: ['review-srName'],             textKey: 'sr_name_q',
+    isFilled: (fd) => str(fd.srName) },
+  { id: 'q-rev-ssr',            aliases: ['review-ssrName'],            textKey: 'ssr_name_q',
+    isFilled: (fd) => str(fd.ssrName) },
 ];
 
 export function ImmersiveReaderControls({
@@ -247,7 +306,7 @@ export function ImmersiveReaderControls({
   }, []);
 
   const guideToQuestion = useCallback((id: string) => {
-    const item = FORM_READING_SEQUENCE.find(i => i.id === id);
+    const item = FORM_READING_SEQUENCE.find(i => i.id === id || i.aliases?.includes(id));
     if (!item) return;
 
     // Detect section crossing: if new field is in a different section than current, announce section header first
@@ -283,6 +342,8 @@ export function ImmersiveReaderControls({
       const item = FORM_READING_SEQUENCE[i];
       // Skip section headers (no isFilled predicate) — they are announced on section transition
       if (!item.isFilled) continue;
+      // Skip fields that are not present in the DOM (e.g. non-applicable category or conditional field)
+      if (typeof document !== 'undefined' && !document.getElementById(item.id)) continue;
       if (!item.isFilled(fd, sig)) return item.id;
     }
     return null;
@@ -302,8 +363,13 @@ export function ImmersiveReaderControls({
       : null;
     if (!activeItem?.isFilled) return;
     if (!activeItem.isFilled(formData, hasSavedSignature)) return;
-    const textInputs = ['caregiverName','childName','contactNumber','fullAddress',
-      'bankAccountHolderName','bankAccountNumber','bankIfscCode','artIdNumber','formSubmittedBy'];
+    const textInputs = [
+      'caregiverName', 'childName', 'contactNumber', 'fullAddress',
+      'bankAccountHolderName', 'bankAccountNumber', 'bankIfscCode', 'bankLinkedMobileNumber',
+      'artIdNumber', 'cd4Count', 'haemoglobinGdl', 'viralLoad', 'otherHealthConditionSpecify',
+      'disabilityType', 'malnutritionSymptoms', 'educationStatusSpecify', 'schoolName',
+      'currentClassSpecify', 'educationSchemeNameSpecify', 'formSubmittedBy', 'srName', 'ssrName'
+    ];
     const delay = changed.some(k => textInputs.includes(k)) ? 700 : 250;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {

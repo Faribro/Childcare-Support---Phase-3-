@@ -26,6 +26,7 @@ import FieldWorkspacePage from '@/app/app/page';
 import * as draftRepo from '@/lib/db/draftRepository';
 import * as syncRepo from '@/lib/db/syncQueueRepository';
 import { generateAssessmentId } from '@/lib/utils/idGenerator';
+import { useLaunchTransitionStore } from '@/store/useLaunchTransitionStore';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 vi.mock('next/navigation', () => ({
@@ -51,6 +52,7 @@ describe('Offline New Survey & PWA Navigation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useLaunchTransitionStore.getState().cancelLaunch();
 
     // Default fast repository responses
     vi.spyOn(draftRepo, 'getDraftsCount').mockResolvedValue(1);

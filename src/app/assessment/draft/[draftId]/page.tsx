@@ -30,7 +30,7 @@ import { LocationFetchButton } from '@/components/ui/LocationFetchButton';
 import { BilingualAddressBlock } from '@/components/forms/BilingualAddressBlock';
 import { Fingerprint, Users } from 'lucide-react';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
-import { ImmersiveReaderControls } from '@/components/ui/ImmersiveReaderControls';
+import { ImmersiveReaderControls, FORM_READING_SEQUENCE } from '@/components/ui/ImmersiveReaderControls';
 import { t, cleanLabel } from '@/lib/i18n/translations';
 import { getDraftByAnyId, saveDraft } from '@/lib/db/draftRepository';
 import { CategorySelectionStep } from '@/components/assessment/CategorySelectionStep';
@@ -158,10 +158,17 @@ export default function ResumeDraftSinglePage() {
     return getResolvableSectionErrors(validationErrors);
   }, [validationErrors]);
 
-  const getHighlightClass = (id: string) =>
-    activeReadingId === id
-      ? 'ring-2 ring-purple-400 bg-purple-50/70 rounded-xl p-1 -m-1 transition-all duration-300 shadow-[0_0_18px_rgba(168,85,247,0.35)]'
-      : 'transition-all duration-200';
+  const getHighlightClass = (id: string) => {
+    if (!activeReadingId) return 'transition-all duration-200';
+    if (activeReadingId === id) {
+      return 'ring-2 ring-purple-400 bg-purple-50/70 rounded-xl p-1 -m-1 transition-all duration-300 shadow-[0_0_18px_rgba(168,85,247,0.35)]';
+    }
+    const item = FORM_READING_SEQUENCE.find(i => i.id === activeReadingId || i.aliases?.includes(activeReadingId));
+    if (item && (item.id === id || item.aliases?.includes(id))) {
+      return 'ring-2 ring-purple-400 bg-purple-50/70 rounded-xl p-1 -m-1 transition-all duration-300 shadow-[0_0_18px_rgba(168,85,247,0.35)]';
+    }
+    return 'transition-all duration-200';
+  };
 
   const ORPHAN_OPTIONS: { value: OrphanStatus; label: string; tooltip: string }[] = [
     { value: 'Both parents alive', label: 'Both parents alive', tooltip: 'Both biological parents are alive' },

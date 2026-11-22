@@ -136,12 +136,13 @@ export function AnimatedAppetiteSelector({
       {/* Grid: Meals Per Day + Appetite Selection */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         {/* Meals Per Day Input Box with Quick Stepper Buttons */}
-        <div
-          id="nutrition-mealsPerDay"
-          className={`lg:col-span-4 p-4 rounded-2xl border ${
-            errorMeals ? 'border-rose-400 bg-rose-50/50' : 'border-lime-200 bg-white'
-          } shadow-2xs space-y-3 ${highlightMealsClass}`}
-        >
+        <div id="q-nut-meals" className="lg:col-span-4">
+          <div
+            id="nutrition-mealsPerDay"
+            className={`p-4 rounded-2xl border ${
+              errorMeals ? 'border-rose-400 bg-rose-50/50' : 'border-lime-200 bg-white'
+            } shadow-2xs space-y-3 ${highlightMealsClass}`}
+          >
           <div className="flex items-center justify-between">
             <label htmlFor="input-nutrition-meals" className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-700 block">
               {labels?.mealsTitle || 'Meals Per Day'} <span className="text-rose-500 ml-0.5">*</span>
@@ -212,17 +213,19 @@ export function AnimatedAppetiteSelector({
             </div>
           </div>
         </div>
+      </div>
 
         {/* Child's Appetite Radio Cards with Animated Emojis */}
-        <div
-          id="nutrition-appetite"
-          tabIndex={-1}
-          aria-invalid={errorAppetite ? 'true' : 'false'}
-          aria-describedby={errorAppetite ? 'nutrition-appetite-error' : undefined}
-          className={`lg:col-span-8 space-y-2 p-3 rounded-2xl ${
-            errorAppetite ? 'border border-rose-400 bg-rose-50/40' : ''
-          } ${highlightAppetiteClass}`}
-        >
+        <div id="q-nut-appetite" className="lg:col-span-8">
+          <div
+            id="nutrition-appetite"
+            tabIndex={-1}
+            aria-invalid={errorAppetite ? 'true' : 'false'}
+            aria-describedby={errorAppetite ? 'nutrition-appetite-error' : undefined}
+            className={`space-y-2 p-3 rounded-2xl ${
+              errorAppetite ? 'border border-rose-400 bg-rose-50/40' : ''
+            } ${highlightAppetiteClass}`}
+          >
           <div className="flex items-center justify-between">
             <label className="text-[10.5px] font-black uppercase tracking-[0.16em] text-slate-700 block">
               {labels?.appetiteTitle || "Child's Appetite"} <span className="text-rose-500 ml-0.5">*</span>
@@ -367,6 +370,7 @@ export function AnimatedAppetiteSelector({
               );
             })}
           </div>
+        </div>
         </div>
       </div>
     </div>

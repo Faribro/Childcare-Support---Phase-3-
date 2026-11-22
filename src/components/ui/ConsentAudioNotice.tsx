@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Pause, Mic } from 'lucide-react';
-import { t } from '@/lib/i18n/translations';
+import { t, SUPPORTED_LANGUAGES } from '@/lib/i18n/translations';
 
 interface ConsentAudioNoticeProps {
   currentLanguage: string;
@@ -10,6 +10,20 @@ interface ConsentAudioNoticeProps {
   onConsentDecision?: (agreed: boolean) => void;
   renderHeader?: (audioButton: React.ReactNode) => React.ReactNode;
 }
+
+const LANGUAGE_AUDIO_MAP: Record<string, string> = {
+  en: '/audio/consent_en.wav',
+  hi: '/audio/consent_hi.wav',
+  mr: '/audio/consent_mr.wav',
+  bn: '/audio/consent_bn.wav',
+  ta: '/audio/consent_ta.wav',
+  gu: '/audio/consent_gu.wav',
+  kn: '/audio/consent_kn.wav',
+  ml: '/audio/consent_ml.wav',
+  pa: '/audio/consent_pa.wav',
+  or: '/audio/consent_or.wav',
+  as: '/audio/consent_as.wav',
+};
 
 export function ConsentAudioNotice({
   currentLanguage,
@@ -22,8 +36,8 @@ export function ConsentAudioNotice({
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Audio source based on selected language (English or Hindi uploaded recordings)
-  const audioSrc = currentLanguage === 'hi' ? '/audio/consent_hi.wav' : '/audio/consent_en.wav';
+  // Audio source based on selected language
+  const audioSrc = LANGUAGE_AUDIO_MAP[currentLanguage] || '/audio/consent_en.wav';
 
   useEffect(() => {
     if (audioRef.current) {
@@ -79,7 +93,8 @@ export function ConsentAudioNotice({
           setIsPlaying(false);
           if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             const utterance = new SpeechSynthesisUtterance(t('consent_audio_statement', currentLanguage));
-            utterance.lang = currentLanguage === 'hi' ? 'hi-IN' : 'en-IN';
+            const langCfg = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
+            utterance.lang = langCfg?.speechLang || (currentLanguage === 'hi' ? 'hi-IN' : 'en-IN');
             window.speechSynthesis.speak(utterance);
           }
         });

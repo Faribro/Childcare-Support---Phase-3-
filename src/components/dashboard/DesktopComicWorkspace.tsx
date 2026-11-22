@@ -20,6 +20,8 @@ import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { DraftCard } from '@/components/forms/DraftCard';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { useScrollSoundscape } from '@/lib/audio/useScrollSoundscape';
+import { RocketSurveyButton } from '@/components/launch/RocketSurveyButton';
+import { useLaunchTransitionStore, selectIsLaunching } from '@/store/useLaunchTransitionStore';
 import { NeedsAttentionPanel } from './NeedsAttentionPanel';
 import { COSMIC_STYLES } from './cosmicStyles';
 
@@ -42,6 +44,7 @@ export interface DesktopComicWorkspaceProps {
   onDeleteDraft: (id: number) => Promise<void>;
   onRetrySubmitted: () => void;
   onRequireAuth: () => void;
+  onFormReady?: () => void;
 }
 
 export function DesktopComicWorkspace({
@@ -63,7 +66,9 @@ export function DesktopComicWorkspace({
   onDeleteDraft,
   onRetrySubmitted,
   onRequireAuth,
+  onFormReady,
 }: DesktopComicWorkspaceProps) {
+  const isLaunching = useLaunchTransitionStore(selectIsLaunching);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const { isSoundEnabled, toggleSound } = useScrollSoundscape({ animationsEnabled });
 
@@ -396,133 +401,16 @@ export function DesktopComicWorkspace({
             <AnimatedHeartUnlock />
           </div>
 
-          {/* Horizontal Comic Spaceship "Start New Survey >" Button */}
-          <Link
-            href="/assessment/new"
-            onClick={onStartNewSurvey}
-            className="group relative flex h-[58px] w-[340px] items-center cursor-pointer transition-transform duration-200 hover:translate-x-1.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-full shrink-0"
-          >
-            {/* Spaceship SVG */}
-            <svg
-              viewBox="0 0 360 70"
-              className="pointer-events-none absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_8px_18px_rgba(6,24,78,0.45)]"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="desk-ship-hull" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FFFFFF" />
-                  <stop offset="56%" stopColor="#F0F7FF" />
-                  <stop offset="86%" stopColor="#CBE4FF" />
-                  <stop offset="100%" stopColor="#93C5FD" />
-                </linearGradient>
-                <linearGradient id="desk-ship-fin" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#FDE047" />
-                  <stop offset="50%" stopColor="#F97316" />
-                  <stop offset="100%" stopColor="#C2410C" />
-                </linearGradient>
-                <linearGradient id="desk-ship-flame" x1="1" y1="0.5" x2="0" y2="0.5">
-                  <stop offset="0%" stopColor="#FEF9C3" />
-                  <stop offset="35%" stopColor="#FACC15" />
-                  <stop offset="72%" stopColor="#F97316" />
-                  <stop offset="100%" stopColor="#EF4444" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-
-              {/* Horizontal flickering exhaust flame shooting LEFT */}
-              <g className="kobo-flame">
-                <path
-                  d="M54 27 C34 25 18 30 2 35 C18 40 34 45 54 43 Z"
-                  fill="url(#desk-ship-flame)"
-                />
-                <path
-                  d="M54 30.5 C42 30.5 31 32.5 20 35 C31 37.5 42 39.5 54 39.5 Z"
-                  fill="#FEFCE8"
-                />
-              </g>
-
-              {/* Metallic thruster nozzle */}
-              <path
-                d="M51 25 L63 22 L63 48 L51 45 Z"
-                fill="#475569"
-                stroke="#1E293B"
-                strokeWidth="1.4"
-              />
-              <line
-                x1="56"
-                y1="24"
-                x2="56"
-                y2="46"
-                stroke="#94A3B8"
-                strokeWidth="1.5"
-                opacity="0.7"
-              />
-
-              {/* Top & bottom aerodynamic orange rear fins */}
-              <path
-                d="M65 20 C76 9 95 7 110 11 L86 22 Z"
-                fill="url(#desk-ship-fin)"
-                stroke="#9A3412"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M65 50 C76 61 95 63 110 59 L86 48 Z"
-                fill="url(#desk-ship-fin)"
-                stroke="#9A3412"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-
-              {/* Main aerodynamic white fuselage pointing RIGHT */}
-              <path
-                d="M62 22 C88 10 164 6 254 7 C308 8 349 18 354 35 C349 52 308 62 254 63 C164 64 88 60 62 48 Z"
-                fill="url(#desk-ship-hull)"
-                stroke="#2563EB"
-                strokeWidth="1.6"
-              />
-
-              {/* Glossy comic upper specular highlight */}
-              <path
-                d="M88 16 C158 11 246 11 312 16"
-                fill="none"
-                stroke="#FFFFFF"
-                strokeWidth="3.2"
-                strokeLinecap="round"
-                opacity="0.95"
-              />
-              {/* Subtle nose panel contour */}
-              <path
-                d="M312 15 C329 19 341 26 346 35 C341 44 329 51 312 55"
-                fill="none"
-                stroke="#3B82F6"
-                strokeWidth="2"
-                strokeLinecap="round"
-                opacity="0.32"
-              />
-            </svg>
-
-            {/* Foreground CTA content cleanly centered inside fuselage */}
-            <button
-              type="button"
-              aria-label="Start New Survey"
-              className="relative z-10 flex w-full items-center justify-between pl-[76px] pr-7 bg-transparent border-none p-0 cursor-pointer focus:outline-none text-left"
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600 text-white shadow-[0_3px_8px_rgba(13,148,136,0.45)] ring-2 ring-white/85">
-                  <span className="text-[20px] font-black leading-none -mt-[1px]">+</span>
-                </span>
-                <span className="truncate text-[15px] font-extrabold tracking-[-0.015em] text-[#0B132B]">
-                  Start New Survey
-                </span>
-              </div>
-              <ChevronRight
-                className="h-5 w-5 shrink-0 text-[#0B132B] transition-transform duration-200 group-hover:translate-x-1"
-                strokeWidth={2.5}
-                aria-hidden="true"
-              />
-            </button>
-          </Link>
+          {/* Horizontal Comic Spaceship "Start New Survey >" Button with 3.0s Zustand Launch */}
+          <RocketSurveyButton
+            logoSrc="/images/alliance-india-logo.png"
+            onPreLaunch={onStartNewSurvey}
+            onFormReady={onFormReady || (() => {
+              if (typeof window !== 'undefined') {
+                window.location.assign('/assessment/new');
+              }
+            })}
+          />
         </div>
 
         {/* ── 2. FREE-FLOATING 3-PLANET ORBITAL TRIO ── */}
@@ -676,7 +564,11 @@ export function DesktopComicWorkspace({
                     }}
                   >
                     {isSubmittedLoading ? (
-                      <span className="inline-block h-6 w-6 animate-pulse rounded-full bg-amber-900/20" />
+                      <span
+                        className="inline-block h-6 w-6 animate-pulse rounded-full bg-amber-900/20"
+                        role="status"
+                        aria-label="Loading submitted count"
+                      />
                     ) : (
                       effectiveSubmittedCount
                     )}
@@ -799,7 +691,11 @@ export function DesktopComicWorkspace({
           )}
         </button>
 
-        <MiniatureGardenPlayground transparentSky hideControls isPaused={!animationsEnabled} />
+        <MiniatureGardenPlayground
+          transparentSky
+          hideControls
+          isPaused={!animationsEnabled || isLaunching}
+        />
 
         {/* Caption inside bottom grass strip */}
         <div className="absolute bottom-1 inset-x-0 text-center pointer-events-none">

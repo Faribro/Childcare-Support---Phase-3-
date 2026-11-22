@@ -364,17 +364,22 @@ export default function FieldWorkspacePage() {
   const handleStartNewSurvey = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      // 1. Returning user with valid verified session or existing stored profile proceeds directly
-      if (checkAuth()) {
-        cosmicSound.playRocketLaunch();
-        router.push('/assessment/new');
-        return;
+      // 1. When offline, bypass auth gating and immediately navigate to cached shell
+      if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && !navigator.onLine) {
+        window.location.assign('/assessment/new');
+        return false;
       }
 
-      // 2. First-time unverified user: open Welcome Kite onboarding to sign in or register
+      // 2. Returning user with valid verified session or existing stored profile proceeds directly
+      if (checkAuth()) {
+        return true;
+      }
+
+      // 3. First-time unverified user: open Welcome Kite onboarding to sign in or register
       handleRequireAuth();
+      return false;
     },
-    [checkAuth, router, handleRequireAuth]
+    [checkAuth, handleRequireAuth]
   );
 
   useEffect(() => {
@@ -516,6 +521,7 @@ export default function FieldWorkspacePage() {
         onStartSurvey={handleStartNewSurvey}
         isAuthenticated={isAuthenticated}
         onRequireAuth={handleRequireAuth}
+        onFormReady={() => router.push('/assessment/new')}
       />
 
       {/* Desktop Workspace View (>=768px) */}
@@ -538,6 +544,7 @@ export default function FieldWorkspacePage() {
         onDeleteDraft={handleDeleteDraft}
         onRetrySubmitted={handleRetrySubmitted}
         onRequireAuth={handleRequireAuth}
+        onFormReady={() => router.push('/assessment/new')}
       />
 {/* Welcome Kite First-Time Field User Onboarding Modal */}
       <WelcomeKiteOnboardingModal
