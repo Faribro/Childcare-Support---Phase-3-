@@ -193,7 +193,7 @@ export function NeedsAttentionPanel({
           </Link>
         </div>
 
-        {/* ── Planet 2: Waiting to send (Golden-Amber) ── */}
+        {/* ── Planet 2: Waiting to send (Golden-Amber, a bit smaller at 212px) ── */}
         <div className="kobo-float-o relative flex flex-col items-center shrink-0 mt-3">
           <div
             aria-hidden="true"
@@ -210,8 +210,8 @@ export function NeedsAttentionPanel({
             href={DASHBOARD_COPY.cards.waitingToSend.href}
             prefetch={true}
             aria-label={`${DASHBOARD_COPY.cards.waitingToSend.title}: ${outboxAttentionCount} - ${DASHBOARD_COPY.cards.waitingToSend.linkText}`}
-            className="group relative block h-[224px] w-[224px] min-w-[224px] min-h-[224px] shrink-0 cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={{ width: '224px', height: '224px', minWidth: '224px', minHeight: '224px', borderRadius: '50%' }}
+            className="group relative block h-[212px] w-[212px] min-w-[212px] min-h-[212px] shrink-0 cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ width: '212px', height: '212px', minWidth: '212px', minHeight: '212px', borderRadius: '50%' }}
           >
             {/* Luminous golden sphere */}
             <div
@@ -247,10 +247,10 @@ export function NeedsAttentionPanel({
             </div>
 
             {/* Content overlay */}
-            <div className="relative z-10 flex h-full flex-col items-center justify-between px-3 py-4 text-center">
+            <div className="relative z-10 flex h-full flex-col items-center justify-between px-3 py-3.5 text-center">
               {/* Title pill */}
               <span
-                className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-950 shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10.5px] font-extrabold uppercase tracking-wide text-amber-950 shadow-xs"
                 style={{
                   background: 'rgba(255, 255, 255, 0.94)',
                   border: '1px solid rgba(255, 255, 255, 0.9)',
@@ -263,7 +263,7 @@ export function NeedsAttentionPanel({
               {/* Big bold count + description */}
               <div className="flex flex-col items-center">
                 <span
-                  className="text-[3.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                  className="text-[3.35rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
                     WebkitTextStroke: '0.6px #09142A',
@@ -271,7 +271,7 @@ export function NeedsAttentionPanel({
                 >
                   {outboxAttentionCount}
                 </span>
-                <span className="mt-1 text-[11.5px] font-extrabold text-[#3B1E02]">
+                <span className="mt-0.5 text-[11px] font-extrabold text-[#3B1E02]">
                   {outboxAttentionCount === 0
                     ? 'Everything has been sent'
                     : outboxAttentionCount === 1
@@ -281,7 +281,7 @@ export function NeedsAttentionPanel({
               </div>
 
               {/* Button */}
-              <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-5 py-1.5 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
+              <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-4.5 py-1.5 text-[10.5px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
                 {DASHBOARD_COPY.cards.waitingToSend.linkText}
               </span>
             </div>
