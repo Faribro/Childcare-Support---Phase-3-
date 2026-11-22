@@ -69,4 +69,5 @@ supabase/.temp/
 probe_register.json
 .secrets/
 *.secret
+.codemap/
 

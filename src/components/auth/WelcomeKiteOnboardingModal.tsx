@@ -22,6 +22,7 @@ import { INDIAN_STATES_AND_UTS } from '@/lib/clinical/nutritionCalculations';
 import { DistrictCombobox } from '@/components/forms/DistrictCombobox';
 import { setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
 import { platformRegistry } from '@/lib/platform/platformRegistry';
+import { CosmicSpaceButton } from '@/components/ui/CosmicSpaceButton';
 
 interface WelcomeKiteOnboardingModalProps {
   isOpen: boolean;
@@ -548,14 +549,28 @@ export function WelcomeKiteOnboardingModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="welcome-kite-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 motion-reduce:animate-none"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(7,29,79,0.48)] backdrop-blur-md animate-in fade-in duration-150 motion-reduce:animate-none"
     >
       <div
-        className="w-full max-w-lg max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-2xl border border-teal-100 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+        className="w-full max-w-lg max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.28)] border border-blue-200/80 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Playful & Pastoral Kite Header Banner */}
-        <div className="relative bg-gradient-to-br from-teal-800 via-teal-700 to-emerald-800 px-6 py-5 text-white shrink-0 overflow-hidden">
+        {/* Playful & Pastoral Kite Header Banner — Cosmic Header Gradient */}
+        <div
+          className="relative px-6 py-5 text-white shrink-0 overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, #093282 0%, #155AD1 55%, #2B84F2 100%)',
+          }}
+        >
+          {/* Twinkling star sparkle dots */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-30" aria-hidden="true">
+            <circle cx="28" cy="14" r="1.2" fill="#FFFFFF" />
+            <circle cx="120" cy="48" r="1.5" fill="#FEF08A" />
+            <circle cx="340" cy="22" r="1.3" fill="#FFFFFF" />
+            <circle cx="410" cy="52" r="1.6" fill="#BAE6FD" />
+            <path d="M430 16 l1.2 3 3 1.2-3 1.2-1.2 3-1.2-3-3-1.2 3-1.2z" fill="#FEF08A" opacity="0.85" />
+          </svg>
+
           {/* Subtle background SVG Kite Motif */}
           <div className="absolute right-4 -top-2 opacity-15 pointer-events-none" aria-hidden="true">
             <svg width="140" height="140" viewBox="0 0 100 100" fill="none">
@@ -569,7 +584,7 @@ export function WelcomeKiteOnboardingModal({
           <div className="flex items-start justify-between relative z-10">
             <div className="flex items-center gap-3.5">
               {/* Kite Icon Badge */}
-              <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-inner shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center shadow-inner shrink-0">
                 <svg width="28" height="28" viewBox="0 0 32 32" fill="none" className="transform -rotate-12">
                   <polygon points="16,3 28,15 16,27 4,15" fill="#38BDF8" fillOpacity="0.85" stroke="#FFFFFF" strokeWidth="2" />
                   <line x1="16" y1="3" x2="16" y2="27" stroke="#F59E0B" strokeWidth="1.5" />
@@ -579,7 +594,7 @@ export function WelcomeKiteOnboardingModal({
               </div>
 
               <div>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-teal-600/60 border border-teal-400/30 text-[11px] font-medium text-teal-100 mb-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-300/20 border border-amber-300/40 text-[11px] font-semibold text-amber-200 mb-1">
                   <Sparkles className="w-3 h-3 text-amber-300" />
                   <span>Field Caseworker Onboarding</span>
                 </div>
@@ -599,8 +614,8 @@ export function WelcomeKiteOnboardingModal({
           </div>
         </div>
 
-        {/* Tab Switcher: Returning Worker (Email OTP) vs New Registration */}
-        <div className="flex border-b border-slate-100 bg-slate-50/80 px-6 pt-2.5 gap-2 shrink-0">
+        {/* Tab Switcher: Segmented pill track */}
+        <div className="grid grid-cols-2 p-1.5 bg-sky-50/90 rounded-2xl gap-1.5 border border-sky-100 mx-6 mt-4 shrink-0">
           <button
             type="button"
             onClick={() => {
@@ -608,13 +623,13 @@ export function WelcomeKiteOnboardingModal({
               setErrorMessage(null);
               setInfoMessage(null);
             }}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`py-2 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'register'
-                ? 'border-teal-700 text-teal-900'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-white text-[#093282] shadow-xs border border-blue-200/60'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+            <Sparkles className="w-3.5 h-3.5 text-[#155AD1]" />
             <span>New Registration</span>
           </button>
           <button
@@ -624,13 +639,13 @@ export function WelcomeKiteOnboardingModal({
               setErrorMessage(null);
               setInfoMessage(null);
             }}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`py-2 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'signin'
-                ? 'border-teal-700 text-teal-900'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'bg-white text-[#093282] shadow-xs border border-blue-200/60'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Mail className="w-3.5 h-3.5 text-teal-700" />
+            <Mail className="w-3.5 h-3.5 text-[#155AD1]" />
             <span>Existing Field User</span>
           </button>
         </div>
@@ -693,23 +708,15 @@ export function WelcomeKiteOnboardingModal({
                     </p>
                   </div>
 
-                  <button
+                  <CosmicSpaceButton
                     type="submit"
+                    variant="comet"
                     disabled={isSigningIn}
-                    className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    isLoading={isSigningIn}
+                    rightIcon={<Send className="w-4 h-4 text-white" />}
                   >
-                    {isSigningIn ? (
-                      <span className="inline-flex items-center gap-2 text-xs">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                        Sending 6-Digit Code…
-                      </span>
-                    ) : (
-                      <>
-                        <span>Send Sign-in Code</span>
-                        <Send className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
+                    Send Sign-in Code
+                  </CosmicSpaceButton>
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
                     <span className="text-slate-500">First time here?</span>
@@ -802,23 +809,15 @@ export function WelcomeKiteOnboardingModal({
                     </p>
                   </div>
 
-                  <button
+                  <CosmicSpaceButton
                     type="submit"
+                    variant="comet"
                     disabled={isSigningIn || signInCode.length !== 6}
-                    className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    isLoading={isSigningIn}
+                    rightIcon={<ArrowRight className="w-4 h-4 text-white" />}
                   >
-                    {isSigningIn ? (
-                      <span className="inline-flex items-center gap-2 text-xs">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                        Verifying Code…
-                      </span>
-                    ) : (
-                      <>
-                        <span>Verify &amp; Restore Account</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
+                    Verify &amp; Restore Account
+                  </CosmicSpaceButton>
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
                     <span className="text-slate-500">Not receiving code?</span>
@@ -1063,23 +1062,15 @@ export function WelcomeKiteOnboardingModal({
               </div>
 
               <div className="pt-2">
-                <button
+                <CosmicSpaceButton
                   type="submit"
+                  variant="comet"
                   disabled={isLoading}
-                  className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  isLoading={isLoading}
+                  rightIcon={<ArrowRight className="w-4 h-4 text-white" />}
                 >
-                  {isLoading ? (
-                    <span className="inline-flex items-center gap-2 text-xs">
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      Sending Verification Code…
-                    </span>
-                  ) : (
-                    <>
-                      <span>Complete Registration &amp; Open Survey</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
+                  Complete Registration &amp; Open Survey
+                </CosmicSpaceButton>
               </div>
             </form>
           )}
@@ -1163,23 +1154,15 @@ export function WelcomeKiteOnboardingModal({
               </div>
 
               <div className="pt-2 flex flex-col gap-2">
-                <button
+                <CosmicSpaceButton
                   type="submit"
+                  variant="comet"
                   disabled={isVerifyingRegOtp || regOtp.length !== 6}
-                  className="w-full py-3 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  isLoading={isVerifyingRegOtp}
+                  rightIcon={<ArrowRight className="w-4 h-4 text-white" />}
                 >
-                  {isVerifyingRegOtp ? (
-                    <span className="inline-flex items-center gap-2 text-xs">
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      Verifying &amp; Creating Profile…
-                    </span>
-                  ) : (
-                    <>
-                      <span>Verify Code &amp; Complete Registration</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
+                  Verify Code &amp; Complete Registration
+                </CosmicSpaceButton>
 
                 <button
                   type="button"

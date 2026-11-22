@@ -678,3 +678,88 @@ body {
 }
 
 
+
+
+/* ─── Cosmic Space-to-Playground Global Design Tokens ─── */
+:root {
+  /* Cosmic Headers & Sky Gradients */
+  --cosmic-sky-page: linear-gradient(180deg, #072B7C 0%, #0D44B6 18%, #1864E0 40%, #2C88F8 62%, #5EB7FF 78%, #A2DCFF 91%, #D6F2FF 100%);
+  --cosmic-header-primary: linear-gradient(135deg, #093282 0%, #155AD1 56%, #2B84F2 100%);
+  --cosmic-header-authority: linear-gradient(135deg, #07225E 0%, #0F3E9E 58%, #1E5CC7 100%);
+  --cosmic-subpage-bg: linear-gradient(180deg, #EFF6FF 0%, #F8FBFF 45%, #FFFFFF 100%);
+
+  /* Cloud Surfaces & Elevation */
+  --cloud-surface: #FFFFFF;
+  --cloud-surface-glass: rgba(255, 255, 255, 0.84);
+  --cloud-border: rgba(191, 219, 254, 0.8);
+  --cloud-shadow: 0 24px 48px -12px rgba(7, 43, 124, 0.26);
+  --cosmic-backdrop: rgba(7, 29, 79, 0.48);
+
+  /* Interactive Accents */
+  --cosmic-focus: #1E6EEB;
+  --cosmic-focus-ring: rgba(30, 110, 235, 0.16);
+  --cta-emerald-bg: linear-gradient(180deg, #10A362 0%, #097A47 100%);
+  --cta-emerald-shadow: 0 6px 16px rgba(12, 140, 82, 0.30);
+
+  /* Status Semantic Accents (matching Planet System) */
+  --status-draft: #0C8C52;
+  --status-outbox: #D97706;
+  --status-pending: #E11D48;
+  --status-submitted: #EAB308;
+}
+
+/* Reusable Primary Cosmic Pill Button */
+.btn-cosmic-primary {
+  background: var(--cta-emerald-bg);
+  color: #FFFFFF;
+  border-radius: 9999px;
+  font-weight: 700;
+  border: 1px solid rgba(110, 231, 183, 0.45);
+  box-shadow: var(--cta-emerald-shadow), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+.btn-cosmic-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(12, 140, 82, 0.36), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
+.btn-cosmic-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-cosmic-primary:disabled {
+  background: #94A3B8;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Unified Sky-Blue Form Input */
+.input-cosmic {
+  background: #F8FAFC;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 1rem;
+  color: #0F172A;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+.input-cosmic:focus {
+  background: #FFFFFF;
+  border-color: var(--cosmic-focus);
+  box-shadow: 0 0 0 4px var(--cosmic-focus-ring);
+  outline: none;
+}
+
+/* Slim Sky Scrollbar for Long Modals & Forms */
+.cosmic-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.cosmic-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cosmic-scroll::-webkit-scrollbar-thumb {
+  background: rgba(30, 110, 235, 0.24);
+  border-radius: 9999px;
+}
+.cosmic-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 110, 235, 0.42);
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { usePathname } from 'next/navigation';
 import { CompactMasthead } from './CompactMasthead';
 import { MobileContextBar } from './MobileContextBar';
 import type { SyncStatus } from '@/types/domain';
@@ -25,9 +26,26 @@ export function AppShell({
   submittedCount,
   hideHeader = false,
 }: AppShellProps) {
+  const pathname = usePathname();
+  const isCosmicPage = pathname === '/app' || pathname === '/';
+
   return (
-    <div className="min-h-screen flex flex-col bg-surface-canvas text-ink-900 w-full overflow-x-hidden">
-      {/* Top Masthead */}
+    <div
+      className={`min-h-screen flex flex-col w-full overflow-x-hidden ${
+        isCosmicPage
+          ? 'bg-transparent text-slate-900'
+          : 'bg-surface-canvas text-ink-900'
+      }`}
+      style={
+        isCosmicPage
+          ? {
+              background:
+                'linear-gradient(180deg, #072B7C 0%, #0D44B6 16%, #1864E0 36%, #2C88F8 58%, #4BAEFF 76%, #88D1FF 90%, #BCE9FF 100%)',
+            }
+          : undefined
+      }
+    >
+      {/* Top Masthead — Option B Floating Cloud-Glass Navbar */}
       {!hideHeader && (
         <CompactMasthead
           pendingSyncCount={pendingSyncCount}

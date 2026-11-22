@@ -19,6 +19,7 @@ import {
 import { INDIAN_STATES_AND_UTS } from '@/lib/clinical/nutritionCalculations';
 import { setEvaluationUnlocked, EvaluationUser } from '@/lib/auth/evaluationAccess';
 import { platformRegistry } from '@/lib/platform/platformRegistry';
+import { CosmicSpaceButton } from '@/components/ui/CosmicSpaceButton';
 
 export interface StateTeamAuthFlowProps {
   onSuccess?: () => void;
@@ -310,7 +311,7 @@ export function StateTeamAuthFlow({
 
       {/* Sub-tab switcher: Sign In vs New Registration */}
       {step === 'details' && (
-        <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl gap-1" role="tablist">
+        <div className="grid grid-cols-2 p-1.5 bg-slate-100 rounded-2xl gap-1" role="tablist">
           <button
             type="button"
             role="tab"
@@ -319,9 +320,9 @@ export function StateTeamAuthFlow({
               setSubTab('signin');
               setErrorMessage(null);
             }}
-            className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`py-1.5 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               subTab === 'signin'
-                ? 'bg-white text-teal-900 shadow-xs'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -336,9 +337,9 @@ export function StateTeamAuthFlow({
               setSubTab('register');
               setErrorMessage(null);
             }}
-            className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`py-1.5 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               subTab === 'register'
-                ? 'bg-white text-teal-900 shadow-xs'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -408,23 +409,15 @@ export function StateTeamAuthFlow({
           </div>
 
           <div className="pt-2 flex flex-col gap-2">
-            <button
+            <CosmicSpaceButton
               type="submit"
+              variant="nebula"
               disabled={isLoading}
-              className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+              isLoading={isLoading}
+              leftIcon={<Lock className="w-4 h-4 text-white" />}
             >
-              {isLoading ? (
-                <span className="inline-flex items-center gap-2 text-xs">
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Signing in…
-                </span>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4" />
-                  Sign In with Password
-                </>
-              )}
-            </button>
+              Sign In with Password
+            </CosmicSpaceButton>
 
             <button
               type="button"
@@ -534,23 +527,15 @@ export function StateTeamAuthFlow({
           </div>
 
           <div className="pt-2 flex flex-col gap-2">
-            <button
+            <CosmicSpaceButton
               type="submit"
+              variant="nebula"
               disabled={isLoading}
-              className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+              isLoading={isLoading}
+              rightIcon={<Send className="w-4 h-4 text-white" />}
             >
-              {isLoading ? (
-                <span className="inline-flex items-center gap-2 text-xs">
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Sending code…
-                </span>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Send Verification Code
-                </>
-              )}
-            </button>
+              Send Verification Code
+            </CosmicSpaceButton>
 
             <button
               type="button"
@@ -609,23 +594,16 @@ export function StateTeamAuthFlow({
               Change details
             </button>
 
-            <button
+            <CosmicSpaceButton
               type="submit"
+              variant="nebula"
               disabled={isLoading || otp.length !== 6}
-              className="py-2.5 px-5 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50"
+              isLoading={isLoading}
+              leftIcon={<KeyRound className="w-4 h-4 text-white" />}
+              className="!w-auto !px-6"
             >
-              {isLoading ? (
-                <span className="inline-flex items-center gap-2 text-xs">
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Verifying…
-                </span>
-              ) : (
-                <>
-                  <KeyRound className="w-4 h-4" />
-                  Verify &amp; Unlock
-                </>
-              )}
-            </button>
+              Verify &amp; Unlock
+            </CosmicSpaceButton>
           </div>
         </form>
       )}

@@ -15,6 +15,7 @@ import { Plus } from 'lucide-react';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
+import { DesktopComicWorkspace } from '@/components/dashboard/DesktopComicWorkspace';
 import { NeedsAttentionPanel } from '@/components/dashboard/NeedsAttentionPanel';
 import { submissionEvents } from '@/features/submission/submissionEvents';
 import { useEvaluationAccess, setEvaluationUnlocked } from '@/lib/auth/evaluationAccess';
@@ -516,123 +517,27 @@ export default function FieldWorkspacePage() {
       />
 
       {/* Desktop Workspace View (>=768px) */}
-      <div className="hidden md:flex flex-1 w-full max-w-4xl mx-auto px-4 pt-2 pb-8 sm:pt-2.5 sm:pb-10 flex-col justify-between space-y-6 animate-in fade-in duration-200">
-        <div className="space-y-3 sm:space-y-3.5">
-          {/* Miniature Children Garden Playground (Physics-based live interactive garden) */}
-          <MiniatureGardenPlayground />
-
-          {/* Survey Action Row */}
-          <div className="p-4 sm:p-5 md:p-6 bg-white border border-[hsl(215,18%,82%)] rounded-2xl shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center space-x-3.5 flex-wrap gap-y-2">
-                <h2 className="text-lg md:text-xl font-bold text-[hsl(220,15%,15%)] leading-snug">
-                  Child Nutrition &amp; Support Form
-                </h2>
-                <AnimatedHeartUnlock />
-              </div>
-
-              <div className="waves-wrapper self-center sm:self-auto my-1 sm:my-0">
-                <div className="waves-block">
-                  <div className="waves wave-1"></div>
-                  <div className="waves wave-2"></div>
-                  <div className="waves wave-3"></div>
-                </div>
-                <Link href="/assessment/new" onClick={handleStartNewSurvey} className="relative z-10 inline-block">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="w-full font-bold px-8 py-3.5 bg-gradient-to-r from-[hsl(168,76%,36%)] to-[hsl(175,84%,32%)] hover:from-[hsl(168,76%,32%)] hover:to-[hsl(175,84%,28%)] text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 rounded-xl border border-[hsl(168,76%,30%)] flex items-center gap-2 cursor-pointer"
-                  >
-                    <Plus className="w-5 h-5 stroke-[2.5]" />
-                    <span>Start New Survey</span>
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          {/* Needs Attention Panel */}
-          <NeedsAttentionPanel
-            localDraftsCount={isAuthenticated ? (draftCount ?? drafts.length) : 0}
-            outboxAttentionCount={isAuthenticated ? (waitingCount ?? 0) : 0}
-            submittedMissingDocsCount={isAuthenticated ? submittedMissingDocsCount : 0}
-            approvedBankPendingCount={isAuthenticated ? approvedBankPendingCount : 0}
-            serverScopeLabel={serverScopeLabel}
-            isServerLoading={isSubmittedLoading}
-          />
-
-          {/* In-Progress Drafts Section */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-[hsl(220,15%,15%)] flex items-center gap-1.5">
-                <span>My In-Progress Drafts</span>
-                <span className="text-sm font-semibold text-slate-500">
-                  (
-                  {isDraftsLoading ? (
-                    <span
-                      className="inline-block w-3.5 h-3 bg-slate-200 animate-pulse rounded align-middle"
-                      role="status"
-                      aria-label="Loading draft count"
-                    />
-                  ) : (
-                    (draftCount ?? drafts.length)
-                  )}
-                  )
-                </span>
-              </h3>
-            </div>
-
-            {isDraftListLoading ? (
-              <div className="p-8 text-center text-xs text-[hsl(215,12%,50%)]">
-                Loading local drafts...
-              </div>
-            ) : drafts.length === 0 ? (
-              <div className="p-8 rounded-xl border border-dashed border-[hsl(215,18%,85%)] text-center space-y-2 bg-white/50">
-                <svg
-                  className="w-8 h-8 text-[hsl(215,12%,60%)] mx-auto"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                <p className="text-xs font-semibold text-[hsl(220,15%,30%)]">
-                  No active drafts on this device
-                </p>
-                <p className="text-[11px] text-[hsl(215,12%,50%)]">
-                  When you start a survey, your edits will autosave here so you can continue
-                  anytime.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {drafts.map((d) => (
-                  <DraftCard
-                    key={d.id || d.uuid}
-                    draft={d}
-                    onResume={handleResumeDraft}
-                    onDelete={handleDeleteDraft}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Minimal Clean Footer Matching Reference */}
-        <footer className="pt-8 pb-4 text-center">
-          <p className="text-xs text-slate-400 font-normal">
-            Child Nutrition &amp; Support Platform • India HIV/AIDS Alliance
-          </p>
-        </footer>
-      </div>
-
-      {/* Welcome Kite First-Time Field User Onboarding Modal */}
+      <DesktopComicWorkspace
+        drafts={drafts}
+        draftCount={draftCount}
+        isDraftsLoading={isDraftsLoading}
+        isDraftListLoading={isDraftListLoading}
+        waitingCount={waitingCount}
+        isWaitingLoading={isWaitingLoading}
+        submittedCount={submittedCount}
+        isSubmittedLoading={isSubmittedLoading}
+        submittedStatus={submittedStatus}
+        submittedMissingDocsCount={submittedMissingDocsCount}
+        approvedBankPendingCount={approvedBankPendingCount}
+        serverScopeLabel={serverScopeLabel}
+        isAuthenticated={isAuthenticated}
+        onStartNewSurvey={handleStartNewSurvey}
+        onResumeDraft={handleResumeDraft}
+        onDeleteDraft={handleDeleteDraft}
+        onRetrySubmitted={handleRetrySubmitted}
+        onRequireAuth={handleRequireAuth}
+      />
+{/* Welcome Kite First-Time Field User Onboarding Modal */}
       <WelcomeKiteOnboardingModal
         isOpen={isOnboardingOpen}
         initialMode={onboardingInitialMode}

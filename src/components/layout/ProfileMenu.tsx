@@ -13,10 +13,12 @@ import {
   X,
   ChevronDown,
   Mail,
+  Sparkles,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
 import { platformRegistry } from '@/lib/platform/platformRegistry';
+import { CosmicSpaceButton } from '@/components/ui/CosmicSpaceButton';
 
 interface FieldUserProfile {
   id?: string;
@@ -154,33 +156,39 @@ export function ProfileMenu() {
         aria-expanded={isOpen}
         aria-label={isMounted ? (isLoggedIn ? `User menu for ${displayName}` : 'Sign in / user menu') : 'User menu'}
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`h-9 px-2.5 rounded-full border flex items-center gap-2 transition-all cursor-pointer select-none ${
-          isOpen
-            ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20 text-teal-900 shadow-xs'
-            : 'bg-white hover:bg-slate-50 border-slate-200/90 text-slate-700'
+        className={`h-9 px-3 rounded-full flex items-center gap-1.5 transition-all duration-200 cursor-pointer select-none ${
+          !isLoggedIn
+            ? 'text-white shadow-[0_4px_14px_rgba(225,29,72,0.35)] hover:brightness-105 active:scale-95'
+            : isOpen
+            ? 'bg-sky-50 border border-sky-400 ring-2 ring-sky-400/20 text-slate-800'
+            : 'bg-white/90 hover:bg-white border border-slate-200/90 text-slate-700 shadow-2xs'
         }`}
+        style={
+          !isLoggedIn
+            ? {
+                background: 'linear-gradient(108deg, #D9480F 0%, #EA580C 28%, #E11D48 70%, #9D174D 100%)',
+                border: '1px solid rgba(254, 240, 138, 0.45)',
+              }
+            : undefined
+        }
       >
-        <div
-          className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
-            isLoggedIn
-              ? 'bg-teal-700 text-white'
-              : 'bg-slate-100 text-slate-600 border border-slate-200'
-          }`}
-        >
-          {isMounted ? (
-            isLoggedIn && displayName ? (
-              displayName.charAt(0).toUpperCase()
-            ) : (
-              <User className="w-3.5 h-3.5 text-slate-600" />
-            )
-          ) : (
-            <User className="w-3.5 h-3.5 text-slate-600" />
-          )}
-        </div>
-        <span className="text-xs font-semibold max-w-[120px] truncate hidden sm:inline">
-          {isMounted ? (isLoggedIn && displayName ? displayName : 'Sign In') : 'Profile'}
-        </span>
-        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        {!isLoggedIn ? (
+          <>
+            <User className="w-3.5 h-3.5 text-white shrink-0" />
+            <span className="text-xs font-bold text-white tracking-tight">Sign In</span>
+            <ChevronDown className={`w-3.5 h-3.5 text-white/90 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          </>
+        ) : (
+          <>
+            <div className="w-6 h-6 rounded-full flex items-center justify-center font-extrabold text-xs text-white bg-gradient-to-br from-[#EA580C] to-[#E11D48] shrink-0 shadow-2xs">
+              {displayName ? displayName.charAt(0).toUpperCase() : 'U'}
+            </div>
+            <span className="text-xs font-bold max-w-[120px] truncate text-slate-800 hidden sm:inline">
+              {displayName || 'Profile'}
+            </span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          </>
+        )}
       </button>
 
       {/* Popover Dropdown Menu */}
@@ -188,22 +196,32 @@ export function ProfileMenu() {
         <div
           role="menu"
           aria-labelledby={`profile-btn-${menuId}`}
-          className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-200/90 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute right-0 mt-2.5 w-80 max-w-[90vw] bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.28)] border border-blue-200/80 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100"
         >
-          {/* Header Banner */}
+          {/* Header Banner — Cosmic Sky Gradient with subtle star sparkles */}
           <div
-            className={`p-4 text-white ${
-              isLoggedIn
-                ? 'bg-gradient-to-br from-teal-800 to-emerald-900'
-                : 'bg-gradient-to-br from-slate-800 to-slate-900'
-            }`}
+            className="relative p-4 text-white overflow-hidden"
+            style={{
+              background: isSupervisorUser
+                ? 'linear-gradient(135deg, #07225E 0%, #0F3E9E 58%, #1E5CC7 100%)'
+                : 'linear-gradient(135deg, #093282 0%, #155AD1 55%, #2B84F2 100%)',
+            }}
           >
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-full bg-white/15 border border-white/20 flex items-center justify-center text-white font-bold text-sm shrink-0">
+            {/* Twinkling star sparkle dots */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-30" aria-hidden="true">
+              <circle cx="28" cy="14" r="1.2" fill="#FFFFFF" />
+              <circle cx="92" cy="38" r="1.5" fill="#FEF08A" />
+              <circle cx="240" cy="18" r="1.2" fill="#FFFFFF" />
+              <circle cx="280" cy="42" r="1.6" fill="#BAE6FD" />
+              <path d="M298 12 l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z" fill="#FEF08A" opacity="0.8" />
+            </svg>
+
+            <div className="relative z-10 flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full bg-white/18 border border-white/30 backdrop-blur-xs flex items-center justify-center text-white font-bold text-sm shrink-0">
                 {isLoggedIn && displayName ? (
                   displayName.charAt(0).toUpperCase()
                 ) : (
-                  <User className="w-5 h-5 text-teal-300" />
+                  <User className="w-5 h-5 text-sky-100" />
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -211,7 +229,7 @@ export function ProfileMenu() {
                   {isLoggedIn && displayName ? displayName : 'Guest User'}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/20 text-teal-100">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/20 border border-white/25 text-sky-100">
                     {userRoleBadge}
                   </span>
                 </div>
@@ -298,28 +316,45 @@ export function ProfileMenu() {
           </div>
 
           {/* Action Links */}
-          <div className="p-2 space-y-1">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setIsOpen(false);
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(
-                    new CustomEvent('child_nutrition:open_welcome_kite', { detail: { mode: 'signin' } })
-                  );
-                }
-                router.push('/app?onboarding=open&mode=signin');
-              }}
-              className={`w-full px-3 py-2.5 text-left text-xs font-bold rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer ${
-                !isLoggedIn
-                  ? 'text-white bg-teal-800 hover:bg-teal-900 shadow-xs'
-                  : 'text-teal-800 bg-teal-50/70 hover:bg-teal-100/70'
-              }`}
-            >
-              <Mail className={`w-4 h-4 ${!isLoggedIn ? 'text-teal-200' : 'text-teal-700'}`} />
-              <span>{isLoggedIn ? 'Switch / Restore Account (Email OTP)' : 'Sign In / Register (Email OTP)'}</span>
-            </button>
+          <div className="p-3 space-y-1.5">
+            {!isLoggedIn ? (
+              <div className="pb-1">
+                <CosmicSpaceButton
+                  variant="comet"
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(
+                        new CustomEvent('child_nutrition:open_welcome_kite', { detail: { mode: 'signin' } })
+                      );
+                    }
+                    router.push('/app?onboarding=open&mode=signin');
+                  }}
+                  leftIcon={<Mail className="w-4 h-4 text-white" />}
+                  className="!min-h-[42px] !py-2.5 !text-xs !font-bold"
+                >
+                  Sign In / Register (Email OTP)
+                </CosmicSpaceButton>
+              </div>
+            ) : (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(
+                      new CustomEvent('child_nutrition:open_welcome_kite', { detail: { mode: 'signin' } })
+                    );
+                  }
+                  router.push('/app?onboarding=open&mode=signin');
+                }}
+                className="w-full px-3 py-2.5 text-left text-xs font-bold rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer text-[#093282] bg-sky-50/80 hover:bg-sky-100 border border-sky-200/70"
+              >
+                <Mail className="w-4 h-4 text-[#155AD1]" />
+                <span>Switch / Restore Account (Email OTP)</span>
+              </button>
+            )}
 
             {!isLoggedIn && (
               <button
@@ -331,9 +366,9 @@ export function ProfileMenu() {
                     window.dispatchEvent(new CustomEvent('child_nutrition:open_login_modal'));
                   }
                 }}
-                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#093282] rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
               >
-                <Shield className="w-4 h-4 text-slate-500" />
+                <Shield className="w-4 h-4 text-slate-400 group-hover:text-[#155AD1]" />
                 <span>Supervisor / Leadership Login</span>
               </button>
             )}
@@ -346,7 +381,7 @@ export function ProfileMenu() {
                   setIsOpen(false);
                   router.push('/app');
                 }}
-                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#093282] rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <User className="w-4 h-4 text-slate-400" />
                 <span>View Profile Details</span>
@@ -362,7 +397,7 @@ export function ProfileMenu() {
                   'Account Recovery & Support:\n\nIf you have lost access to your registered device or phone number, please contact your State Programme Coordinator for assisted identity verification.'
                 );
               }}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#093282] rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
             >
               <HelpCircle className="w-4 h-4 text-slate-400" />
               <span>Recover Account / Help</span>

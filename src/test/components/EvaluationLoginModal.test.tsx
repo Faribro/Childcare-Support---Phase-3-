@@ -113,7 +113,7 @@ describe('EvaluationLoginModal Component', () => {
 
     // Leadership OTP Flow inputs should appear in-place
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByText(/Leadership Account Directory/i)).toBeDefined();
     });
 
     expect(screen.getByRole('button', { name: /Send Verification Code/i })).toBeDefined();

@@ -5,19 +5,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
-  HeartPulse,
   Wifi,
   WifiOff,
   RefreshCw,
-  PlusCircle,
   Shield,
-  Home,
-  Globe,
   Lock,
-  Unlock,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
-import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
 import { EvaluationLoginModal } from '@/components/auth/EvaluationLoginModal';
 import { ProfileMenu } from '@/components/layout/ProfileMenu';
@@ -56,19 +50,27 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const displayCount = submittedCount !== undefined ? submittedCount : summary.submittedCount;
   const effectivePending = pendingSyncCount !== undefined ? pendingSyncCount : summary.localPendingSyncCount;
 
-  const navLinks = [
-    { href: '/app', label: 'Forms', icon: Home },
-    { href: '/assessment/sync', label: 'Submitted Surveys', icon: RefreshCw, badge: effectivePending },
-  ];
+  const isFormsActive = pathname === '/' || pathname === '/app';
+  const isSyncActive = Boolean(pathname?.startsWith('/assessment/sync'));
+  const isSupervisorActive = Boolean(pathname?.startsWith('/supervisor'));
 
   return (
-    <header className="bg-white border-b border-[hsl(215,18%,88%)] text-slate-800 shadow-xs select-none sticky top-0 z-30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14 sm:h-16">
-          {/* Brand & Platform Identity - Alliance India Logo Only (No text in top left) */}
+    <header className="sticky top-0 z-40 w-full transition-all bg-transparent pointer-events-auto select-none">
+      {/* ═══════════════════════════════════════════════════════════════════════
+          DESKTOP (md:flex): Option B Floating White Cloud-Glass Pill Bar
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="hidden md:block pt-2.5 px-4 w-full">
+        <div
+          className="max-w-6xl mx-auto h-14 rounded-full flex items-center justify-between px-4 sm:px-6 shadow-[0_10px_28px_-6px_rgba(6,26,76,0.28)] border border-white/88 backdrop-blur-[14px]"
+          style={{
+            background: 'rgba(255, 255, 255, 0.90)',
+          }}
+        >
+          {/* Brand Logo — Unboxed on light cloud surface */}
           <Link
             href="/app"
-            className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            aria-label="Alliance India Home"
+            className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             title="India HIV/AIDS Alliance"
           >
             <Image
@@ -76,137 +78,236 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
               alt="India HIV/AIDS Alliance"
               width={160}
               height={44}
-              className="h-9 sm:h-11 w-auto object-contain transition-transform group-hover:scale-[1.02]"
+              className="h-9 sm:h-10 w-auto object-contain transition-transform group-hover:scale-[1.02]"
               priority
             />
           </Link>
 
-          {/* Clean Pill Navigation (Visible on md and above) */}
-          <nav className="hidden md:flex items-center space-x-1 sm:space-x-2" aria-label="Main Navigation">
-            {navLinks.map((link) => {
-              const isActive =
-                link.href === '/'
-                  ? pathname === '/'
-                  : link.href === '/app'
-                  ? pathname === '/app'
-                  : pathname?.startsWith(link.href);
-
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 select-none ${
-                    isActive
-                      ? 'bg-teal-50/80 text-teal-800'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-                  }`}
-                >
-                  <span className="inline-flex items-baseline">
-                    <span>{link.label}</span>
-                    {link.href === '/assessment/sync' && (
-                      <sup
-                        className="text-[10.5px] font-bold ml-0.5 -top-1.5 select-none font-mono tracking-tight"
-                        title={summary.isLocalOnlyCount ? 'Submissions saved locally on this device' : 'Authoritative server-confirmed submissions'}
-                        aria-label={summary.isLocalOnlyCount ? `${displayCount} local submissions saved on this device` : `${displayCount} server-confirmed submissions`}
-                      >
-                        {displayCount}
-                      </sup>
-                    )}
-                  </span>
-                  {link.badge !== undefined && link.badge > 0 && (
-                    <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                      {link.badge}
-                    </span>
-                  )}
-                  {/* Smooth Animated Underline Below Nav Item */}
-                  {isActive ? (
-                    <span className="absolute -bottom-1 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 shadow-[0_2px_6px_rgba(13,148,136,0.35)] animate-in fade-in duration-300" />
-                  ) : (
-                    <span className="absolute -bottom-1 left-3 right-3 h-[2px] rounded-full bg-teal-400/40 opacity-0 group-hover:opacity-100 transition-all duration-200" />
-                  )}
-                </Link>
-              );
-            })}
-
-            {/* Evaluation Tab - Shows Lock icon when locked; clicking opens role-switching EvaluationLoginModal; unlocked for State Reviewers & Leadership */}
-            {isUnlocked ? (
+          {/* Center Pill Dock: Forms, Submitted Surveys, Evaluation */}
+          <nav className="flex items-center space-x-1" aria-label="Main Navigation">
+            <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
+              {/* Tab 1: Forms */}
               <Link
-                href="/supervisor"
-                className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
-                  pathname?.startsWith('/supervisor')
-                    ? 'bg-teal-50/80 text-teal-900 border border-teal-200/80 shadow-2xs'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                href="/app"
+                aria-current={isFormsActive ? 'page' : undefined}
+                className={`flex items-center px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                  isFormsActive
+                    ? 'text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
                 }`}
-                title="Evaluation Portal (Unlocked)"
+                style={
+                  isFormsActive
+                    ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                    : undefined
+                }
               >
-                <Shield className="h-3.5 w-3.5 text-teal-700 transition-transform duration-200 group-hover:scale-110" />
-                <span>Evaluation</span>
-                {pathname?.startsWith('/supervisor') ? (
-                  <span className="absolute -bottom-1 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 shadow-[0_2px_6px_rgba(13,148,136,0.35)] animate-in fade-in duration-300" />
-                ) : (
-                  <span className="absolute -bottom-1 left-3 right-3 h-[2px] rounded-full bg-teal-400/40 opacity-0 group-hover:opacity-100 transition-all duration-200" />
+                <span>Forms</span>
+              </Link>
+
+              {/* Tab 2: Submitted Surveys + Golden Sun Count Badge */}
+              <Link
+                href="/assessment/sync"
+                aria-current={isSyncActive ? 'page' : undefined}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                  isSyncActive
+                    ? 'text-white shadow-xs'
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
+                }`}
+                style={
+                  isSyncActive
+                    ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                    : undefined
+                }
+              >
+                <span>Submitted Surveys</span>
+                <span
+                  className="inline-flex items-center justify-center rounded-full px-1.5 py-0.2 font-mono text-[11px] font-black leading-tight shadow-2xs"
+                  style={{
+                    background: 'linear-gradient(135deg, #FEF08A 0%, #FACC15 100%)',
+                    color: '#081226',
+                    border: '1px solid rgba(234, 179, 8, 0.45)',
+                  }}
+                  title={
+                    summary.isLocalOnlyCount
+                      ? 'Submissions saved locally on this device'
+                      : 'Authoritative server-confirmed submissions'
+                  }
+                  aria-label={
+                    summary.isLocalOnlyCount
+                      ? `${displayCount} local submissions saved on this device`
+                      : `${displayCount} server-confirmed submissions`
+                  }
+                >
+                  {displayCount}
+                </span>
+                {effectivePending > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-2xs">
+                    {effectivePending}
+                  </span>
                 )}
               </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsLoginModalOpen(true)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-teal-900 bg-slate-50 hover:bg-teal-50/60 border border-slate-200/80 hover:border-teal-300 cursor-pointer transition-all"
-                title="Sign in to unlock Evaluation Portal"
-                aria-label="Evaluation Portal Locked - Sign in to access"
-              >
-                <Lock className="h-3 w-3 text-slate-500 shrink-0" />
-                <span>Evaluation</span>
-              </button>
-            )}
+
+              {/* Tab 3: Evaluation Portal */}
+              {isUnlocked ? (
+                <Link
+                  href="/supervisor"
+                  aria-current={isSupervisorActive ? 'page' : undefined}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                    isSupervisorActive
+                      ? 'text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                  style={
+                    isSupervisorActive
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
+                  title="Evaluation Portal (Unlocked)"
+                >
+                  <Shield className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Evaluation</span>
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/70 cursor-pointer transition-all select-none"
+                  title="Sign in to unlock Evaluation Portal"
+                  aria-label="Evaluation Portal Locked - Sign in to access"
+                >
+                  <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Evaluation</span>
+                </button>
+              )}
+            </div>
+
             <EvaluationLoginModal
               isOpen={isLoginModalOpen}
               onClose={() => setIsLoginModalOpen(false)}
             />
           </nav>
 
-          {/* Status & Mobile Actions */}
-          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-            {/* Persistent Waiting-to-Send Outbox Badge */}
+          {/* Right Utility Cluster: Wi-Fi, Profile / Sign In, Refresh */}
+          <div className="flex items-center space-x-2 shrink-0">
+            {/* Outbox Badge when items are waiting */}
             {effectivePending > 0 && (
               <Link
                 href="/assessment/sync?tab=outbox"
                 data-testid="waiting-to-send-badge"
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-[10.5px] sm:text-[11px] font-bold shadow-2xs transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-[11px] font-bold shadow-2xs transition-colors whitespace-nowrap"
                 title={`${effectivePending} assessment${effectivePending === 1 ? '' : 's'} waiting to send`}
                 aria-label={`${effectivePending} waiting to send`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0" aria-hidden="true" />
-                <span className="tabular-nums">{effectivePending} waiting to send</span>
+                <span className="tabular-nums">{effectivePending} waiting</span>
               </Link>
             )}
 
-            {/* Truthful Connection & Sync Status Indicator */}
-            <ConnectionStatus
-              networkStatus={isOnline ? 'online' : 'offline'}
-              syncStatus={effectivePending > 0 ? 'pending' : 'synced'}
-              showText={false}
-              className="w-8 h-8 p-0 justify-center rounded-full"
-            />
+            {/* Wi-Fi Status Orb */}
+            <div
+              role="status"
+              aria-live="polite"
+              aria-label={isOnline ? 'Online' : 'Offline'}
+              title={isOnline ? 'Online — Connected to server' : 'Offline — Operating from local cache'}
+              className={`h-9 w-9 rounded-full flex items-center justify-center transition-colors shadow-2xs ${
+                isOnline
+                  ? 'bg-[rgba(209,250,229,0.85)] border border-emerald-200/70 text-[#059669]'
+                  : 'bg-amber-100 border border-amber-300 text-amber-800'
+              }`}
+            >
+              {isOnline ? (
+                <Wifi className="w-4 h-4" />
+              ) : (
+                <WifiOff className="w-4 h-4" />
+              )}
+            </div>
 
-            {/* Profile Menu (Top-Right beside Wi-Fi indicator) */}
+            {/* Profile Menu Trigger (Blazing Solar Comet Pill or Solar Avatar) */}
             <ProfileMenu />
 
-            {/* Mobile Sync Centre Shortcut */}
+            {/* Refresh / Sync Button */}
             <Link
               href="/assessment/sync"
-              className="md:hidden relative p-2 rounded-lg text-slate-600 hover:bg-slate-100 active:bg-slate-200 min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"
+              className="h-9 w-9 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 hover:bg-sky-100 active:scale-95 transition-all shadow-2xs"
               title="Open Sync Centre"
               aria-label={`Open Sync Centre, ${effectivePending} pending`}
             >
-              <RefreshCw className="h-4 w-4 text-slate-700" />
-              {effectivePending > 0 && (
-                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold h-5 w-5 rounded-full flex items-center justify-center border-2 border-white">
-                  {effectivePending > 9 ? '9+' : effectivePending}
-                </span>
-              )}
+              <RefreshCw className={`w-4 h-4 ${effectivePending > 0 ? 'animate-spin' : ''}`} />
             </Link>
           </div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MOBILE (md:hidden): Option B Sticky White Cloud-Glass Header Bar
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div
+        className="md:hidden w-full h-14 border-b border-blue-200/75 flex items-center justify-between px-3 select-none backdrop-blur-[12px]"
+        style={{
+          background: 'rgba(255, 255, 255, 0.92)',
+        }}
+      >
+        {/* Brand Logo */}
+        <Link
+          href="/app"
+          aria-label="Alliance India Home"
+          className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none"
+          title="India HIV/AIDS Alliance"
+        >
+          <Image
+            src="/alliance-india-logo.png"
+            alt="India HIV/AIDS Alliance"
+            width={140}
+            height={38}
+            className="h-8 w-auto object-contain transition-transform group-hover:scale-[1.02]"
+            priority
+          />
+        </Link>
+
+        {/* Right Controls */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {effectivePending > 0 && (
+            <Link
+              href="/assessment/sync?tab=outbox"
+              data-testid="waiting-to-send-badge-mobile"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 text-[10px] font-bold"
+              aria-label={`${effectivePending} waiting`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
+              <span>{effectivePending}</span>
+            </Link>
+          )}
+
+          {/* Wi-Fi Orb */}
+          <div
+            role="status"
+            aria-label={isOnline ? 'Online' : 'Offline'}
+            title={isOnline ? 'Online' : 'Offline'}
+            className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors shadow-2xs ${
+              isOnline
+                ? 'bg-[rgba(209,250,229,0.85)] border border-emerald-200/70 text-[#059669]'
+                : 'bg-amber-100 border border-amber-300 text-amber-800'
+            }`}
+          >
+            {isOnline ? (
+              <Wifi className="w-3.5 h-3.5" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5" />
+            )}
+          </div>
+
+          {/* Profile Menu Trigger */}
+          <ProfileMenu />
+
+          {/* Sync Centre shortcut */}
+          <Link
+            href="/assessment/sync"
+            className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
+            title="Open Sync Centre"
+            aria-label={`Open Sync Centre, ${effectivePending} pending`}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Link>
         </div>
       </div>
     </header>

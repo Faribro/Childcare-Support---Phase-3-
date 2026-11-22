@@ -96,30 +96,44 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
       role="dialog"
       aria-modal="true"
       aria-labelledby="eval-login-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 motion-reduce:animate-none"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(7,29,79,0.48)] backdrop-blur-md animate-in fade-in duration-150 motion-reduce:animate-none"
     >
       <div
-        className="w-full max-w-md max-h-[92vh] flex flex-col bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+        className="w-full max-w-md max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-[0_24px_48px_-12px_rgba(7,43,124,0.28)] border border-blue-200/80 overflow-hidden animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="bg-gradient-to-r from-teal-800 to-teal-900 px-6 py-5 text-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-teal-700/60 rounded-xl border border-teal-500/30">
-              <Shield className="w-5 h-5 text-teal-200" />
+        {/* Header — Authority Cosmic Sky Gradient */}
+        <div
+          className="relative px-6 py-5 text-white flex items-center justify-between shrink-0 overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, #07225E 0%, #0F3E9E 58%, #1E5CC7 100%)',
+          }}
+        >
+          {/* Twinkling star sparkle dots */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-30" aria-hidden="true">
+            <circle cx="32" cy="16" r="1.2" fill="#FFFFFF" />
+            <circle cx="110" cy="44" r="1.5" fill="#FEF08A" />
+            <circle cx="280" cy="18" r="1.3" fill="#FFFFFF" />
+            <circle cx="330" cy="48" r="1.5" fill="#BAE6FD" />
+            <path d="M350 14 l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z" fill="#FEF08A" opacity="0.8" />
+          </svg>
+
+          <div className="flex items-center gap-3 relative z-10">
+            <div className="p-2.5 bg-white/15 backdrop-blur-md rounded-2xl border border-white/25 shadow-inner">
+              <Shield className="w-5 h-5 text-sky-200" />
             </div>
             <div>
               <h2 id="eval-login-title" className="text-base font-bold text-white tracking-tight">
                 Evaluation Access Control
               </h2>
-              <p className="text-xs text-teal-200/80">
+              <p className="text-xs text-sky-200/80">
                 State &amp; Leadership Surveillance Access
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-teal-200 hover:text-white p-1 rounded-lg hover:bg-teal-700/50 transition-colors cursor-pointer"
+            className="text-white/70 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer relative z-10"
             aria-label="Close dialog"
           >
             <X className="w-5 h-5" />
@@ -128,10 +142,10 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
 
         {/* Notice for Field Users: Password Not Required */}
         <div className="px-6 pt-4 pb-1 shrink-0">
-          <div className="p-3 rounded-xl bg-teal-50/70 border border-teal-200/70 flex items-start gap-2.5 text-xs text-teal-900">
-            <Info className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+          <div className="p-3 rounded-xl bg-sky-50 border border-sky-200/90 flex items-start gap-2.5 text-xs text-slate-800">
+            <Info className="w-4 h-4 text-sky-700 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <span className="font-semibold text-teal-950">Field Caseworkers:</span> Forms, local drafts, and survey submissions do not require an evaluation password.
+              <span className="font-semibold text-slate-900">Field Caseworkers:</span> Forms, local drafts, and survey submissions do not require an evaluation password.
             </div>
           </div>
         </div>
@@ -240,7 +254,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
             <>
               {/* Tab Selector: State Evaluation vs Leadership */}
               <div
-                className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl gap-1"
+                className="grid grid-cols-2 p-1.5 bg-sky-50/90 rounded-2xl gap-1.5 border border-sky-100"
                 role="tablist"
                 aria-label="Evaluation login type"
               >
@@ -251,11 +265,16 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   onClick={() => {
                     setActiveTab('state');
                   }}
-                  className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  className={`py-2 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     activeTab === 'state'
-                      ? 'bg-white text-teal-900 shadow-xs'
+                      ? 'text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
+                  style={
+                    activeTab === 'state'
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
                 >
                   <MapPin className="w-3.5 h-3.5" />
                   State Evaluation
@@ -267,11 +286,16 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   onClick={() => {
                     setActiveTab('leadership');
                   }}
-                  className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  className={`py-2 px-3 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     activeTab === 'leadership'
-                      ? 'bg-white text-teal-900 shadow-xs'
+                      ? 'text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
+                  style={
+                    activeTab === 'leadership'
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
                 >
                   <Building2 className="w-3.5 h-3.5" />
                   Leadership

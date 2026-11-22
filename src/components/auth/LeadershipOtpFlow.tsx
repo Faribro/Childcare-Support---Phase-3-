@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { setEvaluationUnlocked, EvaluationUser, useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
+import { CosmicSpaceButton } from '@/components/ui/CosmicSpaceButton';
 
 export interface LeadershipOtpFlowProps {
   isModal?: boolean;
@@ -778,14 +779,13 @@ export function LeadershipOtpFlow({
         </div>
 
         <div className="pt-2 space-y-2">
-          <button
-            type="button"
+          <CosmicSpaceButton
+            variant="nebula"
             onClick={() => onSuccess?.()}
-            className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+            rightIcon={<ArrowRight className="w-4 h-4 text-white" />}
           >
-            <span>Continue to Surveillance Dashboard</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+            Continue to Surveillance Dashboard
+          </CosmicSpaceButton>
           <button
             type="button"
             onClick={async () => {
@@ -812,7 +812,7 @@ export function LeadershipOtpFlow({
           <div
             className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold transition-colors ${
               step === 'input'
-                ? 'bg-teal-700 text-white ring-2 ring-teal-200'
+                ? 'bg-[#155AD1] text-white ring-2 ring-sky-200'
                 : 'bg-emerald-600 text-white'
             }`}
           >
@@ -820,7 +820,7 @@ export function LeadershipOtpFlow({
           </div>
           <span
             className={`font-semibold ${
-              step === 'input' ? 'text-teal-950 font-bold' : 'text-slate-500'
+              step === 'input' ? 'text-[#07225E] font-bold' : 'text-slate-500'
             }`}
           >
             Work Email
@@ -833,7 +833,7 @@ export function LeadershipOtpFlow({
           <div
             className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold transition-colors ${
               step === 'verify'
-                ? 'bg-teal-700 text-white ring-2 ring-teal-200'
+                ? 'bg-[#155AD1] text-white ring-2 ring-sky-200'
                 : 'bg-slate-100 text-slate-400'
             }`}
           >
@@ -841,7 +841,7 @@ export function LeadershipOtpFlow({
           </div>
           <span
             className={`font-semibold ${
-              step === 'verify' ? 'text-teal-950 font-bold' : 'text-slate-400'
+              step === 'verify' ? 'text-[#07225E] font-bold' : 'text-slate-400'
             }`}
           >
             Verify Code
@@ -1011,29 +1011,22 @@ export function LeadershipOtpFlow({
             </div>
           )}
 
-          <button
+          <CosmicSpaceButton
             type="submit"
+            variant="nebula"
             disabled={isLoading || cooldownSeconds > 0 || !selectedLeader}
-            className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            isLoading={isLoading}
+            rightIcon={<ArrowRight className="w-4 h-4 text-white" />}
           >
-            {isLoading ? (
-              <span className="inline-flex items-center gap-2 text-xs">
-                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                Sending verification code…
-              </span>
-            ) : cooldownSeconds > 0 ? (
+            {cooldownSeconds > 0 ? (
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
                 <Clock className="w-4 h-4" />
-                Resend available in {cooldownSeconds}s
+                Resend in {cooldownSeconds}s
               </span>
             ) : (
-              <>
-                <Lock className="w-4 h-4" />
-                Send Verification Code
-                <ArrowRight className="w-4 h-4" />
-              </>
+              'Send Verification Code'
             )}
-          </button>
+          </CosmicSpaceButton>
         </form>
       )}
 
@@ -1099,23 +1092,15 @@ export function LeadershipOtpFlow({
             </p>
           </div>
 
-          <button
+          <CosmicSpaceButton
             type="submit"
+            variant="nebula"
             disabled={isLoading || isSyncingSession || code.length !== 6}
-            className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-semibold text-sm rounded-xl shadow-xs transition-all duration-150 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            isLoading={isLoading || isSyncingSession}
+            leftIcon={<CheckCircle className="w-4 h-4 text-white" />}
           >
-            {isLoading || isSyncingSession ? (
-              <span className="inline-flex items-center gap-2 text-xs">
-                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                {isSyncingSession ? 'Synchronizing session…' : 'Verifying code…'}
-              </span>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Verify &amp; Open Evaluation
-              </>
-            )}
-          </button>
+            Verify &amp; Open Evaluation
+          </CosmicSpaceButton>
 
           {/* Resend Action with cooldown */}
           <div className="pt-1 text-center">
