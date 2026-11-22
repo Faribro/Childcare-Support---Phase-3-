@@ -64,7 +64,7 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
       const submittedHeadings = screen.getAllByRole('heading', { name: /Submitted Surveys/i });
       expect(submittedHeadings.length).toBeGreaterThanOrEqual(1);
       const submittedLink = screen.getByRole('link', { name: /Submitted surveys: 12/i });
-      expect(submittedLink.getAttribute('href')).toBe('/assessment/sync?tab=submitted');
+      expect(submittedLink.getAttribute('href')).toBe('/assessment/sync?tab=synced');
       expect(within(submittedLink).getByText('12')).toBeDefined();
       expect(within(submittedLink).getByText('Confirmed on central server')).toBeDefined();
     });

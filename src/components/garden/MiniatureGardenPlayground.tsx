@@ -3,34 +3,49 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 
-/**
- * MiniatureGardenPlayground
- * Compact physics-based live miniature garden where:
- * 1. The soccer ball NEVER moves without being physically struck by a player's foot.
- * 2. Intelligent Soccer AI: Striker & Midfielder calculate intercepts, run directly to the ball,
- *    position themselves behind the ball relative to their target, wind up, and strike with physical foot contact!
- * 3. After a goal, the striker jogs into the net, retrieves the ball, and kicks it out to midfield for kickoff.
- * 4. Rich side-profile autonomous children:
- *    - Slingshot Mango Hunter: aims Y-slingshot at the tree, drops ripe mangoes into a wicker basket.
- *    - Butterfly Catcher: holds a bamboo net, playfully chasing butterflies across the meadow.
- *    - Bicycle Rider: rides a miniature bicycle across the path with rotating wheels & pedaling legs.
- *    - Kite Flyer: holds string reel as a colorful diamond kite flutters in the breeze.
- *    - Sideline Cheerer: celebrates goals and cheers on players.
- */
-export function MiniatureGardenPlayground() {
+export interface MiniatureGardenPlaygroundProps {
+  hideControls?: boolean;
+  isPaused?: boolean;
+  /** Blend seamlessly into the parent sky without a boxed border or opaque sky fill */
+  transparentSky?: boolean;
+  className?: string;
+}
+
+export function MiniatureGardenPlayground({
+  hideControls = false,
+  isPaused: externalPaused,
+  transparentSky = false,
+  className = '',
+}: MiniatureGardenPlaygroundProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [isPaused, setIsPaused] = useState(false);
-  const pausedRef = useRef(false);
-  pausedRef.current = isPaused;
 
+  const [internalPaused, setInternalPaused] = useState(false);
+  const isPaused = externalPaused !== undefined ? externalPaused : internalPaused;
+
+  const pausedRef = useRef(isPaused);
+  const resumeLoopRef = useRef<(() => void) | null>(null);
+
+  // Sync external/internal pause state without resetting the simulation
   useEffect(() => {
-    // Detect reduced motion preference and start paused if requested
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setIsPaused(true);
+    pausedRef.current = isPaused;
+    if (!isPaused) {
+      resumeLoopRef.current?.();
+    }
+  }, [isPaused]);
+
+  // Respect prefers-reduced-motion only when uncontrolled
+  useEffect(() => {
+    if (externalPaused !== undefined) return;
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      setInternalPaused(true);
       pausedRef.current = true;
     }
-  }, []);
+  }, [externalPaused]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -40,45 +55,58 @@ export function MiniatureGardenPlayground() {
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
-    let animationFrameId: number;
+    // Offscreen static scenery cache (rebuilt only on resize)
+    const staticCanvas = document.createElement('canvas');
+    const staticCtx = staticCanvas.getContext('2d', { alpha: true });
+
+    let animationFrameId = 0;
+    let isRunning = false;
+    let isVisible = true;
+    let isDocVisible = typeof document !== 'undefined' ? !document.hidden : true;
+    let lastTimestamp = 0;
+    let time = 0; // Normalized 60fps-equivalent tick clock
+
     let width = 0;
     let height = 0;
     let dpr = 1;
 
-    // Mouse tracking for physics interaction
-    const mouse = {
-      x: -1000,
-      y: -1000,
-      targetX: -1000,
-      targetY: -1000,
-    };
+    // Interactive wind gust & mango tree shake
+    let windGust = 0;
+    let treeShake = 0;
 
     // Rolling hill elevation formula
     const getGroundY = (x: number, w: number, h: number) => {
       const normalizedX = Math.max(0, Math.min(1, x / (w || 1)));
-      const arch = Math.sin(normalizedX * Math.PI) * (h * 0.14);
-      const baseLine = h * 0.88;
-      return baseLine - arch;
+      const arch = Math.sin(normalizedX * Math.PI) * (h * 0.12);
+      return h * 0.90 - arch;
     };
 
-    // Soccer Goal Dimensions on Left Slope
+    // Distant parallax hill elevation
+    const getBackHillY = (x: number, w: number, h: number) => {
+      const n = Math.max(0, Math.min(1, x / (w || 1)));
+      const wave =
+        Math.sin(n * Math.PI * 1.45 + 0.35) * (h * 0.08) +
+        Math.sin(n * Math.PI * 2.8) * (h * 0.03);
+      return h * 0.83 - wave;
+    };
+
+    // Soccer Goal Dimensions (scaled safely for narrow 360px phones)
     const goal = {
-      mouthX: 48,    // Front goal line
-      backX: 18,     // Back of the net
-      height: 22,    // Crossbar height
-      netBulge: 0,   // Dynamic net ripple/bulge when ball enters
+      mouthX: 44,
+      backX: 14,
+      height: 22,
+      netBulge: 0,
       netBulgeVel: 0,
     };
 
     // Goal event tracking
     let goalState: 'play' | 'celebrating' = 'play';
     let passCount = 0;
-    let goalTimer = 0;       // frames countdown during celebration (~140 frames)
-    let goalCooldown = 0;    // cooldown before another goal can register
+    let goalTimer = 0;
     let scorerId: number | null = null;
-    let kickoffTimer = 0;
 
-    // Celebration Confetti Particles
+    // Capped particle list for zero-stutter GC on mid-range Android
+    const MAX_PARTICLES = 48;
     const celebrationParticles: Array<{
       x: number;
       y: number;
@@ -87,670 +115,638 @@ export function MiniatureGardenPlayground() {
       size: number;
       color: string;
       life: number;
+      rot: number;
+      vrot: number;
     }> = [];
 
-    // Interactive Soccer Ball - ONLY MOVES WHEN PHYSICALLY KICKED
+    const spawnParticle = (
+      x: number,
+      y: number,
+      vx: number,
+      vy: number,
+      size: number,
+      color: string,
+      life = 1
+    ) => {
+      if (celebrationParticles.length >= MAX_PARTICLES) {
+        celebrationParticles.shift();
+      }
+      celebrationParticles.push({
+        x,
+        y,
+        vx,
+        vy,
+        size,
+        color,
+        life,
+        rot: Math.random() * Math.PI * 2,
+        vrot: (Math.random() - 0.5) * 0.25,
+      });
+    };
+
+    // Interactive Soccer Ball with squash & stretch
     const ball = {
       x: 0,
       y: 0,
-      vx: 0, // Starts completely motionless at midfield!
+      vx: 0,
       vy: 0,
       radius: 5.2,
       rotation: 0,
       rotSpeed: 0,
-      bounciness: 0.52,
+      bounciness: 0.54,
       lastKickerId: 3,
       inNet: false,
       initialized: false,
       stillFrames: 0,
+      scaleX: 1,
+      scaleY: 1,
     };
 
-    // Tree 1: Mango Tree state with interactive falling mangoes
+    // Mango Tree state
     const mangoTree = {
-      xRatio: 0.25,
+      xRatio: 0.24,
       mangoes: [
         { id: 1, relX: -8, relY: -28, isFalling: false, curY: 0, vy: 0 },
         { id: 2, relX: 6, relY: -26, isFalling: false, curY: 0, vy: 0 },
-        { id: 3, relX: -2, relY: -32, isFalling: false, curY: 0, vy: 0 },
+        { id: 3, relX: -2, relY: -33, isFalling: false, curY: 0, vy: 0 },
       ],
       slingshotPebble: { active: false, x: 0, y: 0, vx: 0, vy: 0, targetMangoId: 1 },
-      basketMangoCount: 1,
+      basketMangoCount: 2,
     };
 
-    // Fluttering Butterflies
+    // Width-relative Butterflies (always visible on 360px phones)
     const butterflies = [
-      { x: 140, y: 32, vx: 0.5, vy: 0, wingAngle: 0, wingSpeed: 0.28, color: '#f43f5e', size: 3 },
-      { x: 440, y: 26, vx: -0.6, vy: 0, wingAngle: 0, wingSpeed: 0.30, color: '#0ea5e9', size: 3 },
-      { x: 720, y: 36, vx: 0.5, vy: 0, wingAngle: 0, wingSpeed: 0.26, color: '#eab308', size: 3 },
+      { ratioX: 0.22, x: 0, y: 26, vx: 0.45, vy: 0, wingAngle: 0, wingSpeed: 0.28, color: '#f43f5e', size: 2.9 },
+      { ratioX: 0.56, x: 0, y: 22, vx: -0.5, vy: 0, wingAngle: 1.2, wingSpeed: 0.31, color: '#0ea5e9', size: 3.0 },
+      { ratioX: 0.82, x: 0, y: 30, vx: 0.4, vy: 0, wingAngle: 2.1, wingSpeed: 0.26, color: '#f59e0b', size: 2.8 },
     ];
 
-    // Drifting Clouds
+    // Width-relative Clouds (only drawn if sky is not transparent, or ultra-soft wisps)
     const clouds = [
-      { x: 60, y: 16, speed: 0.18, scale: 0.75, opacity: 0.7 },
-      { x: 420, y: 12, speed: 0.15, scale: 0.9, opacity: 0.8 },
-      { x: 760, y: 18, speed: 0.2, scale: 0.7, opacity: 0.65 },
+      { ratioX: 0.16, x: 0, y: 16, speed: 0.14, scale: 0.72, opacity: 0.65 },
+      { ratioX: 0.54, x: 0, y: 12, speed: 0.11, scale: 0.85, opacity: 0.72 },
+      { ratioX: 0.86, x: 0, y: 18, speed: 0.16, scale: 0.66, opacity: 0.6 },
     ];
 
-    // Playing Children definitions with Intelligent AI & Side-Profiles
     interface PlayingChild {
       id: number;
       baseRatioX: number;
       curX: number;
       yOffset: number;
       vy: number;
-      activity: 'soccer-striker' | 'slingshot-hunter' | 'soccer-midfield' | 'soccer-passer' | 'soccer-goalie' | 'butterfly-catcher' | 'bicycle-rider' | 'kite-flyer' | 'cheerer';
-      facing: 1 | -1; // 1 = right, -1 = left (profile view)
+      activity:
+        | 'soccer-striker'
+        | 'slingshot-hunter'
+        | 'soccer-midfield'
+        | 'soccer-passer'
+        | 'soccer-goalie'
+        | 'butterfly-catcher'
+        | 'bicycle-rider'
+        | 'kite-flyer'
+        | 'cheerer';
+      facing: 1 | -1;
       hairColor: string;
-      hairStyle: 'short-brown' | 'ponytail-red' | 'spiky-black' | 'blonde-bob' | 'beanie' | 'orange-pigtails' | 'curly-brown';
+      hairStyle:
+        | 'short-brown'
+        | 'ponytail-red'
+        | 'spiky-black'
+        | 'blonde-bob'
+        | 'beanie'
+        | 'orange-pigtails'
+        | 'curly-brown';
       shirtColor: string;
       pantsColor: string;
       skinColor: string;
       hasDress?: boolean;
-      twirlAngle: number;
       kickCooldown: number;
       runCycle: number;
-      // Slingshot animation state
+      speed: number;
       slingshotTimer: number;
-      // Bicycle rider state
       bikeDistance: number;
-      // Kicking animation state machine
       kickPhase: 'idle' | 'windup' | 'strike' | 'followthrough';
       kickProgress: number;
       kickLegAngle: number;
       kickHasContacted?: boolean;
-      // Intelligent Soccer AI State
-      soccerIntent: 'support' | 'hunt-ball' | 'position-for-shot' | 'kick' | 'retrieve';
-      particles: Array<{ x: number; y: number; vy: number; vx: number; life: number; color: string }>;
+      soccerIntent: 'support' | 'hunt-ball';
     }
 
     const children: PlayingChild[] = [
-      // 1) Goalkeeper (Child 8)
       {
-        id: 8,
-        baseRatioX: 0.08,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'soccer-goalie',
-        facing: 1,
-        hairColor: '#1e293b',
-        hairStyle: 'beanie',
-        shirtColor: '#22c55e', // Vibrant lime green goalkeeper jersey
-        pantsColor: '#0f172a',
-        skinColor: '#fde68a',
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        id: 8, baseRatioX: 0.12, curX: 0, yOffset: 0, vy: 0,
+        activity: 'soccer-goalie', facing: 1,
+        hairColor: '#1e293b', hairStyle: 'beanie',
+        shirtColor: '#22c55e', pantsColor: '#0f172a', skinColor: '#fde68a',
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
-      // 2) Player 1: Winger / Striker (Child 1 - Sky Blue)
       {
-        id: 1,
-        baseRatioX: 0.20,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'soccer-striker',
-        facing: 1,
-        hairColor: '#b45309',
-        hairStyle: 'short-brown',
-        shirtColor: '#0284c7', // Sky Blue jersey #9
-        pantsColor: '#1e293b',
-        skinColor: '#fde68a',
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'hunt-ball',
-        particles: [],
+        id: 1, baseRatioX: 0.18, curX: 0, yOffset: 0, vy: 0,
+        activity: 'soccer-striker', facing: 1,
+        hairColor: '#b45309', hairStyle: 'short-brown',
+        shirtColor: '#0284c7', pantsColor: '#1e293b', skinColor: '#fde68a',
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'hunt-ball',
       },
-      // 3) Slingshot Mango Hunter (Child 2)
       {
-        id: 2,
-        baseRatioX: 0.27,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'slingshot-hunter',
-        facing: -1,
-        hairColor: '#7c2d12',
-        hairStyle: 'beanie',
-        shirtColor: '#ea580c',
-        pantsColor: '#15803d',
-        skinColor: '#fef3c7',
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        id: 2, baseRatioX: 0.28, curX: 0, yOffset: 0, vy: 0,
+        activity: 'slingshot-hunter', facing: -1,
+        hairColor: '#7c2d12', hairStyle: 'beanie',
+        shirtColor: '#ea580c', pantsColor: '#15803d', skinColor: '#fef3c7',
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
-      // 4) Player 2: Central Midfield Playmaker (Child 3 - Golden Yellow)
       {
-        id: 3,
-        baseRatioX: 0.35,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'soccer-midfield',
-        facing: 1,
-        hairColor: '#334155',
-        hairStyle: 'spiky-black',
-        shirtColor: '#f59e0b', // Golden yellow jersey #10
-        pantsColor: '#1e3a8a',
-        skinColor: '#fde68a',
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        id: 3, baseRatioX: 0.33, curX: 0, yOffset: 0, vy: 0,
+        activity: 'soccer-midfield', facing: 1,
+        hairColor: '#334155', hairStyle: 'spiky-black',
+        shirtColor: '#f59e0b', pantsColor: '#1e3a8a', skinColor: '#fde68a',
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
-      // 5) Player 3: Attacking Striker / Passer (Child 9 - Crimson Red) - NEW PERSON!
       {
-        id: 9,
-        baseRatioX: 0.48,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'soccer-passer',
-        facing: -1,
-        hairColor: '#451a03',
-        hairStyle: 'curly-brown',
-        shirtColor: '#ef4444', // Crimson red jersey #7
-        pantsColor: '#0f172a',
-        skinColor: '#fef3c7',
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
-      },
-      // 6) Butterfly Catcher (Child 4)
-      {
-        id: 4,
-        baseRatioX: 0.58,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'butterfly-catcher',
-        facing: 1,
-        hairColor: '#facc15',
-        hairStyle: 'blonde-bob',
-        shirtColor: '#ec4899',
-        pantsColor: '#ec4899',
-        skinColor: '#fef3c7',
+        id: 4, baseRatioX: 0.42, curX: 0, yOffset: 0, vy: 0,
+        activity: 'butterfly-catcher', facing: 1,
+        hairColor: '#facc15', hairStyle: 'blonde-bob',
+        shirtColor: '#ec4899', pantsColor: '#ec4899', skinColor: '#fef3c7',
         hasDress: true,
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
-      // 7) Bicycle Rider (Child 5)
       {
-        id: 5,
-        baseRatioX: 0.72,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'bicycle-rider',
-        facing: 1,
-        hairColor: '#ea580c',
-        hairStyle: 'ponytail-red',
-        shirtColor: '#10b981',
-        pantsColor: '#047857',
-        skinColor: '#fde68a',
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        id: 5, baseRatioX: 0.69, curX: 0, yOffset: 0, vy: 0,
+        activity: 'bicycle-rider', facing: 1,
+        hairColor: '#ea580c', hairStyle: 'ponytail-red',
+        shirtColor: '#10b981', pantsColor: '#047857', skinColor: '#fde68a',
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
-      // 8) Kite Flyer (Child 6)
       {
-        id: 6,
-        baseRatioX: 0.85,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'kite-flyer',
-        facing: -1,
-        hairColor: '#d97706',
-        hairStyle: 'orange-pigtails',
-        shirtColor: '#6366f1',
-        pantsColor: '#6366f1',
-        skinColor: '#fef3c7',
+        id: 6, baseRatioX: 0.86, curX: 0, yOffset: 0, vy: 0,
+        activity: 'cheerer', facing: -1,
+        hairColor: '#d97706', hairStyle: 'orange-pigtails',
+        shirtColor: '#3b82f6', pantsColor: '#3b82f6', skinColor: '#fef3c7',
         hasDress: true,
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
-      // 9) Sideline Cheerer (Child 7)
       {
-        id: 7,
-        baseRatioX: 0.94,
-        curX: 0,
-        yOffset: 0,
-        vy: 0,
-        activity: 'cheerer',
-        facing: -1,
-        hairColor: '#451a03',
-        hairStyle: 'curly-brown',
-        shirtColor: '#f43f5e',
-        pantsColor: '#f43f5e',
-        skinColor: '#fde047',
+        id: 7, baseRatioX: 0.94, curX: 0, yOffset: 0, vy: 0,
+        activity: 'cheerer', facing: -1,
+        hairColor: '#451a03', hairStyle: 'curly-brown',
+        shirtColor: '#a855f7', pantsColor: '#a855f7', skinColor: '#fde047',
         hasDress: true,
-        twirlAngle: 0,
-        kickCooldown: 0,
-        runCycle: 0,
-        slingshotTimer: 0,
-        bikeDistance: 0,
-        kickPhase: 'idle',
-        kickProgress: 0,
-        kickLegAngle: 0,
-        soccerIntent: 'support',
-        particles: [],
+        kickCooldown: 0, runCycle: 0, speed: 0, slingshotTimer: 0, bikeDistance: 0,
+        kickPhase: 'idle', kickProgress: 0, kickLegAngle: 0, soccerIntent: 'support',
       },
     ];
 
-    // Flower patches
     const flowers = [
-      { ratioX: 0.08, color: '#f43f5e', size: 2.8, sway: 0 },
-      { ratioX: 0.18, color: '#a855f7', size: 2.5, sway: 1.2 },
-      { ratioX: 0.33, color: '#38bdf8', size: 2.8, sway: 2.4 },
-      { ratioX: 0.48, color: '#f59e0b', size: 2.5, sway: 0.8 },
-      { ratioX: 0.63, color: '#ec4899', size: 3.2, sway: 3.1 },
-      { ratioX: 0.77, color: '#f97316', size: 2.8, sway: 1.7 },
-      { ratioX: 0.90, color: '#a855f7', size: 2.8, sway: 2.1 },
+      { ratioX: 0.08, color: '#f43f5e', size: 2.5, sway: 0.0 },
+      { ratioX: 0.19, color: '#a855f7', size: 2.3, sway: 1.2 },
+      { ratioX: 0.34, color: '#38bdf8', size: 2.6, sway: 2.4 },
+      { ratioX: 0.49, color: '#f59e0b', size: 2.4, sway: 0.8 },
+      { ratioX: 0.64, color: '#ec4899', size: 2.8, sway: 3.1 },
+      { ratioX: 0.78, color: '#f97316', size: 2.5, sway: 1.7 },
+      { ratioX: 0.91, color: '#a855f7', size: 2.5, sway: 2.1 },
     ];
 
-    // Canvas resize handling with crisp DPI
+    // ─── Pre-render static scenery onto offscreen canvas (huge mobile FPS win) ──
+    const rebuildStaticLayer = () => {
+      if (!staticCtx || width <= 0 || height <= 0) return;
+
+      staticCanvas.width = Math.round(width * dpr);
+      staticCanvas.height = Math.round(height * dpr);
+      staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      staticCtx.clearRect(0, 0, width, height);
+
+      // Only paint the pale-mint box sky when NOT embedded in the cosmic dashboard
+      if (!transparentSky) {
+        const skyGrad = staticCtx.createLinearGradient(0, 0, 0, height);
+        skyGrad.addColorStop(0, 'rgba(238, 248, 255, 0.95)');
+        skyGrad.addColorStop(0.7, 'rgba(240, 253, 244, 0.9)');
+        skyGrad.addColorStop(1, 'rgba(236, 253, 245, 0.95)');
+        staticCtx.fillStyle = skyGrad;
+        staticCtx.fillRect(0, 0, width, height);
+      }
+
+      // 2) Distant soft parallax ridge for real atmospheric depth
+      staticCtx.beginPath();
+      staticCtx.moveTo(0, height);
+      for (let i = 0; i <= 32; i++) {
+        const px = (i / 32) * width;
+        staticCtx.lineTo(px, getBackHillY(px, width, height));
+      }
+      staticCtx.lineTo(width, height);
+      staticCtx.closePath();
+      const backHillGrad = staticCtx.createLinearGradient(0, height * 0.65, 0, height);
+      backHillGrad.addColorStop(0, 'rgba(134, 239, 172, 0.55)');
+      backHillGrad.addColorStop(1, 'rgba(74, 222, 128, 0.35)');
+      staticCtx.fillStyle = backHillGrad;
+      staticCtx.fill();
+
+      // 3) Static trunks, basket & school building
+      const tree1X = width * mangoTree.xRatio;
+      const tree1GroundY = getGroundY(tree1X, width, height);
+
+      // Tree 1 trunk (canopy drawn live so it gently sways & shakes on tap)
+      staticCtx.strokeStyle = '#78350f';
+      staticCtx.lineWidth = 3.4;
+      staticCtx.lineCap = 'round';
+      staticCtx.beginPath();
+      staticCtx.moveTo(tree1X, tree1GroundY);
+      staticCtx.lineTo(tree1X - 2, tree1GroundY - 25);
+      staticCtx.stroke();
+
+      // Wicker fruit basket
+      const basketX = tree1X + 8;
+      const basketY = tree1GroundY - 1;
+      staticCtx.fillStyle = '#b45309';
+      staticCtx.strokeStyle = '#78350f';
+      staticCtx.lineWidth = 1.1;
+      staticCtx.beginPath();
+      staticCtx.moveTo(basketX - 5, basketY);
+      staticCtx.lineTo(basketX - 4, basketY - 5);
+      staticCtx.lineTo(basketX + 4, basketY - 5);
+      staticCtx.lineTo(basketX + 5, basketY);
+      staticCtx.closePath();
+      staticCtx.fill();
+      staticCtx.stroke();
+      staticCtx.fillStyle = '#f59e0b';
+      staticCtx.beginPath();
+      staticCtx.arc(basketX - 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
+      staticCtx.arc(basketX + 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
+      staticCtx.fill();
+
+      // Tree 2 (Shade Tree)
+      const tree2X = width * 0.61;
+      const tree2GroundY = getGroundY(tree2X, width, height);
+      staticCtx.strokeStyle = '#854d0e';
+      staticCtx.lineWidth = 2.8;
+      staticCtx.beginPath();
+      staticCtx.moveTo(tree2X, tree2GroundY);
+      staticCtx.lineTo(tree2X - 2, tree2GroundY - 22);
+      staticCtx.stroke();
+      staticCtx.fillStyle = '#86efac';
+      staticCtx.strokeStyle = '#10b981';
+      staticCtx.lineWidth = 1.3;
+      staticCtx.beginPath();
+      staticCtx.arc(tree2X, tree2GroundY - 30, 10, 0, Math.PI * 2);
+      staticCtx.arc(tree2X - 5, tree2GroundY - 25, 7, 0, Math.PI * 2);
+      staticCtx.arc(tree2X + 5, tree2GroundY - 25, 7, 0, Math.PI * 2);
+      staticCtx.fill();
+      staticCtx.stroke();
+
+      // School Building (flag drawn live so it ripples with wind)
+      const schoolX = width * 0.77;
+      const schoolGroundY = getGroundY(schoolX, width, height);
+      staticCtx.fillStyle = '#f5f5f4';
+      staticCtx.strokeStyle = '#57534e';
+      staticCtx.lineWidth = 1.25;
+      staticCtx.fillRect(schoolX - 11, schoolGroundY - 20, 22, 20);
+      staticCtx.strokeRect(schoolX - 11, schoolGroundY - 20, 22, 20);
+      // Warm little doorway + window
+      staticCtx.fillStyle = '#d6d3d1';
+      staticCtx.fillRect(schoolX - 2.5, schoolGroundY - 8, 5, 8);
+      staticCtx.fillStyle = '#bae6fd';
+      staticCtx.fillRect(schoolX + 4, schoolGroundY - 15, 4, 4);
+      staticCtx.fillRect(schoolX - 8, schoolGroundY - 15, 4, 4);
+      // Flagpole
+      staticCtx.strokeStyle = '#78716c';
+      staticCtx.lineWidth = 1.2;
+      staticCtx.beginPath();
+      staticCtx.moveTo(schoolX - 5, schoolGroundY - 20);
+      staticCtx.lineTo(schoolX - 5, schoolGroundY - 32);
+      staticCtx.stroke();
+
+      // 4) Foreground Rolling Sunlit Meadow Hill
+      staticCtx.beginPath();
+      staticCtx.moveTo(0, height);
+      for (let i = 0; i <= 44; i++) {
+        const px = (i / 44) * width;
+        staticCtx.lineTo(px, getGroundY(px, width, height));
+      }
+      staticCtx.lineTo(width, height);
+      staticCtx.closePath();
+
+      const hillGrad = staticCtx.createLinearGradient(0, height * 0.7, 0, height);
+      hillGrad.addColorStop(0, '#bef264');
+      hillGrad.addColorStop(0.28, '#84cc16');
+      hillGrad.addColorStop(0.72, '#65a30d');
+      hillGrad.addColorStop(1, '#3f6212');
+      staticCtx.fillStyle = hillGrad;
+      staticCtx.fill();
+
+      // Sunlit rim highlight along hill crest
+      staticCtx.strokeStyle = 'rgba(236, 252, 203, 0.75)';
+      staticCtx.lineWidth = 1.6;
+      staticCtx.beginPath();
+      for (let i = 0; i <= 44; i++) {
+        const px = (i / 44) * width;
+        const py = getGroundY(px, width, height) + 0.6;
+        if (i === 0) staticCtx.moveTo(px, py);
+        else staticCtx.lineTo(px, py);
+      }
+      staticCtx.stroke();
+    };
+
     const handleResize = () => {
-      if (!canvas || !container) return;
       const rect = container.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
       width = rect.width;
       height = rect.height;
       dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
+      // Scale goal cleanly on compact screens
+      goal.mouthX = Math.max(38, Math.min(50, width * 0.12));
+      goal.backX = Math.max(10, goal.mouthX - 28);
+
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      ctx.scale(dpr, dpr);
+      rebuildStaticLayer();
 
-      // Initialize children positions
       children.forEach((c) => {
         if (!c.curX) c.curX = c.baseRatioX * width;
+        else c.curX = Math.max(12, Math.min(width - 12, c.curX));
       });
 
-      // Initialize ball at midfield sitting motionless on the grass
+      butterflies.forEach((bf) => {
+        if (!bf.x) bf.x = bf.ratioX * width;
+        else bf.x = Math.min(width - 12, bf.x);
+      });
+
+      clouds.forEach((cl) => {
+        if (!cl.x) cl.x = cl.ratioX * width;
+      });
+
       if (!ball.initialized) {
-        ball.x = width * 0.22;
+        ball.x = width * 0.25;
         ball.y = getGroundY(ball.x, width, height) - ball.radius;
         ball.vx = 0;
         ball.vy = 0;
         ball.initialized = true;
+      } else {
+        ball.x = Math.max(goal.backX + ball.radius + 3, Math.min(width - ball.radius - 8, ball.x));
+      }
+
+      // Repaint a crisp single frame immediately if paused
+      if (pausedRef.current) {
+        drawFrame(0);
       }
     };
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
-
-    const onMouseMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      mouse.targetX = e.clientX - rect.left;
-      mouse.targetY = e.clientY - rect.top;
-    };
-
-    // When the user clicks, only kick if clicking near the ball or child
-    const onMouseDown = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
-
-      // Click near ball kicks it
-      const distToBall = Math.hypot(clickX - ball.x, clickY - ball.y);
-      if (distToBall < 30 && !ball.inNet) {
-        ball.vx = (clickX > ball.x ? -1 : 1) * (3.8 + Math.random() * 2);
-        ball.vy = -3.8;
-        ball.rotSpeed = ball.vx * 0.16;
-      }
-
-      // Nearby child gives a gentle hop
-      children.forEach((c) => {
-        if (Math.abs(clickX - c.curX) < 30 && c.yOffset === 0 && c.kickPhase === 'idle') {
-          c.vy = -3.8;
-          for (let p = 0; p < 4; p++) {
-            c.particles.push({
-              x: c.curX + (Math.random() - 0.5) * 12,
-              y: getGroundY(c.curX, width, height) - 26,
-              vx: (Math.random() - 0.5) * 2,
-              vy: -1.5 - Math.random() * 2,
-              life: 1,
-              color: ['#f59e0b', '#ec4899', '#38bdf8', '#10b981'][Math.floor(Math.random() * 4)],
-            });
-          }
-        }
-      });
-    };
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
-        const rect = canvas.getBoundingClientRect();
-        const clickX = e.touches[0].clientX - rect.left;
-        const clickY = e.touches[0].clientY - rect.top;
-        const distToBall = Math.hypot(clickX - ball.x, clickY - ball.y);
-        if (distToBall < 30 && !ball.inNet) {
-          ball.vx = (clickX > ball.x ? -1 : 1) * (3.8 + Math.random() * 2);
-          ball.vy = -3.8;
-          ball.rotSpeed = ball.vx * 0.16;
-        }
-      }
-    };
-
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('touchstart', onTouchStart, { passive: true });
-
-    let tick = 0;
-
-    // Helper to start kick animation for a player ONLY when physically at the ball
     const triggerPlayerKick = (c: PlayingChild, kickDirection: -1 | 1) => {
       c.kickPhase = 'windup';
       c.kickProgress = 0;
       c.facing = kickDirection;
       c.kickLegAngle = 0;
-      c.kickCooldown = 65;
+      c.kickCooldown = 60;
       c.kickHasContacted = false;
     };
 
-    // MAIN ANIMATION / PLAY PHYSICS LOOP
-    const render = () => {
-      tick++;
+    // Unified Pointer Interaction (handles mouse + touch seamlessly with 44px hit targets)
+    const handleTap = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect();
+      const tapX = clientX - rect.left;
+      const tapY = clientY - rect.top;
+      let hitInteractive = false;
 
-      mouse.x += (mouse.targetX - mouse.x) * 0.15;
-      mouse.y += (mouse.targetY - mouse.y) * 0.15;
+      // 1) Tap near soccer ball -> kick with squash & turf particles
+      const distToBall = Math.hypot(tapX - ball.x, tapY - ball.y);
+      if (distToBall < 36 && !ball.inNet) {
+        hitInteractive = true;
+        ball.vx = (tapX > ball.x ? -1 : 1) * (4.0 + Math.random() * 1.8);
+        ball.vy = -3.9;
+        ball.rotSpeed = ball.vx * 0.16;
+        ball.scaleX = 1.28;
+        ball.scaleY = 0.76;
+        for (let k = 0; k < 5; k++) {
+          spawnParticle(
+            ball.x,
+            ball.y + 3,
+            (Math.random() - 0.5) * 2.4,
+            -1.2 - Math.random() * 1.5,
+            1.8,
+            '#84cc16',
+            0.75
+          );
+        }
+      }
+
+      // 2) Tap mango tree canopy -> shake & drop a ripe mango
+      const tree1X = width * mangoTree.xRatio;
+      const tree1GroundY = getGroundY(tree1X, width, height);
+      if (Math.hypot(tapX - tree1X, tapY - (tree1GroundY - 30)) < 26) {
+        hitInteractive = true;
+        treeShake = 1;
+        const hanging = mangoTree.mangoes.find((m) => !m.isFalling);
+        if (hanging) {
+          hanging.isFalling = true;
+          hanging.curY = tree1GroundY + hanging.relY;
+          hanging.vy = 0.4;
+        }
+      }
+
+      // 3) Tap near any child -> playful gravity hop + colorful stars
+      children.forEach((c) => {
+        const gy = getGroundY(c.curX, width, height);
+        if (
+          Math.abs(tapX - c.curX) < 26 &&
+          Math.abs(tapY - (gy - 14)) < 28 &&
+          c.yOffset >= -0.5 &&
+          c.kickPhase === 'idle'
+        ) {
+          hitInteractive = true;
+          c.vy = -3.6;
+          for (let p = 0; p < 5; p++) {
+            spawnParticle(
+              c.curX + (Math.random() - 0.5) * 10,
+              gy - 24,
+              (Math.random() - 0.5) * 2.2,
+              -1.6 - Math.random() * 1.8,
+              2.0,
+              ['#f59e0b', '#ec4899', '#38bdf8', '#10b981'][p % 4],
+              0.9
+            );
+          }
+        }
+      });
+
+      // 4) Tap open sky -> playful wind gust that lifts kite & flutters butterflies
+      if (!hitInteractive) {
+        windGust = 2.6;
+        butterflies.forEach((bf) => {
+          bf.vx += (Math.random() - 0.5) * 1.2;
+          bf.vy -= 0.6;
+        });
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      handleTap(e.clientX, e.clientY);
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown, { passive: true });
+
+    // ─── Frame Render Function (dt = 1.0 at 60fps, 0.5 at 120fps) ─────────────
+    const drawFrame = (dt: number) => {
+      time += dt;
+
+      // Decay interactive impulses
+      windGust *= Math.pow(0.95, dt);
+      treeShake *= Math.pow(0.88, dt);
+
+      const globalWind = Math.sin(time * 0.045) * 1.2 + windGust;
 
       ctx.clearRect(0, 0, width, height);
 
-      // 1. SKY BACKGROUND
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
-      skyGrad.addColorStop(0, 'rgba(238, 248, 255, 0.95)');
-      skyGrad.addColorStop(0.7, 'rgba(240, 253, 244, 0.9)');
-      skyGrad.addColorStop(1, 'rgba(236, 253, 245, 0.95)');
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, width, height);
+      // 1) Blit cached static scenery in ONE draw call
+      ctx.drawImage(staticCanvas, 0, 0, width, height);
 
-      // 2. SMILING SUN WITH ROTATING RAYS
-      const sunX = width * 0.73;
-      const sunY = height * 0.22;
-      const sunRadius = 10.5;
+      // 2) Drifting fluffy clouds (only drawn if sky is not transparent; dashboard provides horizon clouds)
+      if (!transparentSky) {
+        clouds.forEach((cloud) => {
+          cloud.x += (cloud.speed + windGust * 0.2) * dt;
+          if (cloud.x > width + 44) cloud.x = -44;
 
-      ctx.save();
-      ctx.translate(sunX, sunY);
-      ctx.save();
-      ctx.rotate(tick * 0.007);
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 1.6;
-      ctx.lineCap = 'round';
-      const numRays = 8;
-      for (let r = 0; r < numRays; r++) {
-        const angle = (r * Math.PI * 2) / numRays;
-        const rayLen = 4 + Math.sin(tick * 0.06 + r) * 1.2;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(angle) * (sunRadius + 2.5), Math.sin(angle) * (sunRadius + 2.5));
-        ctx.lineTo(Math.cos(angle) * (sunRadius + 2.5 + rayLen), Math.sin(angle) * (sunRadius + 2.5 + rayLen));
-        ctx.stroke();
+          ctx.save();
+          ctx.translate(cloud.x, cloud.y);
+          ctx.scale(cloud.scale, cloud.scale);
+          ctx.fillStyle = `rgba(186, 230, 253, ${cloud.opacity})`;
+          ctx.strokeStyle = `rgba(125, 211, 252, ${cloud.opacity * 0.85})`;
+          ctx.lineWidth = 1.2;
+
+          ctx.beginPath();
+          ctx.arc(0, 0, 9.5, Math.PI * 0.5, Math.PI * 1.5);
+          ctx.arc(8, -5.5, 11, Math.PI * 1, Math.PI * 1.85);
+          ctx.arc(21, -4.5, 9.5, Math.PI * 1.35, Math.PI * 2.05);
+          ctx.arc(28, 0, 7.5, Math.PI * 1.6, Math.PI * 0.5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        });
       }
-      ctx.restore();
 
-      ctx.beginPath();
-      ctx.arc(0, 0, sunRadius, 0, Math.PI * 2);
-      ctx.fillStyle = '#fbbf24';
-      ctx.fill();
-      ctx.strokeStyle = '#d97706';
-      ctx.lineWidth = 1.3;
-      ctx.stroke();
-
-      ctx.fillStyle = '#78350f';
-      ctx.beginPath();
-      ctx.arc(-3, -1.5, 1, 0, Math.PI * 2);
-      ctx.arc(3, -1.5, 1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(0, 1, 4, 0.2 * Math.PI, 0.8 * Math.PI, false);
-      ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 1.1;
-      ctx.stroke();
-      ctx.restore();
-
-      // 3. FLUFFY DRIFTING CLOUDS
-      clouds.forEach((cloud) => {
-        cloud.x += cloud.speed;
-        if (cloud.x > width + 50) cloud.x = -50;
-
-        ctx.save();
-        ctx.translate(cloud.x, cloud.y);
-        ctx.scale(cloud.scale, cloud.scale);
-        ctx.fillStyle = `rgba(186, 230, 253, ${cloud.opacity})`;
-        ctx.strokeStyle = `rgba(125, 211, 252, ${cloud.opacity * 0.9})`;
-        ctx.lineWidth = 1.3;
-
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, Math.PI * 0.5, Math.PI * 1.5);
-        ctx.arc(8, -6, 12, Math.PI * 1, Math.PI * 1.85);
-        ctx.arc(22, -5, 10, Math.PI * 1.35, Math.PI * 2.05);
-        ctx.arc(30, 0, 8, Math.PI * 1.6, Math.PI * 0.5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      });
-
-      // 4. BIRDS
-      ctx.strokeStyle = '#64748b';
+      // 3) Distant gliding birds
+      ctx.strokeStyle = transparentSky ? 'rgba(15, 45, 98, 0.52)' : '#64748b';
       ctx.lineWidth = 1.1;
       ctx.lineCap = 'round';
-      const birdOffset = (tick * 0.35) % (width + 80);
+      const birdOffset = (time * 0.34) % (width + 70);
       for (let b = 0; b < 3; b++) {
-        const bx = ((width - birdOffset) + b * 14) % width;
-        const by = 18 + b * 4 + Math.sin(tick * 0.08 + b) * 1.8;
+        const bx = ((width - birdOffset + b * 14) % (width + 70)) - 20;
+        const flap = Math.sin(time * 0.14 + b * 1.2) * 1.6;
+        const by = 16 + b * 4 + flap * 0.7;
         ctx.beginPath();
-        ctx.arc(bx - 2.5, by, 2.5, Math.PI * 1.1, Math.PI * 1.9);
-        ctx.arc(bx + 2.5, by, 2.5, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.moveTo(bx - 4.5, by + flap * 0.35);
+        ctx.quadraticCurveTo(bx - 2, by - 2.4, bx, by);
+        ctx.quadraticCurveTo(bx + 2, by - 2.4, bx + 4.5, by + flap * 0.35);
         ctx.stroke();
       }
 
-      // 5. SCENERY BACKGROUND (Lush Mango Tree, Cottage, House, School)
-      // TREE 1: MANGO TREE with Ripe Golden Mangoes
+      // 4) Live Mango Tree Canopy (sways with wind & shakes on tap) + Mangoes
       const tree1X = width * mangoTree.xRatio;
       const tree1GroundY = getGroundY(tree1X, width, height);
+      const canopySway =
+        Math.sin(time * 0.05) * 0.7 +
+        Math.sin(time * 0.75) * treeShake * 3.2 +
+        windGust * 0.4;
 
-      ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 3.2;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(tree1X, tree1GroundY);
-      ctx.lineTo(tree1X - 2, tree1GroundY - 25);
-      ctx.stroke();
-
+      ctx.save();
+      ctx.translate(canopySway, 0);
       ctx.fillStyle = '#22c55e';
       ctx.strokeStyle = '#15803d';
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.35;
       ctx.beginPath();
-      ctx.arc(tree1X, tree1GroundY - 33, 12.5, 0, Math.PI * 2);
-      ctx.arc(tree1X - 7, tree1GroundY - 28, 9, 0, Math.PI * 2);
-      ctx.arc(tree1X + 7, tree1GroundY - 28, 9, 0, Math.PI * 2);
-      ctx.arc(tree1X, tree1GroundY - 38, 8, 0, Math.PI * 2);
+      ctx.arc(tree1X, tree1GroundY - 33, 12.2, 0, Math.PI * 2);
+      ctx.arc(tree1X - 7, tree1GroundY - 28, 8.8, 0, Math.PI * 2);
+      ctx.arc(tree1X + 7, tree1GroundY - 28, 8.8, 0, Math.PI * 2);
+      ctx.arc(tree1X, tree1GroundY - 38, 7.8, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // Warm sun-kissed canopy highlight (from top-right sun)
+      ctx.fillStyle = 'rgba(190, 242, 100, 0.38)';
+      ctx.beginPath();
+      ctx.arc(tree1X + 3, tree1GroundY - 36, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
 
-      // Golden Mangoes hanging in tree
+      // Mangoes (hanging or falling)
       mangoTree.mangoes.forEach((m) => {
-        const mx = tree1X + m.relX;
+        if (m.isFalling) {
+          m.vy += 0.22 * dt;
+          m.curY += m.vy * dt;
+          if (m.curY >= tree1GroundY - 4) {
+            m.isFalling = false;
+            m.curY = tree1GroundY + m.relY;
+            mangoTree.basketMangoCount++;
+            for (let sp = 0; sp < 4; sp++) {
+              spawnParticle(
+                tree1X + m.relX,
+                tree1GroundY - 5,
+                (Math.random() - 0.5) * 1.6,
+                -1.0 - Math.random() * 1.4,
+                1.7,
+                '#f59e0b',
+                0.75
+              );
+            }
+          }
+        }
+
+        const mx = tree1X + m.relX + (m.isFalling ? 0 : canopySway);
         const my = m.isFalling ? m.curY : tree1GroundY + m.relY;
 
         ctx.strokeStyle = '#15803d';
-        ctx.lineWidth = 0.9;
+        ctx.lineWidth = 0.85;
         ctx.beginPath();
-        ctx.moveTo(mx, my - 3.5);
-        ctx.lineTo(mx + 0.8, my - 1.5);
+        ctx.moveTo(mx, my - 3.4);
+        ctx.lineTo(mx + 0.7, my - 1.5);
         ctx.stroke();
 
         ctx.fillStyle = '#f59e0b';
         ctx.strokeStyle = '#d97706';
-        ctx.lineWidth = 0.8;
+        ctx.lineWidth = 0.75;
         ctx.beginPath();
-        ctx.ellipse(mx, my, 2.6, 3.6, 0.25, 0, Math.PI * 2);
+        ctx.ellipse(mx, my, 2.5, 3.4, 0.25, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.5)';
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.48)';
         ctx.beginPath();
-        ctx.arc(mx + 0.8, my - 0.8, 1.3, 0, Math.PI * 2);
+        ctx.arc(mx + 0.7, my - 0.7, 1.2, 0, Math.PI * 2);
         ctx.fill();
       });
 
-      // Fruit Basket on ground
-      const basketX = tree1X + 8;
-      const basketY = tree1GroundY - 1;
-      ctx.fillStyle = '#b45309';
-      ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 1.1;
-      ctx.beginPath();
-      ctx.moveTo(basketX - 5, basketY);
-      ctx.lineTo(basketX - 4, basketY - 5);
-      ctx.lineTo(basketX + 4, basketY - 5);
-      ctx.lineTo(basketX + 5, basketY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath();
-      ctx.arc(basketX - 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
-      ctx.arc(basketX + 1.5, basketY - 5.5, 1.8, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Tree 2 (Shade Tree)
-      const tree2X = width * 0.61;
-      const tree2GroundY = getGroundY(tree2X, width, height);
-      ctx.strokeStyle = '#854d0e';
-      ctx.lineWidth = 2.8;
-      ctx.beginPath();
-      ctx.moveTo(tree2X, tree2GroundY);
-      ctx.lineTo(tree2X - 2, tree2GroundY - 22);
-      ctx.stroke();
-      ctx.fillStyle = '#a7f3d0';
-      ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.arc(tree2X, tree2GroundY - 30, 10, 0, Math.PI * 2);
-      ctx.arc(tree2X - 5, tree2GroundY - 25, 7, 0, Math.PI * 2);
-      ctx.arc(tree2X + 5, tree2GroundY - 25, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // School Building with Flag
+      // School animated wind flag
       const schoolX = width * 0.77;
       const schoolGroundY = getGroundY(schoolX, width, height);
-      ctx.fillStyle = '#e7e5e4';
-      ctx.strokeStyle = '#57534e';
-      ctx.lineWidth = 1.3;
-      ctx.fillRect(schoolX - 11, schoolGroundY - 20, 22, 20);
-      ctx.strokeRect(schoolX - 11, schoolGroundY - 20, 22, 20);
-      ctx.strokeStyle = '#78716c';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(schoolX - 5, schoolGroundY - 20);
-      ctx.lineTo(schoolX - 5, schoolGroundY - 32);
-      ctx.stroke();
-      const flagWave = Math.sin(tick * 0.1) * 1.5;
+      const flagWave = Math.sin(time * 0.14) * (1.5 + windGust * 0.9);
       ctx.fillStyle = '#10b981';
       ctx.beginPath();
       ctx.moveTo(schoolX - 5, schoolGroundY - 32);
-      ctx.quadraticCurveTo(schoolX, schoolGroundY - 34 + flagWave, schoolX + 6, schoolGroundY - 30);
-      ctx.lineTo(schoolX + 6, schoolGroundY - 25);
+      ctx.quadraticCurveTo(
+        schoolX,
+        schoolGroundY - 34 + flagWave,
+        schoolX + 6.5,
+        schoolGroundY - 30 + flagWave * 0.5
+      );
+      ctx.lineTo(schoolX + 6.5, schoolGroundY - 25 + flagWave * 0.4);
       ctx.lineTo(schoolX - 5, schoolGroundY - 26);
       ctx.closePath();
       ctx.fill();
 
-      // 6. ROLLING GREEN HILL GROUND
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(0, height);
-      ctx.lineTo(0, getGroundY(0, width, height));
-
-      const segments = 45;
-      for (let i = 0; i <= segments; i++) {
-        const px = (i / segments) * width;
-        ctx.lineTo(px, getGroundY(px, width, height));
-      }
-
-      ctx.lineTo(width, height);
-      ctx.closePath();
-
-      const hillGrad = ctx.createLinearGradient(0, height * 0.7, 0, height);
-      hillGrad.addColorStop(0, '#bef264');
-      hillGrad.addColorStop(0.3, '#a3e635');
-      hillGrad.addColorStop(0.7, '#65a30d');
-      hillGrad.addColorStop(1, '#4d7c0f');
-      ctx.fillStyle = hillGrad;
-      ctx.fill();
-
-      ctx.strokeStyle = '#4d7c0f';
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-
-      // Grass tufts
+      // 5) Wind-swaying Grass Tufts & Wildflowers
       ctx.strokeStyle = '#365314';
-      ctx.lineWidth = 1.1;
-      for (let g = 0; g < 15; g++) {
-        const gx = ((g + 0.5) / 15) * width;
+      ctx.lineWidth = 1.05;
+      for (let g = 0; g < 14; g++) {
+        const gx = ((g + 0.5) / 14) * width;
         const gy = getGroundY(gx, width, height);
-        const sway = Math.sin(tick * 0.04 + g) * 1.5;
+        const sway = Math.sin(time * 0.05 + g * 0.7) * 1.4 + windGust * 1.1;
         ctx.beginPath();
         ctx.moveTo(gx - 2, gy);
         ctx.lineTo(gx - 3 + sway, gy - 4);
@@ -761,54 +757,63 @@ export function MiniatureGardenPlayground() {
         ctx.stroke();
       }
 
-      // Flowers
       flowers.forEach((fl) => {
         const fx = fl.ratioX * width;
         const fy = getGroundY(fx, width, height);
-        const sway = Math.sin(tick * 0.05 + fl.sway) * 1.2;
+        const sway = Math.sin(time * 0.055 + fl.sway) * 1.2 + windGust * 0.9;
 
         ctx.strokeStyle = '#15803d';
-        ctx.lineWidth = 1.1;
+        ctx.lineWidth = 1.05;
         ctx.beginPath();
         ctx.moveTo(fx, fy);
-        ctx.lineTo(fx + sway, fy - 8);
+        ctx.lineTo(fx + sway, fy - 7.5);
         ctx.stroke();
 
         ctx.fillStyle = fl.color;
         ctx.beginPath();
-        ctx.arc(fx + sway, fy - 9, fl.size, 0, Math.PI * 2);
+        ctx.arc(fx + sway, fy - 8.5, fl.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(fx + sway, fy - 8.5, fl.size * 0.38, 0, Math.PI * 2);
         ctx.fill();
       });
 
-      ctx.restore();
-
-      // 7. MINIATURE SOCCER NET ON THE LEFT
+      // 6) Miniature Soccer Net (Back Layer)
       const mouthGroundY = getGroundY(goal.mouthX, width, height);
       const backGroundY = getGroundY(goal.backX, width, height);
       const crossbarY = mouthGroundY - goal.height;
-      const backTopY = backGroundY - (goal.height * 0.78);
+      const backTopY = backGroundY - goal.height * 0.78;
 
-      goal.netBulgeVel += -goal.netBulge * 0.12 - goal.netBulgeVel * 0.22;
-      goal.netBulge += goal.netBulgeVel;
+      goal.netBulgeVel += (-goal.netBulge * 0.12 - goal.netBulgeVel * 0.22) * dt;
+      goal.netBulge += goal.netBulgeVel * dt;
       const currentBulge = Math.max(0, goal.netBulge);
 
-      // Goal Line
+      // Goal line + soft shadow
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.35;
       ctx.beginPath();
       ctx.moveTo(goal.mouthX, mouthGroundY - 1);
       ctx.lineTo(goal.mouthX, mouthGroundY + 3);
       ctx.stroke();
 
-      // Goal shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.14)';
       ctx.beginPath();
-      ctx.ellipse((goal.mouthX + goal.backX) * 0.5, mouthGroundY + 1, (goal.mouthX - goal.backX) * 0.6, 2.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        (goal.mouthX + goal.backX) * 0.5 - 1.5,
+        mouthGroundY + 1,
+        (goal.mouthX - goal.backX) * 0.6,
+        2.5,
+        0,
+        0,
+        Math.PI * 2
+      );
       ctx.fill();
 
-      // Netting Mesh (Drawn behind ball)
+      // Netting Mesh
       ctx.save();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
       ctx.beginPath();
       ctx.moveTo(goal.mouthX, crossbarY);
       ctx.lineTo(goal.backX - currentBulge, backTopY);
@@ -817,23 +822,25 @@ export function MiniatureGardenPlayground() {
       ctx.closePath();
       ctx.fill();
 
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.68)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
       ctx.lineWidth = 0.85;
-      const netRows = 5;
-      for (let r = 1; r <= netRows; r++) {
-        const t = r / (netRows + 1);
+      for (let r = 1; r <= 5; r++) {
+        const t = r / 6;
         const frontY = crossbarY + t * (mouthGroundY - crossbarY);
         const rearY = backTopY + t * (backGroundY - backTopY);
         const rearX = goal.backX - currentBulge * (1 - t * 0.3);
         ctx.beginPath();
         ctx.moveTo(goal.mouthX, frontY);
-        ctx.quadraticCurveTo((goal.mouthX + rearX) * 0.5, (frontY + rearY) * 0.5 + 1, rearX, rearY);
+        ctx.quadraticCurveTo(
+          (goal.mouthX + rearX) * 0.5,
+          (frontY + rearY) * 0.5 + 1,
+          rearX,
+          rearY
+        );
         ctx.stroke();
       }
-
-      const netCols = 5;
-      for (let c = 1; c <= netCols; c++) {
-        const t = c / (netCols + 1);
+      for (let col = 1; col <= 5; col++) {
+        const t = col / 6;
         const topX = goal.mouthX - t * (goal.mouthX - (goal.backX - currentBulge));
         const topY = crossbarY - t * (crossbarY - backTopY);
         const botX = goal.mouthX - t * (goal.mouthX - (goal.backX - currentBulge));
@@ -844,7 +851,6 @@ export function MiniatureGardenPlayground() {
         ctx.stroke();
       }
 
-      // Back frame
       ctx.strokeStyle = '#cbd5e1';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -856,56 +862,62 @@ export function MiniatureGardenPlayground() {
       ctx.stroke();
       ctx.restore();
 
-      // 8. PURE REALISTIC BALL PHYSICS & IMMERSIVE SOCCER RETRIEVAL
+      // 7) Ball Physics & Goalie Retrieval (Delta-Time Normalized)
       const ballGroundY = getGroundY(ball.x, width, height) - ball.radius;
-      const slopeDelta = (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
+      const slopeDelta =
+        (getGroundY(ball.x + 2, width, height) - getGroundY(ball.x - 2, width, height)) / 4;
       const slopeAngle = Math.atan(slopeDelta);
 
-      if (goalCooldown > 0) goalCooldown--;
+      // Spring ball squash-and-stretch back to 1.0
+      ball.scaleX += (1 - ball.scaleX) * Math.min(1, 0.24 * dt);
+      ball.scaleY += (1 - ball.scaleY) * Math.min(1, 0.24 * dt);
 
-      // Goal detection - ball entering goal mouth
       const isInsideGoalMouth =
         ball.x <= goal.mouthX + 2 &&
         ball.x >= goal.backX - 4 &&
         ball.y >= crossbarY - 4 &&
         ball.y <= mouthGroundY + 5;
 
-      if (isInsideGoalMouth && !ball.inNet && goalState === 'play' && goalTimer === 0 && ball.vx <= 0.1) {
+      if (
+        isInsideGoalMouth &&
+        !ball.inNet &&
+        goalState === 'play' &&
+        goalTimer === 0 &&
+        ball.vx <= 0.1
+      ) {
         ball.inNet = true;
         goalState = 'celebrating';
-        goalTimer = 180;
+        goalTimer = 175;
         scorerId = ball.lastKickerId || 1;
         goal.netBulge = Math.min(14, Math.abs(ball.vx) * 2.2 + 6);
         goal.netBulgeVel = -goal.netBulge * 0.25;
         ball.vx *= 0.1;
         ball.vy = Math.min(ball.vy * 0.2, 0.4);
 
-        for (let i = 0; i < 20; i++) {
-          celebrationParticles.push({
-            x: goal.mouthX + (Math.random() - 0.5) * 16,
-            y: crossbarY + Math.random() * goal.height,
-            vx: (Math.random() - 0.5) * 3.5,
-            vy: -1.8 - Math.random() * 3.0,
-            size: 2 + Math.random() * 2.2,
-            color: ['#10b981', '#f59e0b', '#ec4899', '#38bdf8', '#fbbf24', '#ffffff'][Math.floor(Math.random() * 6)],
-            life: 1,
-          });
+        for (let i = 0; i < 18; i++) {
+          spawnParticle(
+            goal.mouthX + (Math.random() - 0.5) * 16,
+            crossbarY + Math.random() * goal.height,
+            (Math.random() - 0.5) * 3.4,
+            -1.8 - Math.random() * 2.8,
+            2 + Math.random() * 2,
+            ['#10b981', '#f59e0b', '#ec4899', '#38bdf8', '#fbbf24', '#ffffff'][i % 6],
+            1
+          );
         }
       }
 
       if (ball.inNet) {
-        // Settling inside net: strictly keep ball within goal net
-        ball.vy += 0.22;
-        ball.x += ball.vx;
-        ball.y += ball.vy;
-        ball.vx *= 0.75;
+        ball.vy += 0.22 * dt;
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+        ball.vx *= Math.pow(0.75, dt);
 
         if (ball.y >= ballGroundY) {
           ball.y = ballGroundY;
           ball.vy = 0;
           ball.vx = 0;
         }
-        // Strict boundary: ball can NEVER be behind the net
         if (ball.x < goal.backX + ball.radius + 4) {
           ball.x = goal.backX + ball.radius + 4;
           ball.vx = 0;
@@ -915,49 +927,46 @@ export function MiniatureGardenPlayground() {
           ball.vx = 0;
         }
 
-        // Post-goal Goalkeeper Retrieval & Clearance:
-        // Goalkeeper walks into the net, scoops the ball, walks to 6-yard line, and passes it out!
         if (goalTimer > 0) {
-          goalTimer--;
-          const goalie = children.find(c => c.activity === 'soccer-goalie');
+          const prevGoalTimer = goalTimer;
+          goalTimer = Math.max(0, goalTimer - dt);
+          const goalie = children.find((c) => c.activity === 'soccer-goalie');
 
           if (goalie) {
-            if (goalTimer > 120) {
-              // 1) Goalie turns towards net and jogs in to retrieve the ball
+            if (goalTimer > 115) {
               goalie.facing = -1;
-              const targetX = ball.x + 5;
-              const gdx = targetX - goalie.curX;
+              const gdx = ball.x + 5 - goalie.curX;
               if (Math.abs(gdx) > 1.5) {
-                goalie.curX += Math.sign(gdx) * 1.0;
-                goalie.runCycle += 0.24;
+                goalie.curX += Math.sign(gdx) * 1.0 * dt;
+                goalie.runCycle += 0.24 * dt;
+                goalie.speed = 1;
               } else {
                 goalie.runCycle = 0;
+                goalie.speed = 0;
               }
-            } else if (goalTimer > 50) {
-              // 2) Goalie scoops up the ball and jogs back out facing the pitch!
+            } else if (goalTimer > 48) {
               goalie.facing = 1;
-              const targetX = goal.mouthX + 8;
-              const gdx = targetX - goalie.curX;
+              const gdx = goal.mouthX + 8 - goalie.curX;
               if (Math.abs(gdx) > 1.5) {
-                goalie.curX += Math.sign(gdx) * 0.95;
-                goalie.runCycle += 0.22;
+                goalie.curX += Math.sign(gdx) * 0.95 * dt;
+                goalie.runCycle += 0.22 * dt;
+                goalie.speed = 0.95;
               } else {
                 goalie.runCycle = 0;
+                goalie.speed = 0;
               }
-              // Ball is carried in goalie's hands
               ball.x = goalie.curX + goalie.facing * 3;
               ball.y = getGroundY(goalie.curX, width, height) - 10;
               ball.vx = 0;
               ball.vy = 0;
             } else if (goalTimer > 15) {
-              // 3) Goalie places ball down on the turf at 6-yard mark and sets up for goal kick
               ball.x = goal.mouthX + 10;
               ball.y = getGroundY(ball.x, width, height) - ball.radius;
               goalie.curX = ball.x - 6;
               goalie.facing = 1;
               goalie.runCycle = 0;
-            } else if (goalTimer === 15) {
-              // 4) Goalie kicks the ball out to Player 1 (the same person)!
+              goalie.speed = 0;
+            } else if (prevGoalTimer > 15 && goalTimer <= 15) {
               triggerPlayerKick(goalie, 1);
             }
           }
@@ -970,51 +979,48 @@ export function MiniatureGardenPlayground() {
           }
         }
       } else {
-        // NATURAL BALL PHYSICS
         const onGround = ball.y >= ballGroundY - 0.8;
-
         if (onGround) {
           ball.y = ballGroundY;
-
-          // Slope gravity force
           const slopeForce = Math.sin(slopeAngle) * 0.16;
-          ball.vx += slopeForce;
+          ball.vx += slopeForce * dt;
+          ball.vx *= Math.pow(0.982, dt);
 
-          // Realistic grass rolling friction
-          ball.vx *= 0.982;
-
-          // Ball comes to a complete halt when slow
           if (Math.abs(ball.vx) < 0.12 && Math.abs(slopeForce) < 0.08) {
             ball.vx = 0;
             ball.rotSpeed = 0;
           } else {
             ball.rotSpeed = ball.vx / ball.radius;
-            ball.rotation += ball.rotSpeed;
+            ball.rotation += ball.rotSpeed * dt;
           }
 
-          if (Math.abs(ball.vy) < 0.4) {
+          if (Math.abs(ball.vy) < 0.45) {
             ball.vy = 0;
           } else {
             ball.vy = -ball.vy * ball.bounciness;
+            ball.scaleX = 1.2;
+            ball.scaleY = 0.82;
           }
         } else {
-          // Airborne
-          ball.vy += 0.24;
-          ball.vx *= 0.995;
-          ball.vy *= 0.995;
-          ball.rotation += ball.rotSpeed;
+          ball.vy += 0.24 * dt;
+          ball.vx *= Math.pow(0.995, dt);
+          ball.vy *= Math.pow(0.995, dt);
+          ball.rotation += ball.rotSpeed * dt;
 
-          if (ball.y >= ballGroundY) {
+          if (ball.y + ball.vy * dt >= ballGroundY) {
             ball.y = ballGroundY;
+            if (Math.abs(ball.vy) > 1.2) {
+              ball.scaleX = 1.22;
+              ball.scaleY = 0.8;
+            }
             ball.vy = -ball.vy * ball.bounciness;
             ball.rotSpeed = ball.vx * 0.16;
           }
         }
 
-        ball.x += ball.vx;
-        ball.y += ball.vy;
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
 
-        // Hard boundary: ball can NEVER penetrate behind the goal net
         if (ball.x < goal.backX + ball.radius + 3) {
           ball.x = goal.backX + ball.radius + 3;
           ball.vx = Math.abs(ball.vx) * 0.4;
@@ -1024,29 +1030,33 @@ export function MiniatureGardenPlayground() {
           ball.vx = 0;
         }
 
-        // Motionless watchdog: if the ball sits completely still for > 100 frames in play mode,
-        // awaken the closest soccer player and reset their kickCooldown so they play it.
-        // If it sits still for > 200 frames, give it a gentle kick towards the field.
-        if (goalState === 'play' && !ball.inNet) {
+        // Motionless watchdog
+        if (goalState === 'play') {
           if (Math.abs(ball.vx) < 0.05 && Math.abs(ball.vy) < 0.05) {
-            ball.stillFrames = (ball.stillFrames || 0) + 1;
-            if (ball.stillFrames > 100) {
-              const outfielders = children.filter(c =>
-                c.activity === 'soccer-striker' || c.activity === 'soccer-midfield' || c.activity === 'soccer-passer'
+            ball.stillFrames += dt;
+            if (ball.stillFrames > 95) {
+              const outfielders = children.filter(
+                (c) =>
+                  c.activity === 'soccer-striker' ||
+                  c.activity === 'soccer-midfield' ||
+                  c.activity === 'soccer-passer'
               );
               let closest = outfielders[0];
               let minD = Infinity;
-              outfielders.forEach(p => {
+              outfielders.forEach((p) => {
                 const d = Math.abs(p.curX - ball.x);
-                if (d < minD) { minD = d; closest = p; }
+                if (d < minD) {
+                  minD = d;
+                  closest = p;
+                }
               });
               if (closest) {
                 closest.kickCooldown = 0;
                 closest.soccerIntent = 'hunt-ball';
               }
             }
-            if (ball.stillFrames > 200) {
-              ball.vx = ball.x < width * 0.35 ? 3.6 : -3.6;
+            if (ball.stillFrames > 190) {
+              ball.vx = ball.x < width * 0.35 ? 3.5 : -3.5;
               ball.vy = -2.0;
               ball.stillFrames = 0;
             }
@@ -1056,20 +1066,31 @@ export function MiniatureGardenPlayground() {
         }
       }
 
-      // Ball Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+      // Altitude-reactive directional ball shadow (sun at top-right -> shadow slightly left)
+      const ballHeightAboveGround = Math.max(0, ballGroundY - ball.y);
+      const shadowScale = Math.max(0.45, 1 - ballHeightAboveGround / 48);
+      ctx.fillStyle = `rgba(15, 23, 42, ${0.19 * shadowScale})`;
       ctx.beginPath();
-      ctx.ellipse(ball.x, ballGroundY + 2.5, ball.radius * 1.15, ball.radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        ball.x - 1.2 - ballHeightAboveGround * 0.12,
+        ballGroundY + 2.6,
+        ball.radius * 1.15 * shadowScale,
+        ball.radius * 0.35 * shadowScale,
+        0,
+        0,
+        Math.PI * 2
+      );
       ctx.fill();
 
-      // Render Soccer Ball (Classic Geometric 32-Panel Texture)
+      // Render Soccer Ball (32-panel geometric look + squash/stretch)
       ctx.save();
       ctx.translate(ball.x, ball.y);
+      ctx.scale(ball.scaleX, ball.scaleY);
       ctx.rotate(ball.rotation);
 
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = 1.05;
       ctx.beginPath();
       ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
       ctx.fill();
@@ -1089,7 +1110,7 @@ export function MiniatureGardenPlayground() {
       ctx.fill();
 
       ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = 0.75;
       for (let p = 0; p < 5; p++) {
         const pAngle = (p * Math.PI * 2) / 5 - Math.PI / 2;
         ctx.beginPath();
@@ -1098,13 +1119,13 @@ export function MiniatureGardenPlayground() {
         ctx.stroke();
       }
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.beginPath();
-      ctx.arc(-ball.radius * 0.35, -ball.radius * 0.35, ball.radius * 0.3, 0, Math.PI * 2);
+      ctx.arc(ball.radius * 0.3, -ball.radius * 0.32, ball.radius * 0.28, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // Front Goal Post & Crossbar (Drawn in front of ball for 3D depth)
+      // Front Goal Post & Crossbar (in front of ball for 3D depth)
       ctx.save();
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2.4;
@@ -1117,7 +1138,7 @@ export function MiniatureGardenPlayground() {
       ctx.stroke();
 
       ctx.strokeStyle = '#64748b';
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = 0.75;
       ctx.beginPath();
       ctx.moveTo(goal.mouthX - 1.2, mouthGroundY);
       ctx.lineTo(goal.mouthX - 1.2, crossbarY - 1);
@@ -1126,47 +1147,47 @@ export function MiniatureGardenPlayground() {
       ctx.stroke();
       ctx.restore();
 
-      // 9. BUTTERFLIES
+      // 8) Butterflies
       butterflies.forEach((bf) => {
-        bf.x += bf.vx;
-        bf.y += bf.vy + Math.sin(tick * 0.08) * 0.6;
-        bf.wingAngle += bf.wingSpeed;
+        bf.x += (bf.vx + windGust * 0.25) * dt;
+        bf.y += (bf.vy + Math.sin(time * 0.08 + bf.ratioX * 10) * 0.5) * dt;
+        bf.wingAngle += bf.wingSpeed * dt;
 
-        if (Math.random() < 0.02) {
+        if (Math.random() < 0.018 * dt) {
           bf.vx = (Math.random() - 0.5) * 1.0;
-          bf.vy = (Math.random() - 0.5) * 0.6;
+          bf.vy = (Math.random() - 0.5) * 0.55;
         }
-
-        if (bf.x < 15) bf.vx = 0.6;
-        if (bf.x > width - 15) bf.vx = -0.6;
-        if (bf.y < 12) bf.vy = 0.4;
-        if (bf.y > height * 0.65) bf.vy = -0.4;
+        if (bf.x < 14) bf.vx = Math.abs(bf.vx) + 0.35;
+        if (bf.x > width - 14) bf.vx = -Math.abs(bf.vx) - 0.35;
+        if (bf.y < 10) bf.vy = 0.35;
+        if (bf.y > height * 0.62) bf.vy = -0.35;
 
         ctx.save();
         ctx.translate(bf.x, bf.y);
-        const wingScale = Math.cos(bf.wingAngle);
+        const wingScale = Math.abs(Math.cos(bf.wingAngle));
         ctx.fillStyle = bf.color;
         ctx.beginPath();
-        ctx.ellipse(-bf.size * 0.7 * Math.abs(wingScale), 0, bf.size * Math.abs(wingScale), bf.size * 0.6, -0.3, 0, Math.PI * 2);
-        ctx.ellipse(bf.size * 0.7 * Math.abs(wingScale), 0, bf.size * Math.abs(wingScale), bf.size * 0.6, 0.3, 0, Math.PI * 2);
+        ctx.ellipse(-bf.size * 0.7 * wingScale, 0, bf.size * wingScale, bf.size * 0.6, -0.3, 0, Math.PI * 2);
+        ctx.ellipse(bf.size * 0.7 * wingScale, 0, bf.size * wingScale, bf.size * 0.6, 0.3, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       });
 
-      // 10. UPDATE FALLING MANGO & SLINGSHOT PEBBLE
+      // 9) Slingshot Pebble
       if (mangoTree.slingshotPebble.active) {
         const pb = mangoTree.slingshotPebble;
-        pb.x += pb.vx;
-        pb.y += pb.vy;
-        pb.vy += 0.15;
+        pb.x += pb.vx * dt;
+        pb.y += pb.vy * dt;
+        pb.vy += 0.15 * dt;
 
-        ctx.fillStyle = '#64748b';
+        ctx.fillStyle = '#475569';
         ctx.beginPath();
         ctx.arc(pb.x, pb.y, 1.4, 0, Math.PI * 2);
         ctx.fill();
 
         if (pb.y <= tree1GroundY - 26) {
           pb.active = false;
+          treeShake = 0.8;
           const target = mangoTree.mangoes.find((m) => m.id === pb.targetMangoId);
           if (target && !target.isFalling) {
             target.isFalling = true;
@@ -1176,38 +1197,15 @@ export function MiniatureGardenPlayground() {
         }
       }
 
-      mangoTree.mangoes.forEach((m) => {
-        if (m.isFalling) {
-          m.vy += 0.22;
-          m.curY += m.vy;
-
-          if (m.curY >= tree1GroundY - 4) {
-            m.isFalling = false;
-            m.curY = tree1GroundY + m.relY;
-            mangoTree.basketMangoCount++;
-
-            for (let sp = 0; sp < 4; sp++) {
-              celebrationParticles.push({
-                x: tree1X + m.relX,
-                y: tree1GroundY - 6,
-                vx: (Math.random() - 0.5) * 1.5,
-                vy: -1 - Math.random() * 1.5,
-                size: 1.6,
-                color: '#f59e0b',
-                life: 0.8,
-              });
-            }
-          }
-        }
-      });
-
-      // 11. INTELLIGENT SOCCER PLAYER COORDINATION (TIKI-TAKA PASSING & SHOT LOGIC)
-      const outfielders = children.filter(c =>
-        c.activity === 'soccer-striker' || c.activity === 'soccer-midfield' || c.activity === 'soccer-passer'
+      // 10) Intelligent Soccer AI Coordination
+      const outfielders = children.filter(
+        (c) =>
+          c.activity === 'soccer-striker' ||
+          c.activity === 'soccer-midfield' ||
+          c.activity === 'soccer-passer'
       );
 
       if (goalState === 'play' && !ball.inNet) {
-        // Find which outfield player is closest to the ball
         let closestPlayer = outfielders[0];
         let minDist = Infinity;
         outfielders.forEach((p) => {
@@ -1217,151 +1215,150 @@ export function MiniatureGardenPlayground() {
             closestPlayer = p;
           }
         });
-
         outfielders.forEach((p) => {
-          if (p === closestPlayer) {
-            p.soccerIntent = 'hunt-ball';
-          } else {
-            p.soccerIntent = 'support';
-          }
+          p.soccerIntent = p === closestPlayer ? 'hunt-ball' : 'support';
         });
       }
 
-      // 12. CHILDREN UPDATE & DRAW LOOP
+      // 11) Update & Draw Playing Children
       children.forEach((c) => {
         const groundY = getGroundY(c.curX, width, height);
         const isScorerCelebrating = scorerId === c.id && goalTimer > 0;
 
-        if (c.kickCooldown > 0) c.kickCooldown--;
+        if (c.kickCooldown > 0) c.kickCooldown = Math.max(0, c.kickCooldown - dt);
 
-        // ===============================================
-        // OUTFIELD SOCCER PLAYERS (PLAYER 1, 2, 3)
-        // ===============================================
-        if (c.activity === 'soccer-striker' || c.activity === 'soccer-midfield' || c.activity === 'soccer-passer') {
+        // Actual gravity physics for tap-to-hop!
+        if (c.vy !== 0 || c.yOffset < 0) {
+          c.yOffset += c.vy * dt;
+          c.vy += 0.28 * dt;
+          if (c.yOffset >= 0) {
+            c.yOffset = 0;
+            c.vy = 0;
+          }
+        }
+
+        // Outfield soccer players
+        if (
+          c.activity === 'soccer-striker' ||
+          c.activity === 'soccer-midfield' ||
+          c.activity === 'soccer-passer'
+        ) {
           if (goalState === 'celebrating') {
-            c.yOffset = -Math.abs(Math.sin(tick * 0.22 + c.id)) * 5.5;
+            c.yOffset = -Math.abs(Math.sin(time * 0.22 + c.id)) * 5.2;
             c.runCycle = 0;
+            c.speed = 0;
             c.facing = 1;
           } else if (goalState === 'play' && c.kickPhase === 'idle') {
             if (c.soccerIntent === 'hunt-ball') {
-              // Decide kick direction based on passing sequence
               let kickDir: 1 | -1 = 1;
-              if (c.activity === 'soccer-passer') {
-                kickDir = -1; // Player 3 is on right flank, always kicks left
-              } else if (c.activity === 'soccer-striker') {
-                kickDir = passCount < 3 ? 1 : -1; // Player 1 passes right, or shoots left
-              } else {
-                kickDir = passCount < 3 ? (c.curX < ball.x ? 1 : -1) : -1;
-              }
+              if (c.activity === 'soccer-passer') kickDir = -1;
+              else if (c.activity === 'soccer-striker') kickDir = passCount < 3 ? 1 : -1;
+              else kickDir = passCount < 3 ? (c.curX < ball.x ? 1 : -1) : -1;
 
-              // Position behind the ball relative to kick direction
               const targetX = kickDir === 1 ? ball.x - 6 : ball.x + 6;
               const dx = targetX - c.curX;
 
               if (Math.abs(dx) > 2) {
-                c.curX += Math.sign(dx) * 1.35;
+                c.curX += Math.sign(dx) * 1.35 * dt;
                 c.facing = Math.sign(dx) as 1 | -1;
-                c.runCycle += 0.32;
+                c.runCycle += 0.32 * dt;
+                c.speed = 1.35;
               } else {
                 c.facing = kickDir;
                 c.runCycle = 0;
-
-                const dist = Math.hypot(c.curX - (kickDir === 1 ? ball.x - 6 : ball.x + 6), groundY - ball.y);
-                if (dist < 22 && c.kickCooldown === 0 && !ball.inNet) {
+                c.speed = 0;
+                const dist = Math.hypot(c.curX - targetX, groundY - ball.y);
+                if (dist < 22 && c.kickCooldown <= 0 && !ball.inNet) {
                   triggerPlayerKick(c, kickDir);
                 }
               }
             } else {
-              // Support position: each player maintains their zone
               const homeX =
                 c.activity === 'soccer-striker'
-                  ? width * 0.20
+                  ? width * 0.21
                   : c.activity === 'soccer-midfield'
-                  ? width * 0.35
-                  : width * 0.48;
-
-              // Drift gently towards ball while staying in zone
+                    ? width * 0.36
+                    : width * 0.47;
               const zoneTarget = homeX + (ball.x - homeX) * 0.25;
               const dx = zoneTarget - c.curX;
               if (Math.abs(dx) > 3) {
-                c.curX += Math.sign(dx) * 0.75;
+                c.curX += Math.sign(dx) * 0.72 * dt;
                 c.facing = Math.sign(dx) as 1 | -1;
-                c.runCycle += 0.18;
+                c.runCycle += 0.18 * dt;
+                c.speed = 0.72;
               } else {
-                c.facing = ball.x > c.curX ? 1 : -1; // Watch ball
+                c.facing = ball.x > c.curX ? 1 : -1;
                 c.runCycle = 0;
+                c.speed = 0;
               }
             }
           }
 
-          // Boundary clamps for each outfield player
+          // Zone clamps
           if (c.activity === 'soccer-striker') {
-            c.curX = Math.max(goal.mouthX + 16, Math.min(width * 0.32, c.curX));
+            c.curX = Math.max(goal.mouthX + 14, Math.min(width * 0.32, c.curX));
           } else if (c.activity === 'soccer-midfield') {
             c.curX = Math.max(width * 0.26, Math.min(width * 0.44, c.curX));
-          } else if (c.activity === 'soccer-passer') {
-            c.curX = Math.max(width * 0.38, Math.min(width * 0.58, c.curX));
+          } else {
+            c.curX = Math.max(width * 0.38, Math.min(width * 0.56, c.curX));
           }
         } else if (c.activity === 'soccer-goalie') {
           if (goalState === 'play') {
             const homeX = goal.mouthX + 6;
-            const targetX = Math.max(goal.mouthX + 2, Math.min(goal.mouthX + 12, homeX + (ball.x - width * 0.3) * 0.04));
+            const targetX = Math.max(
+              goal.mouthX + 2,
+              Math.min(goal.mouthX + 12, homeX + (ball.x - width * 0.3) * 0.04)
+            );
             const dx = targetX - c.curX;
             if (Math.abs(dx) > 1.5) {
-              c.curX += Math.sign(dx) * 0.6;
-              c.runCycle += 0.16;
+              c.curX += Math.sign(dx) * 0.6 * dt;
+              c.runCycle += 0.16 * dt;
+              c.speed = 0.6;
             } else {
               c.runCycle = 0;
+              c.speed = 0;
             }
             c.facing = 1;
-
-            // Incoming shot dive/save jump reaction
             if (ball.vx < -2.0 && ball.x < width * 0.28) {
-              c.yOffset = -Math.abs(Math.sin(tick * 0.3)) * 6.0;
-            } else {
-              c.yOffset = 0;
+              c.yOffset = -Math.abs(Math.sin(time * 0.3)) * 5.8;
             }
           }
-        }
-
-        // ===============================================
-        // OTHER RICH AUTONOMOUS ACTIVITIES (CHILD 2, 4, 5, 6, 7)
-        // ===============================================
-        if (c.activity === 'slingshot-hunter') {
-          c.curX = tree1X + 16;
+        } else if (c.activity === 'slingshot-hunter') {
+          c.curX = tree1X + 15;
           c.facing = -1;
-          c.slingshotTimer++;
-
+          c.slingshotTimer += dt;
           if (c.slingshotTimer > 180) {
             c.slingshotTimer = 0;
+            const nextMango = mangoTree.mangoes[Math.floor(Math.random() * mangoTree.mangoes.length)];
             mangoTree.slingshotPebble = {
               active: true,
               x: c.curX - 6,
               y: groundY - 18,
               vx: -1.2,
               vy: -3.8,
-              targetMangoId: 1,
+              targetMangoId: nextMango.id,
             };
           }
         } else if (c.activity === 'butterfly-catcher') {
           const targetBf = butterflies[1];
-          const targetX = Math.max(width * 0.48, Math.min(width * 0.65, targetBf.x));
+          const targetX = Math.max(width * 0.48, Math.min(width * 0.64, targetBf.x));
           const dx = targetX - c.curX;
-
           if (Math.abs(dx) > 2) {
-            c.curX += Math.sign(dx) * 0.75;
+            c.curX += Math.sign(dx) * 0.72 * dt;
             c.facing = Math.sign(dx) as 1 | -1;
-            c.runCycle += 0.2;
+            c.runCycle += 0.2 * dt;
+            c.speed = 0.72;
           } else {
             c.runCycle = 0;
+            c.speed = 0;
           }
         } else if (c.activity === 'bicycle-rider') {
           const minBikeX = width * 0.65;
-          const maxBikeX = width * 0.82;
-          c.curX += c.facing * 0.85;
-          c.bikeDistance += 0.85;
-          c.runCycle += 0.18;
-
+          const maxBikeX = width * 0.81;
+          c.curX += c.facing * 0.85 * dt;
+          c.bikeDistance += 0.85 * dt;
+          c.runCycle += 0.18 * dt;
+          c.speed = 0.85;
           if (c.curX >= maxBikeX) {
             c.curX = maxBikeX;
             c.facing = -1;
@@ -1372,73 +1369,71 @@ export function MiniatureGardenPlayground() {
         } else if (c.activity === 'kite-flyer') {
           c.curX = width * c.baseRatioX;
           c.facing = -1;
-          c.yOffset = -Math.sin(tick * 0.08) * 1.5;
+          if (c.vy === 0) c.yOffset = -Math.sin(time * 0.08) * 1.2;
         } else if (c.activity === 'cheerer') {
           c.curX = width * c.baseRatioX;
           c.facing = -1;
-          c.yOffset = -Math.abs(Math.sin(tick * 0.15)) * 2.5;
+          if (c.vy === 0) {
+            const amp = goalState === 'celebrating' ? 4.8 : 2.0;
+            c.yOffset = -Math.abs(Math.sin(time * (goalState === 'celebrating' ? 0.24 : 0.14))) * amp;
+          }
         }
 
-        // ===============================================
-        // KICKING STATE MACHINE (DELIVERS REAL PHYSICAL IMPACT)
-        // ===============================================
+        // Kicking state machine (physical foot-to-ball contact)
         if (c.kickPhase === 'windup') {
-          c.kickProgress += 0.20;
-          c.kickLegAngle = -0.75 * Math.sin(c.kickProgress * Math.PI * 0.5);
+          c.kickProgress += 0.2 * dt;
+          c.kickLegAngle = -0.75 * Math.sin(Math.min(1, c.kickProgress) * Math.PI * 0.5);
           if (c.kickProgress >= 1) {
             c.kickPhase = 'strike';
             c.kickProgress = 0;
           }
         } else if (c.kickPhase === 'strike') {
-          c.kickProgress += 0.28;
-          c.kickLegAngle = 0.85 * Math.sin(c.kickProgress * Math.PI * 0.5);
+          c.kickProgress += 0.28 * dt;
+          c.kickLegAngle = 0.85 * Math.sin(Math.min(1, c.kickProgress) * Math.PI * 0.5);
 
-          // EXACT CONTACT POINT: Foot connects with the ball!
-          if (c.kickProgress >= 0.40 && !c.kickHasContacted) {
+          if (c.kickProgress >= 0.4 && !c.kickHasContacted) {
             c.kickHasContacted = true;
             c.kickCooldown = 40;
             ball.lastKickerId = c.id;
+            ball.scaleX = 1.3;
+            ball.scaleY = 0.74;
 
             if (c.activity === 'soccer-goalie') {
-              // Goalkeeper clearance / goal kick out to Player 1 (the same person)!
-              ball.vx = 4.4 + Math.random() * 0.6;
+              ball.vx = 4.3 + Math.random() * 0.6;
               ball.vy = -2.2;
               ball.rotSpeed = 0.28;
               passCount = 0;
             } else if (c.facing === 1) {
-              // Passing rightwards across pitch to teammate!
-              ball.vx = 3.6 + Math.random() * 0.8;
+              ball.vx = 3.5 + Math.random() * 0.7;
               ball.vy = -1.8;
               ball.rotSpeed = 0.22;
               passCount++;
-            } else if (c.facing === -1) {
-              if (passCount < 3 && ball.x > width * 0.30) {
-                // Passing back/leftwards to teammate
-                ball.vx = -(3.6 + Math.random() * 0.8);
+            } else {
+              if (passCount < 3 && ball.x > width * 0.3) {
+                ball.vx = -(3.5 + Math.random() * 0.7);
                 ball.vy = -1.8;
                 ball.rotSpeed = -0.22;
                 passCount++;
               } else {
-                // Striker SHOT ON GOAL!
                 const distToGoal = ball.x - goal.mouthX;
-                const power = Math.max(5.2, Math.min(6.8, distToGoal * 0.08 + 4.2));
+                const power = Math.max(5.0, Math.min(6.6, distToGoal * 0.08 + 4.0));
                 ball.vx = -power;
-                ball.vy = -2.5 - Math.random() * 1.5;
+                ball.vy = -2.4 - Math.random() * 1.4;
                 ball.rotSpeed = -0.34;
                 passCount = 0;
               }
             }
 
-            // Green turf particles fly upon foot contact
             for (let k = 0; k < 4; k++) {
-              c.particles.push({
-                x: c.curX + c.facing * 6,
-                y: groundY - 1,
-                vx: c.facing * (1 + Math.random() * 2),
-                vy: -1 - Math.random() * 1.2,
-                life: 0.6,
-                color: '#65a30d',
-              });
+              spawnParticle(
+                c.curX + c.facing * 6,
+                groundY - 1,
+                c.facing * (1 + Math.random() * 2),
+                -1 - Math.random() * 1.2,
+                1.7,
+                '#65a30d',
+                0.65
+              );
             }
           }
 
@@ -1447,36 +1442,41 @@ export function MiniatureGardenPlayground() {
             c.kickProgress = 0;
           }
         } else if (c.kickPhase === 'followthrough') {
-          c.kickProgress += 0.16;
-          c.kickLegAngle = 0.85 * (1 - c.kickProgress);
+          c.kickProgress += 0.16 * dt;
+          c.kickLegAngle = 0.85 * Math.max(0, 1 - c.kickProgress);
           if (c.kickProgress >= 1) {
             c.kickPhase = 'idle';
             c.kickLegAngle = 0;
           }
         }
 
-        // Draw shadow
-        ctx.fillStyle = 'rgba(30, 41, 59, 0.2)';
+        // Grounded directional shadow (shrinks softly during jump)
+        const jumpHeight = Math.max(0, -c.yOffset);
+        const childShadowScale = Math.max(0.65, 1 - jumpHeight / 28);
+        ctx.fillStyle = `rgba(15, 23, 42, ${0.2 * childShadowScale})`;
         ctx.beginPath();
-        if (c.activity === 'bicycle-rider') {
-          ctx.ellipse(c.curX, groundY + 1, 14, 3, 0, 0, Math.PI * 2);
-        } else {
-          ctx.ellipse(c.curX, groundY + 1, 9, 2.6, 0, 0, Math.PI * 2);
-        }
+        ctx.ellipse(
+          c.curX - 1.2,
+          groundY + 1,
+          (c.activity === 'bicycle-rider' ? 14 : 8.5) * childShadowScale,
+          2.6 * childShadowScale,
+          0,
+          0,
+          Math.PI * 2
+        );
         ctx.fill();
 
-        // ===============================================
-        // DRAWING CHILD IN TRUE SIDE-PROFILE POSTURE
-        // ===============================================
+        // Draw child in articulated side-profile with subtle sprint lean & bounce
         ctx.save();
-        ctx.translate(c.curX, groundY + c.yOffset);
+        const runBob = c.speed > 0.2 ? -Math.abs(Math.sin(c.runCycle)) * 1.3 : 0;
+        ctx.translate(c.curX, groundY + c.yOffset + runBob);
 
         const headY = -27;
-        const headRadius = 5.5;
+        const headRadius = 5.4;
         const bodyY = -17;
         const waistY = -9;
 
-        // 1) SPECIAL VEHICLE: BICYCLE
+        // 1) Bicycle or Articulated Legs
         if (c.activity === 'bicycle-rider') {
           const wheelRadius = 5.0;
           const wheelSpan = 10;
@@ -1486,7 +1486,7 @@ export function MiniatureGardenPlayground() {
 
           [rearHubX, frontHubX].forEach((hx) => {
             ctx.strokeStyle = '#0f172a';
-            ctx.lineWidth = 1.3;
+            ctx.lineWidth = 1.35;
             ctx.beginPath();
             ctx.arc(hx, hubY, wheelRadius, 0, Math.PI * 2);
             ctx.stroke();
@@ -1506,8 +1506,6 @@ export function MiniatureGardenPlayground() {
           ctx.strokeStyle = '#ef4444';
           ctx.lineWidth = 1.6;
           ctx.lineCap = 'round';
-          const crankX = 0;
-          const crankY = hubY;
           const seatPostX = -c.facing * 3;
           const seatPostY = bodyY + 3;
           const handlePostX = c.facing * 6;
@@ -1516,9 +1514,9 @@ export function MiniatureGardenPlayground() {
           ctx.beginPath();
           ctx.moveTo(rearHubX, hubY);
           ctx.lineTo(seatPostX, seatPostY);
-          ctx.lineTo(crankX, crankY);
+          ctx.lineTo(0, hubY);
           ctx.lineTo(rearHubX, hubY);
-          ctx.lineTo(crankX, crankY);
+          ctx.moveTo(0, hubY);
           ctx.lineTo(handlePostX, handlePostY);
           ctx.lineTo(seatPostX, seatPostY);
           ctx.moveTo(handlePostX, handlePostY);
@@ -1538,12 +1536,11 @@ export function MiniatureGardenPlayground() {
           ctx.fill();
 
           const pedalAngle = c.runCycle * 2;
-          const pedalR = 3.5;
-          const pedalFootX = crankX + Math.cos(pedalAngle) * pedalR;
-          const pedalFootY = crankY + Math.sin(pedalAngle) * pedalR;
+          const pedalFootX = Math.cos(pedalAngle) * 3.4;
+          const pedalFootY = hubY + Math.sin(pedalAngle) * 3.4;
 
           ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.8;
+          ctx.lineWidth = 1.75;
           ctx.beginPath();
           ctx.moveTo(seatPostX, waistY);
           ctx.lineTo(pedalFootX, pedalFootY);
@@ -1551,16 +1548,15 @@ export function MiniatureGardenPlayground() {
 
           ctx.fillStyle = '#0f172a';
           ctx.beginPath();
-          ctx.arc(pedalFootX, pedalFootY, 1.8, 0, Math.PI * 2);
+          ctx.arc(pedalFootX, pedalFootY, 1.7, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          // 2) LEGS IN SIDE PROFILE
           ctx.strokeStyle = '#334155';
           ctx.lineWidth = 1.8;
           ctx.lineCap = 'round';
 
           if (c.kickPhase !== 'idle') {
-            const plantLegX = -c.facing * 2.5;
+            const plantLegX = -c.facing * 2.4;
             ctx.beginPath();
             ctx.moveTo(plantLegX, waistY);
             ctx.lineTo(plantLegX, 0);
@@ -1571,7 +1567,7 @@ export function MiniatureGardenPlayground() {
             ctx.arc(plantLegX, 0, 1.8, 0, Math.PI * 2);
             ctx.fill();
 
-            const kickHipX = c.facing * 2.2;
+            const kickHipX = c.facing * 2.1;
             const legLen = 9.2;
             const footX = kickHipX + Math.sin(c.kickLegAngle * c.facing) * legLen;
             const footY = waistY + Math.cos(c.kickLegAngle * c.facing) * legLen;
@@ -1586,30 +1582,54 @@ export function MiniatureGardenPlayground() {
             ctx.arc(footX, footY, 2.0, 0, Math.PI * 2);
             ctx.fill();
           } else {
-            const stride = Math.sin(c.runCycle) * 4;
+            const stride = Math.sin(c.runCycle) * 4.2;
+            const liftA = Math.max(0, -Math.cos(c.runCycle)) * (c.speed > 0.2 ? 2.1 : 0);
+            const liftB = Math.max(0, Math.cos(c.runCycle)) * (c.speed > 0.2 ? 2.1 : 0);
+
+            // Back leg with subtle knee bend
+            const footAX = -c.facing * 1.4 - c.facing * stride;
+            const footAY = -liftA;
             ctx.beginPath();
-            ctx.moveTo(-c.facing * 1.5, waistY);
-            ctx.lineTo(-c.facing * 1.5 - c.facing * stride, 0);
+            ctx.moveTo(-c.facing * 1.4, waistY);
+            ctx.quadraticCurveTo(
+              (-c.facing * 1.4 + footAX) * 0.5 + c.facing * 1.2,
+              waistY * 0.45,
+              footAX,
+              footAY
+            );
             ctx.stroke();
 
+            // Front leg
+            const footBX = c.facing * 1.4 + c.facing * stride;
+            const footBY = -liftB;
             ctx.beginPath();
-            ctx.moveTo(c.facing * 1.5, waistY);
-            ctx.lineTo(c.facing * 1.5 + c.facing * stride, 0);
+            ctx.moveTo(c.facing * 1.4, waistY);
+            ctx.quadraticCurveTo(
+              (c.facing * 1.4 + footBX) * 0.5 + c.facing * 1.2,
+              waistY * 0.45,
+              footBX,
+              footBY
+            );
             ctx.stroke();
 
             ctx.fillStyle = '#0f172a';
             ctx.beginPath();
-            ctx.arc(-c.facing * 1.5 - c.facing * stride, 0, 1.8, 0, Math.PI * 2);
-            ctx.arc(c.facing * 1.5 + c.facing * stride, 0, 1.8, 0, Math.PI * 2);
+            ctx.arc(footAX, footAY, 1.75, 0, Math.PI * 2);
+            ctx.arc(footBX, footBY, 1.75, 0, Math.PI * 2);
             ctx.fill();
           }
         }
 
-        // 3) TORSO & CLOTHES
+        // Subtle forward torso lean when sprinting
+        const runLean = c.activity !== 'bicycle-rider' && c.speed > 0.5 ? c.facing * 0.08 : 0;
+        ctx.save();
+        ctx.rotate(runLean);
+
+        // 2) Torso & Clothes
         if (c.hasDress) {
           ctx.fillStyle = c.shirtColor;
           ctx.strokeStyle = '#475569';
-          ctx.lineWidth = 1.1;
+          ctx.lineWidth = 1.05;
           ctx.beginPath();
           ctx.moveTo(c.facing * 2, bodyY);
           ctx.lineTo(-c.facing * 6, waistY + 1);
@@ -1624,21 +1644,18 @@ export function MiniatureGardenPlayground() {
           ctx.fillRect(-4, bodyY, 8, 9);
         }
 
-        // 4) ARMS & PROPS
+        // 3) Arms & Props
         ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 1.75;
         ctx.lineCap = 'round';
 
         if (c.activity === 'soccer-goalie') {
-          // Goalkeeper stance: hands forward with bright yellow padded goalie gloves
-          const gloveOffset = isScorerCelebrating ? 0 : Math.sin(tick * 0.12) * 1.5;
+          const gloveOffset = isScorerCelebrating ? 0 : Math.sin(time * 0.12) * 1.5;
           const g1X = c.facing * 5;
           const g1Y = bodyY - 1 + gloveOffset;
           const g2X = c.facing * 7;
           const g2Y = bodyY + 3 - gloveOffset;
 
-          ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.8;
           ctx.beginPath();
           ctx.moveTo(-1, bodyY + 3);
           ctx.lineTo(g1X, g1Y);
@@ -1646,28 +1663,29 @@ export function MiniatureGardenPlayground() {
           ctx.lineTo(g2X, g2Y);
           ctx.stroke();
 
-          // Bright padded goalie gloves
           ctx.fillStyle = '#facc15';
           ctx.strokeStyle = '#ca8a04';
           ctx.lineWidth = 0.8;
-          [[g1X, g1Y], [g2X, g2Y]].forEach(([gx, gy]) => {
+          [
+            [g1X, g1Y],
+            [g2X, g2Y],
+          ].forEach(([gx, gy]) => {
             ctx.beginPath();
-            ctx.arc(gx, gy, 2.5, 0, Math.PI * 2);
+            ctx.arc(gx, gy, 2.4, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
           });
-        } else if (isScorerCelebrating) {
-          const celebrateWiggle = Math.sin(tick * 0.25) * 2;
+        } else if (isScorerCelebrating || (c.activity === 'cheerer' && goalState === 'celebrating')) {
+          const wiggle = Math.sin(time * 0.25) * 2;
           ctx.beginPath();
           ctx.moveTo(-3, bodyY + 3);
-          ctx.lineTo(-9 + celebrateWiggle, bodyY - 11);
+          ctx.lineTo(-8.5 + wiggle, bodyY - 10.5);
           ctx.moveTo(3, bodyY + 3);
-          ctx.lineTo(9 - celebrateWiggle, bodyY - 11);
+          ctx.lineTo(8.5 - wiggle, bodyY - 10.5);
           ctx.stroke();
         } else if (c.activity === 'slingshot-hunter') {
           const handX = c.facing * 8;
           const handY = bodyY + 1;
-
           ctx.beginPath();
           ctx.moveTo(0, bodyY + 3);
           ctx.lineTo(handX, handY);
@@ -1678,13 +1696,12 @@ export function MiniatureGardenPlayground() {
           ctx.beginPath();
           ctx.moveTo(handX, handY);
           ctx.lineTo(handX + c.facing * 3, handY - 4);
-          ctx.moveTo(handX + c.facing * 3, handY - 4);
           ctx.lineTo(handX + c.facing * 1, handY - 8);
           ctx.moveTo(handX + c.facing * 3, handY - 4);
           ctx.lineTo(handX + c.facing * 5, handY - 7);
           ctx.stroke();
 
-          const pullAmount = 3 + Math.sin(c.slingshotTimer * 0.1) * 2.5;
+          const pullAmount = 3 + Math.sin(c.slingshotTimer * 0.1) * 2.4;
           const pullHandX = -c.facing * pullAmount;
           const pullHandY = bodyY + 2;
 
@@ -1697,25 +1714,23 @@ export function MiniatureGardenPlayground() {
           ctx.stroke();
 
           ctx.strokeStyle = '#334155';
-          ctx.lineWidth = 1.8;
+          ctx.lineWidth = 1.75;
           ctx.beginPath();
           ctx.moveTo(-c.facing * 2, bodyY + 3);
           ctx.lineTo(pullHandX, pullHandY);
           ctx.stroke();
         } else if (c.activity === 'butterfly-catcher') {
-          const netPoleLen = 14;
           const netHandX = c.facing * 6;
           const netHandY = bodyY + 1;
-
           ctx.beginPath();
           ctx.moveTo(0, bodyY + 3);
           ctx.lineTo(netHandX, netHandY);
           ctx.stroke();
 
+          const poleTipX = netHandX + c.facing * 13;
+          const poleTipY = netHandY - 10;
           ctx.strokeStyle = '#b45309';
           ctx.lineWidth = 1.2;
-          const poleTipX = netHandX + c.facing * netPoleLen;
-          const poleTipY = netHandY - 10;
           ctx.beginPath();
           ctx.moveTo(netHandX - c.facing * 2, netHandY + 4);
           ctx.lineTo(poleTipX, poleTipY);
@@ -1724,14 +1739,14 @@ export function MiniatureGardenPlayground() {
           ctx.strokeStyle = '#0284c7';
           ctx.lineWidth = 1.1;
           ctx.beginPath();
-          ctx.ellipse(poleTipX + c.facing * 3, poleTipY - 2, 4.5, 3, 0.4, 0, Math.PI * 2);
+          ctx.ellipse(poleTipX + c.facing * 3, poleTipY - 2, 4.4, 2.9, 0.4, 0, Math.PI * 2);
           ctx.stroke();
 
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.48)';
           ctx.beginPath();
           ctx.moveTo(poleTipX, poleTipY);
-          ctx.lineTo(poleTipX - c.facing * 6, poleTipY - 8);
-          ctx.lineTo(poleTipX + c.facing * 6, poleTipY - 4);
+          ctx.lineTo(poleTipX - c.facing * 5.5, poleTipY - 7.5);
+          ctx.lineTo(poleTipX + c.facing * 5.5, poleTipY - 3.5);
           ctx.closePath();
           ctx.fill();
         } else if (c.activity === 'bicycle-rider') {
@@ -1748,58 +1763,62 @@ export function MiniatureGardenPlayground() {
           ctx.fillStyle = '#b45309';
           ctx.fillRect(c.facing * 4, bodyY - 4, 3, 4);
 
-          const kiteX = c.curX - 42;
-          const kiteY = 22 + Math.sin(tick * 0.05) * 3;
+          // Only draw flying diamond kite if NOT transparentSky (keeps dashboard sky clean & matches target)
+          if (!transparentSky) {
+            const kiteX = c.curX - 38 + globalWind * 2.4;
+            const kiteY = 20 + Math.sin(time * 0.055) * 3 - windGust * 2.2;
+            const relKiteX = kiteX - c.curX;
+            const relKiteY = kiteY - (groundY + c.yOffset);
 
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-          ctx.lineWidth = 0.8;
-          ctx.beginPath();
-          ctx.moveTo(0, bodyY - 3);
-          ctx.quadraticCurveTo(c.facing * 10 - 20, bodyY - 25, kiteX - c.curX, kiteY - (groundY + c.yOffset));
-          ctx.stroke();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(c.facing * 4, bodyY - 3);
+            ctx.quadraticCurveTo(relKiteX * 0.45, bodyY - 22, relKiteX, relKiteY);
+            ctx.stroke();
 
-          ctx.save();
-          ctx.translate(kiteX - c.curX, kiteY - (groundY + c.yOffset));
-          ctx.rotate(0.15 + Math.sin(tick * 0.06) * 0.1);
+            ctx.save();
+            ctx.translate(relKiteX, relKiteY);
+            ctx.rotate(0.14 + Math.sin(time * 0.06) * 0.1 + windGust * 0.08);
 
-          const kw = 7;
-          const kh = 10;
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.moveTo(0, -kh);
-          ctx.lineTo(kw, 0);
-          ctx.lineTo(0, kh);
-          ctx.closePath();
-          ctx.fill();
+            const kw = 6.5;
+            const kh = 9.5;
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.moveTo(0, -kh);
+            ctx.lineTo(kw, 0);
+            ctx.lineTo(0, kh);
+            ctx.closePath();
+            ctx.fill();
 
-          ctx.fillStyle = '#3b82f6';
-          ctx.beginPath();
-          ctx.moveTo(0, -kh);
-          ctx.lineTo(-kw, 0);
-          ctx.lineTo(0, kh);
-          ctx.closePath();
-          ctx.fill();
+            ctx.fillStyle = '#3b82f6';
+            ctx.beginPath();
+            ctx.moveTo(0, -kh);
+            ctx.lineTo(-kw, 0);
+            ctx.lineTo(0, kh);
+            ctx.closePath();
+            ctx.fill();
 
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 0.8;
-          ctx.beginPath();
-          ctx.moveTo(0, -kh);
-          ctx.lineTo(0, kh);
-          ctx.moveTo(-kw, 0);
-          ctx.lineTo(kw, 0);
-          ctx.stroke();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 0.75;
+            ctx.beginPath();
+            ctx.moveTo(0, -kh);
+            ctx.lineTo(0, kh);
+            ctx.moveTo(-kw, 0);
+            ctx.lineTo(kw, 0);
+            ctx.stroke();
 
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 1.0;
-          ctx.beginPath();
-          ctx.moveTo(0, kh);
-          for (let t = 1; t <= 3; t++) {
-            const tx = Math.sin(tick * 0.15 + t) * 3;
-            const ty = kh + t * 4;
-            ctx.lineTo(tx, ty);
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.moveTo(0, kh);
+            for (let t = 1; t <= 3; t++) {
+              const tx = Math.sin(time * 0.16 + t) * (2.6 + windGust * 0.9);
+              ctx.lineTo(tx, kh + t * 3.8);
+            }
+            ctx.stroke();
+            ctx.restore();
           }
-          ctx.stroke();
-          ctx.restore();
         } else if (c.kickPhase !== 'idle') {
           ctx.beginPath();
           ctx.moveTo(c.facing * 3, bodyY + 2);
@@ -1815,33 +1834,32 @@ export function MiniatureGardenPlayground() {
           ctx.stroke();
         }
 
-        // 5) HEAD & PROFILE FACE
+        // 4) Head & Side-Profile Face
         ctx.fillStyle = c.skinColor;
         ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1.15;
         ctx.beginPath();
         ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
-        const eyeX = c.facing * 2.4;
         ctx.fillStyle = '#0f172a';
         ctx.beginPath();
-        ctx.arc(eyeX, headY - 1, 0.9, 0, Math.PI * 2);
+        ctx.arc(c.facing * 2.3, headY - 1, 0.9, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.strokeStyle = '#7c2d12';
-        ctx.lineWidth = 1.1;
+        ctx.lineWidth = 1.05;
         ctx.beginPath();
-        ctx.arc(c.facing * 1.5, headY + 1, 2.0, 0, Math.PI * 0.75);
+        ctx.arc(c.facing * 1.4, headY + 1, 1.9, 0, Math.PI * 0.75);
         ctx.stroke();
 
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.45)';
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.42)';
         ctx.beginPath();
-        ctx.arc(c.facing * 1.2, headY + 1.2, 1.2, 0, Math.PI * 2);
+        ctx.arc(c.facing * 1.1, headY + 1.2, 1.15, 0, Math.PI * 2);
         ctx.fill();
 
-        // 6) HAIR STYLES IN SIDE PROFILE
+        // 5) Hair Styles
         ctx.fillStyle = c.hairColor;
         ctx.strokeStyle = c.hairColor;
         ctx.lineWidth = 1.2;
@@ -1856,7 +1874,12 @@ export function MiniatureGardenPlayground() {
           ctx.fill();
           ctx.beginPath();
           ctx.moveTo(-c.facing * headRadius, headY - 1);
-          ctx.quadraticCurveTo(-c.facing * (headRadius + 5), headY + 2, -c.facing * (headRadius + 4), headY + 7);
+          ctx.quadraticCurveTo(
+            -c.facing * (headRadius + 5),
+            headY + 2,
+            -c.facing * (headRadius + 4),
+            headY + 7
+          );
           ctx.stroke();
         } else if (c.hairStyle === 'spiky-black') {
           ctx.beginPath();
@@ -1877,7 +1900,7 @@ export function MiniatureGardenPlayground() {
         } else if (c.hairStyle === 'beanie') {
           ctx.fillStyle = '#991b1b';
           ctx.beginPath();
-          ctx.arc(0, headY - 2, headRadius + 0.8, Math.PI * 1, Math.PI * 2);
+          ctx.arc(0, headY - 2, headRadius + 0.8, Math.PI, Math.PI * 2);
           ctx.fill();
           ctx.fillRect(c.facing > 0 ? 0 : -headRadius - 3, headY - 3, headRadius + 3, 2);
         } else if (c.hairStyle === 'orange-pigtails') {
@@ -1891,18 +1914,20 @@ export function MiniatureGardenPlayground() {
         } else if (c.hairStyle === 'curly-brown') {
           for (let cp = -2; cp <= 2; cp++) {
             ctx.beginPath();
-            ctx.arc(cp * 2.4, headY - 5, 2.3, 0, Math.PI * 2);
+            ctx.arc(cp * 2.3, headY - 5, 2.2, 0, Math.PI * 2);
             ctx.fill();
           }
         }
 
-        // 7) "GOAL! ⚽" SPEECH BUBBLE OVER SCORER'S HEAD
-        if (isScorerCelebrating) {
-          const bubbleAnim = Math.min(1, (160 - goalTimer) / 12);
-          const bounce = 1 + Math.sin(tick * 0.2) * 0.08;
+        ctx.restore(); // End sprint lean
+
+        // 6) "GOAL! ⚽" Comic Speech Bubble (skipped in dashboard transparentSky mode to keep sky pristine)
+        if (!transparentSky && isScorerCelebrating) {
+          const bubbleAnim = Math.min(1, (175 - goalTimer) / 12);
+          const bounce = 1 + Math.sin(time * 0.22) * 0.07;
 
           ctx.save();
-          ctx.translate(0, headY - 22);
+          ctx.translate(0, headY - 21);
           ctx.scale(bubbleAnim * bounce, bubbleAnim * bounce);
 
           const bw = 46;
@@ -1927,128 +1952,164 @@ export function MiniatureGardenPlayground() {
             }
           };
 
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
           drawBubbleRect(-bw / 2 + 1, -bh / 2 + 1);
           ctx.fill();
 
-          const bGrad = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
-          bGrad.addColorStop(0, '#ffffff');
-          bGrad.addColorStop(1, '#ecfdf5');
-          ctx.fillStyle = bGrad;
+          ctx.fillStyle = '#ffffff';
           ctx.strokeStyle = '#059669';
           ctx.lineWidth = 1.4;
           drawBubbleRect(-bw / 2, -bh / 2);
           ctx.fill();
           ctx.stroke();
 
-          ctx.fillStyle = '#ecfdf5';
-          ctx.strokeStyle = '#059669';
-          ctx.lineWidth = 1.4;
+          ctx.fillStyle = '#ffffff';
           ctx.beginPath();
           ctx.moveTo(-3, bh / 2 - 0.5);
           ctx.lineTo(0, bh / 2 + 5);
           ctx.lineTo(4, bh / 2 - 0.5);
           ctx.fill();
           ctx.stroke();
-
-          ctx.fillStyle = '#ecfdf5';
-          ctx.beginPath();
-          ctx.fillRect(-2, bh / 2 - 2, 5, 2.5);
+          ctx.fillRect(-2.2, bh / 2 - 2, 5.2, 2.5);
 
           ctx.font = 'bold 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#047857';
-          ctx.fillText('GOAL! ⚽', 0, 0);
-
+          ctx.fillText('GOAL! ⚽', 0, 0.5);
           ctx.restore();
         }
 
-        ctx.restore();
-
-        // Celebration star particles
-        for (let p = c.particles.length - 1; p >= 0; p--) {
-          const pt = c.particles[p];
-          pt.x += pt.vx;
-          pt.y += pt.vy;
-          pt.vy += 0.08;
-          pt.life -= 0.03;
-
-          if (pt.life <= 0) {
-            c.particles.splice(p, 1);
-          } else {
-            ctx.save();
-            ctx.fillStyle = pt.color;
-            ctx.globalAlpha = pt.life;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 1.8 * pt.life, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-          }
-        }
+        ctx.restore(); // End child transform
       });
 
-      // 13. CELEBRATION CONFETTI PARTICLES
+      // 12) Confetti & Sparkle Particles (pooled & rotated)
       for (let cp = celebrationParticles.length - 1; cp >= 0; cp--) {
-        const cpItem = celebrationParticles[cp];
-        cpItem.x += cpItem.vx;
-        cpItem.y += cpItem.vy;
-        cpItem.vy += 0.07;
-        cpItem.vx *= 0.98;
-        cpItem.life -= 0.018;
+        const pt = celebrationParticles[cp];
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+        pt.vy += 0.08 * dt;
+        pt.vx *= Math.pow(0.98, dt);
+        pt.rot += pt.vrot * dt;
+        pt.life -= 0.02 * dt;
 
-        if (cpItem.life <= 0) {
+        if (pt.life <= 0) {
           celebrationParticles.splice(cp, 1);
         } else {
           ctx.save();
-          ctx.globalAlpha = cpItem.life;
-          ctx.fillStyle = cpItem.color;
-          ctx.beginPath();
-          ctx.arc(cpItem.x, cpItem.y, cpItem.size * cpItem.life, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.globalAlpha = pt.life;
+          ctx.translate(pt.x, pt.y);
+          ctx.rotate(pt.rot);
+          ctx.fillStyle = pt.color;
+          ctx.fillRect(-pt.size * 0.6, -pt.size * 0.4, pt.size * 1.2, pt.size * 0.8);
           ctx.restore();
         }
       }
+    };
 
-      if (!pausedRef.current) {
-        animationFrameId = requestAnimationFrame(render);
+    // ─── Smart Battery-Safe Animation Loop ────────────────────────────────────
+    const loop = (timestamp: number) => {
+      if (pausedRef.current || !isVisible || !isDocVisible) {
+        isRunning = false;
+        lastTimestamp = 0;
+        return;
+      }
+
+      isRunning = true;
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const elapsed = timestamp - lastTimestamp;
+      lastTimestamp = timestamp;
+
+      // Clamp dt to avoid physics jumps after switching tabs
+      const dt = Math.min(Math.max(elapsed / 16.667, 0.25), 2.0);
+      drawFrame(dt);
+
+      animationFrameId = requestAnimationFrame(loop);
+    };
+
+    const startIfActive = () => {
+      if (!isRunning && !pausedRef.current && isVisible && isDocVisible) {
+        lastTimestamp = 0;
+        animationFrameId = requestAnimationFrame(loop);
       }
     };
 
-    render();
+    resumeLoopRef.current = startIfActive;
+
+    // ResizeObserver for crisp layout & orientation changes
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => handleResize())
+        : null;
+    resizeObserver?.observe(container);
+    window.addEventListener('resize', handleResize);
+
+    // Pause automatically when scrolled out of view
+    const intersectionObserver =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              isVisible = entries[0]?.isIntersecting ?? true;
+              if (isVisible) startIfActive();
+            },
+            { threshold: 0.05 }
+          )
+        : null;
+    intersectionObserver?.observe(container);
+
+    // Pause automatically when phone screen locks or app is backgrounded
+    const onVisibilityChange = () => {
+      isDocVisible = !document.hidden;
+      if (isDocVisible) startIfActive();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    // Initial layout & first frame
+    handleResize();
+    drawFrame(0);
+    startIfActive();
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      isRunning = false;
+      resumeLoopRef.current = null;
+      resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
       window.removeEventListener('resize', handleResize);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mousedown', onMouseDown);
-      canvas.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      canvas.removeEventListener('pointerdown', onPointerDown);
     };
-  }, [isPaused]);
+  }, [transparentSky]);
 
   return (
     <div
       ref={containerRef}
-      className="w-full h-24 sm:h-28 md:h-30 rounded-2xl border border-emerald-200/90 shadow-xs relative overflow-hidden select-none"
+      className={
+        transparentSky
+          ? `w-full h-28 sm:h-32 relative select-none ${className}`
+          : `w-full h-24 sm:h-28 md:h-30 rounded-2xl border border-emerald-200/90 shadow-xs relative overflow-hidden select-none ${className}`
+      }
     >
       <canvas
         ref={canvasRef}
-        className="w-full h-full block"
+        className="w-full h-full block touch-manipulation"
         aria-label="Interactive live miniature garden with playing children"
       />
-      <button
-        type="button"
-        onClick={() => setIsPaused((prev) => !prev)}
-        className="absolute top-2 right-2 z-10 touch-target-44 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-white/80 hover:bg-white text-slate-600 border border-slate-200 shadow-xs backdrop-blur-xs cursor-pointer transition-colors"
-        aria-label={isPaused ? 'Resume garden animation' : 'Pause garden animation'}
-        title={isPaused ? 'Resume garden animation' : 'Pause garden animation'}
-      >
-        {isPaused ? (
-          <Play className="h-4 w-4 text-emerald-700" />
-        ) : (
-          <Pause className="h-4 w-4 text-slate-700" />
-        )}
-      </button>
+      {!hideControls && (
+        <button
+          type="button"
+          onClick={() => setInternalPaused((prev) => !prev)}
+          className="absolute top-2 right-2 z-10 touch-target-44 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-white/80 hover:bg-white text-slate-600 border border-slate-200 shadow-xs backdrop-blur-xs cursor-pointer transition-colors"
+          aria-label={isPaused ? 'Resume garden animation' : 'Pause garden animation'}
+          title={isPaused ? 'Resume garden animation' : 'Pause garden animation'}
+        >
+          {isPaused ? (
+            <Play className="h-4 w-4 text-emerald-700" />
+          ) : (
+            <Pause className="h-4 w-4 text-slate-700" />
+          )}
+        </button>
+      )}
     </div>
   );
 }

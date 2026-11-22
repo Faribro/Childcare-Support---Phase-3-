@@ -108,10 +108,9 @@ describe('Mobile UX Refinement — KoboCollect-Style Mobile Experience', () => {
       expect(screen.queryByText('Evaluation')).toBeNull();
     });
 
-    it('shows static subtitle labels for Drafts and Submitted surveys', () => {
+    it('shows static subtitle label for Submitted surveys', () => {
       render(<MobileKoboHomeScreen {...defaultHomeProps} />);
 
-      expect(screen.getByText('Saved locally on this device')).toBeDefined();
       expect(screen.getByText('Confirmed on central server')).toBeDefined();
     });
 

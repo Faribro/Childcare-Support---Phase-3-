@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  Plus,
   FileText,
   Clock,
   AlertTriangle,
@@ -11,11 +10,13 @@ import {
   Landmark,
   CheckCircle2,
   ChevronRight,
+  RotateCw,
 } from 'lucide-react';
 import type { AssessmentRecord } from '@/types/domain';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
-import { ThreeStatusOrb } from '@/components/dashboard/ThreeStatusOrb';
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface MobileKoboHomeScreenProps {
   drafts?: AssessmentRecord[];
@@ -38,6 +39,60 @@ interface MobileKoboHomeScreenProps {
   onRequireAuth?: () => void;
 }
 
+// ─── GPU-Composited Keyframes (transform + opacity only for 60fps WebView) ───
+
+const COSMIC_STYLES = `
+  @keyframes kobo-star-twinkle {
+    0%, 100% { opacity: 0.28; transform: scale(0.82); }
+    50%      { opacity: 1;    transform: scale(1.22); }
+  }
+  @keyframes kobo-planet-float {
+    0%, 100% { transform: translate3d(0, 0px, 0); }
+    50%      { transform: translate3d(0, -5px, 0); }
+  }
+  @keyframes kobo-flame-flicker {
+    0%, 100% { transform: scaleX(1) scaleY(1); opacity: 0.96; }
+    35%      { transform: scaleX(0.84) scaleY(1.1); opacity: 0.84; }
+    70%      { transform: scaleX(1.12) scaleY(0.92); opacity: 1; }
+  }
+  @keyframes kobo-halo-breathe {
+    0%, 100% { opacity: 0.55; transform: scale(0.98); }
+    50%      { opacity: 0.95; transform: scale(1.07); }
+  }
+  @keyframes kobo-sun-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes kobo-gem-drift {
+    0%, 100% { transform: translate3d(0, 0px, 0) rotate(0deg); }
+    50%      { transform: translate3d(0, -6px, 0) rotate(5deg); }
+  }
+
+  .kobo-star         { animation: kobo-star-twinkle var(--dur, 2.4s) var(--delay, 0s) ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  .kobo-float-d      { animation: kobo-planet-float 5.6s 0.0s ease-in-out infinite; will-change: transform; }
+  .kobo-float-o      { animation: kobo-planet-float 6.2s 0.7s ease-in-out infinite; will-change: transform; }
+  .kobo-float-p      { animation: kobo-planet-float 6.8s 1.3s ease-in-out infinite; will-change: transform; }
+  .kobo-flame        { animation: kobo-flame-flicker 0.48s ease-in-out infinite; transform-box: fill-box; transform-origin: 100% 50%; }
+  .kobo-halo-active  { animation: kobo-halo-breathe 2.5s ease-in-out infinite; will-change: transform, opacity; }
+  .kobo-sun-rays     { animation: kobo-sun-spin 28s linear infinite; transform-box: fill-box; transform-origin: center; will-change: transform; }
+  .kobo-gem          { animation: kobo-gem-drift 5.2s ease-in-out infinite; will-change: transform; }
+
+  .kobo-animations-paused *,
+  .kobo-animations-paused *::before,
+  .kobo-animations-paused *::after {
+    animation-play-state: paused !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kobo-star, .kobo-float-d, .kobo-float-o, .kobo-float-p,
+    .kobo-flame, .kobo-halo-active, .kobo-sun-rays, .kobo-gem {
+      animation: none !important;
+    }
+  }
+`;
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 export function MobileKoboHomeScreen({
   drafts,
   draftsCount,
@@ -55,38 +110,62 @@ export function MobileKoboHomeScreen({
   isAuthenticated = true,
   onRequireAuth,
 }: MobileKoboHomeScreenProps) {
-  const draftsLoading = isDraftsLoading ?? isLoading;
-  const waitingLoading = isWaitingLoading ?? isLoading;
+  // ── Counts ──────────────────────────────────────────────────────────────────
+  const draftsLoading    = isDraftsLoading    ?? isLoading;
+  const waitingLoading   = isWaitingLoading   ?? isLoading;
   const submittedLoading = isSubmittedLoading ?? isLoading;
 
-  // Single truth: authenticated users see actual counts; signed-out workers see 0
-  const count = isAuthenticated ? (draftsCount ?? drafts?.length ?? 0) : 0;
-  const effectiveMissingDocs = isAuthenticated ? submittedMissingDocsCount : 0;
-  const effectiveBankPending = isAuthenticated ? approvedBankPendingCount : 0;
-  const effectiveWaitingCount = isAuthenticated ? waitingCount : 0;
-  const pendingsTotal = effectiveMissingDocs + effectiveBankPending;
-  const totalActionable = count + effectiveWaitingCount + pendingsTotal;
+  const count                 = isAuthenticated ? (draftsCount ?? drafts?.length ?? 0) : 0;
+  const effectiveMissingDocs  = isAuthenticated ? submittedMissingDocsCount : 0;
+  const effectiveBankPending  = isAuthenticated ? approvedBankPendingCount  : 0;
+  const effectiveWaitingCount = isAuthenticated ? waitingCount              : 0;
+  const pendingsTotal         = effectiveMissingDocs + effectiveBankPending;
+  const totalActionable       = count + effectiveWaitingCount + pendingsTotal;
 
-  // Expandable Pendings complete breakdown state
+  // ── State ───────────────────────────────────────────────────────────────────
   const [isPendingsExpanded, setIsPendingsExpanded] = useState(false);
-
-  // State-driven active bridge states: calm/low-opacity when connected orbs are 0, active when >= 1
-  const isTopBridgeActive = count >= 1 || pendingsTotal >= 1;
-  const isBottomBridgeActive = effectiveWaitingCount >= 1 || pendingsTotal >= 1;
-
-  // Detect user's reduced-motion preference for SVG flow conduits
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [isLaunching, setIsLaunching]               = useState(false);
+  const [animationsEnabled, setAnimationsEnabled]   = useState(true);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-      setPrefersReducedMotion(mediaQuery.matches);
-      const listener = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
-      mediaQuery.addEventListener('change', listener);
-      return () => mediaQuery.removeEventListener('change', listener);
+    if (typeof window === 'undefined') return;
+    const hasMatchMedia = typeof window.matchMedia === 'function';
+    const prefersReduced =
+      hasMatchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReduced) {
+      setAnimationsEnabled(false);
+      return;
     }
+    try {
+      const stored = window.localStorage.getItem('mobile-dash-animations');
+      if (stored !== null) setAnimationsEnabled(stored === 'true');
+    } catch {
+      // Ignore restricted WebView storage errors
+    }
+    if (!hasMatchMedia) return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = (e: MediaQueryListEvent) => {
+      if (e.matches) setAnimationsEnabled(false);
+    };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, []);
 
+  const toggleAnimations = () => {
+    setAnimationsEnabled((prev) => {
+      const next = !prev;
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('mobile-dash-animations', String(next));
+        }
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  // ── Badge ───────────────────────────────────────────────────────────────────
   const badgeText =
     totalActionable === 0
       ? DASHBOARD_COPY.badgeZero
@@ -94,14 +173,12 @@ export function MobileKoboHomeScreen({
         ? DASHBOARD_COPY.badgeSingular
         : DASHBOARD_COPY.badgePlural(totalActionable);
 
+  // ── Handlers ────────────────────────────────────────────────────────────────
   const handleProtectedNav = (e: React.MouseEvent, url: string) => {
     if (!isAuthenticated) {
       e.preventDefault();
-      if (onRequireAuth) {
-        onRequireAuth();
-      } else if (onStartSurvey) {
-        onStartSurvey(e);
-      }
+      if (onRequireAuth) onRequireAuth();
+      else if (onStartSurvey) onStartSurvey(e);
       return;
     }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -116,6 +193,10 @@ export function MobileKoboHomeScreen({
       onRequireAuth();
       return;
     }
+    if (animationsEnabled) {
+      setIsLaunching(true);
+      window.setTimeout(() => setIsLaunching(false), 280);
+    }
     if (onStartSurvey) {
       onStartSurvey(e);
     } else {
@@ -123,808 +204,1112 @@ export function MobileKoboHomeScreen({
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="md:hidden w-full max-w-md mx-auto px-4 py-3 sm:py-4 space-y-3.5 animate-in fade-in duration-150">
-      {/* ── Unauthenticated Sign-In Notice Banner ── */}
-      {!isAuthenticated && (
-        <div className="w-full bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200/90 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs">
-          <div className="min-w-0 pr-3">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-teal-600 animate-pulse" />
-              <h4 className="text-xs font-bold text-teal-950">Sign In Required</h4>
-            </div>
-            <p className="text-[11px] text-teal-800 font-medium mt-0.5">
-              Please sign in or register to record and sync surveys.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              if (onRequireAuth) onRequireAuth();
-              else if (onStartSurvey) onStartSurvey(e);
-            }}
-            className="px-3.5 py-1.5 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white font-bold text-xs rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
-          >
-            Sign In
-          </button>
-        </div>
-      )}
+    <div
+      className={`md:hidden relative flex w-full flex-col justify-between overflow-x-hidden select-none ${
+        animationsEnabled ? '' : 'kobo-animations-paused'
+      }`}
+      style={{ minHeight: 'calc(100svh - 56px)' }}
+    >
+      <style dangerouslySetInnerHTML={{ __html: COSMIC_STYLES }} />
 
-      {/* ── Row 1: Start New Survey (Prominent Full-Width Primary Action, >=56px touch target) ── */}
-      <Link
-        href="/assessment/new"
-        onClick={handleStartSurvey}
-        className="w-full min-h-[56px] bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 hover:from-teal-800 hover:to-emerald-700 active:scale-[0.99] text-white rounded-2xl p-4 shadow-sm border border-teal-800 flex items-center justify-between transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600"
+      {/* ═══════════════════════════════════════════════════════════════════════
+          LAYER 0 — SEAMLESS SPACE-TO-DAYTIME-SKY BACKDROP
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+        aria-hidden="true"
+        style={{
+          background:
+            'linear-gradient(180deg, #072B7C 0%, #0D44B6 16%, #1864E0 36%, #2C88F8 58%, #4BAEFF 76%, #88D1FF 90%, #BCE9FF 100%)',
+        }}
       >
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-            <Plus className="w-6 h-6 text-white stroke-[2.5]" aria-hidden="true" />
-          </div>
-          <div className="text-left">
-            <h3 className="text-base font-bold leading-tight text-white">
-              {DASHBOARD_COPY.mobile.startSurveyTitle}
-            </h3>
-            <p className="text-xs text-teal-50/90 font-medium">
-              {DASHBOARD_COPY.mobile.startSurveySubtitle}
-            </p>
-          </div>
-        </div>
-        <ChevronRight className="w-5 h-5 text-white/80 shrink-0" aria-hidden="true" />
-      </Link>
+        {/* Soft upper sky luminescence */}
+        <div
+          className="absolute inset-x-0 top-0 h-[55%] opacity-60"
+          style={{
+            background:
+              'radial-gradient(ellipse 90% 45% at 50% 18%, rgba(125,211,252,0.34) 0%, rgba(30,110,235,0) 70%)',
+          }}
+        />
 
-      {/* ── Needs Attention Stage Section ── */}
-      <section aria-labelledby="mobile-needs-attention-heading" className="pt-0.5 space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-3 h-3 stroke-[2.2]" aria-hidden="true" />
+        {/* Twinkling stars & 4-point comic sparkles */}
+        <svg
+          viewBox="0 0 390 560"
+          className="absolute inset-x-0 top-0 h-[82%] w-full"
+          preserveAspectRatio="xMidYMid slice"
+        >
+          {[
+            [24, 24, 1.5, '2.0s', '0.0s'],
+            [76, 16, 1.1, '2.6s', '0.4s'],
+            [142, 46, 1.3, '1.8s', '0.9s'],
+            [316, 22, 1.6, '2.4s', '0.2s'],
+            [358, 52, 1.2, '2.1s', '1.1s'],
+            [194, 146, 1.7, '1.9s', '0.6s'],
+            [224, 194, 1.3, '2.7s', '1.4s'],
+            [188, 280, 1.6, '2.2s', '0.3s'],
+            [42, 272, 1.4, '2.5s', '0.8s'],
+            [366, 286, 1.4, '1.9s', '0.5s'],
+            [132, 366, 1.5, '2.3s', '1.2s'],
+            [236, 364, 1.8, '2.0s', '0.7s'],
+            [74, 412, 1.3, '2.6s', '1.5s'],
+            [334, 424, 1.2, '2.1s', '0.4s'],
+          ].map(([cx, cy, r, dur, delay], i) => (
+            <circle
+              key={i}
+              cx={cx as number}
+              cy={cy as number}
+              r={r as number}
+              fill="#FFFFFF"
+              className="kobo-star"
+              style={{ '--dur': dur, '--delay': delay } as React.CSSProperties}
+            />
+          ))}
+          {/* Crisp 4-point comic sparkles */}
+          <path
+            d="M210 156 l2.2 6.4 6.4 2.2-6.4 2.2-2.2 6.4-2.2-6.4-6.4-2.2 6.4-2.2z"
+            fill="#E0F2FE"
+            className="kobo-star"
+            style={{ '--dur': '2.4s', '--delay': '0.5s' } as React.CSSProperties}
+          />
+          <path
+            d="M242 384 l2 5.6 5.6 2-5.6 2-2 5.6-2-5.6-5.6-2 5.6-2z"
+            fill="#FFFFFF"
+            className="kobo-star"
+            style={{ '--dur': '2.8s', '--delay': '1.2s' } as React.CSSProperties}
+          />
+        </svg>
+
+        {/* Decorative floating edge moons & crystals (exact comic balance) */}
+        {/* Upper-left spotted mini moon */}
+        <svg
+          className="kobo-gem absolute left-2 top-[156px] h-5 w-5 opacity-95"
+          style={{ animationDelay: '0s' }}
+          viewBox="0 0 28 28"
+        >
+          <defs>
+            <radialGradient id="kobo-mini-moon-tl" cx="35%" cy="30%" r="70%">
+              <stop offset="0%" stopColor="#F5D0FE" />
+              <stop offset="55%" stopColor="#A855F7" />
+              <stop offset="100%" stopColor="#4C1D95" />
+            </radialGradient>
+          </defs>
+          <circle cx="14" cy="14" r="11" fill="url(#kobo-mini-moon-tl)" />
+          <circle cx="10" cy="11" r="2.2" fill="#4C1D95" opacity="0.45" />
+          <circle cx="18" cy="16" r="1.8" fill="#4C1D95" opacity="0.4" />
+        </svg>
+
+        {/* Upper-right ringed purple mini planet */}
+        <svg
+          className="kobo-gem absolute right-1.5 top-[156px] h-10 w-14 opacity-95"
+          style={{ animationDelay: '1.1s' }}
+          viewBox="0 0 64 44"
+        >
+          <defs>
+            <radialGradient id="kobo-mini-saturn" cx="35%" cy="30%" r="70%">
+              <stop offset="0%" stopColor="#DDD6FE" />
+              <stop offset="55%" stopColor="#7C3AED" />
+              <stop offset="100%" stopColor="#3B0764" />
+            </radialGradient>
+          </defs>
+          <ellipse
+            cx="32"
+            cy="22"
+            rx="27"
+            ry="6.5"
+            transform="rotate(-10 32 22)"
+            fill="none"
+            stroke="#E879F9"
+            strokeWidth="2.4"
+            opacity="0.72"
+          />
+          <circle cx="32" cy="21.5" r="12.5" fill="url(#kobo-mini-saturn)" />
+          <path
+            d="M6.5 26.5 A27 6.5 -10 0 0 57.5 17.5"
+            fill="none"
+            stroke="#F5D0FE"
+            strokeWidth="2.2"
+          />
+        </svg>
+
+        {/* Mid-left faceted glowing crystal */}
+        <svg
+          className="kobo-gem absolute left-2.5 top-[292px] h-5 w-5 opacity-95"
+          style={{ animationDelay: '0.6s' }}
+          viewBox="0 0 24 24"
+        >
+          <polygon points="12,1 21,9 17,22 7,22 3,9" fill="#C084FC" />
+          <polygon points="12,1 21,9 12,12" fill="#F5D0FE" opacity="0.85" />
+          <polygon points="12,12 17,22 7,22" fill="#7E22CE" opacity="0.75" />
+        </svg>
+
+        {/* Lower-left faceted crystal */}
+        <svg
+          className="kobo-gem absolute left-2 top-[430px] h-4 w-4 opacity-90"
+          style={{ animationDelay: '1.8s' }}
+          viewBox="0 0 24 24"
+        >
+          <polygon points="12,2 20,10 16,21 8,21 4,10" fill="#A855F7" />
+          <polygon points="12,2 20,10 12,12" fill="#E9D5FF" opacity="0.85" />
+        </svg>
+
+        {/* Mid-right cratered purple moon */}
+        <svg
+          className="kobo-gem absolute right-1.5 top-[374px] h-9 w-9 opacity-95"
+          style={{ animationDelay: '0.9s' }}
+          viewBox="0 0 36 36"
+        >
+          <defs>
+            <radialGradient id="kobo-mini-moon-mr" cx="34%" cy="30%" r="70%">
+              <stop offset="0%" stopColor="#DDD6FE" />
+              <stop offset="55%" stopColor="#8B5CF6" />
+              <stop offset="100%" stopColor="#4C1D95" />
+            </radialGradient>
+          </defs>
+          <circle cx="18" cy="18" r="15" fill="url(#kobo-mini-moon-mr)" />
+          <circle cx="12" cy="14" r="3" fill="#4C1D95" opacity="0.4" />
+          <circle cx="22" cy="21" r="2.4" fill="#4C1D95" opacity="0.38" />
+          <circle cx="20" cy="11" r="1.8" fill="#4C1D95" opacity="0.32" />
+        </svg>
+
+        {/* Parted left-and-right fluffy horizon clouds (open blue sky in the center) */}
+        <svg
+          viewBox="0 0 390 150"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute bottom-[28px] inset-x-0 h-[145px] w-full"
+        >
+          <defs>
+            <linearGradient id="kobo-horizon-cloud" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.96" />
+              <stop offset="65%" stopColor="#E6F5FF" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#CBEAFF" stopOpacity="0.7" />
+            </linearGradient>
+          </defs>
+          {/* Left rising cloud bank */}
+          <path
+            d="M-10 150 L-10 56 Q16 42 42 58 Q68 50 88 76 Q116 74 136 98 Q162 96 184 114 L184 150 Z"
+            fill="url(#kobo-horizon-cloud)"
+          />
+          {/* Right rising cloud bank */}
+          <path
+            d="M400 150 L400 40 Q372 34 352 56 Q326 52 308 78 Q282 76 260 100 Q232 98 206 116 L206 150 Z"
+            fill="url(#kobo-horizon-cloud)"
+          />
+          {/* Soft luminous mist across the bottom behind the grass crest */}
+          <path
+            d="M-10 150 L-10 112 Q85 96 195 110 Q305 94 400 108 L400 150 Z"
+            fill="#FFFFFF"
+            opacity="0.72"
+          />
+        </svg>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          LAYER 1 — INTERACTIVE DASHBOARD CONTENT
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="relative z-10 mx-auto w-full max-w-[412px] px-3 pt-2.5 pb-2 space-y-3">
+        {/* ── Unauthenticated Notice ── */}
+        {!isAuthenticated && (
+          <div className="w-full rounded-2xl border border-white/35 bg-white/18 p-3 backdrop-blur-md flex items-center justify-between shadow-sm">
+            <div className="min-w-0 pr-3">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-teal-300 animate-pulse" />
+                <h4 className="text-xs font-bold text-white">Sign In Required</h4>
+              </div>
+              <p className="mt-0.5 text-[11px] font-medium text-white/85">
+                Please sign in or register to record and sync surveys.
+              </p>
             </div>
-            <h2 id="mobile-needs-attention-heading" className="text-xs font-bold text-slate-800 tracking-tight">
-              {DASHBOARD_COPY.sectionHeading}
-            </h2>
+            <button
+              type="button"
+              onClick={(e) => {
+                if (onRequireAuth) onRequireAuth();
+                else if (onStartSurvey) onStartSurvey(e);
+              }}
+              className="shrink-0 cursor-pointer rounded-xl bg-white px-3.5 py-1.5 text-xs font-bold text-teal-800 shadow-sm transition-colors hover:bg-teal-50"
+            >
+              Sign In
+            </button>
           </div>
+        )}
+
+        {/* ── 1. UNIFIED SPACESHIP "Start New Survey" CTA (Pointing Right) ── */}
+        <div className="flex justify-center pt-0.5">
+          <Link
+            href="/assessment/new"
+            onClick={handleStartSurvey}
+            className={`group relative flex h-[56px] w-full max-w-[332px] items-center cursor-pointer transition-transform duration-200 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-blue-800 rounded-full ${
+              isLaunching ? 'translate-x-2' : ''
+            }`}
+          >
+            {/* Full cohesive comic spaceship SVG hull */}
+            <svg
+              viewBox="0 0 360 70"
+              className="pointer-events-none absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_8px_16px_rgba(6,24,78,0.42)]"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient id="kobo-ship-hull" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#FFFFFF" />
+                  <stop offset="56%" stopColor="#F0F7FF" />
+                  <stop offset="86%" stopColor="#CBE4FF" />
+                  <stop offset="100%" stopColor="#93C5FD" />
+                </linearGradient>
+                <linearGradient id="kobo-ship-fin" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#FDE047" />
+                  <stop offset="50%" stopColor="#F97316" />
+                  <stop offset="100%" stopColor="#C2410C" />
+                </linearGradient>
+                <linearGradient id="kobo-ship-flame" x1="1" y1="0.5" x2="0" y2="0.5">
+                  <stop offset="0%" stopColor="#FEF9C3" />
+                  <stop offset="35%" stopColor="#FACC15" />
+                  <stop offset="72%" stopColor="#F97316" />
+                  <stop offset="100%" stopColor="#EF4444" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+
+              {/* Horizontal flickering exhaust flame shooting LEFT */}
+              <g className="kobo-flame">
+                <path
+                  d="M54 27 C34 25 18 30 2 35 C18 40 34 45 54 43 Z"
+                  fill="url(#kobo-ship-flame)"
+                />
+                <path
+                  d="M54 30.5 C42 30.5 31 32.5 20 35 C31 37.5 42 39.5 54 39.5 Z"
+                  fill="#FEFCE8"
+                />
+              </g>
+
+              {/* Metallic thruster nozzle */}
+              <path
+                d="M51 25 L63 22 L63 48 L51 45 Z"
+                fill="#475569"
+                stroke="#1E293B"
+                strokeWidth="1.4"
+              />
+              <line
+                x1="56"
+                y1="24"
+                x2="56"
+                y2="46"
+                stroke="#94A3B8"
+                strokeWidth="1.5"
+                opacity="0.7"
+              />
+
+              {/* Top & bottom aerodynamic orange rear fins */}
+              <path
+                d="M65 20 C76 9 95 7 110 11 L86 22 Z"
+                fill="url(#kobo-ship-fin)"
+                stroke="#9A3412"
+                strokeWidth="1.3"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M65 50 C76 61 95 63 110 59 L86 48 Z"
+                fill="url(#kobo-ship-fin)"
+                stroke="#9A3412"
+                strokeWidth="1.3"
+                strokeLinejoin="round"
+              />
+
+              {/* Main aerodynamic white fuselage pointing RIGHT */}
+              <path
+                d="M62 22 C88 10 164 6 254 7 C308 8 349 18 354 35 C349 52 308 62 254 63 C164 64 88 60 62 48 Z"
+                fill="url(#kobo-ship-hull)"
+                stroke="#2563EB"
+                strokeWidth="1.6"
+              />
+
+              {/* Glossy comic upper specular highlight */}
+              <path
+                d="M88 16 C158 11 246 11 312 16"
+                fill="none"
+                stroke="#FFFFFF"
+                strokeWidth="3.2"
+                strokeLinecap="round"
+                opacity="0.95"
+              />
+              {/* Subtle nose panel contour */}
+              <path
+                d="M312 15 C329 19 341 26 346 35 C341 44 329 51 312 55"
+                fill="none"
+                stroke="#3B82F6"
+                strokeWidth="2"
+                strokeLinecap="round"
+                opacity="0.32"
+              />
+            </svg>
+
+            {/* Foreground CTA content cleanly centered inside fuselage */}
+            <div className="relative z-10 flex w-full items-center justify-between pl-[74px] pr-7">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600 text-white shadow-[0_3px_8px_rgba(13,148,136,0.45)] ring-2 ring-white/85">
+                  <span className="text-[20px] font-black leading-none -mt-[1px]">+</span>
+                </span>
+                <span className="truncate text-[15px] font-extrabold tracking-[-0.015em] text-[#0B132B]">
+                  {DASHBOARD_COPY.mobile.startSurveyTitle}
+                </span>
+              </div>
+              <ChevronRight
+                className="h-5 w-5 shrink-0 text-[#0B132B] transition-transform duration-200 group-hover:translate-x-0.5"
+                strokeWidth={2.5}
+                aria-hidden="true"
+              />
+            </div>
+          </Link>
+        </div>
+
+        {/* ── 2. "Needs Attention" Header Row ── */}
+        <div className="flex items-center justify-between gap-2 px-1 pt-0.5">
+          <h2
+            className="text-[15px] font-black tracking-[-0.01em] text-white"
+            style={{
+              textShadow:
+                '0 1px 0 rgba(8,28,78,0.95), 0 -1px 0 rgba(8,28,78,0.85), 1px 0 0 rgba(8,28,78,0.85), -1px 0 0 rgba(8,28,78,0.85), 0 3px 10px rgba(8,28,78,0.65)',
+            }}
+          >
+            {DASHBOARD_COPY.sectionHeading}
+          </h2>
           <span
-            className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shadow-2xs ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${
               totalActionable === 0
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                : 'bg-amber-50 text-amber-800 border-amber-200'
+                ? 'border-emerald-300/90 bg-[#B9F8D3]/95 text-emerald-950'
+                : 'border-amber-300/90 bg-amber-100/95 text-amber-950'
             }`}
           >
             {totalActionable === 0 ? (
-              <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.5]" aria-hidden="true" />
+              <CheckCircle2
+                className="h-3.5 w-3.5 shrink-0 text-emerald-700 stroke-[2.4]"
+                aria-hidden="true"
+              />
             ) : (
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-amber-500 animate-pulse motion-reduce:animate-none"
+                aria-hidden="true"
+              />
             )}
-            <span>{badgeText}</span>
+            <span className="whitespace-nowrap">{badgeText}</span>
           </span>
         </div>
 
-        {/* ── Bounded 3-Orb Architectural Stage Container ── */}
-        <div
-          className="w-full rounded-[24px] p-3.5 relative overflow-hidden bg-gradient-to-br from-white/95 via-slate-50/90 to-emerald-50/30 border border-slate-200/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_24px_-12px_rgba(15,23,42,0.08)]"
+        {/* ═══════════════════════════════════════════════════════════════════
+            3. FREE-FLOATING COMIC CRATERED PLANETS STAGE
+            (Zero container card, zero bridges, dark high-contrast digits)
+        ═══════════════════════════════════════════════════════════════════ */}
+        <section
           role="region"
           aria-label="Action items 3D stage"
+          className="relative py-0.5"
         >
-          {/* Crisp visible micro-dot grid background */}
-          <div
-            className="absolute inset-0 opacity-[0.22] pointer-events-none"
-            style={{
-              backgroundImage: 'radial-gradient(#94a3b8 1.2px, transparent 1.2px)',
-              backgroundSize: '15px 15px',
-            }}
-            aria-hidden="true"
-          />
-
-          {/* ── Responsive SVG Flow Conduits & Curved Metaball Bridges ── */}
-          <svg
-            className="absolute inset-0 w-full h-full pointer-events-none z-0"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <defs>
-              {/* Metaball liquid fusion filter for background glass bridges */}
-              <filter id="liquidMetaball" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur" />
-                <feColorMatrix
-                  in="blur"
-                  mode="matrix"
-                  values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -9"
-                  result="goo"
+          <div className="flex items-center justify-between gap-1.5">
+            {/* ── LEFT COLUMN: Drafts (top) + Outbox (bottom) ── */}
+            <div className="flex shrink-0 flex-col items-center gap-3.5">
+              {/* ── DRAFTS PLANET (Emerald-Teal, NO Ring) ── */}
+              <div className="kobo-float-d relative">
+                {/* GPU-composited outer glow halo */}
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute -inset-2 rounded-full blur-md ${
+                    count >= 1 ? 'kobo-halo-active' : 'opacity-65'
+                  }`}
+                  style={{
+                    background:
+                      'radial-gradient(circle, rgba(52,211,153,0.62) 0%, rgba(16,185,129,0) 70%)',
+                  }}
                 />
-                <feComposite in="SourceGraphic" in2="goo" operator="atop" />
-              </filter>
+                <Link
+                  href="/assessment/drafts"
+                  prefetch={true}
+                  onClick={(e) => handleProtectedNav(e, '/assessment/drafts')}
+                  aria-label={`${DASHBOARD_COPY.cards.formsToFinish.title}: ${count} - ${DASHBOARD_COPY.cards.formsToFinish.linkText}`}
+                  className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                >
+                  {/* Luminous comic emerald sphere */}
+                  <div
+                    className="absolute inset-0 overflow-hidden rounded-full"
+                    style={{
+                      background:
+                        'radial-gradient(circle at 30% 26%, #B4FFE4 0%, #34E8A8 34%, #10B981 68%, #047857 100%)',
+                      boxShadow:
+                        'inset -7px -9px 18px rgba(4,78,56,0.45), inset 5px 5px 12px rgba(255,255,255,0.52), 0 0 0 1.5px rgba(167,243,208,0.55)',
+                    }}
+                  >
+                    {/* Comic craters SVG */}
+                    <svg
+                      viewBox="0 0 150 150"
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      aria-hidden="true"
+                    >
+                      <circle cx="24" cy="64" r="9.5" fill="#047857" opacity="0.22" />
+                      <circle cx="25.5" cy="65.5" r="7.5" fill="#6EE7B7" opacity="0.24" />
+                      <circle cx="122" cy="76" r="10.5" fill="#047857" opacity="0.24" />
+                      <circle cx="123.5" cy="77.5" r="8" fill="#34D399" opacity="0.2" />
+                      <circle cx="106" cy="40" r="6" fill="#047857" opacity="0.18" />
+                      <circle cx="34" cy="108" r="6.5" fill="#065F46" opacity="0.2" />
+                      <circle cx="104" cy="116" r="5" fill="#065F46" opacity="0.18" />
+                      <ellipse
+                        cx="46"
+                        cy="32"
+                        rx="22"
+                        ry="9"
+                        fill="#FFFFFF"
+                        opacity="0.22"
+                        transform="rotate(-22 46 32)"
+                      />
+                    </svg>
+                  </div>
 
-              {/* Luminous stardust sparkle bloom filter */}
-              <filter id="stardustGlow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="0.4" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
+                  {/* Content overlay */}
+                  <div className="relative z-10 flex h-full flex-col items-center justify-between px-2 py-3">
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-emerald-950 shadow-xs"
+                      style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
+                    >
+                      <FileText className="h-2.5 w-2.5 shrink-0 text-emerald-800" aria-hidden="true" />
+                      <span>Drafts</span>
+                    </span>
 
-              {/* Delicate star glow filter for twinkling star particles */}
-              <filter id="starGlow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="0.45" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
+                    <div className="flex flex-col items-center -mt-1">
+                      <span
+                        className="text-[2.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                        style={{ fontWeight: 900, WebkitTextStroke: '0.45px #09142A' }}
+                      >
+                        {draftsLoading ? (
+                          <span className="inline-block h-7 w-7 animate-pulse rounded-full bg-emerald-950/20" />
+                        ) : (
+                          count
+                        )}
+                      </span>
+                      <span className="mt-0.5 text-[10px] font-extrabold text-[#072920]">
+                        {count === 0 ? 'No drafts' : `${count} saved`}
+                      </span>
+                    </div>
 
-              {/* Linear gradient: emerald-to-rose for top conduit & bridge */}
-              <linearGradient id="topConduitGrad" x1="0%" y1="0%" x2="100%" y2="80%">
-                <stop offset="0%" stopColor="#059669" />
-                <stop offset="35%" stopColor="#10b981" />
-                <stop offset="50%" stopColor="#2dd4bf" />
-                <stop offset="75%" stopColor="#f43f5e" />
-                <stop offset="100%" stopColor="#e11d48" />
-              </linearGradient>
+                    <span className="inline-flex items-center justify-center rounded-full bg-[#0C6E43] px-3.5 py-1 text-[10px] font-extrabold text-white shadow-sm ring-1 ring-emerald-300/35 whitespace-nowrap">
+                      Continue ›
+                      <span className="sr-only"> {DASHBOARD_COPY.cards.formsToFinish.linkText}</span>
+                    </span>
+                  </div>
+                </Link>
+              </div>
 
-              {/* Linear gradient: amber-to-rose for bottom conduit & bridge */}
-              <linearGradient id="bottomConduitGrad" x1="0%" y1="100%" x2="100%" y2="20%">
-                <stop offset="0%" stopColor="#d97706" />
-                <stop offset="35%" stopColor="#f59e0b" />
-                <stop offset="50%" stopColor="#fbbf24" />
-                <stop offset="75%" stopColor="#f43f5e" />
-                <stop offset="100%" stopColor="#e11d48" />
-              </linearGradient>
-
-              <linearGradient id="topBridgeGrad" x1="25%" y1="20%" x2="65%" y2="45%">
-                <stop offset="0%" stopColor="#059669" stopOpacity="0.9" />
-                <stop offset="25%" stopColor="#0d9488" stopOpacity="0.85" />
-                <stop offset="50%" stopColor="#14b8a6" stopOpacity="0.8" />
-                <stop offset="75%" stopColor="#f43f5e" stopOpacity="0.8" />
-                <stop offset="100%" stopColor="#e11d48" stopOpacity="0.9" />
-              </linearGradient>
-
-              <linearGradient id="bottomBridgeGrad" x1="25%" y1="80%" x2="65%" y2="55%">
-                <stop offset="0%" stopColor="#d97706" stopOpacity="0.9" />
-                <stop offset="25%" stopColor="#f59e0b" stopOpacity="0.85" />
-                <stop offset="50%" stopColor="#fbbf24" stopOpacity="0.8" />
-                <stop offset="75%" stopColor="#f43f5e" stopOpacity="0.8" />
-                <stop offset="100%" stopColor="#e11d48" stopOpacity="0.9" />
-              </linearGradient>
-
-              {/* Soft glow filters for ambient bloom */}
-              <filter id="emeraldGlow" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.2" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-
-              <filter id="amberGlow" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.2" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-
-            {/* Ambient Under-Glow (Soft Colored Bloom behind each orb) */}
-            <g opacity="0.25" filter="url(#emeraldGlow)">
-              <circle cx="21" cy="29" r="15" fill="#059669" />
-            </g>
-            <g opacity="0.25" filter="url(#amberGlow)">
-              <circle cx="21" cy="71" r="15" fill="#d97706" />
-            </g>
-            <g opacity="0.25" filter="url(#emeraldGlow)">
-              <circle cx="71" cy="50" r="22" fill="#e11d48" />
-            </g>
-
-            {/* ── Organic Curved Fluid Bridges (Concave Waist Meniscus) ── */}
-            <g className="transition-opacity duration-500 ease-out">
-              {/* Top Flared Meniscus Bridge: connects Drafts to Pendings */}
-              <path
-                d="M 31 16 C 38 23, 44 24, 53 33 L 50 47 C 42 34, 38 35, 34 38 Z"
-                fill="url(#topBridgeGrad)"
-                className={`transition-opacity duration-500 ease-out ${
-                  isTopBridgeActive ? 'opacity-85' : 'opacity-40'
-                }`}
-              />
-              {/* Bottom Flared Meniscus Bridge: connects Outbox to Pendings */}
-              <path
-                d="M 34 62 C 38 65, 42 66, 50 53 L 53 67 C 44 76, 38 77, 31 84 Z"
-                fill="url(#bottomBridgeGrad)"
-                className={`transition-opacity duration-500 ease-out ${
-                  isBottomBridgeActive ? 'opacity-85' : 'opacity-40'
-                }`}
-              />
-            </g>
-
-            {/* Specular Highlight Sheen along Outer Curved Bridge Rims */}
-            {/* Top Bridge Upper Specular Rim */}
-            <path
-              d="M 31 16 C 38 23, 44 24, 53 33"
-              stroke="rgba(255,255,255,0.75)"
-              strokeWidth="0.8"
-              fill="none"
-              strokeLinecap="round"
-              className={`transition-opacity duration-500 ${
-                isTopBridgeActive ? 'opacity-85' : 'opacity-35'
-              }`}
-            />
-            {/* Top Bridge Lower Specular Rim */}
-            <path
-              d="M 34 38 C 38 35, 42 34, 50 47"
-              stroke="rgba(255,255,255,0.5)"
-              strokeWidth="0.6"
-              fill="none"
-              strokeLinecap="round"
-              className={`transition-opacity duration-500 ${
-                isTopBridgeActive ? 'opacity-70' : 'opacity-25'
-              }`}
-            />
-            {/* Bottom Bridge Upper Specular Rim */}
-            <path
-              d="M 34 62 C 38 65, 42 66, 50 53"
-              stroke="rgba(255,255,255,0.5)"
-              strokeWidth="0.6"
-              fill="none"
-              strokeLinecap="round"
-              className={`transition-opacity duration-500 ${
-                isBottomBridgeActive ? 'opacity-70' : 'opacity-25'
-              }`}
-            />
-            {/* Bottom Bridge Lower Specular Rim */}
-            <path
-              d="M 31 84 C 38 77, 44 76, 53 67"
-              stroke="rgba(255,255,255,0.75)"
-              strokeWidth="0.8"
-              fill="none"
-              strokeLinecap="round"
-              className={`transition-opacity duration-500 ${
-                isBottomBridgeActive ? 'opacity-85' : 'opacity-35'
-              }`}
-            />
-
-            {/* ── Highlighted Feature: Luminous Stardust Constellation (Twinkling Micro-Stars) ── */}
-            {/* Top Bridge Stardust Constellation (Stationary Twinkling Stars inside Neck) */}
-            <g
-              filter="url(#starGlow)"
-              className={`transition-opacity duration-500 ${
-                isTopBridgeActive ? 'opacity-100' : 'opacity-45'
-              }`}
-            >
-              <circle cx="37" cy="26" r="0.45" fill="#ffffff">
-                <animate attributeName="opacity" values="0.25;1;0.4;0.9;0.25" dur="2.1s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="40" cy="24" r="0.35" fill="#a7f3d0">
-                <animate attributeName="opacity" values="0.8;0.2;0.95;0.3;0.8" dur="1.7s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="43" cy="27" r="0.55" fill="#ffffff">
-                <animate attributeName="opacity" values="0.3;0.95;0.2;1;0.3" dur="2.5s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="39" cy="29" r="0.4" fill="#ffffff">
-                <animate attributeName="opacity" values="0.9;0.3;0.7;0.2;0.9" dur="1.9s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="44" cy="31" r="0.45" fill="#6ee7b7">
-                <animate attributeName="opacity" values="0.2;0.85;0.3;0.95;0.2" dur="2.3s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="47" cy="30" r="0.35" fill="#ffffff">
-                <animate attributeName="opacity" values="0.7;0.2;1;0.4;0.7" dur="2.0s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="46" cy="35" r="0.5" fill="#fecdd3">
-                <animate attributeName="opacity" values="0.3;1;0.5;0.8;0.3" dur="2.7s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="42" cy="33" r="0.3" fill="#ffffff">
-                <animate attributeName="opacity" values="0.9;0.4;0.2;0.85;0.9" dur="1.6s" repeatCount="indefinite" />
-              </circle>
-            </g>
-
-            {/* Bottom Bridge Stardust Constellation (Stationary Twinkling Stars inside Neck) */}
-            <g
-              filter="url(#starGlow)"
-              className={`transition-opacity duration-500 ${
-                isBottomBridgeActive ? 'opacity-100' : 'opacity-45'
-              }`}
-            >
-              <circle cx="37" cy="74" r="0.45" fill="#ffffff">
-                <animate attributeName="opacity" values="0.25;1;0.4;0.9;0.25" dur="2.1s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="40" cy="76" r="0.35" fill="#fef08a">
-                <animate attributeName="opacity" values="0.8;0.2;0.95;0.3;0.8" dur="1.7s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="43" cy="73" r="0.55" fill="#ffffff">
-                <animate attributeName="opacity" values="0.3;0.95;0.2;1;0.3" dur="2.5s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="39" cy="71" r="0.4" fill="#ffffff">
-                <animate attributeName="opacity" values="0.9;0.3;0.7;0.2;0.9" dur="1.9s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="44" cy="69" r="0.45" fill="#fde68a">
-                <animate attributeName="opacity" values="0.2;0.85;0.3;0.95;0.2" dur="2.3s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="47" cy="70" r="0.35" fill="#ffffff">
-                <animate attributeName="opacity" values="0.7;0.2;1;0.4;0.7" dur="2.0s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="46" cy="65" r="0.5" fill="#fecdd3">
-                <animate attributeName="opacity" values="0.3;1;0.5;0.8;0.3" dur="2.7s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="42" cy="67" r="0.3" fill="#ffffff">
-                <animate attributeName="opacity" values="0.9;0.4;0.2;0.85;0.9" dur="1.6s" repeatCount="indefinite" />
-              </circle>
-            </g>
-
-            {/* Top Conduit Spine Path (Smooth Curved Centerline for test contracts) */}
-            <path
-              id="topConduitMain"
-              d="M 28 24 C 36 26, 42 29, 53 40"
-              stroke="url(#topConduitGrad)"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              fill="none"
-              vectorEffect="non-scaling-stroke"
-              className="opacity-25"
-            />
-
-            {/* Bottom Conduit Spine Path (Smooth Curved Centerline for test contracts) */}
-            <path
-              id="bottomConduitMain"
-              d="M 28 76 C 36 74, 42 71, 53 60"
-              stroke="url(#bottomConduitGrad)"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              fill="none"
-              vectorEffect="non-scaling-stroke"
-              className="opacity-25"
-            />
-
-            {/* Staggered slow-drifting tiny twinkling stars moving along curved conduits */}
-            {!prefersReducedMotion && (
-              <>
-                {/* Moving Stars: Top Conduit */}
-                <g filter="url(#starGlow)">
-                  <circle r="0.55" fill="#ffffff">
-                    <animateMotion
-                      dur="3.4s"
-                      repeatCount="indefinite"
-                      path="M 28 24 C 36 26, 42 29, 53 40"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;0.9;1;0.7;0"
-                      dur="3.4s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                  <circle r="0.45" fill="#a7f3d0">
-                    <animateMotion
-                      dur="3.4s"
-                      begin="1.1s"
-                      repeatCount="indefinite"
-                      path="M 28 24 C 36 26, 42 29, 53 40"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;0.8;1;0.6;0"
-                      dur="3.4s"
-                      begin="1.1s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                  <circle r="0.38" fill="#ffffff">
-                    <animateMotion
-                      dur="3.4s"
-                      begin="2.2s"
-                      repeatCount="indefinite"
-                      path="M 28 24 C 36 26, 42 29, 53 40"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;1;0.8;0.5;0"
-                      dur="3.4s"
-                      begin="2.2s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                </g>
-
-                {/* Moving Stars: Bottom Conduit */}
-                <g filter="url(#starGlow)">
-                  <circle r="0.55" fill="#ffffff">
-                    <animateMotion
-                      dur="3.4s"
-                      repeatCount="indefinite"
-                      path="M 28 76 C 36 74, 42 71, 53 60"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;0.9;1;0.7;0"
-                      dur="3.4s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                  <circle r="0.45" fill="#fde68a">
-                    <animateMotion
-                      dur="3.4s"
-                      begin="1.1s"
-                      repeatCount="indefinite"
-                      path="M 28 76 C 36 74, 42 71, 53 60"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;0.8;1;0.6;0"
-                      dur="3.4s"
-                      begin="1.1s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                  <circle r="0.38" fill="#ffffff">
-                    <animateMotion
-                      dur="3.4s"
-                      begin="2.2s"
-                      repeatCount="indefinite"
-                      path="M 28 76 C 36 74, 42 71, 53 60"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;1;0.8;0.5;0"
-                      dur="3.4s"
-                      begin="2.2s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                </g>
-              </>
-            )}
-          </svg>
-
-          {/* ── 3. Asymmetric 2-Column Geometry (42% Left / 58% Right) ── */}
-          <div className="relative z-10 grid grid-cols-12 gap-2 items-center">
-            {/* Left Column (col-span-5 flex flex-col gap-3 items-center) */}
-            <div className="col-span-5 flex flex-col gap-3 items-center justify-center">
-              {/* Top-Left Orb: Forms to finish / Drafts (Teal 3D Crystalline Soccer-Ball Orb) */}
-              <Link
-                href="/assessment/drafts"
-                prefetch={true}
-                onClick={(e) => handleProtectedNav(e, '/assessment/drafts')}
-                aria-label={`${DASHBOARD_COPY.cards.formsToFinish.title}: ${count} - ${DASHBOARD_COPY.cards.formsToFinish.linkText}`}
-                className={`group relative w-[118px] h-[118px] min-[390px]:w-[126px] min-[390px]:h-[126px] aspect-square rounded-full border-2 border-teal-200/90 bg-gradient-to-b from-teal-50/75 via-white/95 to-teal-50/45 backdrop-blur-md transition-all duration-300 pt-2 px-1.5 pb-2.5 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer select-none active:scale-[0.96] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-600 ${
-                  count >= 1
-                    ? 'animate-orb-pulse-emerald ring-1 ring-white/90 shadow-lg'
-                    : 'shadow-md hover:shadow-xl hover:border-teal-400 hover:scale-[1.03] motion-reduce:hover:scale-100'
-                }`}
-                style={{ transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-              >
-                {/* Ambient Glow & Concentric Inner Ring */}
-                <div className="absolute inset-0 rounded-full bg-teal-400/10 blur-xl pointer-events-none" aria-hidden="true" />
-                <div className="absolute inset-1.5 rounded-full border border-teal-200/50 pointer-events-none" aria-hidden="true" />
-
-                {/* Active ThreeStatusOrb: 3D Crystalline Soccer-Ball with Polyhedron & Curved Seams */}
-                <ThreeStatusOrb
-                  variant="teal"
-                  count={count}
-                  isAllClear={count === 0}
+              {/* ── OUTBOX PLANET (Golden-Yellow, NO Ring) ── */}
+              <div className="kobo-float-o relative">
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute -inset-2 rounded-full blur-md ${
+                    effectiveWaitingCount >= 1 ? 'kobo-halo-active' : 'opacity-65'
+                  }`}
+                  style={{
+                    background:
+                      'radial-gradient(circle, rgba(251,191,36,0.68) 0%, rgba(245,158,11,0) 70%)',
+                  }}
                 />
+                <Link
+                  href="/assessment/sync?tab=outbox"
+                  prefetch={true}
+                  onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=outbox')}
+                  aria-label={`${DASHBOARD_COPY.cards.waitingToSend.title}: ${effectiveWaitingCount} - ${DASHBOARD_COPY.cards.waitingToSend.linkText}`}
+                  className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                >
+                  {/* Luminous comic golden sphere */}
+                  <div
+                    className="absolute inset-0 overflow-hidden rounded-full"
+                    style={{
+                      background:
+                        'radial-gradient(circle at 30% 26%, #FFF8C2 0%, #FDE047 36%, #F59E0B 72%, #C26806 100%)',
+                      boxShadow:
+                        'inset -7px -9px 18px rgba(146,64,14,0.38), inset 5px 5px 12px rgba(255,255,255,0.6), 0 0 0 1.5px rgba(254,240,138,0.6)',
+                    }}
+                  >
+                    {/* Comic craters SVG */}
+                    <svg
+                      viewBox="0 0 150 150"
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      aria-hidden="true"
+                    >
+                      <circle cx="24" cy="72" r="9.5" fill="#B45309" opacity="0.2" />
+                      <circle cx="25.5" cy="73.5" r="7" fill="#FEF08A" opacity="0.28" />
+                      <circle cx="122" cy="64" r="9" fill="#B45309" opacity="0.2" />
+                      <circle cx="108" cy="112" r="7" fill="#92400E" opacity="0.2" />
+                      <circle cx="42" cy="110" r="5.5" fill="#92400E" opacity="0.18" />
+                      <ellipse
+                        cx="46"
+                        cy="32"
+                        rx="22"
+                        ry="9"
+                        fill="#FFFFFF"
+                        opacity="0.28"
+                        transform="rotate(-22 46 32)"
+                      />
+                    </svg>
+                  </div>
 
-                {/* Top Pill Header */}
-                <div className="relative z-10 pt-0.5">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-teal-100/90 text-teal-900 border border-teal-200 text-[8.5px] min-[390px]:text-[9px] font-bold uppercase tracking-wider shadow-2xs whitespace-nowrap">
-                    <FileText className="w-2.5 h-2.5 text-teal-800" aria-hidden="true" />
-                    <span>DRAFTS</span>
-                    <span className="sr-only"> - {DASHBOARD_COPY.cards.formsToFinish.title}</span>
-                  </span>
-                </div>
+                  {/* Content overlay */}
+                  <div className="relative z-10 flex h-full flex-col items-center justify-between px-2 py-3">
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-amber-950 shadow-xs"
+                      style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
+                    >
+                      <Clock className="h-2.5 w-2.5 shrink-0 text-amber-800" aria-hidden="true" />
+                      <span>Outbox</span>
+                    </span>
 
-                {/* Center Metric */}
-                <div className="relative z-10 flex flex-col items-center justify-center my-auto -mt-0.5 px-2">
-                  <span className="relative z-10 text-3xl min-[390px]:text-4xl font-black text-teal-950 tracking-tight leading-none tabular-nums drop-shadow-xs">
-                    {draftsLoading ? (
-                      <span className="inline-block w-6 h-6 bg-teal-200 animate-pulse rounded-full" />
-                    ) : (
-                      count
-                    )}
-                  </span>
-                  <span className="relative z-10 text-[10px] min-[390px]:text-[10.5px] font-semibold text-teal-900/80 mt-0.5 tracking-tight px-1 leading-tight text-center">
-                    {count === 0 ? DASHBOARD_COPY.cards.formsToFinish.allClearText : `${count} saved`}
-                  </span>
-                </div>
+                    <div className="flex flex-col items-center -mt-1">
+                      <span
+                        className="text-[2.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                        style={{ fontWeight: 900, WebkitTextStroke: '0.45px #09142A' }}
+                      >
+                        {waitingLoading ? (
+                          <span className="inline-block h-7 w-7 animate-pulse rounded-full bg-amber-950/20" />
+                        ) : (
+                          effectiveWaitingCount
+                        )}
+                      </span>
+                      <span className="mt-0.5 text-[10px] font-extrabold text-[#3B1E02]">
+                        {effectiveWaitingCount === 0
+                          ? 'All items sent'
+                          : `${effectiveWaitingCount} in outbox`}
+                      </span>
+                    </div>
 
-                {/* Bottom Action Pill (pb-1.5 mb-1 for generous bottom breathing room) */}
-                <div className="relative z-10 w-full flex justify-center pb-1.5 mb-1">
-                  <span className="inline-flex items-center justify-center gap-0.5 px-3 py-1 rounded-full text-[9.5px] font-semibold text-white bg-teal-800 hover:bg-teal-900 shadow-sm border border-teal-700/50 whitespace-nowrap">
-                    <span>Continue ›</span>
-                    <span className="sr-only"> {DASHBOARD_COPY.cards.formsToFinish.linkText}</span>
-                  </span>
-                </div>
-              </Link>
-
-              {/* Bottom-Left Orb: Waiting to Send / Outbox (Amber 3D Crystalline Soccer-Ball Orb) */}
-              <Link
-                href="/assessment/sync?tab=outbox"
-                prefetch={true}
-                onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=outbox')}
-                aria-label={`${DASHBOARD_COPY.cards.waitingToSend.title}: ${effectiveWaitingCount} - ${DASHBOARD_COPY.cards.waitingToSend.linkText}`}
-                className={`group relative w-[118px] h-[118px] min-[390px]:w-[126px] min-[390px]:h-[126px] aspect-square rounded-full border-2 border-amber-200/90 bg-gradient-to-b from-amber-50/75 via-white/95 to-amber-50/45 backdrop-blur-md transition-all duration-300 pt-2 px-1.5 pb-2.5 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer select-none active:scale-[0.96] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600 ${
-                  effectiveWaitingCount >= 1
-                    ? 'animate-orb-pulse-amber ring-1 ring-white/90 shadow-lg'
-                    : 'shadow-md hover:shadow-xl hover:border-amber-400 hover:scale-[1.03] motion-reduce:hover:scale-100'
-                }`}
-                style={{ transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-              >
-                {/* Ambient Glow & Concentric Inner Ring */}
-                <div className="absolute inset-0 rounded-full bg-amber-400/10 blur-xl pointer-events-none" aria-hidden="true" />
-                <div className="absolute inset-1.5 rounded-full border border-amber-200/50 pointer-events-none" aria-hidden="true" />
-
-                {/* Active ThreeStatusOrb: 3D Crystalline Soccer-Ball with Polyhedron & Curved Seams */}
-                <ThreeStatusOrb
-                  variant="amber"
-                  count={effectiveWaitingCount}
-                  isAllClear={effectiveWaitingCount === 0}
-                />
-
-                {/* Top Pill Header */}
-                <div className="relative z-10 pt-0.5">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100/90 text-amber-900 border border-amber-200 text-[8.5px] min-[390px]:text-[9px] font-bold uppercase tracking-wider shadow-2xs whitespace-nowrap">
-                    <Clock className="w-2.5 h-2.5 text-amber-800" aria-hidden="true" />
-                    <span>OUTBOX</span>
-                    <span className="sr-only"> - {DASHBOARD_COPY.cards.waitingToSend.title}</span>
-                  </span>
-                </div>
-
-                {/* Center Metric */}
-                <div className="relative z-10 flex flex-col items-center justify-center my-auto -mt-0.5 px-2">
-                  <span className="relative z-10 text-3xl min-[390px]:text-4xl font-black text-amber-950 tracking-tight leading-none tabular-nums drop-shadow-xs">
-                    {waitingLoading ? (
-                      <span className="inline-block w-6 h-6 bg-amber-200 animate-pulse rounded-full" />
-                    ) : (
-                      effectiveWaitingCount
-                    )}
-                  </span>
-                  <span className="relative z-10 text-[10px] min-[390px]:text-[10.5px] font-semibold text-amber-900/80 mt-0.5 tracking-tight px-1 leading-tight text-center">
-                    {effectiveWaitingCount === 0 ? 'All items sent' : `${effectiveWaitingCount} in outbox`}
-                  </span>
-                </div>
-
-                {/* Bottom Action Pill (pb-1.5 mb-1 for generous bottom breathing room) */}
-                <div className="relative z-10 w-full flex justify-center pb-1.5 mb-1">
-                  <span className="inline-flex items-center justify-center gap-0.5 px-3 py-1 rounded-full text-[9.5px] font-semibold text-white bg-amber-800 hover:bg-amber-900 shadow-sm border border-amber-700/50 whitespace-nowrap">
-                    <span>Outbox ›</span>
-                    <span className="sr-only"> {DASHBOARD_COPY.cards.waitingToSend.linkText}</span>
-                  </span>
-                </div>
-              </Link>
+                    <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-3.5 py-1 text-[10px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/35 whitespace-nowrap">
+                      Outbox ›
+                      <span className="sr-only"> {DASHBOARD_COPY.cards.waitingToSend.linkText}</span>
+                    </span>
+                  </div>
+                </Link>
+              </div>
             </div>
 
-            {/* Right Column: Hero Pendings Orb (col-span-7 flex items-center justify-center) */}
-            <div className="col-span-7 flex items-center justify-center">
-              {/* Single coherent keyboard-focusable control for Pendings */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isAuthenticated && onRequireAuth) {
-                    onRequireAuth();
-                    return;
-                  }
-                  setIsPendingsExpanded(!isPendingsExpanded);
-                }}
-                aria-expanded={isPendingsExpanded}
-                aria-controls="mobile-pendings-breakdown"
-                aria-label={`${DASHBOARD_COPY.cards.pendings.title}: ${pendingsTotal} items. ${
-                  pendingsTotal > 0
-                    ? isPendingsExpanded
-                      ? 'Hide breakdown'
-                      : 'Open document and bank breakdown'
-                    : 'All clear'
-                }`}
-                className={`group relative w-[174px] h-[174px] min-[390px]:w-[188px] min-[390px]:h-[188px] aspect-square rounded-full border-2 border-rose-200/90 bg-gradient-to-b from-rose-50/75 via-white/95 to-rose-50/45 backdrop-blur-md transition-all duration-300 py-2.5 px-2 flex flex-col items-center justify-between text-center overflow-hidden cursor-pointer select-none active:scale-[0.96] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-600 ${
-                  pendingsTotal >= 1
-                    ? 'animate-orb-pulse-rose ring-1 ring-white/90 shadow-xl'
-                    : 'shadow-md hover:shadow-xl hover:border-rose-400'
-                }`}
-                style={{ transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-              >
-                {/* Ambient Glow & Concentric Inner Ring */}
-                <div className="absolute inset-0 rounded-full bg-rose-400/10 blur-xl pointer-events-none" aria-hidden="true" />
-                <div className="absolute inset-2 rounded-full border border-rose-200/50 pointer-events-none" aria-hidden="true" />
-
-                {/* Active ThreeStatusOrb: 3D Crystalline Soccer-Ball with Polyhedron & Curved Seams */}
-                <ThreeStatusOrb
-                  variant="rose"
-                  count={pendingsTotal}
-                  isAllClear={pendingsTotal === 0}
+            {/* ── RIGHT COLUMN: PENDINGS PLANET (Larger Coral-Rose WITH Saturn Ring) ── */}
+            <div className="flex flex-1 items-center justify-center">
+              <div className="kobo-float-p relative">
+                {/* GPU-composited outer glow halo */}
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute -inset-3 rounded-full blur-lg ${
+                    pendingsTotal >= 1 ? 'kobo-halo-active' : 'opacity-60'
+                  }`}
+                  style={{
+                    background:
+                      'radial-gradient(circle, rgba(251,113,133,0.62) 0%, rgba(244,63,94,0) 72%)',
+                  }}
                 />
 
-                {/* Top Pill Header */}
-                <div className="relative z-10 pt-0.5">
-                  <span className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full bg-rose-100/90 text-rose-900 border border-rose-200 text-[9px] min-[390px]:text-[9.5px] font-bold uppercase tracking-wider shadow-2xs whitespace-nowrap">
-                    <AlertTriangle className="w-2.5 h-2.5 text-rose-800" aria-hidden="true" />
-                    <span>PENDINGS</span>
-                    <span className="sr-only"> - {DASHBOARD_COPY.cards.pendings.title}</span>
-                  </span>
-                </div>
-
-                {/* Center Metric */}
-                <div className="relative z-10 flex flex-col items-center justify-center my-auto -mt-1 px-2">
-                  <span className="relative z-10 text-4xl min-[390px]:text-5xl font-black text-rose-950 tracking-tight leading-none tabular-nums drop-shadow-xs">
-                    {submittedLoading ? (
-                      <span className="inline-block w-8 h-8 bg-rose-200 animate-pulse rounded-full" />
-                    ) : (
-                      pendingsTotal
-                    )}
-                  </span>
-                  <span className="relative z-10 text-[10px] min-[390px]:text-[10.5px] font-semibold text-rose-900/80 mt-0.5 tracking-tight px-1 leading-tight text-center">
-                    {pendingsTotal === 0
-                      ? DASHBOARD_COPY.cards.pendings.allClearText
-                      : pendingsTotal === 1
-                        ? '1 item needs attention'
-                        : `${pendingsTotal} items need attention`}
-                  </span>
-                </div>
-
-                {/* Docs and Bank Floating Chips (Visual spans inside the button to avoid invalid nested interactive links) */}
-                <div className="relative z-10 flex items-center justify-center gap-1.5 px-1 pb-0.5">
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[9px] min-[390px]:text-[9.5px] font-bold tracking-tight rounded-full bg-white text-rose-950 border border-rose-200 shadow-2xs tabular-nums whitespace-nowrap"
+                {/* Saturn Ring — BACK ARC (behind planet sphere, z-0) */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-1/2 top-[43%] z-0 h-[56px] w-[134%] -translate-x-1/2 -translate-y-1/2 -rotate-[24deg]"
+                >
+                  <svg
+                    viewBox="0 0 260 64"
+                    className="h-full w-full overflow-visible"
+                    preserveAspectRatio="none"
                   >
-                    <FileWarning className="w-2.5 h-2.5 shrink-0 text-rose-700" aria-hidden="true" />
-                    <span>Docs</span>
-                    <span className="sr-only"> {DASHBOARD_COPY.cards.pendings.rows.missingDocs.label}</span>
-                    <span className="font-mono text-[9px] min-[390px]:text-[9.5px] px-1 rounded-full font-bold shrink-0 text-rose-900 bg-rose-100">
-                      {submittedLoading ? (
-                        <span
-                          className="inline-block w-2.5 h-2 bg-rose-200 animate-pulse rounded"
-                          role="status"
-                          aria-label="Loading missing docs count"
-                        />
-                      ) : (
-                        effectiveMissingDocs
-                      )}
+                    <defs>
+                      <linearGradient id="kobo-saturn-ring" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#EC4899" stopOpacity="0.92" />
+                        <stop offset="28%" stopColor="#F9A8D4" stopOpacity="0.96" />
+                        <stop offset="52%" stopColor="#F472B6" stopOpacity="0.88" />
+                        <stop offset="78%" stopColor="#C084FC" stopOpacity="0.95" />
+                        <stop offset="100%" stopColor="#A855F7" stopOpacity="0.88" />
+                      </linearGradient>
+                      <clipPath id="kobo-ring-back">
+                        <rect x="-20" y="-20" width="300" height="52" />
+                      </clipPath>
+                    </defs>
+                    <ellipse
+                      cx="130"
+                      cy="32"
+                      rx="124"
+                      ry="24"
+                      fill="none"
+                      stroke="url(#kobo-saturn-ring)"
+                      strokeWidth="9"
+                      clipPath="url(#kobo-ring-back)"
+                    />
+                    <ellipse
+                      cx="130"
+                      cy="32"
+                      rx="116"
+                      ry="20"
+                      fill="none"
+                      stroke="#FFFFFF"
+                      strokeWidth="1.8"
+                      opacity="0.45"
+                      clipPath="url(#kobo-ring-back)"
+                    />
+                  </svg>
+                </div>
+
+                {/* Main Planet Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isAuthenticated && onRequireAuth) {
+                      onRequireAuth();
+                      return;
+                    }
+                    setIsPendingsExpanded((prev) => !prev);
+                  }}
+                  aria-expanded={isPendingsExpanded}
+                  aria-controls="mobile-pendings-breakdown"
+                  aria-label={`${DASHBOARD_COPY.cards.pendings.title}: ${pendingsTotal} items. ${
+                    pendingsTotal > 0
+                      ? isPendingsExpanded
+                        ? 'Hide breakdown'
+                        : 'Open document and bank breakdown'
+                      : 'All clear'
+                  }`}
+                  className="relative z-10 block h-[176px] w-[176px] min-[390px]:h-[190px] min-[390px]:w-[190px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                >
+                  {/* Luminous peach-coral-magenta comic sphere */}
+                  <div
+                    className="absolute inset-0 overflow-hidden rounded-full"
+                    style={{
+                      background:
+                        'radial-gradient(circle at 28% 26%, #FFD99A 0%, #FB923C 28%, #F45B69 62%, #C8235D 100%)',
+                      boxShadow:
+                        'inset -8px -11px 22px rgba(136,19,55,0.42), inset 6px 6px 14px rgba(255,255,255,0.48), 0 0 0 1.5px rgba(254,205,211,0.5)',
+                    }}
+                  >
+                    {/* Comic craters SVG */}
+                    <svg
+                      viewBox="0 0 190 190"
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      aria-hidden="true"
+                    >
+                      <circle cx="30" cy="84" r="10.5" fill="#9A3412" opacity="0.2" />
+                      <circle cx="32" cy="85.5" r="8" fill="#FDBA74" opacity="0.28" />
+                      <circle cx="150" cy="64" r="12" fill="#9F1239" opacity="0.22" />
+                      <circle cx="152" cy="66" r="9" fill="#FDA4AF" opacity="0.2" />
+                      <circle cx="160" cy="112" r="8" fill="#881337" opacity="0.22" />
+                      <circle cx="48" cy="52" r="7" fill="#C2410C" opacity="0.16" />
+                      <circle cx="42" cy="134" r="7.5" fill="#9F1239" opacity="0.2" />
+                      <ellipse
+                        cx="58"
+                        cy="36"
+                        rx="28"
+                        ry="11"
+                        fill="#FFFFFF"
+                        opacity="0.24"
+                        transform="rotate(-22 58 36)"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Saturn Ring — FRONT ARC (above sphere surface z-20, BELOW text z-30 so text never obscures!) */}
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-1/2 top-[43%] z-20 h-[56px] w-[134%] -translate-x-1/2 -translate-y-1/2 -rotate-[24deg]"
+                  >
+                    <svg
+                      viewBox="0 0 260 64"
+                      className="h-full w-full overflow-visible"
+                      preserveAspectRatio="none"
+                    >
+                      <defs>
+                        <clipPath id="kobo-ring-front">
+                          <rect x="-20" y="32" width="300" height="52" />
+                        </clipPath>
+                      </defs>
+                      <ellipse
+                        cx="130"
+                        cy="32"
+                        rx="124"
+                        ry="24"
+                        fill="none"
+                        stroke="url(#kobo-saturn-ring)"
+                        strokeWidth="9"
+                        opacity="0.88"
+                        clipPath="url(#kobo-ring-front)"
+                      />
+                      <ellipse
+                        cx="130"
+                        cy="32"
+                        rx="116"
+                        ry="20"
+                        fill="none"
+                        stroke="#FFFFFF"
+                        strokeWidth="1.8"
+                        opacity="0.5"
+                        clipPath="url(#kobo-ring-front)"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Foreground UI Content (z-30 — razor-sharp above ring) */}
+                  <div className="relative z-30 flex h-full flex-col items-center justify-between px-2.5 py-3.5">
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-slate-900 shadow-xs"
+                      style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
+                    >
+                      <AlertTriangle
+                        className="h-2.5 w-2.5 shrink-0 text-rose-700"
+                        aria-hidden="true"
+                      />
+                      <span>Pendings</span>
                     </span>
-                  </span>
 
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[9px] min-[390px]:text-[9.5px] font-bold tracking-tight rounded-full bg-white text-rose-950 border border-rose-200 shadow-2xs tabular-nums whitespace-nowrap"
-                  >
-                    <Landmark className="w-2.5 h-2.5 shrink-0 text-rose-700" aria-hidden="true" />
-                    <span>Bank</span>
-                    <span className="sr-only"> {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}</span>
-                    <span className="font-mono text-[9px] min-[390px]:text-[9.5px] px-1 rounded-full font-bold shrink-0 text-rose-900 bg-rose-100">
-                      {submittedLoading ? (
-                        <span
-                          className="inline-block w-2.5 h-2 bg-rose-200 animate-pulse rounded"
-                          role="status"
-                          aria-label="Loading bank count"
+                    <div className="flex flex-col items-center -mt-1">
+                      <span
+                        className="text-[2.85rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                        style={{ fontWeight: 900, WebkitTextStroke: '0.5px #09142A' }}
+                      >
+                        {submittedLoading ? (
+                          <span className="inline-block h-8 w-8 animate-pulse rounded-full bg-rose-950/20" />
+                        ) : (
+                          pendingsTotal
+                        )}
+                      </span>
+                      <span className="mt-0.5 text-[10.5px] font-extrabold text-[#2D0A14]">
+                        {pendingsTotal === 0
+                          ? DASHBOARD_COPY.cards.pendings.allClearText
+                          : pendingsTotal === 1
+                            ? '1 item pending'
+                            : `${pendingsTotal} items pending`}
+                      </span>
+                    </div>
+
+                    {/* Side-by-side Docs & Bank Pills */}
+                    <div className="flex w-full items-center justify-center gap-1.5 px-1">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-bold text-slate-900 shadow-sm tabular-nums whitespace-nowrap"
+                        style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.85)' }}
+                      >
+                        <FileWarning
+                          className="h-2.5 w-2.5 shrink-0 text-slate-700"
+                          aria-hidden="true"
                         />
-                      ) : (
-                        effectiveBankPending
-                      )}
-                    </span>
-                  </span>
-                </div>
+                        <span>Docs</span>
+                        <span className="sr-only">
+                          {' '}
+                          {DASHBOARD_COPY.cards.pendings.rows.missingDocs.label}
+                        </span>
+                        <span className="font-black text-[#09142A]">
+                          {submittedLoading ? (
+                            <span
+                              className="inline-block h-2 w-2.5 animate-pulse rounded bg-rose-200"
+                              role="status"
+                              aria-label="Loading docs count"
+                            />
+                          ) : (
+                            effectiveMissingDocs
+                          )}
+                        </span>
+                      </span>
 
-                {/* Bottom Action Button (Emerald Green when all clear, Rose toggle pill when pending) */}
-                <div className="relative z-10 w-full flex justify-center pb-0.5 mt-0.5">
-                  <span
-                    className={`inline-flex items-center justify-center gap-0.5 px-4 py-1 rounded-full text-[10px] min-[390px]:text-[10.5px] font-semibold text-white shadow-md whitespace-nowrap transition-all ${
-                      pendingsTotal === 0
-                        ? 'bg-emerald-700 border border-emerald-600/50'
-                        : 'bg-rose-800 border border-rose-700/50'
-                    }`}
-                  >
-                    <span>{pendingsTotal === 0 ? 'All clear ›' : (isPendingsExpanded ? 'Hide breakdown ▴' : 'Show breakdown ▾')}</span>
-                  </span>
-                </div>
-              </button>
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-bold text-slate-900 shadow-sm tabular-nums whitespace-nowrap"
+                        style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.85)' }}
+                      >
+                        <Landmark
+                          className="h-2.5 w-2.5 shrink-0 text-slate-700"
+                          aria-hidden="true"
+                        />
+                        <span>Bank</span>
+                        <span className="sr-only">
+                          {' '}
+                          {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}
+                        </span>
+                        <span className="font-black text-[#09142A]">
+                          {submittedLoading ? (
+                            <span
+                              className="inline-block h-2 w-2.5 animate-pulse rounded bg-rose-200"
+                              role="status"
+                              aria-label="Loading bank count"
+                            />
+                          ) : (
+                            effectiveBankPending
+                          )}
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* Action CTA Pill */}
+                    <span
+                      className={`inline-flex items-center justify-center rounded-full px-4 py-1 text-[10.5px] font-extrabold text-white shadow-sm whitespace-nowrap ${
+                        pendingsTotal === 0
+                          ? 'bg-[#0C8C52] ring-1 ring-emerald-300/45'
+                          : 'bg-rose-800 ring-1 ring-rose-300/45'
+                      }`}
+                    >
+                      {pendingsTotal === 0
+                        ? 'All clear ›'
+                        : isPendingsExpanded
+                          ? 'Hide breakdown ▴'
+                          : 'Resolve ›'}
+                    </span>
+                  </div>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* ── Pendings Complete Breakdown Card (Directly below stage when expanded) ── */}
+        {/* ── Expandable Pendings Breakdown Card ── */}
         {isPendingsExpanded && (
           <div
             id="mobile-pendings-breakdown"
-            className="w-full bg-rose-50/70 border border-rose-200/90 rounded-2xl p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200"
+            className="w-full space-y-2 rounded-2xl border border-rose-200/90 bg-white/92 p-3 shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200"
           >
             <div className="flex items-center justify-between px-1">
-              <span className="text-xs font-bold text-rose-950">Pendings Breakdown</span>
-              <span className="text-[11px] font-semibold text-rose-800">{pendingsTotal} actionable</span>
+              <span className="text-xs font-extrabold text-rose-950">
+                Pendings Breakdown
+              </span>
+              <span className="text-[11px] font-bold text-rose-700">
+                {pendingsTotal} actionable
+              </span>
             </div>
             <div className="space-y-1.5">
-              {/* Sub-row A: Missing documents */}
               <Link
                 href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
-                onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.pendings.rows.missingDocs.href)}
-                className="flex items-center justify-between p-2.5 rounded-xl bg-white hover:bg-rose-100/70 border border-rose-200/80 transition-colors min-h-[44px] cursor-pointer shadow-2xs"
+                onClick={(e) =>
+                  handleProtectedNav(
+                    e,
+                    DASHBOARD_COPY.cards.pendings.rows.missingDocs.href
+                  )
+                }
+                className="flex min-h-[44px] cursor-pointer items-center justify-between rounded-xl border border-rose-200/80 bg-white p-2.5 shadow-xs transition-colors hover:bg-rose-50"
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-                    <FileWarning className="w-4 h-4 stroke-[2.2]" aria-hidden="true" />
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
+                    <FileWarning className="h-4 w-4 stroke-[2.2]" aria-hidden="true" />
                   </div>
-                  <span className="text-xs font-semibold text-slate-800 truncate">
+                  <span className="truncate text-xs font-semibold text-slate-800">
                     {DASHBOARD_COPY.cards.pendings.rows.missingDocs.label}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="font-mono text-xs font-bold text-rose-900 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200">
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 font-mono text-xs font-bold text-rose-900">
                     {submittedLoading ? (
-                      <span className="inline-block w-3 h-2 bg-rose-200 animate-pulse rounded" />
+                      <span className="inline-block h-2 w-3 animate-pulse rounded bg-rose-200" />
                     ) : (
                       effectiveMissingDocs
                     )}
                   </span>
-                  <ChevronRight className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
+                  <ChevronRight className="h-3.5 w-3.5 text-rose-400" aria-hidden="true" />
                 </div>
               </Link>
 
-              {/* Sub-row B: Bank details needed */}
               <Link
                 href={DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href}
-                onClick={(e) => handleProtectedNav(e, DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href)}
-                className="flex items-center justify-between p-2.5 rounded-xl bg-white hover:bg-rose-100/70 border border-rose-200/80 transition-colors min-h-[44px] cursor-pointer shadow-2xs"
+                onClick={(e) =>
+                  handleProtectedNav(
+                    e,
+                    DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href
+                  )
+                }
+                className="flex min-h-[44px] cursor-pointer items-center justify-between rounded-xl border border-rose-200/80 bg-white p-2.5 shadow-xs transition-colors hover:bg-rose-50"
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-                    <Landmark className="w-4 h-4 stroke-[2.2]" aria-hidden="true" />
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
+                    <Landmark className="h-4 w-4 stroke-[2.2]" aria-hidden="true" />
                   </div>
-                  <span className="text-xs font-semibold text-slate-800 truncate">
+                  <span className="truncate text-xs font-semibold text-slate-800">
                     {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="font-mono text-xs font-bold text-rose-900 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200">
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 font-mono text-xs font-bold text-rose-900">
                     {submittedLoading ? (
-                      <span className="inline-block w-3 h-2 bg-rose-200 animate-pulse rounded" />
+                      <span className="inline-block h-2 w-3 animate-pulse rounded bg-rose-200" />
                     ) : (
                       effectiveBankPending
                     )}
                   </span>
-                  <ChevronRight className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
+                  <ChevronRight className="h-3.5 w-3.5 text-rose-400" aria-hidden="true" />
                 </div>
               </Link>
             </div>
           </div>
         )}
-      </section>
 
-      {/* ── Retained Dedicated Card: Submitted Surveys (Confirmed on central server) ── */}
-      <section aria-labelledby="mobile-submitted-surveys-heading" className="pt-1">
-        <h3 id="mobile-submitted-surveys-heading" className="sr-only">Submitted Surveys</h3>
-        <Link
-          href="/assessment/sync?tab=submitted"
-          prefetch={true}
-          onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=submitted')}
-          className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-600 rounded-2xl"
-          aria-label={`Submitted surveys: ${submittedCount ?? 0} - Confirmed on central server`}
+        {/* ═══════════════════════════════════════════════════════════════════
+            4. UNIFIED "Submitted surveys" CLOUD + RADIANT GOLDEN SUN
+               (Tucked upwards cleanly below planets stage, count inside sun)
+        ═══════════════════════════════════════════════════════════════════ */}
+        <section
+          aria-labelledby="mobile-submitted-surveys-heading"
+          className={`transition-all duration-200 ${
+            isPendingsExpanded ? 'pt-2 pb-1' : '-mt-6 min-[390px]:-mt-8 pb-1'
+          }`}
         >
-          <div className="w-full min-h-[52px] bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-                <CheckCircle2 className="w-5 h-5" aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="text-sm font-bold text-slate-800 leading-tight">Submitted surveys</h4>
-                <p className="text-xs text-slate-500 font-medium truncate">
-                  Confirmed on central server
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="font-mono text-sm font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                {submittedLoading ? (
-                  <span
-                    className="inline-block w-4 h-3 bg-emerald-200 animate-pulse rounded"
-                    role="status"
-                    aria-label="Loading submitted count"
-                  />
-                ) : (
-                  submittedCount ?? 0
-                )}
-              </span>
-              <ChevronRight className="w-4 h-4 text-slate-400" aria-hidden="true" />
-            </div>
-          </div>
-        </Link>
-      </section>
+          <h3 id="mobile-submitted-surveys-heading" className="sr-only">
+            Submitted Surveys
+          </h3>
 
-      {/* ── Bottom Illustration (Natural vertical scroll, rendered where space permits) ── */}
-      <section aria-label="Garden Playground" className="pt-2">
-        <MiniatureGardenPlayground />
-      </section>
+          <div className="flex flex-col items-center">
+            <Link
+              href="/assessment/sync?tab=synced"
+              prefetch={true}
+              onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=synced')}
+              aria-label={`Submitted surveys: ${submittedCount ?? 0} - Confirmed on central server`}
+              className="group relative flex h-[116px] w-[328px] items-end justify-center cursor-pointer transition-transform duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-3xl"
+            >
+              {/* Radiant Golden Sun — tucked HIGHER & FURTHER LEFT behind cloud's right edge (z-10) */}
+              <div className="pointer-events-none absolute right-[18px] top-[0px] z-10 flex h-[88px] w-[88px] items-center justify-center">
+                {/* Soft warm radiating corona */}
+                <div
+                  className="kobo-halo-active absolute -inset-6 rounded-full blur-xl"
+                  aria-hidden="true"
+                  style={{
+                    background:
+                      'radial-gradient(circle, rgba(255, 232, 105, 0.95) 0%, rgba(255, 193, 24, 0.55) 48%, rgba(255, 193, 24, 0) 76%)',
+                  }}
+                />
+                {/* Slowly rotating comic sunburst rays */}
+                <svg
+                  viewBox="0 0 110 110"
+                  className="kobo-sun-rays absolute -inset-3 h-[108px] w-[108px] overflow-visible"
+                  aria-hidden="true"
+                >
+                  {Array.from({ length: 18 }).map((_, idx) => {
+                    const deg = idx * 20;
+                    return (
+                      <polygon
+                        key={idx}
+                        points="55,2 51.5,14 58.5,14"
+                        fill="#FEF08A"
+                        opacity={idx % 2 === 0 ? 0.95 : 0.68}
+                        transform={`rotate(${deg} 55 55)`}
+                      />
+                    );
+                  })}
+                </svg>
+
+                {/* Rich golden orb (not washed-out white) */}
+                <div
+                  className="relative flex h-[78px] w-[78px] items-center justify-center rounded-full"
+                  style={{
+                    background:
+                      'radial-gradient(circle at 38% 32%, #FFF59D 0%, #FFD60A 32%, #F59E0B 74%, #D97706 100%)',
+                    boxShadow:
+                      '0 0 24px rgba(255, 214, 10, 0.85), inset -4px -6px 12px rgba(180, 83, 9, 0.35), inset 3px 3px 8px rgba(255, 255, 255, 0.8), 0 0 0 2.5px rgba(254, 243, 199, 0.9)',
+                  }}
+                >
+                  <span
+                    className="text-[2rem] leading-none tabular-nums -mt-1.5"
+                    style={{
+                      fontWeight: 900,
+                      color: '#081226',
+                      WebkitTextStroke: '0.55px #081226',
+                    }}
+                  >
+                    {submittedLoading ? (
+                      <span className="inline-block h-6 w-6 animate-pulse rounded-full bg-amber-900/20" />
+                    ) : (
+                      (submittedCount ?? 0)
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Sculpted Comic Cloud — centered, overlapping Sun's lower-left curve (z-20) */}
+              <div className="relative z-20 mr-10 mb-1 flex h-[76px] w-[244px] items-center justify-center">
+                <svg
+                  viewBox="0 0 270 86"
+                  className="pointer-events-none absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_8px_18px_rgba(14,74,158,0.28)]"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <linearGradient id="kobo-cloud-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#FFFFFF" />
+                      <stop offset="68%" stopColor="#F5FAFF" />
+                      <stop offset="100%" stopColor="#CBE5FF" />
+                    </linearGradient>
+                  </defs>
+                  {/* Single seamless fluffy cloud path — zero internal shadow lines */}
+                  <path
+                    d="M44 74 C22 74 8 62 8 47 C8 34 19 23 34 22 C42 10 57 4 74 8 C87 1 106 1 119 10 C134 2 156 5 168 18 C184 14 202 20 210 32 C226 30 244 37 252 48 C260 59 252 74 232 74 C218 81 196 81 182 76 C164 83 136 83 118 77 C98 83 70 82 54 75 Z"
+                    fill="url(#kobo-cloud-fill)"
+                    stroke="#FFFFFF"
+                    strokeWidth="2"
+                  />
+                </svg>
+
+                {/* Cloud foreground content */}
+                <div className="relative z-10 flex w-full items-center justify-between px-5 pt-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100/95 ring-1 ring-emerald-200/80">
+                      <CheckCircle2
+                        className="h-5 w-5 text-emerald-600 stroke-[2.3]"
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <span className="truncate text-[13.5px] font-extrabold tracking-[-0.01em] text-[#0B132B]">
+                      Submitted surveys
+                    </span>
+                    <span className="sr-only">Confirmed on central server</span>
+                  </div>
+                  <ChevronRight
+                    className="h-4 w-4 shrink-0 text-[#0B132B] transition-transform duration-150 group-hover:translate-x-0.5"
+                    strokeWidth={2.5}
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
+            </Link>
+
+            {/* Unobtrusive retry chip only when offline/error */}
+            {(submittedStatus === 'error' || submittedStatus === 'offline') &&
+              onRetrySubmitted && (
+                <button
+                  type="button"
+                  onClick={onRetrySubmitted}
+                  className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-0.5 text-[10.5px] font-bold text-slate-800 shadow-xs backdrop-blur-xs hover:bg-white cursor-pointer"
+                >
+                  <RotateCw className="h-3 w-3" aria-hidden="true" />
+                  <span>
+                    {submittedStatus === 'offline'
+                      ? 'Offline · Tap to retry sync'
+                      : 'Retry server count'}
+                  </span>
+                </button>
+              )}
+          </div>
+        </section>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          LAYER 2 — BOTTOM PLAYGROUND FOOTER + VIEWPORT-SAFE PAUSE BUTTON
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="relative z-10 mt-auto w-full pb-[env(safe-area-inset-bottom)]">
+        {/* Translucent Pause / Play control anchored cleanly in open lower-left sky */}
+        <button
+          type="button"
+          onClick={toggleAnimations}
+          aria-label={animationsEnabled ? 'Pause animations' : 'Resume animations'}
+          aria-pressed={!animationsEnabled}
+          className="absolute bottom-[calc(100%+6px)] left-3.5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90"
+          style={{
+            background: 'rgba(100, 130, 175, 0.42)',
+            backdropFilter: 'blur(8px)',
+            border: '1.5px solid rgba(255, 255, 255, 0.72)',
+            boxShadow: '0 4px 12px rgba(8, 30, 82, 0.22)',
+          }}
+        >
+          {animationsEnabled ? (
+            <svg viewBox="0 0 20 20" fill="#FFFFFF" width="15" height="15" aria-hidden="true">
+              <rect x="4.5" y="3.5" width="3.8" height="13" rx="1.2" />
+              <rect x="11.7" y="3.5" width="3.8" height="13" rx="1.2" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 20 20" fill="#FFFFFF" width="15" height="15" aria-hidden="true">
+              <path d="M6 4.2l10.5 5.8L6 15.8z" />
+            </svg>
+          )}
+        </button>
+
+        <MiniatureGardenPlayground transparentSky hideControls isPaused={!animationsEnabled} />
+      </div>
     </div>
   );
 }
+
+export default MobileKoboHomeScreen;
