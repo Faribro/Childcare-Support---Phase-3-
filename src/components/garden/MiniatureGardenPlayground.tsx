@@ -967,7 +967,7 @@ export function MiniatureGardenPlayground({
     const drawFrame = (dt: number) => {
       time += dt;
       if (goalState !== 'celebrating') {
-        hopscotchTimer += dt * 0.52; // Gentle, relaxed pace so the two girls play hopscotch at a natural, delightful tempo
+        hopscotchTimer += dt * 0.22; // Very gentle, slow, and graceful pace so the girls play hopscotch calmly without glitching
       }
 
       // Decay interactive impulses
@@ -2173,56 +2173,80 @@ export function MiniatureGardenPlayground({
                 c.yOffset = -Math.abs(Math.sin(time * 0.24)) * 5.2;
               }
             } else {
-              // Active cooperative hopscotch & beanbag toss game
-              const CYCLE = 300;
+              // Active cooperative hopscotch & beanbag toss game (slow, graceful, no glitching)
+              const CYCLE = 600;
               const ht = hopscotchTimer % CYCLE;
 
-              if (ht < 150) {
+              if (ht < 300) {
                 // ── Phase A: Girl 6 (Blue dress, orange cap) Turn ──
                 if (c.id === 6) {
                   c.facing = 1;
-                  if (ht < 25) {
+                  if (ht < 30) {
+                    // Ready pose at home
                     c.curX = c6HomeX;
                     if (c.vy === 0) c.yOffset = 0;
-                    if (ht < 8) {
-                      beanbag.x = c.curX + 4;
-                      beanbag.y = groundY - 10;
-                    } else {
-                      const prog = (ht - 8) / 17;
-                      beanbag.x = (c.curX + 4) + prog * (sq2X - (c.curX + 4));
-                      beanbag.y =
-                        (groundY - 10) +
-                        prog * (getGroundY(sq2X, width, height) - 1.5 - (groundY - 10)) -
-                        Math.sin(prog * Math.PI) * 12;
-                    }
-                  } else if (ht < 65) {
-                    const prog = (ht - 25) / 40;
-                    c.curX = c6HomeX + prog * (sq1X - c6HomeX);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 7.5;
+                    beanbag.x = c.curX + 4;
+                    beanbag.y = groundY - 10;
+                  } else if (ht < 75) {
+                    // Gentle, graceful toss of beanbag to square 2
+                    c.curX = c6HomeX;
+                    if (c.vy === 0) c.yOffset = 0;
+                    const prog = (ht - 30) / 45;
+                    beanbag.x = (c6HomeX + 4) + prog * (sq2X - (c6HomeX + 4));
+                    beanbag.y =
+                      (groundY - 10) +
+                      prog * (getGroundY(sq2X, width, height) - 1.5 - (groundY - 10)) -
+                      Math.sin(prog * Math.PI) * 11;
+                  } else if (ht < 100) {
+                    // Pause to prepare before hopping
+                    c.curX = c6HomeX;
+                    if (c.vy === 0) c.yOffset = 0;
                     beanbag.x = sq2X;
                     beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 105) {
-                    const prog = (ht - 65) / 40;
+                  } else if (ht < 145) {
+                    // Hop 1: Home -> Square 1
+                    const prog = (ht - 100) / 45;
+                    c.curX = c6HomeX + prog * (sq1X - c6HomeX);
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                    beanbag.x = sq2X;
+                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
+                  } else if (ht < 165) {
+                    // Calm balance pause on Square 1
+                    c.curX = sq1X;
+                    if (c.vy === 0) c.yOffset = 0;
+                    beanbag.x = sq2X;
+                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
+                  } else if (ht < 210) {
+                    // Hop 2: Square 1 -> Square 2 (smoothly picks up beanbag)
+                    const prog = (ht - 165) / 45;
                     c.curX = sq1X + prog * (sq2X - sq1X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 7.5;
-                    if (prog < 0.7) {
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                    if (prog < 0.75) {
                       beanbag.x = sq2X;
                       beanbag.y = getGroundY(sq2X, width, height) - 1.5;
                     } else {
                       beanbag.x = c.curX + 4;
                       beanbag.y = groundY + c.yOffset - 10;
                     }
-                  } else if (ht < 130) {
-                    const prog = (ht - 105) / 25;
+                  } else if (ht < 230) {
+                    // Calm balance pause on Square 2 with beanbag
+                    c.curX = sq2X;
+                    if (c.vy === 0) c.yOffset = 0;
+                    beanbag.x = c.curX + 4;
+                    beanbag.y = groundY - 10;
+                  } else if (ht < 265) {
+                    // Hop 3: Square 2 -> Square 3
+                    const prog = (ht - 230) / 35;
                     c.curX = sq2X + prog * (sq3X - sq2X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 7.0;
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.0;
                     beanbag.x = c.curX + 4;
                     beanbag.y = groundY + c.yOffset - 10;
                   } else {
-                    const prog = (ht - 130) / 20;
+                    // Smooth, graceful walk/hop back to home, tossing beanbag across to Girl 7
+                    const prog = (ht - 265) / 35;
                     c.curX = sq3X - prog * (sq3X - c6HomeX);
-                    if (c.vy === 0) c.yOffset = -Math.abs(Math.sin(prog * Math.PI * 2)) * 4.5;
-                    const tossProg = Math.min(1, (ht - 130) / 16);
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 4.0;
+                    const tossProg = Math.min(1, (ht - 265) / 30);
                     beanbag.x = sq3X + tossProg * (c7HomeX - 4 - sq3X);
                     beanbag.y =
                       getGroundY(sq3X, width, height) - 10 +
@@ -2230,59 +2254,83 @@ export function MiniatureGardenPlayground({
                       Math.sin(tossProg * Math.PI) * 8;
                   }
                 } else if (c.id === 7) {
-                  // Girl 7 bobs & claps encouragingly
+                  // Girl 7 stands peacefully cheering (gentle subtle breathing, no fast vibrating)
                   c.facing = -1;
                   c.curX = c7HomeX;
                   if (c.vy === 0) {
-                    c.yOffset = -Math.abs(Math.sin((ht - 25) * 0.28)) * 2.2;
+                    c.yOffset = -Math.abs(Math.sin(time * 0.06)) * 1.0;
                   }
                 }
               } else {
                 // ── Phase B: Girl 7 (Purple dress, curly hair) Turn ──
                 if (c.id === 7) {
                   c.facing = -1;
-                  if (ht < 175) {
+                  if (ht < 330) {
+                    // Ready pose at home
                     c.curX = c7HomeX;
                     if (c.vy === 0) c.yOffset = 0;
-                    if (ht < 158) {
-                      beanbag.x = c.curX - 4;
-                      beanbag.y = groundY - 10;
-                    } else {
-                      const prog = (ht - 158) / 17;
-                      beanbag.x = (c.curX - 4) + prog * (sq2X - (c.curX - 4));
-                      beanbag.y =
-                        (groundY - 10) +
-                        prog * (getGroundY(sq2X, width, height) - 1.5 - (groundY - 10)) -
-                        Math.sin(prog * Math.PI) * 12;
-                    }
-                  } else if (ht < 215) {
-                    const prog = (ht - 175) / 40;
-                    c.curX = c7HomeX - prog * (c7HomeX - sq3X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 7.5;
+                    beanbag.x = c.curX - 4;
+                    beanbag.y = groundY - 10;
+                  } else if (ht < 375) {
+                    // Gentle, graceful toss of beanbag to square 2
+                    c.curX = c7HomeX;
+                    if (c.vy === 0) c.yOffset = 0;
+                    const prog = (ht - 330) / 45;
+                    beanbag.x = (c7HomeX - 4) + prog * (sq2X - (c7HomeX - 4));
+                    beanbag.y =
+                      (groundY - 10) +
+                      prog * (getGroundY(sq2X, width, height) - 1.5 - (groundY - 10)) -
+                      Math.sin(prog * Math.PI) * 11;
+                  } else if (ht < 400) {
+                    // Pause to prepare before hopping
+                    c.curX = c7HomeX;
+                    if (c.vy === 0) c.yOffset = 0;
                     beanbag.x = sq2X;
                     beanbag.y = getGroundY(sq2X, width, height) - 1.5;
-                  } else if (ht < 255) {
-                    const prog = (ht - 215) / 40;
+                  } else if (ht < 445) {
+                    // Hop 1: Home -> Square 3
+                    const prog = (ht - 400) / 45;
+                    c.curX = c7HomeX - prog * (c7HomeX - sq3X);
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                    beanbag.x = sq2X;
+                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
+                  } else if (ht < 465) {
+                    // Calm balance pause on Square 3
+                    c.curX = sq3X;
+                    if (c.vy === 0) c.yOffset = 0;
+                    beanbag.x = sq2X;
+                    beanbag.y = getGroundY(sq2X, width, height) - 1.5;
+                  } else if (ht < 510) {
+                    // Hop 2: Square 3 -> Square 2 (smoothly picks up beanbag)
+                    const prog = (ht - 465) / 45;
                     c.curX = sq3X - prog * (sq3X - sq2X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 7.5;
-                    if (prog < 0.7) {
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.5;
+                    if (prog < 0.75) {
                       beanbag.x = sq2X;
                       beanbag.y = getGroundY(sq2X, width, height) - 1.5;
                     } else {
                       beanbag.x = c.curX - 4;
                       beanbag.y = groundY + c.yOffset - 10;
                     }
-                  } else if (ht < 280) {
-                    const prog = (ht - 255) / 25;
+                  } else if (ht < 530) {
+                    // Calm balance pause on Square 2 with beanbag
+                    c.curX = sq2X;
+                    if (c.vy === 0) c.yOffset = 0;
+                    beanbag.x = c.curX - 4;
+                    beanbag.y = groundY - 10;
+                  } else if (ht < 565) {
+                    // Hop 3: Square 2 -> Square 1
+                    const prog = (ht - 530) / 35;
                     c.curX = sq2X - prog * (sq2X - sq1X);
-                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 7.0;
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 6.0;
                     beanbag.x = c.curX - 4;
                     beanbag.y = groundY + c.yOffset - 10;
                   } else {
-                    const prog = (ht - 280) / 20;
+                    // Smooth, graceful walk/hop back to home, tossing beanbag back to Girl 6
+                    const prog = (ht - 565) / 35;
                     c.curX = sq1X + prog * (c7HomeX - sq1X);
-                    if (c.vy === 0) c.yOffset = -Math.abs(Math.sin(prog * Math.PI * 2)) * 4.5;
-                    const tossProg = Math.min(1, (ht - 280) / 16);
+                    if (c.vy === 0) c.yOffset = -Math.sin(prog * Math.PI) * 4.0;
+                    const tossProg = Math.min(1, (ht - 565) / 30);
                     beanbag.x = sq1X + tossProg * (c6HomeX + 4 - sq1X);
                     beanbag.y =
                       getGroundY(sq1X, width, height) - 10 +
@@ -2290,11 +2338,11 @@ export function MiniatureGardenPlayground({
                       Math.sin(tossProg * Math.PI) * 8;
                   }
                 } else if (c.id === 6) {
-                  // Girl 6 bobs & claps encouragingly
+                  // Girl 6 stands peacefully cheering (gentle subtle breathing, no fast vibrating)
                   c.facing = 1;
                   c.curX = c6HomeX;
                   if (c.vy === 0) {
-                    c.yOffset = -Math.abs(Math.sin((ht - 175) * 0.28)) * 2.2;
+                    c.yOffset = -Math.abs(Math.sin(time * 0.06)) * 1.0;
                   }
                 }
               }
@@ -2505,47 +2553,34 @@ export function MiniatureGardenPlayground({
             ctx.lineWidth = 1.75;
             ctx.lineCap = 'round';
 
-            if (c.yOffset < -1.5) {
-              // Hopping leg with knee lift
-              const backLegX = -c.facing * 1.5;
-              ctx.beginPath();
-              ctx.moveTo(backLegX, waistY);
-              ctx.lineTo(backLegX, 0.5);
-              ctx.stroke();
+            // Continuous lift interpolation (0 = grounded stick legs, 1 = graceful knee lift) - NO boolean snapping
+            const hopLift = Math.min(1, Math.max(0, -c.yOffset / 6.5));
+            const backLegX = -c.facing * 1.5;
+            const frontHipX = c.facing * 1.5;
 
-              const frontHipX = c.facing * 1.5;
-              const kneeX = frontHipX + c.facing * 2.6;
-              const kneeY = waistY + 3.8;
-              const footX = frontHipX + c.facing * 0.8;
-              const footY = waistY + 6.8;
-              ctx.beginPath();
-              ctx.moveTo(frontHipX, waistY);
-              ctx.lineTo(kneeX, kneeY);
-              ctx.lineTo(footX, footY);
-              ctx.stroke();
+            // Back plant leg extends down to ground
+            ctx.beginPath();
+            ctx.moveTo(backLegX, waistY);
+            ctx.lineTo(backLegX, 0);
+            ctx.stroke();
 
-              ctx.fillStyle = '#0f172a';
-              ctx.beginPath();
-              ctx.arc(backLegX, 0.5, 1.75, 0, Math.PI * 2);
-              ctx.arc(footX, footY, 1.75, 0, Math.PI * 2);
-              ctx.fill();
-            } else {
-              // Crisp vertical stick legs
-              const leg1X = -c.facing * 1.5;
-              const leg2X = c.facing * 1.5;
-              ctx.beginPath();
-              ctx.moveTo(leg1X, waistY);
-              ctx.lineTo(leg1X, 0);
-              ctx.moveTo(leg2X, waistY);
-              ctx.lineTo(leg2X, 0);
-              ctx.stroke();
+            // Front leg bends smoothly and continuously as character rises
+            const kneeX = frontHipX + c.facing * (2.0 * hopLift);
+            const kneeY = waistY + 4.5 * (1 - hopLift) + 3.8 * hopLift;
+            const footX = frontHipX + c.facing * (0.8 * hopLift);
+            const footY = (waistY + 9.0) * (1 - hopLift) + (waistY + 6.8) * hopLift;
 
-              ctx.fillStyle = '#0f172a';
-              ctx.beginPath();
-              ctx.arc(leg1X, 0, 1.75, 0, Math.PI * 2);
-              ctx.arc(leg2X, 0, 1.75, 0, Math.PI * 2);
-              ctx.fill();
-            }
+            ctx.beginPath();
+            ctx.moveTo(frontHipX, waistY);
+            ctx.lineTo(kneeX, kneeY);
+            ctx.lineTo(footX, footY);
+            ctx.stroke();
+
+            ctx.fillStyle = '#0f172a';
+            ctx.beginPath();
+            ctx.arc(backLegX, 0, 1.75, 0, Math.PI * 2);
+            ctx.arc(footX, footY, 1.75, 0, Math.PI * 2);
+            ctx.fill();
           } else {
             const stride = Math.sin(c.runCycle) * 4.2;
             const liftA = Math.max(0, -Math.cos(c.runCycle)) * (c.speed > 0.2 ? 2.1 : 0);
@@ -2667,35 +2702,37 @@ export function MiniatureGardenPlayground({
           ctx.lineTo(8.5 - wiggle, bodyY - 10.5);
           ctx.stroke();
         } else if (c.id === 6 || c.id === 7) {
-          // Cooperative Hopscotch & Beanbag Toss Arms
-          const ht = hopscotchTimer % 300;
-          const isGirl6Active = ht < 150;
+          // Cooperative Hopscotch & Beanbag Toss Arms (slow, graceful, no glitching)
+          const ht = hopscotchTimer % 600;
+          const isGirl6Active = ht < 300;
           const isActive = (c.id === 6 && isGirl6Active) || (c.id === 7 && !isGirl6Active);
 
           if (isActive) {
-            const turnT = isGirl6Active ? ht : (ht - 150);
-            if (turnT < 25) {
-              // Tossing arm motion
+            const turnT = isGirl6Active ? ht : (ht - 300);
+            if (turnT < 75) {
+              // Gentle, slow tossing arm motion
+              const tossProg = Math.min(1, Math.max(0, (turnT - 30) / 45));
+              const armAngle = Math.sin(tossProg * Math.PI) * 4.5;
               ctx.beginPath();
               ctx.moveTo(-c.facing * 2, bodyY + 3);
               ctx.lineTo(-c.facing * 4, bodyY + 6);
               ctx.moveTo(c.facing * 1, bodyY + 2);
-              ctx.lineTo(c.facing * 7.5, bodyY - 4);
+              ctx.lineTo(c.facing * (5.0 + tossProg * 2.5), bodyY - armAngle);
               ctx.stroke();
             } else {
-              // Balance swinging arms while hopping (gentle natural motion)
-              const swing = Math.sin(time * 0.16) * 2.6;
+              // Balance swinging arms while hopping (slow, gentle natural motion)
+              const swing = Math.sin(time * 0.08) * 2.2;
               ctx.beginPath();
               ctx.moveTo(-c.facing * 2, bodyY + 3);
-              ctx.lineTo(-c.facing * 6.5, bodyY - swing);
+              ctx.lineTo(-c.facing * 6.0, bodyY - swing);
               ctx.moveTo(c.facing * 2, bodyY + 3);
-              ctx.lineTo(c.facing * 7, bodyY + swing);
+              ctx.lineTo(c.facing * 6.5, bodyY + swing);
               ctx.stroke();
             }
           } else {
-            // Partner clapping encouragingly at relaxed tempo
-            const clap = Math.sin(time * 0.18);
-            const clapX = 2.5 + clap * 2.0;
+            // Partner clapping encouragingly at relaxed, peaceful tempo
+            const clap = Math.sin(time * 0.08);
+            const clapX = 2.0 + clap * 1.5;
             ctx.beginPath();
             ctx.moveTo(-2, bodyY + 3);
             ctx.lineTo(c.facing * clapX, bodyY + 2);
