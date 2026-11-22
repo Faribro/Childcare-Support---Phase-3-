@@ -40,7 +40,7 @@ describe('WelcomeKiteOnboardingModal Component', () => {
     render(<WelcomeKiteOnboardingModal isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toBeDefined();
-    expect(screen.getByText('Field Caseworker Onboarding')).toBeDefined();
+    expect(screen.getByText('Onboarding')).toBeDefined();
     expect(screen.getByText('Welcome to Child Care Support')).toBeDefined();
     expect(screen.getByText('Complete Field Profile')).toBeDefined();
   });

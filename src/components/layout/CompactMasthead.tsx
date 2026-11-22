@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Shield,
   Lock,
+  Unlock,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
@@ -54,8 +55,111 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const isSyncActive = Boolean(pathname?.startsWith('/assessment/sync'));
   const isSupervisorActive = Boolean(pathname?.startsWith('/supervisor'));
 
+  const headerRef = useRef<HTMLElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDisintegrated, setIsDisintegrated] = useState(isSupervisorActive);
+
+  useEffect(() => {
+    if (isSupervisorActive) {
+      setIsDisintegrated(true);
+    } else {
+      setIsDisintegrated(false);
+    }
+  }, [isSupervisorActive]);
+
+  const triggerDisintegration = () => {
+    if (!headerRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const rect = headerRef.current.getBoundingClientRect();
+    const colors = ['#ffffff', '#38bdf8', '#1e6eeb', '#60a5fa', '#facc15', '#10b981'];
+    const particles: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      size: number;
+      alpha: number;
+      decay: number;
+      color: string;
+    }> = [];
+
+    const step = 8;
+    for (let x = rect.left; x < rect.right; x += step) {
+      for (let y = rect.top; y < rect.bottom; y += step) {
+        particles.push({
+          x: x + (Math.random() - 0.5) * 6,
+          y: y + (Math.random() - 0.5) * 6,
+          vx: (Math.random() - 0.5) * 3,
+          vy: -Math.random() * 2.5 - 0.8,
+          size: Math.random() * 3 + 1.5,
+          alpha: 1,
+          decay: Math.random() * 0.025 + 0.015,
+          color: colors[Math.floor(Math.random() * colors.length)],
+        });
+      }
+    }
+
+    setIsDisintegrated(true);
+
+    let animId: number;
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= p.decay;
+
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+      }
+
+      if (particles.length > 0) {
+        animId = requestAnimationFrame(animate);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    };
+    animId = requestAnimationFrame(animate);
+  };
+
+  useEffect(() => {
+    const handleDissolve = () => {
+      triggerDisintegration();
+    };
+    window.addEventListener('child_nutrition:dissolve_navbar', handleDissolve);
+    return () => {
+      window.removeEventListener('child_nutrition:dissolve_navbar', handleDissolve);
+    };
+  }, []);
+
   return (
-    <header className="sticky top-0 z-40 w-full transition-all bg-transparent pointer-events-auto select-none">
+    <>
+      <canvas
+        ref={canvasRef}
+        className="fixed inset-0 pointer-events-none z-50"
+        aria-hidden="true"
+      />
+      <header
+        ref={headerRef}
+        className={`sticky top-0 z-40 w-full transition-all duration-500 bg-transparent select-none ${
+          isDisintegrated
+            ? 'opacity-0 pointer-events-none -translate-y-4 scale-[0.98]'
+            : 'opacity-100 pointer-events-auto translate-y-0 scale-100'
+        }`}
+      >
       {/* ═══════════════════════════════════════════════════════════════════════
           DESKTOP (md:flex): Option B Floating White Cloud-Glass Pill Bar
       ═══════════════════════════════════════════════════════════════════════ */}
@@ -151,6 +255,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
               {isUnlocked ? (
                 <Link
                   href="/supervisor"
+                  onClick={triggerDisintegration}
                   aria-current={isSupervisorActive ? 'page' : undefined}
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
                     isSupervisorActive
@@ -164,7 +269,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                   }
                   title="Evaluation Portal (Unlocked)"
                 >
-                  <Shield className="w-3.5 h-3.5 text-blue-600" />
+                  <Unlock className={`w-3.5 h-3.5 ${isSupervisorActive ? 'text-white' : 'text-blue-600'}`} />
                   <span>Evaluation</span>
                 </Link>
               ) : (
@@ -209,16 +314,16 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
               aria-live="polite"
               aria-label={isOnline ? 'Online' : 'Offline'}
               title={isOnline ? 'Online — Connected to server' : 'Offline — Operating from local cache'}
-              className={`h-9 w-9 rounded-full flex items-center justify-center transition-colors shadow-2xs ${
+              className={`h-9 w-9 rounded-full flex items-center justify-center transition-all ${
                 isOnline
-                  ? 'bg-[rgba(209,250,229,0.85)] border border-emerald-200/70 text-[#059669]'
-                  : 'bg-amber-100 border border-amber-300 text-amber-800'
+                  ? 'bg-emerald-400/20 border border-emerald-400/90 text-emerald-500 shadow-[0_0_14px_rgba(16,185,129,0.7),inset_0_0_7px_rgba(52,211,153,0.45)]'
+                  : 'bg-red-500/25 border border-red-500/90 text-red-500 animate-pulse shadow-[0_0_16px_rgba(239,68,68,0.85),inset_0_0_8px_rgba(248,113,113,0.55)]'
               }`}
             >
               {isOnline ? (
-                <Wifi className="w-4 h-4" />
+                <Wifi className="w-4 h-4 text-emerald-500 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]" />
               ) : (
-                <WifiOff className="w-4 h-4" />
+                <WifiOff className="w-4 h-4 text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.95)]" />
               )}
             </div>
 
@@ -283,16 +388,16 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
             role="status"
             aria-label={isOnline ? 'Online' : 'Offline'}
             title={isOnline ? 'Online' : 'Offline'}
-            className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors shadow-2xs ${
+            className={`h-8 w-8 rounded-full flex items-center justify-center transition-all ${
               isOnline
-                ? 'bg-[rgba(209,250,229,0.85)] border border-emerald-200/70 text-[#059669]'
-                : 'bg-amber-100 border border-amber-300 text-amber-800'
+                ? 'bg-emerald-400/20 border border-emerald-400/90 text-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.65),inset_0_0_6px_rgba(52,211,153,0.4)]'
+                : 'bg-red-500/25 border border-red-500/90 text-red-500 animate-pulse shadow-[0_0_14px_rgba(239,68,68,0.85),inset_0_0_7px_rgba(248,113,113,0.5)]'
             }`}
           >
             {isOnline ? (
-              <Wifi className="w-3.5 h-3.5" />
+              <Wifi className="w-3.5 h-3.5 text-emerald-500 drop-shadow-[0_0_5px_rgba(16,185,129,0.9)]" />
             ) : (
-              <WifiOff className="w-3.5 h-3.5" />
+              <WifiOff className="w-3.5 h-3.5 text-red-500 drop-shadow-[0_0_7px_rgba(239,68,68,0.95)]" />
             )}
           </div>
 
@@ -311,5 +416,6 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
         </div>
       </div>
     </header>
-  );
+  </>
+);
 }

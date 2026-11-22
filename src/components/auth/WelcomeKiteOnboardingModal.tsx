@@ -596,7 +596,7 @@ export function WelcomeKiteOnboardingModal({
               <div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-300/20 border border-amber-300/40 text-[11px] font-semibold text-amber-200 mb-1">
                   <Sparkles className="w-3 h-3 text-amber-300" />
-                  <span>Field Caseworker Onboarding</span>
+                  <span>Onboarding</span>
                 </div>
                 <h2 id="welcome-kite-title" className="text-lg font-bold text-white tracking-tight leading-snug">
                   Welcome to Child Care Support

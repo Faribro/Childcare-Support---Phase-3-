@@ -9,7 +9,6 @@ import {
   CheckCircle,
   X,
   LogOut,
-  Info,
   MapPin,
   Building2,
   ArrowRight,
@@ -124,7 +123,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
             </div>
             <div>
               <h2 id="eval-login-title" className="text-base font-bold text-white tracking-tight">
-                Evaluation Access Control
+                Evaluation Portal
               </h2>
               <p className="text-xs text-sky-200/80">
                 State &amp; Leadership Surveillance Access
@@ -140,18 +139,8 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
           </button>
         </div>
 
-        {/* Notice for Field Users: Password Not Required */}
-        <div className="px-6 pt-4 pb-1 shrink-0">
-          <div className="p-3 rounded-xl bg-sky-50 border border-sky-200/90 flex items-start gap-2.5 text-xs text-slate-800">
-            <Info className="w-4 h-4 text-sky-700 shrink-0 mt-0.5" />
-            <div className="leading-relaxed">
-              <span className="font-semibold text-slate-900">Field Caseworkers:</span> Forms, local drafts, and survey submissions do not require an evaluation password.
-            </div>
-          </div>
-        </div>
-
         {/* Body (Scrollable container to accommodate combobox options on small screens) */}
-        <div className="p-6 pt-3 space-y-5 overflow-y-auto flex-1">
+        <div className="p-6 pt-5 space-y-5 overflow-y-auto flex-1">
           {/* Active Session Card if already logged in */}
           {isUnlocked && user ? (
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-3">
@@ -195,6 +184,9 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                 <button
                   type="button"
                   onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('child_nutrition:dissolve_navbar'));
+                    }
                     onSuccess?.();
                     onClose();
                     router.push('/supervisor');
@@ -306,6 +298,9 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
               {activeTab === 'state' && (
                 <StateTeamAuthFlow
                   onSuccess={() => {
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('child_nutrition:dissolve_navbar'));
+                    }
                     onSuccess?.();
                     onClose();
                     router.push('/supervisor');
@@ -319,6 +314,9 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                 <LeadershipOtpFlow
                   isModal={true}
                   onSuccess={() => {
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('child_nutrition:dissolve_navbar'));
+                    }
                     onSuccess?.();
                     onClose();
                     router.push('/supervisor');

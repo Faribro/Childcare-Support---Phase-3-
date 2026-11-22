@@ -512,7 +512,7 @@ export function StateTeamAuthFlow({
             </div>
             <div>
               <label htmlFor="st-org" className="block text-xs font-semibold text-slate-700 mb-1">
-                Organization / Partner
+                Organization / Partner / SR
               </label>
               <input
                 id="st-org"

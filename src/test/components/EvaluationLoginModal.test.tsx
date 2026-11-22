@@ -55,17 +55,11 @@ describe('EvaluationLoginModal Component', () => {
     localStorage.clear();
   });
 
-  it('1. renders modal header, caseworker notice, and defaults to State Evaluation with StateTeamAuthFlow', async () => {
+  it('1. renders modal header and defaults to State Evaluation with StateTeamAuthFlow', async () => {
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toBeDefined();
-    expect(screen.getByText('Evaluation Access Control')).toBeDefined();
-    expect(
-      screen.getByText(/Field Caseworkers:/i)
-    ).toBeDefined();
-    expect(
-      screen.getByText(/Forms, local drafts, and survey submissions do not require an evaluation password/i)
-    ).toBeDefined();
+    expect(screen.getByText('Evaluation Portal')).toBeDefined();
 
     // Tabs
     expect(screen.getByRole('tab', { name: /State Evaluation/i })).toBeDefined();
