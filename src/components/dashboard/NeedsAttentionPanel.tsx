@@ -171,6 +171,8 @@ export function NeedsAttentionPanel({
                   className="text-[3.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
+                    fontSize: '3.5rem',
+                    lineHeight: 1,
                     WebkitTextStroke: '0.6px #09142A',
                   }}
                 >
@@ -263,9 +265,11 @@ export function NeedsAttentionPanel({
               {/* Big bold count + description */}
               <div className="flex flex-col items-center">
                 <span
-                  className="text-[3.35rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                  className="text-[3.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
+                    fontSize: '3.5rem',
+                    lineHeight: 1,
                     WebkitTextStroke: '0.6px #09142A',
                   }}
                 >
@@ -444,9 +448,11 @@ export function NeedsAttentionPanel({
               {/* Big bold count + description */}
               <div className="flex flex-col items-center -mt-0.5">
                 <span
-                  className="text-[3.3rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                  className="text-[3.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
                   style={{
                     fontWeight: 900,
+                    fontSize: '3.5rem',
+                    lineHeight: 1,
                     WebkitTextStroke: '0.6px #09142A',
                   }}
                 >

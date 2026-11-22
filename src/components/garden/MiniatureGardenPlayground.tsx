@@ -398,9 +398,9 @@ export function MiniatureGardenPlayground({
     const mangoTree = {
       xRatio: 0.24,
       mangoes: [
-        { id: 1, relX: -11, relY: -82, isFalling: false, curY: 0, vy: 0 },
-        { id: 2, relX: 9, relY: -78, isFalling: false, curY: 0, vy: 0 },
-        { id: 3, relX: -2, relY: -92, isFalling: false, curY: 0, vy: 0 },
+        { id: 1, relX: -10, relY: -64, isFalling: false, curY: 0, vy: 0 },
+        { id: 2, relX: 8, relY: -60, isFalling: false, curY: 0, vy: 0 },
+        { id: 3, relX: -2, relY: -74, isFalling: false, curY: 0, vy: 0 },
       ],
       slingshotPebble: { active: false, x: 0, y: 0, vx: 0, vy: 0, targetMangoId: 1 },
       basketMangoCount: 2,
@@ -654,7 +654,7 @@ export function MiniatureGardenPlayground({
       staticCtx.lineCap = 'round';
       staticCtx.beginPath();
       staticCtx.moveTo(tree1X, tree1GroundY);
-      staticCtx.lineTo(tree1X - 2.5, tree1GroundY - 74);
+      staticCtx.lineTo(tree1X - 2.5, tree1GroundY - 56);
       staticCtx.stroke();
 
       // Wicker fruit basket
@@ -882,7 +882,7 @@ export function MiniatureGardenPlayground({
       // 2) Tap mango tree canopy -> shake & drop a ripe mango (grand tall canopy)
       const tree1X = width * mangoTree.xRatio;
       const tree1GroundY = getGroundY(tree1X, width, height);
-      if (Math.hypot(tapX - tree1X, tapY - (tree1GroundY - 86)) < 42) {
+      if (Math.hypot(tapX - tree1X, tapY - (tree1GroundY - 68)) < 38) {
         hitInteractive = true;
         treeShake = 1;
         const hanging = mangoTree.mangoes.find((m) => !m.isFalling);
@@ -1419,16 +1419,16 @@ export function MiniatureGardenPlayground({
       ctx.strokeStyle = '#15803d';
       ctx.lineWidth = 1.45;
       ctx.beginPath();
-      ctx.arc(tree1X, tree1GroundY - 88, 20.5, 0, Math.PI * 2);
-      ctx.arc(tree1X - 13, tree1GroundY - 78, 15.5, 0, Math.PI * 2);
-      ctx.arc(tree1X + 13, tree1GroundY - 78, 15.5, 0, Math.PI * 2);
-      ctx.arc(tree1X, tree1GroundY - 100, 13.5, 0, Math.PI * 2);
+      ctx.arc(tree1X, tree1GroundY - 70, 19.5, 0, Math.PI * 2);
+      ctx.arc(tree1X - 12, tree1GroundY - 60, 15, 0, Math.PI * 2);
+      ctx.arc(tree1X + 12, tree1GroundY - 60, 15, 0, Math.PI * 2);
+      ctx.arc(tree1X, tree1GroundY - 81, 13, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       // Warm sun-kissed canopy highlight (from top-right sun)
       ctx.fillStyle = 'rgba(190, 242, 100, 0.38)';
       ctx.beginPath();
-      ctx.arc(tree1X + 5, tree1GroundY - 96, 9.5, 0, Math.PI * 2);
+      ctx.arc(tree1X + 5, tree1GroundY - 78, 9, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
@@ -1956,7 +1956,7 @@ export function MiniatureGardenPlayground({
         ctx.arc(pb.x, pb.y, 1.4, 0, Math.PI * 2);
         ctx.fill();
 
-        if (pb.y <= tree1GroundY - 76) {
+        if (pb.y <= tree1GroundY - 60) {
           pb.active = false;
           treeShake = 0.8;
           const target = mangoTree.mangoes.find((m) => m.id === pb.targetMangoId);
@@ -2102,7 +2102,7 @@ export function MiniatureGardenPlayground({
               x: c.curX - 6,
               y: groundY - 18,
               vx: -1.0,
-              vy: -5.8,
+              vy: -4.8,
               targetMangoId: nextMango.id,
             };
           }
