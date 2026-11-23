@@ -33,16 +33,17 @@ export const DASHBOARD_COPY = {
       allClearText: 'Everything has been sent',
       href: '/assessment/sync?tab=outbox',
     },
-    // Card 3: Pendings (consolidates Missing Documents + Bank Details Needed)
+    // Card 3: Missing Docs (renamed from Pendings per user specification)
     pendings: {
-      title: 'Pendings',
-      description: 'Items needing action.',
-      allClearText: 'No pending items',
+      title: 'Missing Docs',
+      description: 'Records that still need documents.',
+      linkText: 'Review docs',
+      allClearText: 'No missing documents',
       rows: {
         missingDocs: {
           label: 'Missing documents',
           hint: 'Records that still need an Aadhaar or photo.',
-          href: '/supervisor/assessments',
+          href: '/assessment/sync?tab=docs',
         },
         bankDetailsNeeded: {
           label: 'Bank details needed',

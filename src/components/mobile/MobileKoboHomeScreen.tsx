@@ -126,8 +126,9 @@ export function MobileKoboHomeScreen({
   const effectiveMissingDocs  = isAuthenticated ? submittedMissingDocsCount : 0;
   const effectiveBankPending  = isAuthenticated ? approvedBankPendingCount  : 0;
   const effectiveWaitingCount = isAuthenticated ? waitingCount              : 0;
-  const pendingsTotal         = effectiveMissingDocs + effectiveBankPending;
-  const totalActionable       = count + effectiveWaitingCount + pendingsTotal;
+  // Pendings represents Missing Documents ONLY (Bank Details has its own dedicated planet)
+  const pendingsTotal         = effectiveMissingDocs;
+  const totalActionable       = count + effectiveWaitingCount + effectiveMissingDocs + effectiveBankPending;
 
   // ── State ───────────────────────────────────────────────────────────────────
   const isGlobalLaunching = useLaunchTransitionStore(selectIsLaunching);
@@ -492,9 +493,9 @@ export function MobileKoboHomeScreen({
           className="relative py-0.5"
         >
           <div className="flex items-center justify-between gap-1.5">
-            {/* ── LEFT COLUMN: Drafts (top) + Outbox (bottom) ── */}
+            {/* ── LEFT COLUMN: Drafts (top) + Bank Details (bottom) ── */}
             <div className="flex shrink-0 flex-col items-center gap-3.5">
-              {/* ── DRAFTS PLANET (Emerald-Teal, NO Ring) ── */}
+              {/* ── DRAFTS PLANET (Warm Yellow, NO Ring) ── */}
               <div className="kobo-float-d relative">
                 {/* GPU-composited outer glow halo */}
                 <div
@@ -504,7 +505,7 @@ export function MobileKoboHomeScreen({
                   }`}
                   style={{
                     background:
-                      'radial-gradient(circle, rgba(52,211,153,0.62) 0%, rgba(16,185,129,0) 70%)',
+                      'radial-gradient(circle, rgba(251,191,36,0.68) 0%, rgba(245,158,11,0) 70%)',
                   }}
                 />
                 <Link
@@ -512,6 +513,92 @@ export function MobileKoboHomeScreen({
                   prefetch={true}
                   onClick={(e) => handleProtectedNav(e, '/assessment/drafts')}
                   aria-label={`${DASHBOARD_COPY.cards.formsToFinish.title}: ${count} - ${DASHBOARD_COPY.cards.formsToFinish.linkText}`}
+                  className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                >
+                  {/* Luminous comic golden sphere */}
+                  <div
+                    className="absolute inset-0 overflow-hidden rounded-full"
+                    style={{
+                      background:
+                        'radial-gradient(circle at 30% 26%, #FFF8C2 0%, #FDE047 36%, #F59E0B 72%, #C26806 100%)',
+                      boxShadow:
+                        'inset -7px -9px 18px rgba(146,64,14,0.38), inset 5px 5px 12px rgba(255,255,255,0.6), 0 0 0 1.5px rgba(254,240,138,0.6)',
+                    }}
+                  >
+                    {/* Comic craters SVG */}
+                    <svg
+                      viewBox="0 0 150 150"
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      aria-hidden="true"
+                    >
+                      <circle cx="24" cy="72" r="9.5" fill="#B45309" opacity="0.2" />
+                      <circle cx="25.5" cy="73.5" r="7" fill="#FEF08A" opacity="0.28" />
+                      <circle cx="122" cy="64" r="9" fill="#B45309" opacity="0.2" />
+                      <circle cx="108" cy="112" r="7" fill="#92400E" opacity="0.2" />
+                      <circle cx="42" cy="110" r="5.5" fill="#92400E" opacity="0.18" />
+                      <ellipse
+                        cx="46"
+                        cy="32"
+                        rx="22"
+                        ry="9"
+                        fill="#FFFFFF"
+                        opacity="0.28"
+                        transform="rotate(-22 46 32)"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Content overlay */}
+                  <div className="relative z-10 flex h-full flex-col items-center justify-between px-2 py-3">
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-amber-950 shadow-xs"
+                      style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
+                    >
+                      <FileText className="h-2.5 w-2.5 shrink-0 text-amber-800" aria-hidden="true" />
+                      <span>Drafts</span>
+                    </span>
+
+                    <div className="flex flex-col items-center -mt-1">
+                      <span
+                        className="text-[2.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
+                        style={{ fontWeight: 900, WebkitTextStroke: '0.45px #09142A' }}
+                      >
+                        {draftsLoading ? (
+                          <span className="inline-block h-7 w-7 animate-pulse rounded-full bg-amber-950/20" />
+                        ) : (
+                          count
+                        )}
+                      </span>
+                      <span className="mt-0.5 text-[10px] font-extrabold text-[#3B1E02]">
+                        {count === 0 ? 'No drafts' : `${count} saved`}
+                      </span>
+                    </div>
+
+                    <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-3.5 py-1 text-[10px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/35 whitespace-nowrap">
+                      Continue ›
+                      <span className="sr-only"> {DASHBOARD_COPY.cards.formsToFinish.linkText}</span>
+                    </span>
+                  </div>
+                </Link>
+              </div>
+
+              {/* ── BANK DETAILS PLANET (Rich Comic-Space Green, NO Ring) ── */}
+              <div className="kobo-float-o relative">
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute -inset-2 rounded-full blur-md ${
+                    effectiveBankPending >= 1 ? 'kobo-halo-active' : 'opacity-65'
+                  }`}
+                  style={{
+                    background:
+                      'radial-gradient(circle, rgba(52,211,153,0.62) 0%, rgba(16,185,129,0) 70%)',
+                  }}
+                />
+                <Link
+                  href="/assessment/sync?tab=bank"
+                  prefetch={true}
+                  onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=bank')}
+                  aria-label={`Bank Details: ${effectiveBankPending} - View bank details`}
                   className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 >
                   {/* Luminous comic emerald sphere */}
@@ -555,94 +642,8 @@ export function MobileKoboHomeScreen({
                       className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-emerald-950 shadow-xs"
                       style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
                     >
-                      <FileText className="h-2.5 w-2.5 shrink-0 text-emerald-800" aria-hidden="true" />
-                      <span>Drafts</span>
-                    </span>
-
-                    <div className="flex flex-col items-center -mt-1">
-                      <span
-                        className="text-[2.5rem] leading-none font-black tracking-tight text-[#09142A] tabular-nums"
-                        style={{ fontWeight: 900, WebkitTextStroke: '0.45px #09142A' }}
-                      >
-                        {draftsLoading ? (
-                          <span className="inline-block h-7 w-7 animate-pulse rounded-full bg-emerald-950/20" />
-                        ) : (
-                          count
-                        )}
-                      </span>
-                      <span className="mt-0.5 text-[10px] font-extrabold text-[#072920]">
-                        {count === 0 ? 'No drafts' : `${count} saved`}
-                      </span>
-                    </div>
-
-                    <span className="inline-flex items-center justify-center rounded-full bg-[#0C6E43] px-3.5 py-1 text-[10px] font-extrabold text-white shadow-sm ring-1 ring-emerald-300/35 whitespace-nowrap">
-                      Continue ›
-                      <span className="sr-only"> {DASHBOARD_COPY.cards.formsToFinish.linkText}</span>
-                    </span>
-                  </div>
-                </Link>
-              </div>
-
-              {/* ── OUTBOX PLANET (Golden-Yellow, NO Ring) ── */}
-              <div className="kobo-float-o relative">
-                <div
-                  aria-hidden="true"
-                  className={`pointer-events-none absolute -inset-2 rounded-full blur-md ${
-                    effectiveWaitingCount >= 1 ? 'kobo-halo-active' : 'opacity-65'
-                  }`}
-                  style={{
-                    background:
-                      'radial-gradient(circle, rgba(251,191,36,0.68) 0%, rgba(245,158,11,0) 70%)',
-                  }}
-                />
-                <Link
-                  href="/assessment/sync?tab=outbox"
-                  prefetch={true}
-                  onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=outbox')}
-                  aria-label={`${DASHBOARD_COPY.cards.waitingToSend.title}: ${effectiveWaitingCount} - ${DASHBOARD_COPY.cards.waitingToSend.linkText}`}
-                  className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                >
-                  {/* Luminous comic golden sphere */}
-                  <div
-                    className="absolute inset-0 overflow-hidden rounded-full"
-                    style={{
-                      background:
-                        'radial-gradient(circle at 30% 26%, #FFF8C2 0%, #FDE047 36%, #F59E0B 72%, #C26806 100%)',
-                      boxShadow:
-                        'inset -7px -9px 18px rgba(146,64,14,0.38), inset 5px 5px 12px rgba(255,255,255,0.6), 0 0 0 1.5px rgba(254,240,138,0.6)',
-                    }}
-                  >
-                    {/* Comic craters SVG */}
-                    <svg
-                      viewBox="0 0 150 150"
-                      className="pointer-events-none absolute inset-0 h-full w-full"
-                      aria-hidden="true"
-                    >
-                      <circle cx="24" cy="72" r="9.5" fill="#B45309" opacity="0.2" />
-                      <circle cx="25.5" cy="73.5" r="7" fill="#FEF08A" opacity="0.28" />
-                      <circle cx="122" cy="64" r="9" fill="#B45309" opacity="0.2" />
-                      <circle cx="108" cy="112" r="7" fill="#92400E" opacity="0.2" />
-                      <circle cx="42" cy="110" r="5.5" fill="#92400E" opacity="0.18" />
-                      <ellipse
-                        cx="46"
-                        cy="32"
-                        rx="22"
-                        ry="9"
-                        fill="#FFFFFF"
-                        opacity="0.28"
-                        transform="rotate(-22 46 32)"
-                      />
-                    </svg>
-                  </div>
-
-                  {/* Content overlay */}
-                  <div className="relative z-10 flex h-full flex-col items-center justify-between px-2 py-3">
-                    <span
-                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-amber-950 shadow-xs"
-                      style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
-                    >
-                      <Clock className="h-2.5 w-2.5 shrink-0 text-amber-800" aria-hidden="true" />
-                      <span>Outbox</span>
+                      <Landmark className="h-2.5 w-2.5 shrink-0 text-emerald-800" aria-hidden="true" />
+                      <span>Bank Details</span>
                     </span>
 
                     <div className="flex flex-col items-center -mt-1">
@@ -651,21 +652,21 @@ export function MobileKoboHomeScreen({
                         style={{ fontWeight: 900, WebkitTextStroke: '0.45px #09142A' }}
                       >
                         {waitingLoading ? (
-                          <span className="inline-block h-7 w-7 animate-pulse rounded-full bg-amber-950/20" />
+                          <span className="inline-block h-7 w-7 animate-pulse rounded-full bg-emerald-950/20" />
                         ) : (
-                          effectiveWaitingCount
+                          effectiveBankPending
                         )}
                       </span>
-                      <span className="mt-0.5 text-[10px] font-extrabold text-[#3B1E02]">
-                        {effectiveWaitingCount === 0
-                          ? 'All items sent'
-                          : `${effectiveWaitingCount} in outbox`}
+                      <span className="mt-0.5 text-[10px] font-extrabold text-[#072920]">
+                        {effectiveBankPending === 0
+                          ? 'No pending items'
+                          : `${effectiveBankPending} bank${effectiveBankPending === 1 ? '' : 's'} pending`}
                       </span>
                     </div>
 
-                    <span className="inline-flex items-center justify-center rounded-full bg-[#925408] px-3.5 py-1 text-[10px] font-extrabold text-white shadow-sm ring-1 ring-amber-200/35 whitespace-nowrap">
-                      Outbox ›
-                      <span className="sr-only"> {DASHBOARD_COPY.cards.waitingToSend.linkText}</span>
+                    <span className="inline-flex items-center justify-center rounded-full bg-[#0C6E43] px-3.5 py-1 text-[10px] font-extrabold text-white shadow-sm ring-1 ring-emerald-300/35 whitespace-nowrap">
+                      Bank list ›
+                      <span className="sr-only"> View bank details</span>
                     </span>
                   </div>
                 </Link>
@@ -733,24 +734,13 @@ export function MobileKoboHomeScreen({
                   </svg>
                 </div>
 
-                {/* Main Planet Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isAuthenticated && onRequireAuth) {
-                      onRequireAuth();
-                      return;
-                    }
-                    setIsPendingsExpanded((prev) => !prev);
-                  }}
-                  aria-expanded={isPendingsExpanded}
-                  aria-controls="mobile-pendings-breakdown"
-                  aria-label={`${DASHBOARD_COPY.cards.pendings.title}: ${pendingsTotal} items. ${
-                    pendingsTotal > 0
-                      ? isPendingsExpanded
-                        ? 'Hide breakdown'
-                        : 'Open document and bank breakdown'
-                      : 'All clear'
+                {/* Main Planet Link (Direct navigation to Missing Documents) */}
+                <Link
+                  href="/assessment/sync?tab=docs"
+                  prefetch={true}
+                  onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=docs')}
+                  aria-label={`Missing Docs: ${effectiveMissingDocs} - ${
+                    effectiveMissingDocs === 0 ? 'All clear' : 'Review missing documents'
                   }`}
                   className="relative z-10 block h-[176px] w-[176px] min-[390px]:h-[190px] min-[390px]:w-[190px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 >
@@ -832,14 +822,14 @@ export function MobileKoboHomeScreen({
                   {/* Foreground UI Content (z-30 — razor-sharp above ring) */}
                   <div className="relative z-30 flex h-full flex-col items-center justify-between px-2.5 py-3.5">
                     <span
-                      className="inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-slate-900 shadow-xs"
+                      className="inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-rose-950 shadow-xs"
                       style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.9)' }}
                     >
-                      <AlertTriangle
+                      <FileWarning
                         className="h-2.5 w-2.5 shrink-0 text-rose-700"
                         aria-hidden="true"
                       />
-                      <span>Pendings</span>
+                      <span>Missing Docs</span>
                     </span>
 
                     <div className="flex flex-col items-center -mt-1">
@@ -850,171 +840,30 @@ export function MobileKoboHomeScreen({
                         {submittedLoading ? (
                           <span className="inline-block h-8 w-8 animate-pulse rounded-full bg-rose-950/20" />
                         ) : (
-                          pendingsTotal
+                          effectiveMissingDocs
                         )}
                       </span>
                       <span className="mt-0.5 text-[10.5px] font-extrabold text-[#2D0A14]">
-                        {pendingsTotal === 0
-                          ? DASHBOARD_COPY.cards.pendings.allClearText
-                          : pendingsTotal === 1
-                            ? '1 item pending'
-                            : `${pendingsTotal} items pending`}
-                      </span>
-                    </div>
-
-                    {/* Side-by-side Docs & Bank Pills */}
-                    <div className="flex w-full items-center justify-center gap-1.5 px-1">
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-bold text-slate-900 shadow-sm tabular-nums whitespace-nowrap"
-                        style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.85)' }}
-                      >
-                        <FileWarning
-                          className="h-2.5 w-2.5 shrink-0 text-slate-700"
-                          aria-hidden="true"
-                        />
-                        <span>Docs</span>
-                        <span className="sr-only">
-                          {' '}
-                          {DASHBOARD_COPY.cards.pendings.rows.missingDocs.label}
-                        </span>
-                        <span className="font-black text-[#09142A]">
-                          {submittedLoading ? (
-                            <span
-                              className="inline-block h-2 w-2.5 animate-pulse rounded bg-rose-200"
-                              role="status"
-                              aria-label="Loading docs count"
-                            />
-                          ) : (
-                            effectiveMissingDocs
-                          )}
-                        </span>
-                      </span>
-
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-bold text-slate-900 shadow-sm tabular-nums whitespace-nowrap"
-                        style={{ background: 'rgba(255, 255, 255, 0.94)', border: '1px solid rgba(255, 255, 255, 0.85)' }}
-                      >
-                        <Landmark
-                          className="h-2.5 w-2.5 shrink-0 text-slate-700"
-                          aria-hidden="true"
-                        />
-                        <span>Bank</span>
-                        <span className="sr-only">
-                          {' '}
-                          {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}
-                        </span>
-                        <span className="font-black text-[#09142A]">
-                          {submittedLoading ? (
-                            <span
-                              className="inline-block h-2 w-2.5 animate-pulse rounded bg-rose-200"
-                              role="status"
-                              aria-label="Loading bank count"
-                            />
-                          ) : (
-                            effectiveBankPending
-                          )}
-                        </span>
+                        {effectiveMissingDocs === 0
+                          ? 'No missing documents'
+                          : effectiveMissingDocs === 1
+                            ? '1 document missing'
+                            : `${effectiveMissingDocs} documents missing`}
                       </span>
                     </div>
 
                     {/* Action CTA Pill */}
                     <span
-                      className={`inline-flex items-center justify-center rounded-full px-4 py-1 text-[10.5px] font-extrabold text-white shadow-sm whitespace-nowrap ${
-                        pendingsTotal === 0
-                          ? 'bg-[#0C8C52] ring-1 ring-emerald-300/45'
-                          : 'bg-rose-800 ring-1 ring-rose-300/45'
-                      }`}
+                      className="inline-flex items-center justify-center rounded-full bg-[#9F1239] px-4 py-1 text-[10.5px] font-extrabold text-white shadow-sm ring-1 ring-rose-300/40 whitespace-nowrap"
                     >
-                      {pendingsTotal === 0
-                        ? 'All clear ›'
-                        : isPendingsExpanded
-                          ? 'Hide breakdown ▴'
-                          : 'Resolve ›'}
+                      Pendings ›
                     </span>
                   </div>
-                </button>
+                </Link>
               </div>
             </div>
           </div>
         </section>
-
-        {/* ── Expandable Pendings Breakdown Card ── */}
-        {isPendingsExpanded && (
-          <div
-            id="mobile-pendings-breakdown"
-            className="w-full space-y-2 rounded-2xl border border-rose-200/90 bg-white/92 p-3 shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200"
-          >
-            <div className="flex items-center justify-between px-1">
-              <span className="text-xs font-extrabold text-rose-950">
-                Pendings Breakdown
-              </span>
-              <span className="text-[11px] font-bold text-rose-700">
-                {pendingsTotal} actionable
-              </span>
-            </div>
-            <div className="space-y-1.5">
-              <Link
-                href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
-                onClick={(e) =>
-                  handleProtectedNav(
-                    e,
-                    DASHBOARD_COPY.cards.pendings.rows.missingDocs.href
-                  )
-                }
-                className="flex min-h-[44px] cursor-pointer items-center justify-between rounded-xl border border-rose-200/80 bg-white p-2.5 shadow-xs transition-colors hover:bg-rose-50"
-              >
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
-                    <FileWarning className="h-4 w-4 stroke-[2.2]" aria-hidden="true" />
-                  </div>
-                  <span className="truncate text-xs font-semibold text-slate-800">
-                    {DASHBOARD_COPY.cards.pendings.rows.missingDocs.label}
-                  </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 font-mono text-xs font-bold text-rose-900">
-                    {submittedLoading ? (
-                      <span className="inline-block h-2 w-3 animate-pulse rounded bg-rose-200" />
-                    ) : (
-                      effectiveMissingDocs
-                    )}
-                  </span>
-                  <ChevronRight className="h-3.5 w-3.5 text-rose-400" aria-hidden="true" />
-                </div>
-              </Link>
-
-              <Link
-                href={DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href}
-                onClick={(e) =>
-                  handleProtectedNav(
-                    e,
-                    DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.href
-                  )
-                }
-                className="flex min-h-[44px] cursor-pointer items-center justify-between rounded-xl border border-rose-200/80 bg-white p-2.5 shadow-xs transition-colors hover:bg-rose-50"
-              >
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
-                    <Landmark className="h-4 w-4 stroke-[2.2]" aria-hidden="true" />
-                  </div>
-                  <span className="truncate text-xs font-semibold text-slate-800">
-                    {DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label}
-                  </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 font-mono text-xs font-bold text-rose-900">
-                    {submittedLoading ? (
-                      <span className="inline-block h-2 w-3 animate-pulse rounded bg-rose-200" />
-                    ) : (
-                      effectiveBankPending
-                    )}
-                  </span>
-                  <ChevronRight className="h-3.5 w-3.5 text-rose-400" aria-hidden="true" />
-                </div>
-              </Link>
-            </div>
-          </div>
-        )}
 
         {/* ═══════════════════════════════════════════════════════════════════
             4. UNIFIED "Submitted surveys" CLOUD + RADIANT GOLDEN SUN

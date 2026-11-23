@@ -26,16 +26,16 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
       expect(draftsOrb.getAttribute('href')).toBe('/assessment/drafts');
       expect(within(draftsOrb).getByText('3')).toBeDefined();
 
-      // Orb 2: Outbox / Waiting to send
-      const outboxOrb = screen.getByRole('link', { name: /Waiting to send: 2/i });
-      expect(outboxOrb.getAttribute('href')).toBe('/assessment/sync?tab=outbox');
-      expect(within(outboxOrb).getByText('2')).toBeDefined();
+      // Orb 2: Bank Details (Replaced Outbox)
+      const bankDetailsOrb = screen.getByRole('link', { name: /Bank Details: 5/i });
+      expect(bankDetailsOrb.getAttribute('href')).toBe('/assessment/sync?tab=bank');
+      expect(within(bankDetailsOrb).getByText('5')).toBeDefined();
 
-      // Orb 3: Pendings (Combined: 4 + 5 = 9)
-      const pendingsOrb = screen.getByRole('button', { name: /Pendings: 9/i });
-      expect(within(pendingsOrb).getByText('9')).toBeDefined();
-      expect(within(pendingsOrb).getByText('4')).toBeDefined(); // Docs
-      expect(within(pendingsOrb).getByText('5')).toBeDefined(); // Bank
+      // Orb 3: Missing Docs (Direct Link, sub-pill removed per user instruction)
+      const missingDocsOrb = screen.getByRole('link', { name: /Missing Docs: 4/i });
+      expect(missingDocsOrb.getAttribute('href')).toBe('/assessment/sync?tab=docs');
+      expect(within(missingDocsOrb).getAllByText('4').length).toBeGreaterThanOrEqual(1);
+      expect(within(missingDocsOrb).queryByText('Bank')).toBeNull();
     });
 
     it('removes duplicate standalone status rows while preserving Start New Survey and Submitted Surveys card', () => {
@@ -69,7 +69,7 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
       expect(within(submittedLink).getByText('Confirmed on central server')).toBeDefined();
     });
 
-    it('expands and collapses the complete Pendings breakdown when tapping the Pendings hero orb', () => {
+    it('navigates directly to missing documents sync tab when clicking the Missing Docs hero orb', () => {
       render(
         <MobileKoboHomeScreen
           draftsCount={3}
@@ -80,30 +80,10 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
         />
       );
 
-      const pendingsOrb = screen.getByRole('button', { name: /Pendings: 9/i });
-      expect(pendingsOrb.getAttribute('aria-expanded')).toBe('false');
-
-      // Sub-links are NOT in the DOM initially
-      expect(screen.queryByRole('link', { name: /Missing documents/i })).toBeNull();
-      expect(screen.queryByRole('link', { name: /Bank details needed/i })).toBeNull();
-
-      // Tap Pendings orb to toggle breakdown
-      fireEvent.click(pendingsOrb);
-      expect(pendingsOrb.getAttribute('aria-expanded')).toBe('true');
-
-      // Breakdown card is now expanded and accessible
-      const missingDocsLink = screen.getByRole('link', { name: /Missing documents/i });
-      expect(missingDocsLink.getAttribute('href')).toBe('/supervisor/assessments');
-      expect(within(missingDocsLink).getByText('4')).toBeDefined();
-
-      const bankLink = screen.getByRole('link', { name: /Bank details needed/i });
-      expect(bankLink.getAttribute('href')).toBe('/assessment/sync?tab=bank_pending');
-      expect(within(bankLink).getByText('5')).toBeDefined();
-
-      // Tap Pendings orb again to collapse breakdown
-      fireEvent.click(pendingsOrb);
-      expect(pendingsOrb.getAttribute('aria-expanded')).toBe('false');
-      expect(screen.queryByRole('link', { name: /Missing documents/i })).toBeNull();
+      const missingDocsOrb = screen.getByRole('link', { name: /Missing Docs: 4/i });
+      expect(missingDocsOrb.getAttribute('href')).toBe('/assessment/sync?tab=docs');
+      expect(within(missingDocsOrb).getAllByText('4').length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText(/Bank details needed/i)).toBeNull();
     });
 
     it('ensures old labels and tiles are completely absent on mobile', () => {
@@ -126,7 +106,7 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
   });
 
   describe('Desktop Circular Cards (md and above)', () => {
-    it('renders the 3 circular cards in exact order: Forms to finish | Waiting to send | Pendings', () => {
+    it('renders the 3 circular cards in exact order: Forms to finish | Missing Docs | Bank Details (last)', () => {
       const { container } = render(
         <NeedsAttentionPanel
           localDraftsCount={2}
@@ -141,23 +121,17 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
       expect(screen.getByText('2')).toBeDefined();
       expect(screen.getByRole('link', { name: new RegExp(DASHBOARD_COPY.cards.formsToFinish.linkText, 'i') }).getAttribute('href')).toBe('/assessment/drafts');
 
-      // Card 2: Waiting to send
-      expect(screen.getByText(DASHBOARD_COPY.cards.waitingToSend.title)).toBeDefined();
-      expect(screen.getByText('3')).toBeDefined();
-      expect(screen.getByRole('link', { name: new RegExp(DASHBOARD_COPY.cards.waitingToSend.linkText, 'i') }).getAttribute('href')).toBe('/assessment/sync?tab=outbox');
+      // Card 2: Missing Docs (replacing Pendings, inner sub-pill removed per user instruction)
+      expect(screen.getByText('Missing Docs')).toBeDefined();
+      expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(1);
+      const resolveDocsLink = screen.getByRole('link', { name: /Pendings/i });
+      expect(resolveDocsLink.getAttribute('href')).toBe('/assessment/sync?tab=docs');
+      expect(screen.queryByText(DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label)).toBeNull();
 
-      // Card 3: Pendings (Combined: 1 + 4 = 5)
-      expect(screen.getByText(DASHBOARD_COPY.cards.pendings.title)).toBeDefined();
-      expect(screen.getByText('5')).toBeDefined();
-
-      // Card 3 sub-pills
-      const missingDocsLink = screen.getByRole('link', { name: new RegExp(DASHBOARD_COPY.cards.pendings.rows.missingDocs.label, 'i') });
-      expect(missingDocsLink.getAttribute('href')).toBe('/supervisor/assessments');
-      expect(within(missingDocsLink).getByText('1')).toBeDefined();
-
-      const bankLink = screen.getByRole('link', { name: new RegExp(DASHBOARD_COPY.cards.pendings.rows.bankDetailsNeeded.label, 'i') });
-      expect(bankLink.getAttribute('href')).toBe('/assessment/sync?tab=bank_pending');
-      expect(within(bankLink).getByText('4')).toBeDefined();
+      // Card 3: Bank Details (Last in planet order)
+      expect(screen.getByText('Bank Details')).toBeDefined();
+      expect(screen.getAllByText('4').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByRole('link', { name: /Bank Details: 4/i }).getAttribute('href')).toBe('/assessment/sync?tab=bank');
     });
 
     it('verifies badge pluralisation logic (0, 1, and N)', () => {
@@ -183,7 +157,7 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
       );
       expect(screen.getByText(DASHBOARD_COPY.badgeSingular)).toBeDefined();
 
-      // Multiple items (Plural: 2 + 1 + 3 + 2 = 8)
+      // Multiple items (Plural: 2 drafts + 3 missing docs + 2 pending banks = 7)
       rerender(
         <NeedsAttentionPanel
           localDraftsCount={2}
@@ -192,7 +166,7 @@ describe('Needs Attention & Mobile Menu List Verification', () => {
           approvedBankPendingCount={2}
         />
       );
-      expect(screen.getByText(DASHBOARD_COPY.badgePlural(8))).toBeDefined();
+      expect(screen.getByText(DASHBOARD_COPY.badgePlural(7))).toBeDefined();
     });
 
     it('verifies label and count have proper separation and do not run together', () => {
