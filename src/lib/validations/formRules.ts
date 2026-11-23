@@ -918,12 +918,70 @@ export function validateField(
     fieldKey === 'educationExpenses.marksheetPhotoUrl' ||
     fieldKey === 'marksheetPhotoUrl'
   ) {
+    if (categories && categories.length > 0 && !isFieldApplicableForCategories(fieldKey, categories)) {
+      return null;
+    }
+
     const feeReceipt = getFieldValue(data, 'educationExpenses.feeReceiptPhotoUrl') || data.feeReceiptPhotoUrl;
     const marksheet = getFieldValue(data, 'educationExpenses.marksheetPhotoUrl') || data.marksheetPhotoUrl;
     const remarks = (getFieldValue(data, 'educationExpenses.remarks') || data.remarks || '').toString().trim();
 
+    const isDocUnavailable = Boolean(
+      getFieldValue(data, 'educationExpenses.notAvailable') ||
+      getFieldValue(data, 'educationExpenses.feeReceiptNotAvailable') ||
+      getFieldValue(data, 'educationExpenses.marksheetNotAvailable') ||
+      data.feeReceiptNotAvailable ||
+      data.marksheetNotAvailable ||
+      data.educationDocsNotAvailable
+    );
+    const notAvailableReason = (
+      getFieldValue(data, 'educationExpenses.notAvailableReason') ||
+      getFieldValue(data, 'educationExpenses.feeReceiptNotAvailableReason') ||
+      getFieldValue(data, 'educationExpenses.marksheetNotAvailableReason') ||
+      data.feeReceiptNotAvailableReason ||
+      data.marksheetNotAvailableReason ||
+      data.educationDocsNotAvailableReason ||
+      ''
+    ).toString().trim();
+
+    if (isDocUnavailable) {
+      if (notAvailableReason.length < 2) {
+        return createErr('Please select or specify a reason why the document is unavailable.');
+      }
+      return null; // Valid reason provided, do not require upload!
+    }
+
     if (!feeReceipt && !marksheet && remarks.length < 3) {
       return createErr('Document verification proof is required: please upload a fee receipt or marksheet photo (or provide reason in Remarks).');
+    }
+  }
+
+  // ── Document Availability with Mandatory Reason (Aadhaar / Photo / Passbook) ──
+  if (
+    fieldKey === 'bankingAndKyc.aadhaarCardPhotoUrl' ||
+    fieldKey === 'aadhaarCardPhotoUrl' ||
+    fieldKey === 'bankingAndKyc.childPhotoUrl' ||
+    fieldKey === 'childPhotoUrl' ||
+    fieldKey === 'passbookPhotoUrl'
+  ) {
+    const isAadhaarKey = fieldKey.includes('aadhaar');
+    const isPhotoKey = fieldKey.includes('childPhoto') || fieldKey.includes('Photo');
+    const isUnavailable = isAadhaarKey
+      ? Boolean(data.aadhaarNotAvailable || data.aadhaarCardNotAvailable || getFieldValue(data, 'bankingAndKyc.aadhaarNotAvailable'))
+      : isPhotoKey
+      ? Boolean(data.childPhotoNotAvailable || data.photoNotAvailable || getFieldValue(data, 'bankingAndKyc.childPhotoNotAvailable'))
+      : Boolean(data.passbookNotAvailable);
+
+    const reason = (
+      isAadhaarKey
+        ? (data.aadhaarNotAvailableReason || data.aadhaarCardNotAvailableReason || getFieldValue(data, 'bankingAndKyc.aadhaarNotAvailableReason') || '')
+        : isPhotoKey
+        ? (data.childPhotoNotAvailableReason || data.photoNotAvailableReason || getFieldValue(data, 'bankingAndKyc.childPhotoNotAvailableReason') || '')
+        : (data.passbookNotAvailableReason || '')
+    ).toString().trim();
+
+    if (isUnavailable && reason.length < 2) {
+      return createErr('Please select or specify a reason why the document is unavailable.');
     }
   }
 

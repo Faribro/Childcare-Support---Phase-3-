@@ -30,6 +30,27 @@ export function hasValidDocumentVerificationProof(payload: any): boolean {
   const marksheet = getStr(ee.marksheetPhotoUrl) || getStr(payload.marksheetPhotoUrl);
   const remarks = getStr(ee.remarks) || getStr(payload.remarks);
 
+  // Exemption: Document marked "Not available" with recorded mandatory reason
+  const isUnavailable = Boolean(
+    ee.notAvailable ||
+    ee.feeReceiptNotAvailable ||
+    ee.marksheetNotAvailable ||
+    payload.feeReceiptNotAvailable ||
+    payload.marksheetNotAvailable ||
+    payload.educationDocsNotAvailable
+  );
+  const reason = getStr(
+    ee.notAvailableReason ||
+    ee.feeReceiptNotAvailableReason ||
+    ee.marksheetNotAvailableReason ||
+    payload.feeReceiptNotAvailableReason ||
+    payload.marksheetNotAvailableReason ||
+    payload.educationDocsNotAvailableReason
+  );
+  if (isUnavailable && reason.length >= 2) {
+    return true;
+  }
+
   return feeReceipt.length > 0 || marksheet.length > 0 || remarks.length >= 3;
 }
 

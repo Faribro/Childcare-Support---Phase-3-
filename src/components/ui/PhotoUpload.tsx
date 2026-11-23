@@ -24,7 +24,18 @@ export function isValidImageUrl(val: unknown): val is string {
   );
 }
 
-interface PhotoUploadProps {
+export const DOCUMENT_UNAVAILABLE_REASONS = [
+  { value: 'lost_in_transit', label: 'Lost in transit' },
+  { value: 'under_renewal', label: 'Under renewal / application pending' },
+  { value: 'institution_withheld', label: 'Withheld by school/institution' },
+  { value: 'flood_fire_damage', label: 'Damaged by disaster (flood/fire)' },
+  { value: 'caregiver_unable_to_obtain', label: 'Caregiver unable to obtain' },
+  { value: 'other_justified', label: 'Other justified reason' },
+] as const;
+
+export type DocumentUnavailableReason = typeof DOCUMENT_UNAVAILABLE_REASONS[number]['value'];
+
+export interface PhotoUploadProps {
   id?: string;
   label: string;
   helperText?: string;
@@ -35,6 +46,12 @@ interface PhotoUploadProps {
   maxSizeMb?: number;
   error?: string;
   disabled?: boolean;
+  allowNotAvailable?: boolean;
+  notAvailable?: boolean;
+  onNotAvailableChange?: (notAvailable: boolean) => void;
+  notAvailableReason?: string;
+  onNotAvailableReasonChange?: (reason: string) => void;
+  reasonError?: string;
 }
 
 export function PhotoUpload({
@@ -48,6 +65,12 @@ export function PhotoUpload({
   maxSizeMb = 2.5,
   error: externalError,
   disabled = false,
+  allowNotAvailable = false,
+  notAvailable = false,
+  onNotAvailableChange,
+  notAvailableReason = '',
+  onNotAvailableReasonChange,
+  reasonError,
 }: PhotoUploadProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const generatedId = React.useId();
@@ -298,6 +321,53 @@ export function PhotoUpload({
           </span>
           <span className="text-[10px] text-slate-400">Up to {maxSizeMb}MB JPEG, PNG, or PDF</span>
         </button>
+      )}
+
+      {/* Conditional Document Availability: "Not available" with mandatory reason */}
+      {allowNotAvailable && (
+        <div className="pt-1.5 space-y-2 rounded-xl bg-slate-50/90 p-3 border border-slate-200">
+          <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-800 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              id={`${inputId}-not-available`}
+              checked={!!notAvailable}
+              onChange={(e) => onNotAvailableChange?.(e.target.checked)}
+              disabled={disabled}
+              className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+            />
+            <span>Document currently not available</span>
+          </label>
+
+          {notAvailable && (
+            <div className="pl-6 pt-1 space-y-1.5">
+              <label
+                htmlFor={`${inputId}-reason`}
+                className="block text-[11px] font-bold text-slate-700"
+              >
+                Reason document is unavailable <span className="text-rose-500 font-bold">*</span>
+              </label>
+              <select
+                id={`${inputId}-reason`}
+                value={notAvailableReason || ''}
+                onChange={(e) => onNotAvailableReasonChange?.(e.target.value)}
+                disabled={disabled}
+                className={`w-full text-xs rounded-lg border bg-white px-2.5 py-1.5 text-slate-800 shadow-xs focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none ${
+                  reasonError ? 'border-rose-400 ring-1 ring-rose-200' : 'border-slate-300'
+                }`}
+              >
+                <option value="">Select reason...</option>
+                {DOCUMENT_UNAVAILABLE_REASONS.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+              {reasonError && (
+                <p className="text-[10.5px] font-semibold text-rose-600">{reasonError}</p>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Error & Retry Alert */}

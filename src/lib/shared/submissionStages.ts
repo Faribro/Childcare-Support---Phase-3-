@@ -38,7 +38,8 @@ export type DocumentReviewState =
   | 'uploaded'         // file reference present, not explicitly verified
   | 'verified'         // explicitly verified by evaluator
   | 'missing'          // required but absent
-  | 'not_applicable';  // not required for this record type
+  | 'not_applicable'   // not required for this record type
+  | 'not_available_reason_recorded'; // marked unavailable with mandatory valid reason recorded
 
 export type BankFieldName =
   | 'accountNumber'
@@ -415,6 +416,12 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     record.documentStatus?.verifiedDocs?.includes('Signature')
   );
 
+  // Category applicability check:
+  // Nutrition-only assessments do NOT require Education documents.
+  const incomingCategories = record.supportCategories ?? record.categories;
+  const isCategoryAware = Array.isArray(incomingCategories) && incomingCategories.length > 0;
+  const isEducationApplicable = !isCategoryAware || incomingCategories.includes('education');
+
   const schoolType = String(
     record.schoolType ||
     record.school_type ||
@@ -422,7 +429,76 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     record['53\nSchool Type'] ||
     'Government school'
   );
-  const isEnrolled = isChildEnrolledInSchool(record, schoolType);
+  const isEnrolled = isEducationApplicable && isChildEnrolledInSchool(record, schoolType);
+
+  // Check document availability exemptions (Document marked "Not available" with valid reason)
+  const isAadhaarUnavailable = Boolean(
+    record.aadhaarNotAvailable ||
+    record.aadhaarCardNotAvailable ||
+    record.bankingAndKyc?.aadhaarNotAvailable ||
+    record.bankingAndKyc?.aadhaarCardNotAvailable ||
+    record.documentExemptions?.aadhaar ||
+    record.documentExemptions?.aadhaarCard
+  );
+  const aadhaarReason = String(
+    record.aadhaarNotAvailableReason ||
+    record.aadhaarCardNotAvailableReason ||
+    record.bankingAndKyc?.aadhaarNotAvailableReason ||
+    record.bankingAndKyc?.aadhaarCardNotAvailableReason ||
+    record.documentExemptionReasons?.aadhaar ||
+    record.documentExemptionReasons?.aadhaarCard ||
+    ''
+  ).trim();
+  const hasAadhaarExemption = isAadhaarUnavailable && aadhaarReason.length >= 2;
+
+  const isPhotoUnavailable = Boolean(
+    record.photoNotAvailable ||
+    record.childPhotoNotAvailable ||
+    record.bankingAndKyc?.photoNotAvailable ||
+    record.bankingAndKyc?.childPhotoNotAvailable ||
+    record.documentExemptions?.childPhoto ||
+    record.documentExemptions?.photo
+  );
+  const photoReason = String(
+    record.photoNotAvailableReason ||
+    record.childPhotoNotAvailableReason ||
+    record.bankingAndKyc?.photoNotAvailableReason ||
+    record.bankingAndKyc?.childPhotoNotAvailableReason ||
+    record.documentExemptionReasons?.childPhoto ||
+    record.documentExemptionReasons?.photo ||
+    ''
+  ).trim();
+  const hasPhotoExemption = isPhotoUnavailable && photoReason.length >= 2;
+
+  const isFeeReceiptUnavailable = Boolean(
+    record.feeReceiptNotAvailable ||
+    record.educationExpenses?.feeReceiptNotAvailable ||
+    record.educationExpenses?.notAvailable ||
+    record.documentExemptions?.feeReceipt
+  );
+  const feeReceiptReason = String(
+    record.feeReceiptNotAvailableReason ||
+    record.educationExpenses?.feeReceiptNotAvailableReason ||
+    record.educationExpenses?.notAvailableReason ||
+    record.documentExemptionReasons?.feeReceipt ||
+    ''
+  ).trim();
+  const hasFeeReceiptExemption = isFeeReceiptUnavailable && feeReceiptReason.length >= 2;
+
+  const isMarksheetUnavailable = Boolean(
+    record.marksheetNotAvailable ||
+    record.educationExpenses?.marksheetNotAvailable ||
+    record.educationExpenses?.notAvailable ||
+    record.documentExemptions?.marksheet
+  );
+  const marksheetReason = String(
+    record.marksheetNotAvailableReason ||
+    record.educationExpenses?.marksheetNotAvailableReason ||
+    record.educationExpenses?.notAvailableReason ||
+    record.documentExemptionReasons?.marksheet ||
+    ''
+  ).trim();
+  const hasMarksheetExemption = isMarksheetUnavailable && marksheetReason.length >= 2;
 
   const feeVal =
     record.feeReceiptPhotoUrl ||
@@ -461,17 +537,13 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     ? 'verified'
     : 'uploaded';
 
-  const aadhaarReview: DocumentReviewState = !isAadhaarPresent
-    ? 'missing'
-    : isAadhaarVerified
-    ? 'verified'
-    : 'uploaded';
+  const aadhaarReview: DocumentReviewState = isAadhaarPresent
+    ? (isAadhaarVerified ? 'verified' : 'uploaded')
+    : (hasAadhaarExemption ? 'not_available_reason_recorded' : 'missing');
 
-  const photoReview: DocumentReviewState = !isPhotoPresent
-    ? 'missing'
-    : isPhotoVerified
-    ? 'verified'
-    : 'uploaded';
+  const photoReview: DocumentReviewState = isPhotoPresent
+    ? (isPhotoVerified ? 'verified' : 'uploaded')
+    : (hasPhotoExemption ? 'not_available_reason_recorded' : 'missing');
 
   const signatureReview: DocumentReviewState = !isSigPresent
     ? 'missing'
@@ -479,21 +551,17 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     ? 'verified'
     : 'uploaded';
 
-  const feeReceiptReview: DocumentReviewState = !isEnrolled
+  const feeReceiptReview: DocumentReviewState = (!isEducationApplicable || !isEnrolled)
     ? 'not_applicable'
-    : !isFeeReceiptPresent
-    ? 'missing'
-    : isFeeReceiptVerified
-    ? 'verified'
-    : 'uploaded';
+    : isFeeReceiptPresent
+    ? (isFeeReceiptVerified ? 'verified' : 'uploaded')
+    : (hasFeeReceiptExemption ? 'not_available_reason_recorded' : 'missing');
 
-  const marksheetReview: DocumentReviewState = !isEnrolled
+  const marksheetReview: DocumentReviewState = (!isEducationApplicable || !isEnrolled)
     ? 'not_applicable'
-    : !isMarksheetPresent
-    ? 'missing'
-    : isMarksheetVerified
-    ? 'verified'
-    : 'uploaded';
+    : isMarksheetPresent
+    ? (isMarksheetVerified ? 'verified' : 'uploaded')
+    : (hasMarksheetExemption ? 'not_available_reason_recorded' : 'missing');
 
   // 6. Required Intake Fields & Missing List
   const missingIntakeFields: string[] = [];

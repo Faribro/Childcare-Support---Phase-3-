@@ -228,8 +228,14 @@ export default function ResumeDraftSinglePage() {
     bankIfscCode: '',
     bankLinkedMobileNumber: '',
     passbookPhotoUrl: '',
+    passbookNotAvailable: false,
+    passbookNotAvailableReason: '',
     aadhaarCardPhotoUrl: '',
+    aadhaarNotAvailable: false,
+    aadhaarNotAvailableReason: '',
     childPhotoUrl: '',
+    childPhotoNotAvailable: false,
+    childPhotoNotAvailableReason: '',
 
     // Section 4: Household & Financial Details
     totalFamilyMembers: 0,
@@ -284,7 +290,11 @@ export default function ResumeDraftSinglePage() {
     transport: 0,
     otherExpenses: 0,
     feeReceiptPhotoUrl: '',
+    feeReceiptNotAvailable: false,
+    feeReceiptNotAvailableReason: '',
     marksheetPhotoUrl: '',
+    marksheetNotAvailable: false,
+    marksheetNotAvailableReason: '',
     remarks: '',
 
     // Section 8: Support Required
@@ -531,8 +541,14 @@ export default function ResumeDraftSinglePage() {
             bankIfscCode: b.bankIfscCode || b.ifscCode || '',
             bankLinkedMobileNumber: b.bankLinkedMobileNumber || '',
             passbookPhotoUrl: b.passbookPhotoUrl || '',
+            passbookNotAvailable: Boolean(b.passbookNotAvailable || found.passbookNotAvailable),
+            passbookNotAvailableReason: b.passbookNotAvailableReason || found.passbookNotAvailableReason || '',
             aadhaarCardPhotoUrl: b.aadhaarCardPhotoUrl || '',
+            aadhaarNotAvailable: Boolean(b.aadhaarNotAvailable || found.aadhaarNotAvailable),
+            aadhaarNotAvailableReason: b.aadhaarNotAvailableReason || found.aadhaarNotAvailableReason || '',
             childPhotoUrl: b.childPhotoUrl || '',
+            childPhotoNotAvailable: Boolean(b.childPhotoNotAvailable || found.childPhotoNotAvailable),
+            childPhotoNotAvailableReason: b.childPhotoNotAvailableReason || found.childPhotoNotAvailableReason || '',
 
             totalFamilyMembers: hf.totalFamilyMembers ? Number(hf.totalFamilyMembers) : ('' as any),
             numberOfChildrenUnder18: hf.numberOfChildrenUnder18 ? Number(hf.numberOfChildrenUnder18) : ('' as any),
@@ -582,7 +598,11 @@ export default function ResumeDraftSinglePage() {
             transport: Number(exp.transport) || 0,
             otherExpenses: Number(exp.otherExpenses) || 0,
             feeReceiptPhotoUrl: exp.feeReceiptPhotoUrl || '',
+            feeReceiptNotAvailable: Boolean(exp.feeReceiptNotAvailable || found.feeReceiptNotAvailable),
+            feeReceiptNotAvailableReason: exp.feeReceiptNotAvailableReason || found.feeReceiptNotAvailableReason || '',
             marksheetPhotoUrl: exp.marksheetPhotoUrl || '',
+            marksheetNotAvailable: Boolean(exp.marksheetNotAvailable || found.marksheetNotAvailable),
+            marksheetNotAvailableReason: exp.marksheetNotAvailableReason || found.marksheetNotAvailableReason || '',
             remarks: exp.remarks || '',
 
             requiredSchoolFees: Number(req.requiredSchoolFees) || 0,
@@ -773,8 +793,14 @@ export default function ResumeDraftSinglePage() {
         bankLinkedMobileNumber: formData.bankLinkedMobileNumber,
         childAadhaarNumber: formData.childAadhaarNumber,
         passbookPhotoUrl: formData.passbookPhotoUrl,
+        passbookNotAvailable: formData.passbookNotAvailable,
+        passbookNotAvailableReason: formData.passbookNotAvailableReason,
         aadhaarCardPhotoUrl: formData.aadhaarCardPhotoUrl,
+        aadhaarNotAvailable: formData.aadhaarNotAvailable,
+        aadhaarNotAvailableReason: formData.aadhaarNotAvailableReason,
         childPhotoUrl: formData.childPhotoUrl,
+        childPhotoNotAvailable: formData.childPhotoNotAvailable,
+        childPhotoNotAvailableReason: formData.childPhotoNotAvailableReason,
       },
       householdFinancial: {
         totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
@@ -835,7 +861,11 @@ export default function ResumeDraftSinglePage() {
         otherExpenses: Number(formData.otherExpenses) || 0,
         totalAnnualCost: totalAnnualEducationCost,
         feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
+        feeReceiptNotAvailable: formData.feeReceiptNotAvailable,
+        feeReceiptNotAvailableReason: formData.feeReceiptNotAvailableReason,
         marksheetPhotoUrl: formData.marksheetPhotoUrl,
+        marksheetNotAvailable: formData.marksheetNotAvailable,
+        marksheetNotAvailableReason: formData.marksheetNotAvailableReason,
         remarks: formData.remarks,
       },
       educationSupportRequired: {
@@ -1052,8 +1082,14 @@ export default function ResumeDraftSinglePage() {
           bankLinkedMobileNumber: formData.bankLinkedMobileNumber,
           childAadhaarNumber: formData.childAadhaarNumber,
           passbookPhotoUrl: formData.passbookPhotoUrl,
+          passbookNotAvailable: formData.passbookNotAvailable,
+          passbookNotAvailableReason: formData.passbookNotAvailableReason,
           aadhaarCardPhotoUrl: formData.aadhaarCardPhotoUrl,
+          aadhaarNotAvailable: formData.aadhaarNotAvailable,
+          aadhaarNotAvailableReason: formData.aadhaarNotAvailableReason,
           childPhotoUrl: formData.childPhotoUrl,
+          childPhotoNotAvailable: formData.childPhotoNotAvailable,
+          childPhotoNotAvailableReason: formData.childPhotoNotAvailableReason,
         },
         householdFinancial: {
           totalFamilyMembers: Number(formData.totalFamilyMembers) || 1,
@@ -1113,7 +1149,11 @@ export default function ResumeDraftSinglePage() {
           otherExpenses: Number(formData.otherExpenses) || 0,
           totalAnnualCost: totalAnnualEducationCost,
           feeReceiptPhotoUrl: formData.feeReceiptPhotoUrl,
+          feeReceiptNotAvailable: formData.feeReceiptNotAvailable,
+          feeReceiptNotAvailableReason: formData.feeReceiptNotAvailableReason,
           marksheetPhotoUrl: formData.marksheetPhotoUrl,
+          marksheetNotAvailable: formData.marksheetNotAvailable,
+          marksheetNotAvailableReason: formData.marksheetNotAvailableReason,
           remarks: formData.remarks,
         },
         educationSupportRequired: {
@@ -1843,21 +1883,39 @@ export default function ResumeDraftSinglePage() {
           {/* Verification Photo Attachments */}
           <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <PhotoUpload
+              id="banking-passbookPhotoUrl"
               label="PASSBOOK FRONT PAGE PHOTO"
               value={formData.passbookPhotoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, passbookPhotoUrl: url || '' }))}
+              allowNotAvailable={true}
+              notAvailable={formData.passbookNotAvailable}
+              onNotAvailableChange={(checked) => setFormData((prev) => ({ ...prev, passbookNotAvailable: checked }))}
+              notAvailableReason={formData.passbookNotAvailableReason}
+              onNotAvailableReasonChange={(reason) => setFormData((prev) => ({ ...prev, passbookNotAvailableReason: reason }))}
             />
 
             <PhotoUpload
+              id="banking-aadhaarCardPhotoUrl"
               label="AADHAAR CARD PHOTO"
               value={formData.aadhaarCardPhotoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, aadhaarCardPhotoUrl: url || '' }))}
+              allowNotAvailable={true}
+              notAvailable={formData.aadhaarNotAvailable}
+              onNotAvailableChange={(checked) => setFormData((prev) => ({ ...prev, aadhaarNotAvailable: checked }))}
+              notAvailableReason={formData.aadhaarNotAvailableReason}
+              onNotAvailableReasonChange={(reason) => setFormData((prev) => ({ ...prev, aadhaarNotAvailableReason: reason }))}
             />
 
             <PhotoUpload
+              id="banking-childPhotoUrl"
               label="PASSPORT SIZE PHOTO"
               value={formData.childPhotoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, childPhotoUrl: url || '' }))}
+              allowNotAvailable={true}
+              notAvailable={formData.childPhotoNotAvailable}
+              onNotAvailableChange={(checked) => setFormData((prev) => ({ ...prev, childPhotoNotAvailable: checked }))}
+              notAvailableReason={formData.childPhotoNotAvailableReason}
+              onNotAvailableReasonChange={(reason) => setFormData((prev) => ({ ...prev, childPhotoNotAvailableReason: reason }))}
             />
           </div>
         </section>
@@ -2887,8 +2945,24 @@ export default function ResumeDraftSinglePage() {
             onReceiptPhotoChange={(url) =>
               setFormData((prev) => ({ ...prev, feeReceiptPhotoUrl: url || '' }))
             }
+            feeReceiptNotAvailable={formData.feeReceiptNotAvailable}
+            onFeeReceiptNotAvailableChange={(checked) =>
+              setFormData((prev) => ({ ...prev, feeReceiptNotAvailable: checked }))
+            }
+            feeReceiptNotAvailableReason={formData.feeReceiptNotAvailableReason}
+            onFeeReceiptNotAvailableReasonChange={(reason) =>
+              setFormData((prev) => ({ ...prev, feeReceiptNotAvailableReason: reason }))
+            }
             onMarksheetPhotoChange={(url) =>
               setFormData((prev) => ({ ...prev, marksheetPhotoUrl: url || '' }))
+            }
+            marksheetNotAvailable={formData.marksheetNotAvailable}
+            onMarksheetNotAvailableChange={(checked) =>
+              setFormData((prev) => ({ ...prev, marksheetNotAvailable: checked }))
+            }
+            marksheetNotAvailableReason={formData.marksheetNotAvailableReason}
+            onMarksheetNotAvailableReasonChange={(reason) =>
+              setFormData((prev) => ({ ...prev, marksheetNotAvailableReason: reason }))
             }
             onRemarksChange={(rem) => setFormData((prev) => ({ ...prev, remarks: rem }))}
             errors={{

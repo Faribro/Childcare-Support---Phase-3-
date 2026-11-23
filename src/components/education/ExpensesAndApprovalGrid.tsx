@@ -50,6 +50,14 @@ interface ExpensesAndApprovalGridProps {
   onMarksheetPhotoChange?: (dataUrl?: string) => void;
   onMarksheetPhotoReplace?: (dataUrl: string) => Promise<{ success: boolean; newRevision?: number; error?: string } | void>;
   onRemarksChange?: (remarks: string) => void;
+  feeReceiptNotAvailable?: boolean;
+  onFeeReceiptNotAvailableChange?: (notAvailable: boolean) => void;
+  feeReceiptNotAvailableReason?: string;
+  onFeeReceiptNotAvailableReasonChange?: (reason: string) => void;
+  marksheetNotAvailable?: boolean;
+  onMarksheetNotAvailableChange?: (notAvailable: boolean) => void;
+  marksheetNotAvailableReason?: string;
+  onMarksheetNotAvailableReasonChange?: (reason: string) => void;
   isReadOnly?: boolean;
   errors?: Record<string, string>;
 }
@@ -208,6 +216,14 @@ export function ExpensesAndApprovalGrid({
   onMarksheetPhotoChange,
   onMarksheetPhotoReplace,
   onRemarksChange,
+  feeReceiptNotAvailable = false,
+  onFeeReceiptNotAvailableChange,
+  feeReceiptNotAvailableReason = '',
+  onFeeReceiptNotAvailableReasonChange,
+  marksheetNotAvailable = false,
+  onMarksheetNotAvailableChange,
+  marksheetNotAvailableReason = '',
+  onMarksheetNotAvailableReasonChange,
   isReadOnly = false,
   errors = {},
 }: ExpensesAndApprovalGridProps) {
@@ -638,6 +654,11 @@ export function ExpensesAndApprovalGrid({
                 value={currentExpenses.feeReceiptPhotoUrl}
                 onChange={onReceiptPhotoChange}
                 onReplace={onReceiptPhotoReplace}
+                allowNotAvailable={true}
+                notAvailable={feeReceiptNotAvailable}
+                onNotAvailableChange={onFeeReceiptNotAvailableChange}
+                notAvailableReason={feeReceiptNotAvailableReason}
+                onNotAvailableReasonChange={onFeeReceiptNotAvailableReasonChange}
                 error={errors?.['expenses-feeReceiptPhotoUrl'] || errors?.['educationExpenses.feeReceiptPhotoUrl']}
               />
             </div>
@@ -650,6 +671,11 @@ export function ExpensesAndApprovalGrid({
                 value={currentExpenses.marksheetPhotoUrl}
                 onChange={onMarksheetPhotoChange}
                 onReplace={onMarksheetPhotoReplace}
+                allowNotAvailable={true}
+                notAvailable={marksheetNotAvailable}
+                onNotAvailableChange={onMarksheetNotAvailableChange}
+                notAvailableReason={marksheetNotAvailableReason}
+                onNotAvailableReasonChange={onMarksheetNotAvailableReasonChange}
                 error={errors?.['expenses-marksheetPhotoUrl'] || errors?.['educationExpenses.marksheetPhotoUrl']}
               />
             </div>
