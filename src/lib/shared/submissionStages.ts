@@ -19,8 +19,10 @@ export type SubmissionLifecycle =
   | 'submission_failed';
 
 export type IntakeCompleteness =
-  | 'complete'         // all required non-bank fields and docs present
-  | 'incomplete'       // at least one required non-bank field/doc missing
+  | 'complete'         // all required non-bank fields and docs present and verified/exempt
+  | 'incomplete'       // at least one required non-bank field/doc missing or rejected
+  | 'pending_review'   // non-bank fields filled, but has at least one unavailable doc awaiting review
+  | 'partial'          // backward-compatible alias for incomplete / partially completed intake
   | 'unknown';         // insufficient data to determine
 
 export type ApprovalState =
@@ -37,6 +39,7 @@ export type BankWorkflowState =
 export type DocumentReviewState =
   | 'uploaded'         // file reference present, not explicitly verified
   | 'verified'         // explicitly verified by evaluator
+  | 'rejected'         // rejected by evaluator/leadership, replacement required
   | 'missing'          // required but absent
   | 'not_applicable'   // not required for this record type
   | 'not_available_reason_recorded'; // marked unavailable with mandatory valid reason recorded
@@ -74,6 +77,7 @@ export interface SubmissionStages {
   bankFields: BankFieldsRecord;
   missingBankFields: BankFieldName[];
   missingIntakeFields: string[];
+  pendingReviewDocs?: string[];
 }
 
 /**
@@ -354,15 +358,6 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
   if (!bankFields.ifscCode) missingBankFields.push('ifscCode');
   if (!bankFields.passbookProof) missingBankFields.push('passbookProof');
 
-  // 4. Bank Workflow State rule:
-  // - If record is not approved yet -> 'not_yet_due'
-  // - If approved AND all 6 bank fields present -> 'complete'
-  // - If approved AND any bank field missing -> 'pending'
-  let bankWorkflow: BankWorkflowState = 'not_yet_due';
-  if (lifecycle !== 'draft' && approvalState === 'approved') {
-    bankWorkflow = missingBankFields.length === 0 ? 'complete' : 'pending';
-  }
-
   // 5. Intake Documents
   // Passbook front page is bank-stage, so it does NOT block intake completeness!
   const aadhaarVal =
@@ -530,7 +525,65 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     record.documentStatus?.verifiedDocs?.includes('Marksheet')
   );
 
-  // Document review states
+  // Document review states & exception resolution
+  const isAadhaarExceptionApproved = Boolean(
+    record.aadhaarExceptionApproved ||
+    record.documentVerification?.aadhaarVerified ||
+    record.documentExemptionsApproved?.includes('Aadhaar') ||
+    record.documentStatus?.verifiedDocs?.includes('Aadhaar') ||
+    (isAadhaarVerified && hasAadhaarExemption)
+  );
+  const isAadhaarExceptionRejected = Boolean(
+    record.aadhaarExceptionRejected ||
+    record.documentVerification?.aadhaarRejected ||
+    record.documentExemptionsRejected?.includes('Aadhaar') ||
+    record.documentStatus?.rejectedDocs?.includes('Aadhaar')
+  );
+
+  const isPhotoExceptionApproved = Boolean(
+    record.photoExceptionApproved ||
+    record.childPhotoExceptionApproved ||
+    record.documentVerification?.photoVerified ||
+    record.documentExemptionsApproved?.includes('Photo') ||
+    record.documentStatus?.verifiedDocs?.includes('Photo') ||
+    (isPhotoVerified && hasPhotoExemption)
+  );
+  const isPhotoExceptionRejected = Boolean(
+    record.photoExceptionRejected ||
+    record.childPhotoExceptionRejected ||
+    record.documentVerification?.photoRejected ||
+    record.documentExemptionsRejected?.includes('Photo') ||
+    record.documentStatus?.rejectedDocs?.includes('Photo')
+  );
+
+  const isFeeReceiptExceptionApproved = Boolean(
+    record.feeReceiptExceptionApproved ||
+    record.documentVerification?.feeReceiptVerified ||
+    record.documentExemptionsApproved?.includes('Fee Receipt') ||
+    record.documentStatus?.verifiedDocs?.includes('Fee Receipt') ||
+    (isFeeReceiptVerified && hasFeeReceiptExemption)
+  );
+  const isFeeReceiptExceptionRejected = Boolean(
+    record.feeReceiptExceptionRejected ||
+    record.documentVerification?.feeReceiptRejected ||
+    record.documentExemptionsRejected?.includes('Fee Receipt') ||
+    record.documentStatus?.rejectedDocs?.includes('Fee Receipt')
+  );
+
+  const isMarksheetExceptionApproved = Boolean(
+    record.marksheetExceptionApproved ||
+    record.documentVerification?.marksheetVerified ||
+    record.documentExemptionsApproved?.includes('Marksheet') ||
+    record.documentStatus?.verifiedDocs?.includes('Marksheet') ||
+    (isMarksheetVerified && hasMarksheetExemption)
+  );
+  const isMarksheetExceptionRejected = Boolean(
+    record.marksheetExceptionRejected ||
+    record.documentVerification?.marksheetRejected ||
+    record.documentExemptionsRejected?.includes('Marksheet') ||
+    record.documentStatus?.rejectedDocs?.includes('Marksheet')
+  );
+
   const passbookReview: DocumentReviewState = !bankFields.passbookProof
     ? 'missing'
     : record.isPassbookVerified
@@ -539,11 +592,15 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
 
   const aadhaarReview: DocumentReviewState = isAadhaarPresent
     ? (isAadhaarVerified ? 'verified' : 'uploaded')
-    : (hasAadhaarExemption ? 'not_available_reason_recorded' : 'missing');
+    : hasAadhaarExemption
+    ? (isAadhaarExceptionRejected ? 'rejected' : isAadhaarExceptionApproved ? 'verified' : 'not_available_reason_recorded')
+    : 'missing';
 
   const photoReview: DocumentReviewState = isPhotoPresent
     ? (isPhotoVerified ? 'verified' : 'uploaded')
-    : (hasPhotoExemption ? 'not_available_reason_recorded' : 'missing');
+    : hasPhotoExemption
+    ? (isPhotoExceptionRejected ? 'rejected' : isPhotoExceptionApproved ? 'verified' : 'not_available_reason_recorded')
+    : 'missing';
 
   const signatureReview: DocumentReviewState = !isSigPresent
     ? 'missing'
@@ -555,16 +612,21 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     ? 'not_applicable'
     : isFeeReceiptPresent
     ? (isFeeReceiptVerified ? 'verified' : 'uploaded')
-    : (hasFeeReceiptExemption ? 'not_available_reason_recorded' : 'missing');
+    : hasFeeReceiptExemption
+    ? (isFeeReceiptExceptionRejected ? 'rejected' : isFeeReceiptExceptionApproved ? 'verified' : 'not_available_reason_recorded')
+    : 'missing';
 
   const marksheetReview: DocumentReviewState = (!isEducationApplicable || !isEnrolled)
     ? 'not_applicable'
     : isMarksheetPresent
     ? (isMarksheetVerified ? 'verified' : 'uploaded')
-    : (hasMarksheetExemption ? 'not_available_reason_recorded' : 'missing');
+    : hasMarksheetExemption
+    ? (isMarksheetExceptionRejected ? 'rejected' : isMarksheetExceptionApproved ? 'verified' : 'not_available_reason_recorded')
+    : 'missing';
 
   // 6. Required Intake Fields & Missing List
   const missingIntakeFields: string[] = [];
+  const pendingReviewDocs: string[] = [];
 
   const childName = record.childName || record.child_name || record.demographics?.childName || record['9\nChild Name'];
   if (!childName || String(childName).trim().length < 2) missingIntakeFields.push('childName');
@@ -584,16 +646,41 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
   const district = record.district || record.demographics?.district || record['19\nDistrict'];
   if (!district) missingIntakeFields.push('district');
 
-  // Intake Documents Missing Checks
-  if (aadhaarReview === 'missing') missingIntakeFields.push('aadhaarCardPhoto');
-  if (photoReview === 'missing') missingIntakeFields.push('childPhoto');
+  // Intake Documents Missing Checks (missing or rejected documents require upload/replacement)
+  if (aadhaarReview === 'missing' || aadhaarReview === 'rejected') missingIntakeFields.push('aadhaarCardPhoto');
+  if (photoReview === 'missing' || photoReview === 'rejected') missingIntakeFields.push('childPhoto');
   if (signatureReview === 'missing') missingIntakeFields.push('caregiverSignature');
-  if (feeReceiptReview === 'missing') missingIntakeFields.push('feeReceiptPhoto');
-  if (marksheetReview === 'missing') missingIntakeFields.push('marksheetPhoto');
+  if (feeReceiptReview === 'missing' || feeReceiptReview === 'rejected') missingIntakeFields.push('feeReceiptPhoto');
+  if (marksheetReview === 'missing' || marksheetReview === 'rejected') missingIntakeFields.push('marksheetPhoto');
 
-  // Determine intake completeness
-  const intakeCompleteness: IntakeCompleteness =
-    missingIntakeFields.length === 0 ? 'complete' : 'incomplete';
+  // Documents marked unavailable with valid reason awaiting leadership/evaluator review
+  if (aadhaarReview === 'not_available_reason_recorded') pendingReviewDocs.push('aadhaarCardPhoto');
+  if (photoReview === 'not_available_reason_recorded') pendingReviewDocs.push('childPhoto');
+  if (feeReceiptReview === 'not_available_reason_recorded') pendingReviewDocs.push('feeReceiptPhoto');
+  if (marksheetReview === 'not_available_reason_recorded') pendingReviewDocs.push('marksheetPhoto');
+
+  // Determine intake completeness (Option A: pending review documents prevent silent completion)
+  let intakeCompleteness: IntakeCompleteness = 'complete';
+  if (missingIntakeFields.length > 0) {
+    intakeCompleteness = 'incomplete';
+  } else if (pendingReviewDocs.length > 0) {
+    intakeCompleteness = 'pending_review';
+  }
+
+  // 4. Bank Workflow State rule:
+  // - If record is not approved yet -> 'not_yet_due'
+  // - If intake is pending review or incomplete and bank fields are missing -> 'not_yet_due'
+  // - If approved AND intake is complete:
+  //     - All 6 bank fields present -> 'complete'
+  //     - Any bank field missing -> 'pending'
+  let bankWorkflow: BankWorkflowState = 'not_yet_due';
+  if (lifecycle !== 'draft' && approvalState === 'approved') {
+    if (intakeCompleteness === 'complete') {
+      bankWorkflow = missingBankFields.length === 0 ? 'complete' : 'pending';
+    } else {
+      bankWorkflow = missingBankFields.length === 0 ? 'complete' : 'not_yet_due';
+    }
+  }
 
   return {
     lifecycle,
@@ -611,5 +698,6 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
     bankFields,
     missingBankFields,
     missingIntakeFields,
+    pendingReviewDocs,
   };
 }

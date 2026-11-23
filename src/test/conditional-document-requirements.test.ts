@@ -137,42 +137,119 @@ describe('Phase C: Conditional Document Requirements Engine', () => {
     });
   });
 
-  describe('3. Stage Derivation with "Not available" reason recorded', () => {
-    it('sets review state to not_available_reason_recorded and does not flag intake as incomplete', () => {
+  describe('3. Stage Derivation with Option A Review Workflow', () => {
+    it('1. Missing document without reason -> missing, incomplete, in red pendings, bank not_yet_due', () => {
       const record = {
         ...baseValidChild,
         supportCategories: ['education'],
         schoolType: 'Government school',
-        // Fee receipt missing, but marked unavailable with reason
-        feeReceiptNotAvailable: true,
-        feeReceiptNotAvailableReason: 'institution_withheld',
-        // Marksheet present
-        marksheetPhotoUrl: 'data:image/png;base64,marksheet',
-      };
-
-      const stages = deriveSubmissionStages(record);
-
-      expect(stages.documentReview.feeReceipt).toBe('not_available_reason_recorded');
-      expect(stages.documentReview.marksheet).toBe('uploaded');
-      expect(stages.missingIntakeFields).not.toContain('feeReceiptPhoto');
-      expect(stages.intakeCompleteness).toBe('complete');
-    });
-
-    it('marks as missing when not available is checked but reason is absent', () => {
-      const record = {
-        ...baseValidChild,
-        supportCategories: ['education'],
-        schoolType: 'Government school',
-        feeReceiptNotAvailable: true,
-        feeReceiptNotAvailableReason: '', // Empty reason!
+        feeReceiptNotAvailable: false,
         feeReceiptPhotoUrl: '',
-        marksheetPhotoUrl: '',
+        marksheetPhotoUrl: 'data:image/png;base64,marksheet',
       };
 
       const stages = deriveSubmissionStages(record);
 
       expect(stages.documentReview.feeReceipt).toBe('missing');
       expect(stages.missingIntakeFields).toContain('feeReceiptPhoto');
+      expect(stages.intakeCompleteness).toBe('incomplete');
+      expect(stages.bankWorkflow).toBe('not_yet_due');
+    });
+
+    it('2. Missing document with recorded reason -> not_available_reason_recorded, pending_review, not complete, bank not_yet_due', () => {
+      const record = {
+        ...baseValidChild,
+        supportCategories: ['education'],
+        schoolType: 'Government school',
+        // Fee receipt missing, but marked unavailable with valid reason
+        feeReceiptNotAvailable: true,
+        feeReceiptNotAvailableReason: 'Lost / destroyed in household',
+        marksheetPhotoUrl: 'data:image/png;base64,marksheet',
+        approvedAllianceIndia: 'Approved', // Even if approved, pending doc review prevents bank workflow!
+      };
+
+      const stages = deriveSubmissionStages(record);
+
+      expect(stages.documentReview.feeReceipt).toBe('not_available_reason_recorded');
+      expect(stages.missingIntakeFields).not.toContain('feeReceiptPhoto');
+      expect(stages.pendingReviewDocs).toContain('feeReceiptPhoto');
+      expect(stages.intakeCompleteness).toBe('pending_review');
+      // Must not appear in Bank Details while doc review is pending!
+      expect(stages.bankWorkflow).toBe('not_yet_due');
+    });
+
+    it('3. Reviewed/approved exception -> verified, complete, unlocks bank workflow', () => {
+      const record = {
+        ...baseValidChild,
+        isApproved: true,
+        supportCategories: ['education'],
+        schoolType: 'Government school',
+        feeReceiptNotAvailable: true,
+        feeReceiptNotAvailableReason: 'Lost / destroyed in household',
+        marksheetPhotoUrl: 'data:image/png;base64,marksheet',
+        feeReceiptExceptionApproved: true, // Leadership approved exception!
+        approvedAllianceIndia: 'Approved',
+      };
+
+      const stages = deriveSubmissionStages(record);
+
+      expect(stages.documentReview.feeReceipt).toBe('verified');
+      expect(stages.missingIntakeFields).not.toContain('feeReceiptPhoto');
+      expect(stages.intakeCompleteness).toBe('complete');
+      // Unlocks bank details pending queue because intake is now complete!
+      expect(stages.bankWorkflow).toBe('pending');
+    });
+
+    it('4. Rejected exception requiring replacement -> rejected, missing intake field, incomplete, bank not_yet_due', () => {
+      const record = {
+        ...baseValidChild,
+        supportCategories: ['education'],
+        schoolType: 'Government school',
+        feeReceiptNotAvailable: true,
+        feeReceiptNotAvailableReason: 'Insufficient reason',
+        marksheetPhotoUrl: 'data:image/png;base64,marksheet',
+        feeReceiptExceptionRejected: true, // Leadership rejected exception!
+        approvedAllianceIndia: 'Approved',
+      };
+
+      const stages = deriveSubmissionStages(record);
+
+      expect(stages.documentReview.feeReceipt).toBe('rejected');
+      expect(stages.missingIntakeFields).toContain('feeReceiptPhoto');
+      expect(stages.intakeCompleteness).toBe('incomplete');
+      expect(stages.bankWorkflow).toBe('not_yet_due');
+    });
+
+    it('5. Nutrition-only category -> no false education document pending items', () => {
+      const record = {
+        ...baseValidChild,
+        supportCategories: ['nutrition'],
+        schoolType: 'Government school',
+        // No education docs
+      };
+
+      const stages = deriveSubmissionStages(record);
+
+      expect(stages.documentReview.feeReceipt).toBe('not_applicable');
+      expect(stages.documentReview.marksheet).toBe('not_applicable');
+      expect(stages.missingIntakeFields).not.toContain('feeReceiptPhoto');
+      expect(stages.missingIntakeFields).not.toContain('marksheetPhoto');
+      expect(stages.pendingReviewDocs).toEqual([]);
+      expect(stages.intakeCompleteness).toBe('complete');
+    });
+
+    it('6. Education-only category -> enforces education document checks and routing', () => {
+      const recordEnrolledMissing = {
+        ...baseValidChild,
+        supportCategories: ['education'],
+        schoolType: 'Government school',
+        feeReceiptPhotoUrl: '',
+        marksheetPhotoUrl: '',
+      };
+
+      const stages = deriveSubmissionStages(recordEnrolledMissing);
+      expect(stages.documentReview.feeReceipt).toBe('missing');
+      expect(stages.documentReview.marksheet).toBe('missing');
       expect(stages.intakeCompleteness).toBe('incomplete');
     });
   });

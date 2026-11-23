@@ -199,7 +199,13 @@ export async function GET(req: NextRequest) {
     let bankPendingCount = 0;
     for (const r of scoped) {
       const stages = deriveSubmissionStages(r);
-      if (stages.intakeCompleteness === 'incomplete') intakeIncompleteCount++;
+      if (
+        stages.intakeCompleteness === 'incomplete' ||
+        stages.intakeCompleteness === 'pending_review' ||
+        stages.intakeCompleteness === 'partial'
+      ) {
+        intakeIncompleteCount++;
+      }
       if (stages.bankWorkflow === 'pending') bankPendingCount++;
     }
 
