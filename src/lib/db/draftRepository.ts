@@ -113,3 +113,12 @@ export async function deleteDraft(id: number): Promise<void> {
   notifyDraftChanged();
 }
 
+export async function deleteDraftByUuid(uuid: string): Promise<void> {
+  if (!uuid) return;
+  const existing = await db.drafts.where('uuid').equals(uuid).first();
+  if (existing && existing.id) {
+    await db.drafts.delete(existing.id);
+    notifyDraftChanged();
+  }
+}
+

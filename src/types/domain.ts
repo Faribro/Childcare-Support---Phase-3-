@@ -304,7 +304,11 @@ export interface EducationCurrentExpensesData {
   otherExpenses: number;
   totalAnnualCost: number;
   feeReceiptPhotoUrl?: string;
+  feeReceiptNotAvailable?: boolean;
+  feeReceiptNotAvailableReason?: string;
   marksheetPhotoUrl?: string;
+  marksheetNotAvailable?: boolean;
+  marksheetNotAvailableReason?: string;
   remarks?: string;
 }
 
@@ -336,8 +340,14 @@ export interface BankingAndKycData {
   bankLinkedMobileNumber?: string;
   childAadhaarNumber?: string;
   passbookPhotoUrl?: string;
+  passbookNotAvailable?: boolean;
+  passbookNotAvailableReason?: string;
   aadhaarCardPhotoUrl?: string;
+  aadhaarNotAvailable?: boolean;
+  aadhaarNotAvailableReason?: string;
   childPhotoUrl?: string;
+  childPhotoNotAvailable?: boolean;
+  childPhotoNotAvailableReason?: string;
 }
 
 // Backward-compat BankDetails (optional in new form)
@@ -386,6 +396,16 @@ export interface AssessmentRecord {
   reviewConfirmed?: boolean;
   syncNeeded?: 'YES' | 'NO';
   signatureDataUrl?: string;
+  passbookNotAvailable?: boolean;
+  passbookNotAvailableReason?: string;
+  aadhaarNotAvailable?: boolean;
+  aadhaarNotAvailableReason?: string;
+  childPhotoNotAvailable?: boolean;
+  childPhotoNotAvailableReason?: string;
+  feeReceiptNotAvailable?: boolean;
+  feeReceiptNotAvailableReason?: string;
+  marksheetNotAvailable?: boolean;
+  marksheetNotAvailableReason?: string;
 
   // Backward compatibility convenience properties
   household?: HouseholdFinancialData;

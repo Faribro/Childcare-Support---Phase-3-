@@ -36,7 +36,9 @@ import { Fingerprint, Users } from 'lucide-react';
 import { AnimatedAppetiteSelector } from '@/components/ui/AnimatedAppetiteSelector';
 import { ImmersiveReaderControls, FORM_READING_SEQUENCE } from '@/components/ui/ImmersiveReaderControls';
 import { t, cleanLabel } from '@/lib/i18n/translations';
-import { saveDraft } from '@/lib/db/draftRepository';
+import { saveDraft, deleteDraftByUuid } from '@/lib/db/draftRepository';
+import { hasMeaningfulAssessmentData } from '@/lib/assessment/draftSafety';
+import { BackDraftConfirmationModal } from '@/components/assessment/BackDraftConfirmationModal';
 import { completeSubmissionSchema } from '@/lib/validations/submissionSchema';
 import { handleSchemaValidationFailure } from '@/lib/validations/submissionValidationGuard';
 import { validateServerSubmissionIntake } from '@/lib/server/intakeValidation';
@@ -133,6 +135,11 @@ export default function NewSinglePageAssessment() {
     onConfirm: () => void;
     onCancel: () => void;
   } | null>(null);
+
+  // ── Phase D: Back Navigation & Draft Confirmation State ──────────────────
+  const [showBackConfirmModal, setShowBackConfirmModal] = useState(false);
+  const [pendingExitUrl, setPendingExitUrl] = useState<string>('/app');
+  const [isModalSaving, setIsModalSaving] = useState(false);
 
   const isHivApplicable = useMemo(() => {
     return selectedCategories.length === 0 || selectedCategories.includes('hiv_support');
@@ -353,15 +360,81 @@ export default function NewSinglePageAssessment() {
     organizationEmail: '',
   });
 
+  const handleRequestLeave = useCallback((targetUrl = '/app') => {
+    const hasMeaningful = hasMeaningfulAssessmentData(formData, hasSavedSignature);
+    if (!hasMeaningful) {
+      if (clientUuid) {
+        deleteDraftByUuid(clientUuid).catch(() => {});
+      }
+      router.push(targetUrl);
+      return;
+    }
+    setPendingExitUrl(targetUrl);
+    setShowBackConfirmModal(true);
+  }, [formData, hasSavedSignature, clientUuid, router]);
+
+  const handleModalSaveDraft = async () => {
+    setIsModalSaving(true);
+    try {
+      if (clientUuid) {
+        const record = buildCurrentDraftRecord();
+        await saveDraft(record as any);
+        setSaveStatus('saved');
+      }
+      setShowBackConfirmModal(false);
+      router.push(pendingExitUrl);
+    } catch (err) {
+      console.error('Failed to save draft on exit:', err);
+      setShowBackConfirmModal(false);
+      router.push(pendingExitUrl);
+    } finally {
+      setIsModalSaving(false);
+    }
+  };
+
+  const handleModalDiscard = async () => {
+    if (clientUuid) {
+      await deleteDraftByUuid(clientUuid);
+    }
+    setShowBackConfirmModal(false);
+    router.push(pendingExitUrl);
+  };
+
+  const handleModalContinueEditing = () => {
+    setShowBackConfirmModal(false);
+  };
+
+  // Intercept browser back button (popstate)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handlePopState = () => {
+      const hasMeaningful = hasMeaningfulAssessmentData(formData, hasSavedSignature);
+      if (hasMeaningful) {
+        window.history.pushState(null, '', window.location.href);
+        setPendingExitUrl('/app');
+        setShowBackConfirmModal(true);
+      } else {
+        if (clientUuid) {
+          deleteDraftByUuid(clientUuid).catch(() => {});
+        }
+      }
+    };
+
+    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [formData, hasSavedSignature, clientUuid]);
+
   const handleCategoryStepBack = useCallback(() => {
     if (hasEverContinued) {
       setSelectedCategories(confirmedCategories);
       setCategoryStepError(null);
       setShowCategoryStep(false);
     } else {
-      router.push('/app');
+      handleRequestLeave('/app');
     }
-  }, [hasEverContinued, confirmedCategories, router]);
+  }, [hasEverContinued, confirmedCategories, handleRequestLeave]);
 
   const handleCategoryStepContinue = useCallback(() => {
     if (selectedCategories.length === 0) {
@@ -876,9 +949,10 @@ export default function NewSinglePageAssessment() {
     selectedCategories,
   ]);
 
-  // Continuous Autosave to Dexie drafts table with all 73 fields
+  // Autosave to Dexie drafts table ONLY when meaningful data has been entered
   useEffect(() => {
     if (!clientUuid) return;
+    if (!hasMeaningfulAssessmentData(formData, hasSavedSignature)) return;
 
     const timer = setTimeout(async () => {
       setSaveStatus('saving');
@@ -890,10 +964,10 @@ export default function NewSinglePageAssessment() {
         console.error('Autosave error:', err);
         setSaveStatus('saved');
       }
-    }, 400);
+    }, 500);
 
     return () => clearTimeout(timer);
-  }, [clientUuid, buildCurrentDraftRecord]);
+  }, [clientUuid, formData, hasSavedSignature, buildCurrentDraftRecord]);
 
   const handleManualSaveDraft = async () => {
     if (!clientUuid) return;
@@ -1315,14 +1389,15 @@ export default function NewSinglePageAssessment() {
         {/* Minimal Focus Header with Return Link, Language Selector, and Immersive Reader */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
           <div className="flex items-center space-x-2.5">
-            <Link
-              href="/app"
-              className="touch-target-44 min-h-[44px] min-w-[44px] hidden md:inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer"
+            <button
+              type="button"
+              onClick={() => handleRequestLeave('/app')}
+              className="touch-target-44 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer"
               title="Return to Dashboard"
               aria-label="Return to Dashboard"
             >
               <ArrowLeft className="h-5 w-5" />
-            </Link>
+            </button>
 
             {/* Immersive Reader & Regional Languages Dropdown */}
             <ImmersiveReaderControls
@@ -1341,7 +1416,7 @@ export default function NewSinglePageAssessment() {
         {formError && (
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 flex items-start space-x-3 text-xs">
             <AlertTriangle className="h-5 w-5 shrink-0 text-rose-600 mt-0.5" />
-            <div className="space-y-1.5">
+            <div className="space-y-2 flex-1">
               <p className="font-bold text-sm">Please correct the following before submitting:</p>
               <p className="mt-1">{formError}</p>
               {validationErrors.length > 0 && (
@@ -1353,6 +1428,33 @@ export default function NewSinglePageAssessment() {
                   ))}
                 </ul>
               )}
+
+              {/* Phase D: On failed submission offer explicit "Save as draft" or "Continue editing" */}
+              <div className="pt-2 flex flex-wrap items-center gap-2 border-t border-rose-200/60">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleManualSaveDraft}
+                  className="touch-target min-h-[38px] text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white border-0 shadow-xs"
+                >
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  Save as draft
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    if (validationErrors.length > 0) {
+                      navigateToValidationError(validationErrors[0]);
+                    }
+                  }}
+                  className="touch-target min-h-[38px] text-xs font-bold bg-white text-slate-700 hover:bg-slate-100 border border-slate-300"
+                >
+                  Continue editing
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -3351,6 +3453,15 @@ export default function NewSinglePageAssessment() {
         </>
         )}
       </div>
+
+      {/* Phase D: Back Navigation Draft Confirmation Modal */}
+      <BackDraftConfirmationModal
+        isOpen={showBackConfirmModal}
+        onSaveDraft={handleModalSaveDraft}
+        onDiscard={handleModalDiscard}
+        onContinueEditing={handleModalContinueEditing}
+        isSaving={isModalSaving}
+      />
     </AppShell>
   );
 }
