@@ -9,6 +9,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { DraftCard } from '@/components/forms/DraftCard';
 import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import { getAllQueueItems } from '@/lib/db/syncQueueRepository';
+import { claimOrFetchDraftsData, invalidatePortalCache } from '@/lib/portal/portalWarmCache';
 import type { AssessmentRecord, SyncQueueItem } from '@/types/domain';
 import {
   FileText,
@@ -24,9 +25,17 @@ export default function DedicatedDraftsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (preferWarmCache = false) => {
     setIsLoading(true);
     try {
+      if (preferWarmCache) {
+        const warmed = await claimOrFetchDraftsData().catch(() => null);
+        if (warmed) {
+          setDrafts(warmed.drafts || []);
+          setQueueItems(warmed.queueItems || []);
+          return;
+        }
+      }
       const [draftsData, queueData] = await Promise.all([
         getAllDrafts(),
         getAllQueueItems(),
@@ -64,9 +73,10 @@ export default function DedicatedDraftsPage() {
       }
     }
 
-    loadData();
+    loadData(true);
     const handleSyncComplete = () => {
-      loadData();
+      invalidatePortalCache('drafts');
+      loadData(false);
     };
     window.addEventListener('child_nutrition:sync_completed', handleSyncComplete);
     return () => {
@@ -80,11 +90,12 @@ export default function DedicatedDraftsPage() {
     setDrafts((prev) => prev.filter((d) => d.id !== id));
     try {
       await deleteDraft(id);
+      invalidatePortalCache('drafts');
     } catch (err: any) {
       // Restore list on failure
       console.error('[DraftsPage] deleteDraft failed:', err);
       setDeleteError('Failed to delete draft. Please try again.');
-      await loadData();
+      await loadData(false);
     }
   };
 

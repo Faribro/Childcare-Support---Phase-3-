@@ -20,6 +20,22 @@ import { useScrollSoundscape } from '@/lib/audio/useScrollSoundscape';
 import { RocketSurveyButton } from '@/components/launch/RocketSurveyButton';
 import { useLaunchTransitionStore, selectIsLaunching } from '@/store/useLaunchTransitionStore';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
+import type { FieldPrincipalInput, RouterPrefetchLike } from '@/lib/portal/portalWarmCache';
+import { usePortalTransition } from '@/components/portal/usePortalTransition';
+import {
+  DraftsPortalOverlay,
+  DocsPortalOverlay,
+  BankPortalOverlay,
+  SubmittedPortalGlow,
+  PortalStatusIndicator,
+} from '@/components/portal/PortalVisualEffects';
+
+const FALLBACK_BROWSER_ROUTER: RouterPrefetchLike = {
+  push: (href: string) => {
+    if (typeof window !== 'undefined') window.location.assign(href);
+  },
+  prefetch: () => {},
+};
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +59,9 @@ interface MobileKoboHomeScreenProps {
   isAuthenticated?: boolean;
   onRequireAuth?: () => void;
   onFormReady?: () => void;
+  router?: RouterPrefetchLike;
+  userRole?: string | null;
+  principal?: FieldPrincipalInput;
 }
 
 // ─── GPU-Composited Keyframes (transform + opacity only for 60fps WebView) ───
@@ -116,6 +135,9 @@ export function MobileKoboHomeScreen({
   isAuthenticated = true,
   onRequireAuth,
   onFormReady,
+  router,
+  userRole,
+  principal,
 }: MobileKoboHomeScreenProps) {
   // ── Counts ──────────────────────────────────────────────────────────────────
   const draftsLoading    = isDraftsLoading    ?? isLoading;
@@ -136,6 +158,23 @@ export function MobileKoboHomeScreen({
   const [isLaunching, setIsLaunching]               = useState(false);
   const [animationsEnabled, setAnimationsEnabled]   = useState(true);
   const { isSoundEnabled, toggleSound }             = useScrollSoundscape({ animationsEnabled });
+
+  const {
+    activePortal,
+    slowPortal,
+    statusMessage,
+    getPortalProps,
+  } = usePortalTransition({
+    router: router || FALLBACK_BROWSER_ROUTER,
+    isAuthenticated,
+    userRole,
+    principal,
+    animationsEnabled,
+    onRequireAuth: (e) => {
+      if (onRequireAuth) onRequireAuth();
+      else if (onStartSurvey) onStartSurvey(e);
+    },
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -184,19 +223,6 @@ export function MobileKoboHomeScreen({
         : DASHBOARD_COPY.badgePlural(totalActionable);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
-  const handleProtectedNav = (e: React.MouseEvent, url: string) => {
-    if (!isAuthenticated) {
-      e.preventDefault();
-      if (onRequireAuth) onRequireAuth();
-      else if (onStartSurvey) onStartSurvey(e);
-      return;
-    }
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      e.preventDefault();
-      window.location.assign(url);
-    }
-  };
-
   const handleStartSurvey = (e: React.MouseEvent) => {
     if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && !navigator.onLine) {
       window.location.assign('/assessment/new');
@@ -511,9 +537,11 @@ export function MobileKoboHomeScreen({
                 <Link
                   href="/assessment/drafts"
                   prefetch={true}
-                  onClick={(e) => handleProtectedNav(e, '/assessment/drafts')}
+                  {...getPortalProps('drafts')}
                   aria-label={`${DASHBOARD_COPY.cards.formsToFinish.title}: ${count} - ${DASHBOARD_COPY.cards.formsToFinish.linkText}`}
-                  className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  className={`relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                    activePortal === 'drafts' ? 'scale-[1.04]' : ''
+                  }`}
                 >
                   {/* Luminous comic golden sphere */}
                   <div
@@ -547,6 +575,8 @@ export function MobileKoboHomeScreen({
                       />
                     </svg>
                   </div>
+
+                  <DraftsPortalOverlay active={activePortal === 'drafts'} variant="mobile" />
 
                   {/* Content overlay */}
                   <div className="relative z-10 flex h-full flex-col items-center justify-between px-2 py-3">
@@ -597,9 +627,11 @@ export function MobileKoboHomeScreen({
                 <Link
                   href="/assessment/sync?tab=bank"
                   prefetch={true}
-                  onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=bank')}
+                  {...getPortalProps('bank')}
                   aria-label={`Bank Details: ${effectiveBankPending} - View bank details`}
-                  className="relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  className={`relative block h-[138px] w-[138px] min-[390px]:h-[150px] min-[390px]:w-[150px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                    activePortal === 'bank' ? 'scale-[0.96]' : ''
+                  }`}
                 >
                   {/* Luminous comic emerald sphere */}
                   <div
@@ -635,6 +667,8 @@ export function MobileKoboHomeScreen({
                       />
                     </svg>
                   </div>
+
+                  <BankPortalOverlay active={activePortal === 'bank'} variant="mobile" />
 
                   {/* Content overlay */}
                   <div className="relative z-10 flex h-full flex-col items-center justify-between px-2 py-3">
@@ -738,11 +772,13 @@ export function MobileKoboHomeScreen({
                 <Link
                   href="/assessment/sync?tab=docs"
                   prefetch={true}
-                  onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=docs')}
+                  {...getPortalProps('docs')}
                   aria-label={`Missing Docs: ${effectiveMissingDocs} - ${
                     effectiveMissingDocs === 0 ? 'All clear' : 'Review missing documents'
                   }`}
-                  className="relative z-10 block h-[176px] w-[176px] min-[390px]:h-[190px] min-[390px]:w-[190px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  className={`relative z-10 block h-[176px] w-[176px] min-[390px]:h-[190px] min-[390px]:w-[190px] cursor-pointer rounded-full transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                    activePortal === 'docs' ? 'scale-[1.03]' : ''
+                  }`}
                 >
                   {/* Luminous peach-coral-magenta comic sphere */}
                   <div
@@ -819,6 +855,8 @@ export function MobileKoboHomeScreen({
                     </svg>
                   </div>
 
+                  <DocsPortalOverlay active={activePortal === 'docs'} variant="mobile" />
+
                   {/* Foreground UI Content (z-30 — razor-sharp above ring) */}
                   <div className="relative z-30 flex h-full flex-col items-center justify-between px-2.5 py-3.5">
                     <span
@@ -883,12 +921,17 @@ export function MobileKoboHomeScreen({
             <Link
               href="/assessment/sync?tab=synced"
               prefetch={true}
-              onClick={(e) => handleProtectedNav(e, '/assessment/sync?tab=synced')}
+              {...getPortalProps('submitted')}
               aria-label={`Submitted surveys: ${submittedCount ?? 0} - Confirmed on central server`}
               className="group relative flex h-[116px] w-[328px] items-end justify-center cursor-pointer transition-transform duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-3xl"
             >
               {/* Radiant Golden Sun — tucked HIGHER & FURTHER LEFT behind cloud's right edge (z-10) */}
-              <div className="pointer-events-none absolute right-[18px] top-[0px] z-10 flex h-[88px] w-[88px] items-center justify-center">
+              <div
+                className={`pointer-events-none absolute right-[18px] top-[0px] z-10 flex h-[88px] w-[88px] items-center justify-center will-change-transform ${
+                  activePortal === 'submitted' ? 'portal-sun-rise-active' : ''
+                }`}
+              >
+                <SubmittedPortalGlow active={activePortal === 'submitted'} variant="mobile" />
                 {/* Soft warm radiating corona */}
                 <div
                   className="kobo-halo-active absolute -inset-6 rounded-full blur-xl"
@@ -950,7 +993,11 @@ export function MobileKoboHomeScreen({
               </div>
 
               {/* Sculpted Comic Cloud — centered, overlapping Sun's lower-left curve (z-20) */}
-              <div className="relative z-20 mr-10 mb-1 flex h-[76px] w-[244px] items-center justify-center">
+              <div
+                className={`relative z-20 mr-10 mb-1 flex h-[76px] w-[244px] items-center justify-center will-change-transform ${
+                  activePortal === 'submitted' ? 'portal-cloud-glide-active' : ''
+                }`}
+              >
                 <svg
                   viewBox="0 0 270 86"
                   className="pointer-events-none absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_8px_18px_rgba(14,74,158,0.28)]"
@@ -1082,6 +1129,13 @@ export function MobileKoboHomeScreen({
           isPaused={!animationsEnabled || isGlobalLaunching}
         />
       </div>
+
+      <PortalStatusIndicator
+        activePortal={activePortal}
+        slowPortal={slowPortal}
+        statusMessage={statusMessage}
+        className="fixed bottom-5 inset-x-0 z-50 flex justify-center pointer-events-none"
+      />
     </div>
   );
 }

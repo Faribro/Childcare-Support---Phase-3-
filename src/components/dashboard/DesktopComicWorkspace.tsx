@@ -24,6 +24,19 @@ import { RocketSurveyButton } from '@/components/launch/RocketSurveyButton';
 import { useLaunchTransitionStore, selectIsLaunching } from '@/store/useLaunchTransitionStore';
 import { NeedsAttentionPanel } from './NeedsAttentionPanel';
 import { COSMIC_STYLES } from './cosmicStyles';
+import type { FieldPrincipalInput, RouterPrefetchLike } from '@/lib/portal/portalWarmCache';
+import { usePortalTransition } from '@/components/portal/usePortalTransition';
+import {
+  SubmittedPortalGlow,
+  PortalStatusIndicator,
+} from '@/components/portal/PortalVisualEffects';
+
+const FALLBACK_BROWSER_ROUTER: RouterPrefetchLike = {
+  push: (href: string) => {
+    if (typeof window !== 'undefined') window.location.assign(href);
+  },
+  prefetch: () => {},
+};
 
 export interface DesktopComicWorkspaceProps {
   drafts: AssessmentRecord[];
@@ -45,6 +58,9 @@ export interface DesktopComicWorkspaceProps {
   onRetrySubmitted: () => void;
   onRequireAuth: () => void;
   onFormReady?: () => void;
+  router?: RouterPrefetchLike;
+  userRole?: string | null;
+  principal?: FieldPrincipalInput;
 }
 
 export function DesktopComicWorkspace({
@@ -67,10 +83,27 @@ export function DesktopComicWorkspace({
   onRetrySubmitted,
   onRequireAuth,
   onFormReady,
+  router,
+  userRole,
+  principal,
 }: DesktopComicWorkspaceProps) {
   const isLaunching = useLaunchTransitionStore(selectIsLaunching);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const { isSoundEnabled, toggleSound } = useScrollSoundscape({ animationsEnabled });
+
+  const {
+    activePortal,
+    slowPortal,
+    statusMessage,
+    getPortalProps,
+  } = usePortalTransition({
+    router: router || FALLBACK_BROWSER_ROUTER,
+    isAuthenticated,
+    userRole,
+    principal,
+    animationsEnabled,
+    onRequireAuth,
+  });
 
   // Sync animation preferences with localStorage and prefers-reduced-motion
   useEffect(() => {
@@ -421,6 +454,8 @@ export function DesktopComicWorkspace({
           approvedBankPendingCount={effectiveBankPending}
           serverScopeLabel={serverScopeLabel}
           isServerLoading={isSubmittedLoading}
+          activePortal={activePortal}
+          getPortalProps={getPortalProps}
         />
 
         {/* ── 3. LOWER DAYTIME SKY SPLIT (Drafts Dock + Submitted Surveys Cloud & Sun) ── */}
@@ -505,17 +540,17 @@ export function DesktopComicWorkspace({
             <Link
               href="/assessment/sync?tab=synced"
               prefetch={true}
-              onClick={(e) => {
-                if (!isAuthenticated) {
-                  e.preventDefault();
-                  onRequireAuth();
-                }
-              }}
+              {...getPortalProps('submitted')}
               aria-label={`Submitted surveys: ${effectiveSubmittedCount} - Confirmed on central server`}
               className="group relative flex h-[120px] w-[340px] items-end justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-3xl"
             >
               {/* Radiant Golden Sun — tucked on upper-right shoulder (z-10) */}
-              <div className="pointer-events-none absolute right-[16px] top-[-6px] z-10 flex h-[94px] w-[94px] items-center justify-center">
+              <div
+                className={`pointer-events-none absolute right-[16px] top-[-6px] z-10 flex h-[94px] w-[94px] items-center justify-center will-change-transform ${
+                  activePortal === 'submitted' ? 'portal-sun-rise-active' : ''
+                }`}
+              >
+                <SubmittedPortalGlow active={activePortal === 'submitted'} variant="desktop" />
                 {/* Corona glow */}
                 <div
                   className="kobo-halo-active absolute -inset-6 rounded-full blur-xl"
@@ -577,7 +612,11 @@ export function DesktopComicWorkspace({
               </div>
 
               {/* Sculpted Comic Cloud (z-20) */}
-              <div className="relative z-20 mr-10 mb-1 flex h-[80px] w-[258px] items-center justify-center">
+              <div
+                className={`relative z-20 mr-10 mb-1 flex h-[80px] w-[258px] items-center justify-center will-change-transform ${
+                  activePortal === 'submitted' ? 'portal-cloud-glide-active' : ''
+                }`}
+              >
                 <svg
                   viewBox="0 0 270 86"
                   className="pointer-events-none absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_8px_18px_rgba(14,74,158,0.28)]"
@@ -704,6 +743,13 @@ export function DesktopComicWorkspace({
           </p>
         </div>
       </div>
+
+      <PortalStatusIndicator
+        activePortal={activePortal}
+        slowPortal={slowPortal}
+        statusMessage={statusMessage}
+        className="fixed bottom-6 inset-x-0 z-50 flex justify-center pointer-events-none"
+      />
     </div>
   );
 }

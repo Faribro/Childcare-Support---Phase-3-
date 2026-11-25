@@ -547,6 +547,9 @@ export default function FieldWorkspacePage() {
         isAuthenticated={isAuthenticated}
         onRequireAuth={handleRequireAuth}
         onFormReady={() => router.push('/assessment/new')}
+        router={router}
+        userRole={user?.role}
+        principal={{ user }}
       />
 
       {/* Desktop Workspace View (>=768px) */}
@@ -570,6 +573,9 @@ export default function FieldWorkspacePage() {
         onRetrySubmitted={handleRetrySubmitted}
         onRequireAuth={handleRequireAuth}
         onFormReady={() => router.push('/assessment/new')}
+        router={router}
+        userRole={user?.role}
+        principal={{ user }}
       />
 {/* Welcome Kite First-Time Field User Onboarding Modal */}
       <WelcomeKiteOnboardingModal

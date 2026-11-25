@@ -12,7 +12,7 @@ import { getAllQueueItems, migrateLegacyQueueItems } from '@/lib/db/syncQueueRep
 import { getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import { DraftCard } from '@/components/forms/DraftCard';
 import { clearAllLocalData } from '@/lib/db/dexieDb';
-import { useSupervisorData } from '@/hooks/useSupervisorData';
+import { useSupervisorData, type SupervisorBeneficiaryRow } from '@/hooks/useSupervisorData';
 import { processQueue, isWorkerRunning } from '@/features/submission/submissionWorker';
 import { migrateLegacyItems } from '@/features/submission/submissionQueueRepository';
 import { submissionEvents } from '@/features/submission/submissionEvents';
@@ -31,8 +31,15 @@ import {
   Trash2,
   ArrowLeft,
   Landmark,
+  FileWarning,
 } from 'lucide-react';
 import { deriveSubmissionStages, maskBankAccountNumber } from '@/lib/shared/submissionStages';
+import { deriveBeneficiaryReadiness } from '@/lib/read-model/beneficiaryReadiness';
+import {
+  claimOrFetchSyncLocalData,
+  claimOrFetchFieldSubmissions,
+  invalidatePortalCache,
+} from '@/lib/portal/portalWarmCache';
 import { BankDetailsEntryModal } from '@/components/sync/BankDetailsEntryModal';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 
@@ -543,17 +550,69 @@ function SyncCentreContent() {
   const [viewingItem, setViewingItem] = useState<UnifiedAssessmentItem | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const {
-    records: serverSubmissions,
-    status: serverStatus,
-    error: serverError,
-    total: serverTotal,
-    refresh: refreshServer,
-    retry: retryServer,
-    isLoading: isServerLoading,
-  } = useSupervisorData();
-
   const { user, isUnlocked } = useEvaluationAccess();
+  const isEvalUser = Boolean(isUnlocked && user && user.role !== 'FIELD_USER');
+
+  const {
+    records: supervisorSubmissions,
+    status: supervisorServerStatus,
+    error: supervisorServerError,
+    total: supervisorServerTotal,
+    refresh: refreshSupervisorServer,
+    isLoading: isSupervisorServerLoading,
+  } = useSupervisorData({ enabled: isEvalUser });
+
+  const [fieldServerRecords, setFieldServerRecords] = useState<SupervisorBeneficiaryRow[]>([]);
+  const [fieldServerTotal, setFieldServerTotal] = useState<number | null>(null);
+  const [fieldServerStatus, setFieldServerStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [fieldServerError, setFieldServerError] = useState<any>(null);
+
+  const loadFieldSubmissions = useCallback(
+    async (force = false) => {
+      if (isEvalUser) return;
+      setFieldServerStatus('loading');
+      setFieldServerError(null);
+      try {
+        const res = await claimOrFetchFieldSubmissions({
+          principal: { user },
+          force,
+        });
+        if (res) {
+          setFieldServerRecords(res.records || []);
+          setFieldServerTotal(res.total);
+        }
+        setFieldServerStatus('success');
+      } catch (err: any) {
+        setFieldServerError({ message: err?.message || 'Unable to load submitted records' });
+        setFieldServerStatus('error');
+      }
+    },
+    [isEvalUser, user]
+  );
+
+  const serverSubmissions = isEvalUser ? supervisorSubmissions : fieldServerRecords;
+  const serverStatus = isEvalUser ? supervisorServerStatus : fieldServerStatus;
+  const serverError = isEvalUser ? supervisorServerError : fieldServerError;
+  const serverTotal = isEvalUser ? supervisorServerTotal : fieldServerTotal;
+  const isServerLoading = isEvalUser
+    ? isSupervisorServerLoading
+    : fieldServerStatus === 'loading';
+
+  const refreshServer = useCallback(
+    async (force = true) => {
+      if (isEvalUser) {
+        await refreshSupervisorServer();
+        return;
+      }
+      await loadFieldSubmissions(force);
+    },
+    [isEvalUser, refreshSupervisorServer, loadFieldSubmissions]
+  );
+
+  const retryServer = useCallback(async () => {
+    await refreshServer(true);
+  }, [refreshServer]);
+
   const tabParam = searchParams.get('tab');
 
   // Strict role-aware workspace routing: Evaluation users belong in /supervisor/assessments
@@ -561,7 +620,7 @@ function SyncCentreContent() {
     if (isUnlocked && user && user.isVerified) {
       const isEval = user.role === 'LEADERSHIP' || user.role === 'STATE_REVIEWER' || user.role === 'ADMIN';
       if (isEval) {
-        if (tabParam === 'bank_pending' || tabParam === 'bank-pending') {
+        if (tabParam === 'bank' || tabParam === 'bank_pending' || tabParam === 'bank-pending') {
           router.replace('/supervisor/assessments?worklist=bank_pending');
         } else if (tabParam === 'docs' || tabParam === 'missing_docs') {
           router.replace('/supervisor/assessments?worklist=intake_pending');
@@ -580,32 +639,25 @@ function SyncCentreContent() {
   const [bankTargetItem, setBankTargetItem] = useState<UnifiedAssessmentItem | null>(null);
   const [bankSuccessToast, setBankSuccessToast] = useState<string | null>(null);
 
-  // Tab State: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending'
-  const initialTab: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending' =
-    tabParam === 'drafts'
-      ? 'drafts'
-      : tabParam === 'outbox'
-      ? 'outbox'
-      : tabParam === 'bank_pending' || tabParam === 'bank-pending'
-      ? 'bank_pending'
-      : tabParam === 'synced' || tabParam === 'submitted'
-      ? 'synced'
-      : 'all';
+  type SyncTab = 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending' | 'docs';
+  const resolveTabParam = (param: string | null): SyncTab => {
+    if (param === 'drafts') return 'drafts';
+    if (param === 'outbox') return 'outbox';
+    if (param === 'bank' || param === 'bank_pending' || param === 'bank-pending') return 'bank_pending';
+    if (param === 'docs' || param === 'missing_docs') return 'docs';
+    if (param === 'synced' || param === 'submitted') return 'synced';
+    return 'all';
+  };
 
-  const [activeTab, setActiveTab] = useState<'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending'>(initialTab);
+  // Tab State: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending' | 'docs'
+  const initialTab: SyncTab = resolveTabParam(tabParam);
+
+  const [activeTab, setActiveTab] = useState<SyncTab>(initialTab);
   const [drafts, setDrafts] = useState<AssessmentRecord[]>([]);
 
   useEffect(() => {
-    if (tabParam === 'drafts') {
-      setActiveTab('drafts');
-    } else if (tabParam === 'outbox') {
-      setActiveTab('outbox');
-    } else if (tabParam === 'bank_pending' || tabParam === 'bank-pending') {
-      setActiveTab('bank_pending');
-    } else if (tabParam === 'synced' || tabParam === 'submitted') {
-      setActiveTab('synced');
-    } else if (tabParam === 'all') {
-      setActiveTab('all');
+    if (tabParam !== null) {
+      setActiveTab(resolveTabParam(tabParam));
     }
   }, [tabParam]);
 
@@ -614,11 +666,26 @@ function SyncCentreContent() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const loadLocalData = useCallback(async () => {
+  const loadLocalData = useCallback(async (preferWarmCache = false): Promise<SyncQueueItem[]> => {
     try {
-      await migrateLegacyItems();
-      await migrateLegacyQueueItems();
-      const [q, d] = await Promise.all([getAllQueueItems(), getAllDrafts()]);
+      let q: SyncQueueItem[] | undefined;
+      let d: AssessmentRecord[] | undefined;
+
+      if (preferWarmCache) {
+        const warmed = await claimOrFetchSyncLocalData({ user }).catch(() => null);
+        if (warmed) {
+          q = warmed.queueItems || [];
+          d = warmed.drafts || [];
+        }
+      }
+
+      if (!q || !d) {
+        await migrateLegacyItems();
+        await migrateLegacyQueueItems();
+        const [rawQ, rawD] = await Promise.all([getAllQueueItems(), getAllDrafts()]);
+        q = rawQ;
+        d = rawD;
+      }
 
       // Scope outbox queue items and drafts to the currently signed-in field worker account
       let currentWorkerName: string | null = null;
@@ -648,18 +715,22 @@ function SyncCentreContent() {
         );
       };
 
-      setQueueItems((q || []).filter(isScopedToWorker));
+      const scopedQueue = (q || []).filter(isScopedToWorker);
+      setQueueItems(scopedQueue);
       setDrafts((d || []).filter(isScopedToWorker));
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(online);
+      return scopedQueue;
     } catch (err) {
       console.error('[SyncCentre] Error loading local queue:', err);
+      return [];
     }
-  }, []);
+  }, [user]);
 
   const handleDeleteDraft = async (id: number) => {
     await deleteDraft(id);
-    await loadLocalData();
+    invalidatePortalCache('all');
+    await loadLocalData(false);
   };
 
   const handleResumeDraft = (id: string | number) => {
@@ -690,24 +761,35 @@ function SyncCentreContent() {
       }
     }
 
-    loadLocalData().then(() => {
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
+    // Load warmed local snapshot AND field server submissions concurrently (consuming cache/in-flight if fresh)
+    loadLocalData(true).then((scopedQueue) => {
+      const hasActionablePending = scopedQueue.some(
+        (item) => item.status === 'queued' || item.status === 'failed'
+      );
+      if (hasActionablePending && typeof navigator !== 'undefined' && navigator.onLine) {
         processQueue('sync_page_mount')
           .then(() => {
-            loadLocalData();
-            refreshServer();
+            invalidatePortalCache('sync');
+            loadLocalData(false);
+            refreshServer(true);
           })
           .catch(() => {});
       }
     });
 
+    if (!isEvalUser) {
+      loadFieldSubmissions(false);
+    }
+
     const handleOnline = () => {
       setIsOnline(true);
-      loadLocalData().then(() => {
+      invalidatePortalCache('sync');
+      loadLocalData(false).then(() => {
         processQueue('online_event')
           .then(() => {
-            loadLocalData();
-            refreshServer();
+            invalidatePortalCache('sync');
+            loadLocalData(false);
+            refreshServer(true);
           })
           .catch(() => {});
       });
@@ -715,12 +797,14 @@ function SyncCentreContent() {
     const handleOffline = () => setIsOnline(false);
 
     const handleSyncUpdate = () => {
-      loadLocalData();
+      invalidatePortalCache('sync');
+      loadLocalData(false);
     };
 
     const handleServerSyncComplete = () => {
-      loadLocalData();
-      refreshServer();
+      invalidatePortalCache('sync');
+      loadLocalData(false);
+      refreshServer(true);
     };
 
     window.addEventListener('online', handleOnline);
@@ -758,7 +842,7 @@ function SyncCentreContent() {
       window.removeEventListener('child_nutrition:record_synced', handleServerSyncComplete);
       window.removeEventListener('child_nutrition:record_queued', handleSyncUpdate);
     };
-  }, [loadLocalData, refreshServer]);
+  }, [loadLocalData, loadFieldSubmissions, refreshServer, isEvalUser, user?.isVerified, router]);
 
   const [retryingItemId, setRetryingItemId] = useState<number | null>(null);
   const [noEligibleWarning, setNoEligibleWarning] = useState<string | null>(null);
@@ -1111,6 +1195,13 @@ function SyncCentreContent() {
   const pendingCount = actionableCount;
   const submittedCount = Math.max(syncedItems.length, serverTotal ?? 0);
 
+  const missingDocsItems = useMemo(() => {
+    return syncedItems.filter((item) => {
+      const readiness = deriveBeneficiaryReadiness(item.rawRecord || item);
+      return !readiness.isComplete;
+    });
+  }, [syncedItems]);
+
   const bankPendingItems = useMemo(() => {
     const list = syncedItems.filter((item) => {
       const stages = deriveSubmissionStages(item.rawRecord || item);
@@ -1138,6 +1229,8 @@ function SyncCentreContent() {
         ? outboxItems
         : activeTab === 'synced'
         ? syncedItems
+        : activeTab === 'docs'
+        ? missingDocsItems
         : activeTab === 'bank_pending'
         ? bankPendingItems
         : unifiedItems;
@@ -1164,7 +1257,7 @@ function SyncCentreContent() {
 
       return true;
     });
-  }, [unifiedItems, outboxItems, syncedItems, bankPendingItems, activeTab, searchQuery, fromDate, toDate]);
+  }, [unifiedItems, outboxItems, syncedItems, missingDocsItems, bankPendingItems, activeTab, searchQuery, fromDate, toDate]);
 
   const handleDismissBanner = () => {
     setBannerDismissed(true);
@@ -1673,6 +1766,28 @@ function SyncCentreContent() {
                 type="button"
                 onClick={() => {
                   triggerHaptic();
+                  setActiveTab('docs');
+                }}
+                className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                  activeTab === 'docs'
+                    ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
+                    : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'
+                }`}
+              >
+                <span className="whitespace-nowrap">Missing Docs</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                  activeTab === 'docs'
+                    ? 'bg-white/25 text-white border border-white/30'
+                    : missingDocsItems.length > 0 ? 'bg-rose-100 text-rose-900 border border-rose-300' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {missingDocsItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
                   setActiveTab('bank_pending');
                 }}
                 className={`col-span-2 sm:col-span-1 px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
@@ -1774,6 +1889,21 @@ function SyncCentreContent() {
 
           {/* Survey Lists Section */}
           <section className="space-y-4">
+            {activeTab === 'bank_pending' && !canEnterBankDetails && (
+              <div
+                role="note"
+                className="flex items-start gap-3 p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-2xl text-emerald-950"
+              >
+                <Landmark className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="space-y-0.5 text-xs">
+                  <p className="font-bold">Bank Details Status (Read-Only Preview)</p>
+                  <p className="text-[11px] text-emerald-800">
+                    Self-service bank details entry is not yet live for field worker accounts. Approved records awaiting bank completion are processed by programme administration.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'drafts' ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-1">
@@ -1809,6 +1939,8 @@ function SyncCentreContent() {
                     ? 'No surveys match your search or date filter'
                     : activeTab === 'outbox'
                     ? 'All records have been sent to the server. No pending items on this device.'
+                    : activeTab === 'docs'
+                    ? 'No missing document follow-ups found.'
                     : activeTab === 'bank_pending'
                     ? 'No approved records awaiting bank details.'
                     : activeTab === 'synced'
@@ -1818,6 +1950,8 @@ function SyncCentreContent() {
                 <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto">
                   {searchQuery || fromDate || toDate
                     ? 'Try clearing or changing your search criteria.'
+                    : activeTab === 'docs'
+                    ? 'All submitted assessments currently visible in your scope have complete documentation.'
                     : 'When you complete a survey, it will appear here so you can verify that it has been safely sent for reporting.'}
                 </p>
               </div>

@@ -11,6 +11,13 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { DASHBOARD_COPY } from '@/lib/constants/dashboardCopy';
+import type { PortalId } from '@/lib/portal/portalWarmCache';
+import type { PortalEventHandlers } from '@/components/portal/usePortalTransition';
+import {
+  DraftsPortalOverlay,
+  DocsPortalOverlay,
+  BankPortalOverlay,
+} from '@/components/portal/PortalVisualEffects';
 
 export interface NeedsAttentionPanelProps {
   localDraftsCount?: number;
@@ -20,6 +27,8 @@ export interface NeedsAttentionPanelProps {
   serverScopeLabel?: string;
   isServerLoading?: boolean;
   className?: string;
+  activePortal?: PortalId | null;
+  getPortalProps?: (portal: PortalId) => PortalEventHandlers;
 }
 
 export function NeedsAttentionPanel({
@@ -30,7 +39,11 @@ export function NeedsAttentionPanel({
   serverScopeLabel = 'Authorized scope',
   isServerLoading = false,
   className = '',
+  activePortal = null,
+  getPortalProps,
 }: NeedsAttentionPanelProps) {
+  const portalHandlers = (portal: PortalId): Partial<PortalEventHandlers> =>
+    getPortalProps ? getPortalProps(portal) : {};
   // Pendings represents Missing Documents ONLY (Bank Details is its own dedicated planet)
   const pendingsTotal = submittedMissingDocsCount;
   // Total distinct actionable items across all three categories
@@ -112,8 +125,11 @@ export function NeedsAttentionPanel({
           <Link
             href={DASHBOARD_COPY.cards.formsToFinish.href}
             prefetch={true}
+            {...portalHandlers('drafts')}
             aria-label={`${DASHBOARD_COPY.cards.formsToFinish.title}: ${localDraftsCount} - ${DASHBOARD_COPY.cards.formsToFinish.linkText}`}
-            className="group relative block h-[224px] w-[224px] min-w-[224px] min-h-[224px] shrink-0 cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className={`group relative block h-[224px] w-[224px] min-w-[224px] min-h-[224px] shrink-0 cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+              activePortal === 'drafts' ? 'scale-[1.04]' : ''
+            }`}
             style={{ width: '224px', height: '224px', minWidth: '224px', minHeight: '224px', borderRadius: '50%' }}
           >
             {/* Luminous golden sphere */}
@@ -148,6 +164,8 @@ export function NeedsAttentionPanel({
                 />
               </svg>
             </div>
+
+            <DraftsPortalOverlay active={activePortal === 'drafts'} variant="desktop" />
 
             {/* Content overlay */}
             <div className="relative z-10 flex h-full flex-col items-center justify-between px-3 py-4 text-center">
@@ -332,8 +350,18 @@ export function NeedsAttentionPanel({
               </svg>
             </div>
 
-            {/* Foreground UI Content (z-30 — razor-sharp above ring) */}
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-between px-2.5 py-4 text-center">
+            <DocsPortalOverlay active={activePortal === 'docs'} variant="desktop" />
+
+            {/* Foreground UI Content (z-30 — razor-sharp above ring, full 232x232 accessible portal target) */}
+            <Link
+              href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
+              prefetch={true}
+              {...portalHandlers('docs')}
+              aria-label={`Missing Docs: ${submittedMissingDocsCount} - Pendings`}
+              className={`group absolute inset-0 z-30 flex flex-col items-center justify-between px-2.5 py-4 text-center rounded-full cursor-pointer transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                activePortal === 'docs' ? 'scale-[1.03]' : ''
+              }`}
+            >
               {/* Title pill */}
               <span
                 className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-rose-950 shadow-xs"
@@ -373,13 +401,10 @@ export function NeedsAttentionPanel({
               </div>
 
               {/* Action Button Pill */}
-              <Link
-                href={DASHBOARD_COPY.cards.pendings.rows.missingDocs.href}
-                className="inline-flex items-center justify-center rounded-full bg-[#9F1239] px-5 py-1.5 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-rose-300/40 whitespace-nowrap transition-transform duration-150 hover:scale-105"
-              >
+              <span className="inline-flex items-center justify-center rounded-full bg-[#9F1239] px-5 py-1.5 text-[11px] font-extrabold text-white shadow-sm ring-1 ring-rose-300/40 whitespace-nowrap transition-transform duration-150 group-hover:scale-105">
                 Pendings ›
-              </Link>
-            </div>
+              </span>
+            </Link>
           </div>
         </div>
 
@@ -399,8 +424,11 @@ export function NeedsAttentionPanel({
           <Link
             href="/assessment/sync?tab=bank"
             prefetch={true}
+            {...portalHandlers('bank')}
             aria-label={`Bank Details: ${approvedBankPendingCount} - View bank details`}
-            className="group relative block h-[212px] w-[212px] min-w-[212px] min-h-[212px] shrink-0 cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className={`group relative block h-[212px] w-[212px] min-w-[212px] min-h-[212px] shrink-0 cursor-pointer rounded-full transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+              activePortal === 'bank' ? 'scale-[0.97]' : ''
+            }`}
             style={{ width: '212px', height: '212px', minWidth: '212px', minHeight: '212px', borderRadius: '50%' }}
           >
             {/* Luminous emerald sphere */}
@@ -437,6 +465,8 @@ export function NeedsAttentionPanel({
                 />
               </svg>
             </div>
+
+            <BankPortalOverlay active={activePortal === 'bank'} variant="desktop" />
 
             {/* Content overlay */}
             <div className="relative z-10 flex h-full flex-col items-center justify-between px-3 py-3.5 text-center">

@@ -135,6 +135,10 @@ export function ProfileMenu() {
         supervisorReadModel.purgeSession();
       } catch (_) {}
       try {
+        const { invalidateAllPortalCaches } = await import('@/lib/portal/portalWarmCache');
+        invalidateAllPortalCaches();
+      } catch (_) {}
+      try {
         const storage = platformRegistry.getSecureStorage();
         await storage.removeSecret('field_session_token');
       } catch (_) {}

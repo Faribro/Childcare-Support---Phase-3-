@@ -204,6 +204,96 @@ class CosmicSoundEngine {
     });
   }
 
+  /**
+   * Play a gentle, gesture-gated cue for each of the four field-worker portals.
+   * Respects `cosmicSound.isEnabled()` and degrades silently when AudioContext
+   * is unavailable or blocked.
+   */
+  public playPortalCue(portal: 'drafts' | 'docs' | 'bank' | 'submitted'): void {
+    if (!this.enabled) return;
+    try {
+      const ctx = this.ensureContext();
+      if (!ctx || !this.masterGain) return;
+      const now = ctx.currentTime;
+
+      if (portal === 'drafts') {
+        const notes = [523.25, 659.25];
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = i === 0 ? 'sine' : 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.065);
+          gain.gain.setValueAtTime(0.001, now + i * 0.065);
+          gain.gain.linearRampToValueAtTime(0.065, now + i * 0.065 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.065 + 0.24);
+          osc.connect(gain);
+          gain.connect(this.masterGain!);
+          osc.start(now + i * 0.065);
+          osc.stop(now + i * 0.065 + 0.26);
+        });
+        return;
+      }
+
+      if (portal === 'docs') {
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(620, now);
+        osc.frequency.exponentialRampToValueAtTime(980, now + 0.14);
+        osc.frequency.exponentialRampToValueAtTime(740, now + 0.26);
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1100, now);
+        filter.Q.setValueAtTime(2.5, now);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(0.07, now + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(now);
+        osc.stop(now + 0.3);
+        return;
+      }
+
+      if (portal === 'bank') {
+        [440, 587.33].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          const start = now + i * 0.055;
+          osc.frequency.setValueAtTime(freq, start);
+          gain.gain.setValueAtTime(0.001, start);
+          gain.gain.linearRampToValueAtTime(0.055, start + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, start + 0.19);
+          osc.connect(gain);
+          gain.connect(this.masterGain!);
+          osc.start(start);
+          osc.stop(start + 0.21);
+        });
+        return;
+      }
+
+      // 'submitted': gentle sunlit rising chord
+      [493.88, 659.25, 783.99].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        const start = now + i * 0.045;
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.001, start);
+        gain.gain.linearRampToValueAtTime(0.055, start + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.28);
+        osc.connect(gain);
+        gain.connect(this.masterGain!);
+        osc.start(start);
+        osc.stop(start + 0.3);
+      });
+    } catch {
+      // Audio playback must never block portal navigation
+    }
+  }
+
   // ─── Ambient Soundscape: Space Drone <-> Outdoor Playground Crossfade ───────
   public async startAmbience(initialBlend = 0): Promise<void> {
     if (!this.enabled || this.ambientActive) return;

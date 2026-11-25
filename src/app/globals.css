@@ -930,3 +930,178 @@ body {
   border: 1.5px solid rgba(217, 249, 157, 0.8);
   background: linear-gradient(180deg, #84cc16 0%, #16a34a 60%, #15803d 100%);
 }
+
+/* =========================================================================
+   Field-Worker Portal Micro-Interactions (Transform + Opacity GPU-Only)
+   ========================================================================= */
+@keyframes portalDraftsBloom {
+  0% {
+    transform: scale(0.84);
+    opacity: 0;
+  }
+  45% {
+    transform: scale(1.12);
+    opacity: 0.96;
+  }
+  100% {
+    transform: scale(1.22);
+    opacity: 0.6;
+  }
+}
+
+@keyframes portalDraftsArcRise {
+  0% {
+    transform: translate3d(0, 14px, 0) scale(0.92);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.98;
+  }
+  100% {
+    transform: translate3d(0, -18px, 0) scale(1.06);
+    opacity: 0;
+  }
+}
+
+@keyframes portalDocsScan360 {
+  0% {
+    transform: rotate(0deg) scale(0.94);
+    opacity: 0.25;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg) scale(1.04);
+    opacity: 0.85;
+  }
+}
+
+@keyframes portalDocsBeacon {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.82;
+  }
+  100% {
+    transform: scale(1.36);
+    opacity: 0;
+  }
+}
+
+@keyframes portalBankIrisPulse {
+  0% {
+    transform: scale(1.08) rotate(0deg);
+    opacity: 0.15;
+  }
+  45% {
+    transform: scale(0.76) rotate(-24deg);
+    opacity: 0.98;
+  }
+  100% {
+    transform: scale(1.14) rotate(0deg);
+    opacity: 0.3;
+  }
+}
+
+@keyframes portalBankSeedRipple {
+  0% {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+  45% {
+    transform: scale(0.95);
+    opacity: 0.96;
+  }
+  100% {
+    transform: scale(1.34);
+    opacity: 0;
+  }
+}
+
+@keyframes portalSubmittedAura {
+  0% {
+    transform: scale(0.78);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.16);
+    opacity: 0.96;
+  }
+  100% {
+    transform: scale(1.14);
+    opacity: 0.72;
+  }
+}
+
+@keyframes portalSunRise {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(0, -14px, 0) scale(1.14);
+  }
+}
+
+@keyframes portalCloudGlide {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(-12px, 3px, 0) scale(0.98);
+  }
+}
+
+.portal-drafts-bloom {
+  animation: portalDraftsBloom 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-drafts-arc-one {
+  animation: portalDraftsArcRise 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-drafts-arc-two {
+  animation: portalDraftsArcRise 340ms cubic-bezier(0.22, 1, 0.36, 1) 45ms forwards;
+}
+
+.portal-docs-scan-360 {
+  animation: portalDocsScan360 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-docs-beacon {
+  animation: portalDocsBeacon 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-bank-iris-pulse {
+  animation: portalBankIrisPulse 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-bank-seed-ripple {
+  animation: portalBankSeedRipple 320ms cubic-bezier(0.22, 1, 0.36, 1) 60ms forwards;
+}
+
+.portal-submitted-aura {
+  animation: portalSubmittedAura 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-sun-rise-active {
+  animation: portalSunRise 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.portal-cloud-glide-active {
+  animation: portalCloudGlide 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-drafts-bloom,
+  .portal-drafts-arc-one,
+  .portal-drafts-arc-two,
+  .portal-docs-scan-360,
+  .portal-docs-beacon,
+  .portal-bank-iris-pulse,
+  .portal-bank-seed-ripple,
+  .portal-submitted-aura,
+  .portal-sun-rise-active,
+  .portal-cloud-glide-active {
+    animation: none !important;
+  }
+}

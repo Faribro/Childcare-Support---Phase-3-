@@ -211,6 +211,10 @@ export function useEvaluationAccess() {
         if (res.ok && json.status === 'success' && json.data?.user) {
           // Purge any previously scoped session data before hydrating new credentials
           supervisorReadModel.purgeSession();
+          try {
+            const { invalidateAllPortalCaches } = await import('@/lib/portal/portalWarmCache');
+            invalidateAllPortalCaches();
+          } catch (_) {}
 
           const authedUser: EvaluationUser = {
             userId: json.data.user.userId,
@@ -242,6 +246,10 @@ export function useEvaluationAccess() {
       setUnlocked(false);
       setEvaluationUnlocked(false, null);
       supervisorReadModel.purgeSession();
+      try {
+        const { invalidateAllPortalCaches } = await import('@/lib/portal/portalWarmCache');
+        invalidateAllPortalCaches();
+      } catch (_) {}
     }
   }, []);
 
