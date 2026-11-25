@@ -244,8 +244,9 @@ export function usePortalTransition(
 
       setStatusMessage(def.slowLoadingText);
 
-      // 3. Respect reduced-motion / animations-paused toggle immediately
-      if (!shouldAnimate) {
+      // 3. Respect reduced-motion / animations-paused toggle immediately, and bypass timed transition when offline
+      const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (!shouldAnimate || isOffline) {
         navigateToDestination(portal);
         return;
       }

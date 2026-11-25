@@ -24,13 +24,17 @@ describe('State Name Canonicalization & Query Variants', () => {
 });
 
 describe('Post-Approval & Bank Workflow Stage Derivation', () => {
-  it('identifies record as Approved — Bank Documents Pending when approved without bank proof', () => {
+  it('identifies record as Approved — Bank Documents Pending when approved with complete intake and without bank proof', () => {
     const mockRecord = {
       id: 'sub-123',
       childName: 'Aarav Pawar',
+      dob: '2016-04-12',
+      gender: 'Male',
+      caregiverName: 'Sunita Pawar',
       artNumber: 'SYN-12345',
       state: 'Maharashtra',
       district: 'Pune',
+      supportCategories: ['nutrition'],
       approval: 'APPROVED',
       approvedAllianceIndia: true,
       hasPassbook: false,
@@ -38,12 +42,31 @@ describe('Post-Approval & Bank Workflow Stage Derivation', () => {
       bankAccountNumber: '',
       hasAadhaar: true,
       hasChildPhoto: true,
+      hasSignature: true,
     };
 
     const stages = deriveSubmissionStages(mockRecord);
+    expect(stages.intakeCompleteness).toBe('complete');
     expect(stages.approvalState).toBe('approved');
     expect(stages.bankWorkflow).toBe('pending');
     expect(stages.missingBankFields).toContain('passbookProof');
+  });
+
+  it('keeps approved record in not_yet_due bank workflow when required intake fields remain incomplete', () => {
+    const incompleteApproved = {
+      id: 'sub-124',
+      childName: 'Incomplete Child',
+      state: 'Maharashtra',
+      district: 'Pune',
+      approval: 'APPROVED',
+      approvedAllianceIndia: true,
+      hasPassbook: false,
+    };
+
+    const stages = deriveSubmissionStages(incompleteApproved);
+    expect(stages.approvalState).toBe('approved');
+    expect(stages.intakeCompleteness).toBe('incomplete');
+    expect(stages.bankWorkflow).toBe('not_yet_due');
   });
 
   it('identifies record as Approved — Bank Details Complete when passbook proof and account are present', () => {
@@ -77,6 +100,9 @@ describe('Post-Approval & Bank Workflow Stage Derivation', () => {
       '32\nART Number': 'SYN-99999',
       '9\nChild Name': 'Rohit Patil',
       childName: 'Rohit Patil',
+      '10\nDate of Birth': '2016-05-10',
+      '12\nGender': 'Male',
+      '14\nCaregiver Full Name': 'Sunita Patil',
       '18\nState': 'Maharashtra',
       '19\nDistrict': 'Pune',
       '70\nForm Submitted By': 'Farid Sayyed',
@@ -84,9 +110,11 @@ describe('Post-Approval & Bank Workflow Stage Derivation', () => {
       '75\nSR Name': 'CSC Sagar',
       '76\nSSR Name': 'Pune Care Center',
       '71\nAlliance India Approval': 'Approved',
+      supportCategories: ['nutrition'],
       '25\nPassbook Front Page Link': '',
       '26\nAadhaar Card Link': 'https://drive.google.com/test-aadhaar',
       '27\nPassport Size Photo Link': 'https://drive.google.com/test-photo',
+      '6\nSignature /\nThumb Impression': 'data:image/png;base64,sig',
     };
 
     const parsed = parseBeneficiaryRecord(rawSubmission);
@@ -96,6 +124,7 @@ describe('Post-Approval & Bank Workflow Stage Derivation', () => {
     expect(parsed.srName).toBe('CSC Sagar');
     expect(parsed.ssrName).toBe('Pune Care Center');
     expect(parsed.isApproved).toBe(true);
+    expect(parsed.stages?.intakeCompleteness).toBe('complete');
     expect(parsed.stages?.approvalState).toBe('approved');
     expect(parsed.stages?.bankWorkflow).toBe('pending');
   });
@@ -118,13 +147,23 @@ describe('Post-Approval & Bank Workflow Stage Derivation', () => {
     const approvedBankPending = {
       id: 'sub-p2',
       childName: 'Child Two',
+      dob: '2017-02-14',
+      gender: 'Female',
+      caregiverName: 'Meena Devi',
+      state: 'Maharashtra',
+      district: 'Pune',
       artNumber: 'ART-002',
+      supportCategories: ['nutrition'],
+      hasAadhaar: true,
+      hasChildPhoto: true,
+      hasSignature: true,
       status: 'SUBMITTED',
       approval: 'APPROVED',
       isApproved: true,
       hasPassbook: false,
     };
     const s2 = deriveSubmissionStages(approvedBankPending);
+    expect(s2.intakeCompleteness).toBe('complete');
     expect(s2.approvalState).toBe('approved');
     expect(s2.bankWorkflow).toBe('pending');
 

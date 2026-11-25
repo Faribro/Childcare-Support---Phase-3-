@@ -177,7 +177,8 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
 
       expect(res2.status).toBe(409);
       expect(json2.status).toBe('error');
-      expect(json2.error).toMatch(/already registered with this email address/i);
+      expect(json2.code).toBe('EMAIL_ALREADY_REGISTERED');
+      expect(json2.error).toMatch(/This email is already registered\. Please sign in instead\./i);
     });
   });
 

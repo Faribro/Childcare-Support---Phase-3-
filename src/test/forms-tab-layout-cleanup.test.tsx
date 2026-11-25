@@ -43,8 +43,8 @@ vi.mock('next/navigation', () => ({
 
 // Mock Link
 vi.mock('next/link', () => ({
-  default: ({ children, href, onClick, className }: any) => (
-    <a href={href} onClick={onClick} className={className}>
+  default: ({ children, href, onClick, className, prefetch: _prefetch, ...rest }: any) => (
+    <a href={href} onClick={onClick} className={className} {...rest}>
       {children}
     </a>
   ),
@@ -163,7 +163,7 @@ describe('Forms Tab Layout Simplification (/app)', () => {
     expect(surveyLink?.getAttribute('href')).toBe('/assessment/new');
   });
 
-  it('3. Renders the 3 circular cards with accurate counts and destinations (Forms to finish, Waiting to send, Pendings)', async () => {
+  it('3. Renders the 3 cosmic portal planets with accurate counts and isolated field-worker destinations (Forms to finish, Missing Docs, Bank Details)', async () => {
     const { container } = render(<FieldWorkspacePage />);
     const desktopView = (container.querySelector('[data-testid="desktop-workspace"]') || container.querySelector('.max-w-5xl')) as HTMLElement;
     expect(desktopView).not.toBeNull();
@@ -174,29 +174,26 @@ describe('Forms Tab Layout Simplification (/app)', () => {
     expect(needsAttentionSection).not.toBeNull();
 
     await waitFor(() => {
-      // 1. Forms to finish
+      // 1. Forms to finish (Golden Drafts planet) -> /assessment/drafts
       expect(within(needsAttentionSection).getByText(/Forms to finish/i)).toBeDefined();
       expect(
         within(needsAttentionSection).getByRole('link', { name: /Continue forms/i }).getAttribute('href')
       ).toBe('/assessment/drafts');
 
-      // 2. Waiting to send
-      expect(within(needsAttentionSection).getByText(/Waiting to send/i)).toBeDefined();
-      expect(
-        within(needsAttentionSection).getByRole('link', { name: /View outbox/i }).getAttribute('href')
-      ).toBe('/assessment/sync?tab=outbox');
+      // 2. Missing Docs (Coral Saturn-ringed planet -> isolated field sync docs route, never /supervisor)
+      expect(within(needsAttentionSection).getByText(/Missing Docs/i)).toBeDefined();
+      const missingDocsLink = within(needsAttentionSection).getByRole('link', { name: /Pendings/i });
+      expect(missingDocsLink.getAttribute('href')).toBe('/assessment/sync?tab=docs');
+      expect(missingDocsLink.getAttribute('href')).not.toContain('/supervisor');
 
-      // 3. Pendings (with Missing documents & Bank details needed sub-rows)
-      expect(within(needsAttentionSection).getByText(/^Pendings$/i)).toBeDefined();
+      // 3. Bank Details (Emerald planet -> /assessment/sync?tab=bank)
+      expect(within(needsAttentionSection).getByText('Bank Details')).toBeDefined();
       expect(
-        within(needsAttentionSection).getByRole('link', { name: /Missing documents/i }).getAttribute('href')
-      ).toBe('/supervisor/assessments');
-      expect(
-        within(needsAttentionSection).getByRole('link', { name: /Bank details needed/i }).getAttribute('href')
-      ).toBe('/assessment/sync?tab=bank_pending');
+        within(needsAttentionSection).getByRole('link', { name: /Bank Details:/i }).getAttribute('href')
+      ).toBe('/assessment/sync?tab=bank');
     });
 
-    // Verify old tile labels are absent
+    // Verify field-worker dashboard never leaks supervisor routes or old summary tiles
     expect(within(needsAttentionSection).queryByText(/Unfinished Forms/i)).toBeNull();
     expect(within(needsAttentionSection).queryByText(/Intake Docs Incomplete/i)).toBeNull();
     expect(within(needsAttentionSection).queryByText(/Queued \/ Retryable Sync/i)).toBeNull();

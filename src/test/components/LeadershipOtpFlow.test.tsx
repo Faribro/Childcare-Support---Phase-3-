@@ -48,6 +48,16 @@ Object.defineProperty(window, 'localStorage', {
 describe('LeadershipOtpFlow Component', () => {
   const originalEnv = process.env;
 
+  async function selectLeaderFromDirectory(profileMatcher: RegExp = /Farid Sayyed/i) {
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toBeDefined();
+    });
+    fireEvent.click(screen.getByRole('combobox'));
+    const option = screen.getByText(profileMatcher).closest('li');
+    expect(option).toBeDefined();
+    fireEvent.click(option!);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -58,7 +68,7 @@ describe('LeadershipOtpFlow Component', () => {
     process.env = originalEnv;
   });
 
-  it('1. checks runtime status on mount and displays manual email input', async () => {
+  it('1. checks runtime status on mount and displays leadership directory combobox', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
         return {
@@ -75,12 +85,14 @@ describe('LeadershipOtpFlow Component', () => {
     render(<LeadershipOtpFlow isModal={true} />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByRole('combobox')).toBeDefined();
     });
 
+    expect(screen.getByText('Leadership Account Directory')).toBeDefined();
     expect(screen.getByText('Work Email')).toBeDefined();
     expect(screen.getByText('Verify Code')).toBeDefined();
-    expect(screen.getByRole('button', { name: /Send Verification Code/i })).toBeDefined();
+    const submitBtn = screen.getByRole('button', { name: /Send Verification Code/i });
+    expect(submitBtn).toBeDisabled();
   });
 
   it('2. renders real approved leadership profiles and excludes synthetic fixtures when flag is disabled', async () => {
@@ -102,11 +114,10 @@ describe('LeadershipOtpFlow Component', () => {
     render(<LeadershipOtpFlow isModal={true} />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByRole('combobox')).toBeDefined();
     });
 
     // Real combobox is present with approved profiles
-    expect(screen.getByRole('combobox')).toBeDefined();
     fireEvent.click(screen.getByRole('combobox'));
     expect(screen.getByText('Farid Sayyed')).toBeDefined();
     expect(screen.getByText('M Balani')).toBeDefined();
@@ -155,10 +166,11 @@ describe('LeadershipOtpFlow Component', () => {
     expect(syntheticOption).toBeDefined();
     fireEvent.click(syntheticOption!);
 
-    // Combobox closes and email input is populated with reserved example domain
+    // Combobox closes and selected allowlisted synthetic email summary is displayed
     expect(screen.queryByRole('listbox')).toBeNull();
-    const emailInput = screen.getByLabelText(/Authorized Work Email Address/i) as HTMLInputElement;
-    expect(emailInput.value).toBe('alex.rivera@example.com');
+    expect(screen.getByText(/Verification code will be dispatched to allowlisted address/i)).toBeDefined();
+    expect(screen.getByText('alex.rivera@example.com')).toBeDefined();
+    expect(screen.getByRole('button', { name: /Send Verification Code/i })).not.toBeDisabled();
   });
 
   it('4. dispatches verification code, enters Step 2, and starts 60s cooldown timer', async () => {
@@ -174,7 +186,8 @@ describe('LeadershipOtpFlow Component', () => {
       }
       if (typeof url === 'string' && url.includes('/api/auth/leader/request-code')) {
         const body = JSON.parse(init?.body || '{}');
-        expect(body.email).toBe('leader@allianceindia.org');
+        expect(body.email).toBe('faridsayyed1010@gmail.com');
+        expect(body.leaderId).toBe('lead-faridsayyed1010');
         return {
           ok: true,
           json: async () => ({
@@ -188,12 +201,7 @@ describe('LeadershipOtpFlow Component', () => {
 
     render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
-
-    const emailInput = screen.getByLabelText(/Authorized Work Email Address/i);
-    fireEvent.change(emailInput, { target: { value: 'leader@allianceindia.org' } });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     const submitBtn = screen.getByRole('button', { name: /Send Verification Code/i });
     fireEvent.click(submitBtn);
@@ -204,7 +212,7 @@ describe('LeadershipOtpFlow Component', () => {
     });
 
     expect(screen.getByText(/Sent code to:/i)).toBeDefined();
-    expect(screen.getByText('leader@allianceindia.org')).toBeDefined();
+    expect(screen.getByText('faridsayyed1010@gmail.com')).toBeDefined();
     expect(screen.getByText(/Resend code available in/i)).toBeDefined();
   });
 
@@ -228,12 +236,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="test@allianceindia.org" />);
+    render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
-
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
     await waitFor(() => {
@@ -315,11 +320,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="test@allianceindia.org" onSuccess={onSuccess} />);
+    render(<LeadershipOtpFlow isModal={true} onSuccess={onSuccess} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
@@ -400,11 +403,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="test@allianceindia.org" />);
+    render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
@@ -561,11 +562,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="rate.limited@allianceindia.org" />);
+    render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
@@ -596,11 +595,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="first@allianceindia.org" />);
+    render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
@@ -615,9 +612,9 @@ describe('LeadershipOtpFlow Component', () => {
     // Click Change
     fireEvent.click(screen.getByRole('button', { name: /Change/i }));
 
-    // Back on Step 1: Work Email
+    // Back on Step 1: Directory combobox
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByRole('combobox')).toBeDefined();
     });
 
     // Re-enter step 2: Code must be empty (cleared)
@@ -704,11 +701,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="usera@allianceindia.org" />);
+    render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
@@ -793,11 +788,9 @@ describe('LeadershipOtpFlow Component', () => {
       return { ok: false } as Response;
     });
 
-    render(<LeadershipOtpFlow isModal={true} initialEmail="usera@allianceindia.org" />);
+    render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     fireEvent.click(screen.getByRole('button', { name: /Send Verification Code/i }));
 
@@ -881,7 +874,7 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Retry Connection/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByRole('combobox')).toBeDefined();
     });
 
     expect(statusCallCount).toBe(2);
@@ -932,12 +925,12 @@ describe('LeadershipOtpFlow Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Retry Connection/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByRole('combobox')).toBeDefined();
     });
 
     // Stale call 1 was superseded and cannot revert component to error or password fallback
     expect(screen.queryByText(/Authentication Service Unavailable/i)).toBeNull();
-    expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+    expect(screen.getByRole('combobox')).toBeDefined();
   });
 
   it('19. status policy consistency: respects documented policy modes and never displays shared password', async () => {
@@ -983,7 +976,7 @@ describe('LeadershipOtpFlow Component', () => {
     render(<LeadershipOtpFlow isModal={true} />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
+      expect(screen.getByRole('combobox')).toBeDefined();
     });
   });
 
@@ -1116,12 +1109,7 @@ describe('LeadershipOtpFlow Component', () => {
 
     render(<LeadershipOtpFlow isModal={true} />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Authorized Work Email Address/i)).toBeDefined();
-    });
-
-    const emailInput = screen.getByLabelText(/Authorized Work Email Address/i);
-    fireEvent.change(emailInput, { target: { value: 'rajiv.menon@example.org' } });
+    await selectLeaderFromDirectory(/Farid Sayyed/i);
 
     const submitBtn = screen.getByRole('button', { name: /Send Verification Code/i });
     fireEvent.click(submitBtn);
@@ -1131,7 +1119,7 @@ describe('LeadershipOtpFlow Component', () => {
     });
 
     // Verifies countdown button reflects accurate retry duration (e.g. 420s / 7m)
-    expect(screen.getByText(/Resend available in 420s/i)).toBeDefined();
+    expect(screen.getByRole('button', { name: /Resend in\s*420\s*s/i })).toBeDefined();
   });
 });
 

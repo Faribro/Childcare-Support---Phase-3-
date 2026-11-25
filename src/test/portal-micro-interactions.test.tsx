@@ -670,5 +670,60 @@ describe('Workstream D: Four Field-Worker Portal Micro-Interactions', () => {
     expect(
       screen.getByText(/Self-service bank details entry is not yet live for field worker accounts/i)
     ).toBeDefined();
+
+    // 9c. Missing Docs tab uses canonical document applicability (excludes pre-approval Nutrition-only complete intake)
+    invalidatePortalCache('sync');
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'success',
+        data: {
+          records: [
+            {
+              uniqueId: 'NUTR-OK-01',
+              childName: 'Ananya Nutrition Only',
+              caregiverName: 'Laxmi',
+              dob: '2018-02-10',
+              gender: 'Female',
+              state: 'Maharashtra',
+              district: 'Pune',
+              supportCategories: ['nutrition'],
+              schoolType: 'Government school',
+              approvalStatus: 'Pending',
+              aadhaarCardPhotoUrl: 'asset://aadhaar',
+              childPhotoUrl: 'asset://photo',
+              signatureDataUrl: 'asset://sig',
+              // Passbook missing -> not_yet_due pre-approval; School docs -> not_applicable for nutrition
+            },
+            {
+              uniqueId: 'EDU-MISS-02',
+              childName: 'Vikram Missing Intake',
+              caregiverName: 'Ramesh',
+              dob: '2017-03-14',
+              gender: 'Male',
+              state: 'Maharashtra',
+              district: 'Pune',
+              supportCategories: ['education'],
+              schoolType: 'Government school',
+              approvalStatus: 'Pending',
+              aadhaarCardPhotoUrl: '',
+              childPhotoUrl: 'asset://photo',
+              signatureDataUrl: 'asset://sig',
+            },
+          ],
+          total: 2,
+        },
+      }),
+    })) as any;
+
+    mockUseSearchParams.mockReturnValue(new URLSearchParams('tab=docs'));
+    render(<SubmissionSyncPage key="docs-applicability" />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Vikram Missing Intake')).toBeDefined();
+    expect(screen.queryByText('Ananya Nutrition Only')).toBeNull();
   });
 });
