@@ -1221,10 +1221,21 @@ class CanonicalSubmissionAdapterService {
           message: `Submission ${submissionId} not found in Firestore.`,
         };
       }
+      const resolvedData = raw.payload
+        ? {
+            ...raw.payload,
+            ...(raw.authorId !== undefined ? { authorId: raw.authorId } : {}),
+            ...(raw.submittedByWorkerId !== undefined ? { submittedByWorkerId: raw.submittedByWorkerId } : {}),
+            ...(raw.authorIdentifier !== undefined ? { authorIdentifier: raw.authorIdentifier } : {}),
+            ...(raw.userId !== undefined ? { userId: raw.userId } : {}),
+            ...(raw.state !== undefined && !raw.payload.state ? { state: raw.state } : {}),
+            ...(raw.district !== undefined && !raw.payload.district ? { district: raw.district } : {}),
+          }
+        : raw;
       return {
         status: 'success',
         statusCode: 200,
-        data: raw.payload || raw,
+        data: resolvedData,
         remoteSubmissionId: raw.id,
         uniqueId: raw.uniqueId || raw.id,
         version: raw.version || 1,
