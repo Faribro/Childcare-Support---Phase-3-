@@ -146,6 +146,24 @@ export async function requestFieldEmailOtp(params: {
     };
   }
 
+  // Duplicate email registration policy: Reject duplicate registrations with HTTP 409
+  // without creating duplicate identities or overwriting existing user data.
+  if (purpose === 'registration' && existingProfile) {
+    logSecurityEvent({
+      actor: normEmail,
+      actorRole: 'FIELD_USER',
+      eventType: 'AUTH_FAILURE',
+      outcome: 'DENY',
+      details: `Registration rejected for already registered field worker email ${redactEmail(normEmail)}`,
+    });
+    return {
+      success: false,
+      error: 'This email is already registered. Please sign in instead.',
+      message: 'This email is already registered. Please sign in instead.',
+      statusCode: 409,
+    };
+  }
+
   // Generate cryptographically strong 6-digit numeric code
   const code = crypto.randomInt(100000, 1000000).toString();
   const challengeKey = `email:${normEmail}`;

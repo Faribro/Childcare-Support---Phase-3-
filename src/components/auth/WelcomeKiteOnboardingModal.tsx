@@ -73,6 +73,7 @@ export function WelcomeKiteOnboardingModal({
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [duplicateEmail, setDuplicateEmail] = useState<string | null>(null);
 
   // Registration Email OTP State
   const [regStep, setRegStep] = useState<'details' | 'otp'>('details');
@@ -359,7 +360,16 @@ export function WelcomeKiteOnboardingModal({
       const data = await res.json();
 
       if (!res.ok || data.status === 'error') {
-        setErrorMessage(data.error || 'Failed to complete registration. Please verify details.');
+        if (
+          res.status === 409 ||
+          data.code === 'EMAIL_ALREADY_REGISTERED' ||
+          data.error?.toLowerCase().includes('already registered')
+        ) {
+          setDuplicateEmail(cleanEmail);
+          setErrorMessage(null);
+        } else {
+          setErrorMessage(data.error || 'Failed to complete registration. Please verify details.');
+        }
         setIsLoading(false);
         setIsVerifyingRegOtp(false);
         return;
@@ -453,7 +463,16 @@ export function WelcomeKiteOnboardingModal({
         });
         const data = await res.json();
         if (!res.ok || data.status === 'error') {
-          setErrorMessage(data.error || 'Failed to send verification code to your email.');
+          if (
+            res.status === 409 ||
+            data.code === 'EMAIL_ALREADY_REGISTERED' ||
+            data.error?.toLowerCase().includes('already registered')
+          ) {
+            setDuplicateEmail(cleanEmail);
+            setErrorMessage(null);
+          } else {
+            setErrorMessage(data.error || 'Failed to send verification code to your email.');
+          }
           setIsLoading(false);
           return;
         }
@@ -652,6 +671,37 @@ export function WelcomeKiteOnboardingModal({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-4 flex-1">
+          {duplicateEmail && (
+            <div
+              role="alert"
+              aria-live="polite"
+              className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in shadow-xs"
+            >
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <p className="font-bold text-amber-900">This email is already registered.</p>
+                  <p className="text-[11px] text-amber-700">Please sign in instead to access your account.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSignInEmail(duplicateEmail);
+                  setActiveTab('signin');
+                  setDuplicateEmail(null);
+                  setErrorMessage(null);
+                  setInfoMessage(`We found an existing account for ${duplicateEmail}. Click Send Verification Code to receive your OTP.`);
+                  setTimeout(() => signInEmailInputRef.current?.focus(), 100);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs shrink-0 cursor-pointer shadow-xs transition-all"
+              >
+                <span>Sign In Instead</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {errorMessage && (
             <div
               role="alert"

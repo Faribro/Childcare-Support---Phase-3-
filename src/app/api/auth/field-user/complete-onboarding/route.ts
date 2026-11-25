@@ -110,7 +110,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         status: 'error',
-        error: 'A profile is already registered with this email address. Please sign in under Existing Field User.',
+        code: 'EMAIL_ALREADY_REGISTERED',
+        error: 'This email is already registered. Please sign in instead.',
       },
       { status: 409 }
     );

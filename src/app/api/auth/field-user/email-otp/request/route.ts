@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
 
     if (!result.success) {
       responsePayload.error = result.error;
+      if (result.statusCode === 409) {
+        responsePayload.code = 'EMAIL_ALREADY_REGISTERED';
+      }
       if (result.retryAfterSeconds) {
         responsePayload.retryAfter = result.retryAfterSeconds;
       }
