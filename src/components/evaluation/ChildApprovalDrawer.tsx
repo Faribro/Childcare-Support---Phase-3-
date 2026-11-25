@@ -234,7 +234,7 @@ export function ChildApprovalDrawer({
                 KYC &amp; Attachment Checklist
               </h3>
               <span className="text-[11px] font-semibold text-slate-500">
-                {5 - (row.missingDocs ? row.missingDocs.length : 0)} of 5 Verified
+                {KYC_DOCS_LIST.filter((doc) => !isDocMissing(doc.key)).length} of {KYC_DOCS_LIST.length} Verified
               </span>
             </div>
 
