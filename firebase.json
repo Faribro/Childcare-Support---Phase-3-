@@ -22,7 +22,7 @@
       {
         "source": "**",
         "run": {
-          "serviceId": "csc-staging",
+          "serviceId": "csc-production",
           "region": "asia-south1"
         }
       }
