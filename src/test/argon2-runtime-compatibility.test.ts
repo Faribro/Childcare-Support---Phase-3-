@@ -23,6 +23,7 @@ import {
   resetPasswordHashCache,
 } from '@/lib/server/sessionService';
 import { resolveUserAccessScope } from '@/lib/server/authorisation';
+import { clearRegistry } from '@/lib/server/credentialRegistry';
 import { GET as getSessionRoute } from '@/app/api/auth/session/route';
 import { GET as getSubmissionsRoute } from '@/app/api/submissions/route';
 import { GET as getSummaryRoute } from '@/app/api/submissions/summary/route';
@@ -31,6 +32,7 @@ describe('Argon2 Runtime Compatibility & Serverless Route Resilience', { timeout
   let runtimeSyntheticSecret: string;
 
   beforeEach(() => {
+    clearRegistry();
     resetPasswordHashCache();
     // Dynamic synthetic credentials generated at runtime to eliminate scanner-triggering literals
     runtimeSyntheticSecret = `syn-${crypto.randomBytes(12).toString('hex')}`;

@@ -1,14 +1,48 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PATCH } from '@/app/api/submissions/[submissionId]/route';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { createSessionToken } from '@/lib/server/sessionService';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
+import {
+  MemoryOnboardingStore,
+  setOnboardingStoreForTesting,
+} from '@/lib/server/onboardingStore';
+import { clearRegistry } from '@/lib/server/credentialRegistry';
 
 describe('State Team Record Edit Journey & Edge Cases', () => {
   let createdSubmissionId: string;
+  let onboardingStore: MemoryOnboardingStore;
+  let mhRegId: string;
+  let kaRegId: string;
 
   beforeEach(async () => {
+    clearRegistry();
+    onboardingStore = new MemoryOnboardingStore();
+    setOnboardingStoreForTesting(onboardingStore);
+
+    const mhReg = await onboardingStore.createStateTeamRegistration({
+      firstName: 'Pooja',
+      lastName: 'Deshmukh',
+      workEmail: 'coordinator.mh@allianceindia.org',
+      requestedState: 'Maharashtra',
+      organization: 'Alliance India Maharashtra',
+    });
+    await onboardingStore.verifyStateTeamEmail('coordinator.mh@allianceindia.org');
+    await onboardingStore.approveStateTeamRegistration(mhReg.id, 'admin-01', 'Maharashtra');
+    mhRegId = mhReg.id;
+
+    const kaReg = await onboardingStore.createStateTeamRegistration({
+      firstName: 'Ravi',
+      lastName: 'Gowda',
+      workEmail: 'coordinator.ka@allianceindia.org',
+      requestedState: 'Karnataka',
+      organization: 'Alliance India Karnataka',
+    });
+    await onboardingStore.verifyStateTeamEmail('coordinator.ka@allianceindia.org');
+    await onboardingStore.approveStateTeamRegistration(kaReg.id, 'admin-01', 'Karnataka');
+    kaRegId = kaReg.id;
+
     MockSheetStore.reset();
     const testUuid = `test-sub-${Date.now()}`;
     const createResult = await canonicalSubmissionAdapter.createSubmission({
@@ -40,9 +74,14 @@ describe('State Team Record Edit Journey & Edge Cases', () => {
     createdSubmissionId = createResult.remoteSubmissionId || testUuid;
   });
 
+  afterEach(() => {
+    setOnboardingStoreForTesting(null);
+    clearRegistry();
+  });
+
   it('1. allows State Evaluator with matching state scope to edit record', async () => {
     const stateToken = createSessionToken({
-      userId: 'state-eval-mh-01',
+      userId: mhRegId,
       username: 'coordinator.mh@allianceindia.org',
       name: 'Pooja Deshmukh',
       role: 'STATE_REVIEWER',
@@ -81,7 +120,7 @@ describe('State Team Record Edit Journey & Edge Cases', () => {
   it('2. forbids State Evaluator from editing a record outside authorized state scope (403 FORBIDDEN_SCOPE)', async () => {
     // Evaluator has Karnataka scope only, but record is in Maharashtra
     const karnatakaToken = createSessionToken({
-      userId: 'state-eval-ka-01',
+      userId: kaRegId,
       username: 'coordinator.ka@allianceindia.org',
       name: 'Ravi Gowda',
       role: 'STATE_REVIEWER',

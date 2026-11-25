@@ -27,11 +27,15 @@ import { GET as getSessionRoute } from '@/app/api/auth/session/route';
 import { createSessionToken } from '@/lib/server/sessionService';
 import { resolveUserAccessScope } from '@/lib/server/authorisation';
 import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
+import { clearRegistry, registerCredential } from '@/lib/server/credentialRegistry';
+import { MemoryOnboardingStore, setOnboardingStoreForTesting } from '@/lib/server/onboardingStore';
 
 describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolation, and Upstream Secret Verification', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    clearRegistry();
+    setOnboardingStoreForTesting(new MemoryOnboardingStore());
     MockSheetStore.reset();
     MockSheetStore.seedDefaultRecords();
     vi.restoreAllMocks();
@@ -39,6 +43,8 @@ describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolat
   });
 
   afterEach(() => {
+    setOnboardingStoreForTesting(null);
+    clearRegistry();
     process.env = { ...originalEnv };
     vi.restoreAllMocks();
   });
@@ -203,6 +209,20 @@ describe('PR #74 Security Review & Correction Gate — Scope, Auth, Cache Isolat
     it('prevents authenticated STATE_REVIEWER from tampering with state filter (?state=Delhi or ?state=ALL)', async () => {
       (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
       process.env.E2E_ALLOW_LOCAL_MOCK = 'true';
+
+      registerCredential({
+        id: 'rev-mh-01',
+        accessIdentifier: 'rev-mh-01',
+        displayName: 'Maharashtra State Reviewer',
+        credentialKind: 'STATE_EVALUATION',
+        stateCode: 'Maharashtra',
+        programmeScope: ['alliance-childcare-phase3'],
+        passwordHash: 'test-token-only',
+        credentialVersion: 1,
+        isActive: true,
+        createdAt: '2026-10-13T10:00:00.000Z',
+        updatedAt: '2026-10-13T10:00:00.000Z',
+      });
 
       const mhToken = createSessionToken({
         userId: 'rev-mh-01',
