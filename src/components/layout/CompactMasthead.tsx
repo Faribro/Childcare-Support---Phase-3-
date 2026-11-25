@@ -206,7 +206,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                       ? `State Evaluation · ${(user.allowedStates || []).filter((s) => s !== '*').join(', ') || 'Assigned Scope'}`
                       : user?.role === 'ADMIN'
                       ? 'System Evaluation · All States'
-                      : 'National Leadership · All States'}
+                      : 'National Administration · All States'}
                   </span>
                 </div>
               ) : (
@@ -351,7 +351,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                   )}
                 </Link>
 
-                {/* Tab 3: Evaluation Portal */}
+                {/* Tab 3: Staff Access */}
                 {isUnlocked ? (
                   <Link
                     href="/supervisor"
@@ -367,21 +367,21 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                         ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
                         : undefined
                     }
-                    title="Evaluation Portal (Unlocked)"
+                    title="Staff Access (Active)"
                   >
                     <Unlock className={`w-3.5 h-3.5 ${isSupervisorActive ? 'text-white' : 'text-blue-600'}`} />
-                    <span>Evaluation</span>
+                    <span>Staff Access</span>
                   </Link>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setIsLoginModalOpen(true)}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/70 cursor-pointer transition-all select-none"
-                    title="Sign in to unlock Evaluation Portal"
-                    aria-label="Evaluation Portal Locked - Sign in to access"
+                    title="Sign in for Staff Access"
+                    aria-label="Staff Access Locked - Sign in to access"
                   >
                     <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                    <span>Evaluation</span>
+                    <span>Staff Access</span>
                   </button>
                 )}
               </div>

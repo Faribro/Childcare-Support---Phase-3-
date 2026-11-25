@@ -132,8 +132,8 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
 
     // Forms tab is available for field workers/guests
     expect(screen.getByRole('link', { name: /^Forms$/i })).toBeDefined();
-    // Evaluation portal is shown locked
-    expect(screen.getByRole('button', { name: /Evaluation Portal Locked/i })).toBeDefined();
+    // Staff Access is shown locked
+    expect(screen.getByRole('button', { name: /Staff Access Locked/i })).toBeDefined();
   });
 
   it('4. Eliminates duplicate top-bar Evaluation links when inside /supervisor* routes while keeping single scope pill', () => {
@@ -159,7 +159,7 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
     });
 
     render(<CompactMasthead />);
-    expect(screen.getByTestId('evaluation-scope-pill').textContent).toContain('National Leadership');
+    expect(screen.getByTestId('evaluation-scope-pill').textContent).toContain('National Administration');
     expect(screen.queryByRole('link', { name: /^Overview$/i })).toBeNull();
     expect(screen.queryByRole('link', { name: /Beneficiary Linelist/i })).toBeNull();
     expect(screen.queryByRole('link', { name: /^Analytics$/i })).toBeNull();

@@ -987,7 +987,7 @@ const [amendmentReason, setAmendmentReason] = useState<string>('');
             return {
               canEdit: false,
               canDelete: false,
-              reason: 'This assessment has been approved by Leadership and is locked against field-worker edits. Contact your State Team coordinator for revision requests.',
+              reason: 'This assessment has been approved by Administration and is locked against field-worker edits. Contact your State Team coordinator for revision requests.',
             };
           }
           return { canEdit: true, canDelete: false };

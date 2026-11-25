@@ -37,7 +37,7 @@ function LeadershipLoginCard() {
           <div className="inline-flex p-3 bg-teal-700/60 rounded-2xl border border-teal-500/30 mb-3 shadow-inner">
             <Building2 className="w-7 h-7 text-teal-200" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Alliance India Leadership</h1>
+          <h1 className="text-xl font-bold tracking-tight">Alliance India Administration</h1>
           <p className="text-xs text-teal-200/90 mt-1">
             Childcare Support Programme — Surveillance &amp; Evaluation
           </p>
@@ -75,7 +75,7 @@ export default function LeadershipLoginPage() {
     <Suspense
       fallback={
         <div className="min-h-screen bg-slate-900 flex items-center justify-center text-teal-200 text-sm">
-          Loading Alliance India Leadership Portal...
+          Loading Alliance India Administration Portal...
         </div>
       }
     >

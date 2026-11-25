@@ -23,8 +23,11 @@ import {
   UserCheck,
   Send,
   Sparkles,
+  KeyRound,
+  Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { INDIAN_STATES_AND_UTS } from '@/lib/clinical/nutritionCalculations';
 
 interface RegistrationItem {
   id: string;
@@ -32,14 +35,29 @@ interface RegistrationItem {
   lastName: string;
   workEmail: string;
   requestedState: string;
+  assignedState?: string | null;
   organization: string;
-  status: 'PENDING' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+  status: 'PENDING' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'REVOKED';
   emailVerified: boolean;
   createdAt: number;
   updatedAt: number;
   approvedBy?: string | null;
   approvedAt?: number | null;
+  revokedBy?: string | null;
+  revokedAt?: number | null;
+  revocationReason?: string | null;
   notes?: string;
+}
+
+interface AccessInvitationItem {
+  id: string;
+  invitedEmail: string;
+  assignedState: string;
+  status: 'ACTIVE' | 'REDEEMED' | 'EXPIRED' | 'REVOKED';
+  issuedBy: string;
+  issuedAt: number;
+  expiresAt: number;
+  redeemedAt?: number | null;
 }
 
 function RegistrationsReviewContent() {
@@ -49,6 +67,13 @@ function RegistrationsReviewContent() {
 
   const { isUnlocked, isLoaded, user } = useEvaluationAccess();
   const [registrations, setRegistrations] = useState<RegistrationItem[]>([]);
+  const [accessInvitations, setAccessInvitations] = useState<AccessInvitationItem[]>([]);
+  const [assignedStateMap, setAssignedStateMap] = useState<Record<string, string>>({});
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteState, setInviteState] = useState('Maharashtra');
+  const [inviteExpiryDays, setInviteExpiryDays] = useState(7);
+  const [issuedPlainCode, setIssuedPlainCode] = useState<string | null>(null);
+  const [isIssuingInvite, setIsIssuingInvite] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -61,11 +86,12 @@ function RegistrationsReviewContent() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/registrations', {
-        headers: { Accept: 'application/json' },
-      });
-      const data = await res.json();
-      if (!res.ok || data.status === 'error') {
+      const [regRes, invRes] = await Promise.all([
+        fetch('/api/admin/registrations', { headers: { Accept: 'application/json' } }),
+        fetch('/api/admin/state-team-invitations', { headers: { Accept: 'application/json' } }),
+      ]);
+      const data = await regRes.json();
+      if (!regRes.ok || data.status === 'error') {
         setError(data.error || 'Failed to load registrations.');
       } else {
         const list: RegistrationItem[] = data.data.registrations || [];
@@ -78,6 +104,12 @@ function RegistrationsReviewContent() {
           });
         }
         setRegistrations(list);
+      }
+      if (invRes.ok) {
+        const invData = await invRes.json().catch(() => null);
+        if (invData?.status === 'success' && Array.isArray(invData.invitations)) {
+          setAccessInvitations(invData.invitations);
+        }
       }
     } catch {
       setError('Network error while loading registrations.');
@@ -94,8 +126,9 @@ function RegistrationsReviewContent() {
     }
   }, [isLoaded, isUnlocked, isAuthorized, targetId]);
 
-  const handleApprove = async (id: string, email: string) => {
-    if (!confirm(`Are you sure you want to approve registration for ${email}? This will activate their field team invitation code.`)) {
+  const handleApprove = async (id: string, email: string, fallbackState: string) => {
+    const serverState = assignedStateMap[id] || fallbackState;
+    if (!confirm(`Approve State Team access for ${email} assigned to ${serverState}?`)) {
       return;
     }
 
@@ -107,16 +140,101 @@ function RegistrationsReviewContent() {
       const res = await fetch(`/api/admin/registrations/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignedState: serverState }),
       });
       const data = await res.json();
       if (!res.ok || data.status === 'error') {
         setError(data.error || 'Failed to approve registration.');
       } else {
-        setActionSuccess(`Registration for ${email} has been approved and field team invitation activated.`);
+        setActionSuccess(`Approved State Team access for ${email} (${serverState}).`);
         await fetchRegistrations();
       }
     } catch {
       setError('Network error while processing approval.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleRevoke = async (id: string, email: string) => {
+    const reason = prompt(`Enter reason for revoking State Team access for ${email}:`, 'Access revoked by Administration');
+    if (reason === null) return;
+
+    setProcessingId(id);
+    setActionSuccess(null);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/admin/registrations/${id}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        setError(data.error || 'Failed to revoke access.');
+      } else {
+        setActionSuccess(`Access revoked for ${email}. Active sessions blocked immediately.`);
+        await fetchRegistrations();
+      }
+    } catch {
+      setError('Network error while revoking access.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleIssueAccessInvitation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim() || !inviteEmail.includes('@')) {
+      setError('Please enter a valid work email address.');
+      return;
+    }
+    setIsIssuingInvite(true);
+    setError(null);
+    setActionSuccess(null);
+    setIssuedPlainCode(null);
+
+    try {
+      const res = await fetch('/api/admin/state-team-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invitedEmail: inviteEmail.trim(),
+          assignedState: inviteState,
+          expiresInDays: inviteExpiryDays,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        setError(data.error || 'Failed to issue single-use State Team invitation.');
+      } else {
+        setIssuedPlainCode(data.plainCode || null);
+        setActionSuccess(
+          `Issued single-use invitation for ${inviteEmail.trim()} (${inviteState}).`
+        );
+        setInviteEmail('');
+        await fetchRegistrations();
+      }
+    } catch {
+      setError('Network error while issuing invitation.');
+    } finally {
+      setIsIssuingInvite(false);
+    }
+  };
+
+  const handleRevokeAccessInvitation = async (id: string) => {
+    setProcessingId(id);
+    try {
+      const res = await fetch(`/api/admin/state-team-invitations?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setActionSuccess('Invitation code revoked.');
+        await fetchRegistrations();
+      }
+    } catch {
+      setError('Failed to revoke invitation.');
     } finally {
       setProcessingId(null);
     }
@@ -198,7 +316,7 @@ function RegistrationsReviewContent() {
             </div>
             <h2 className="text-base font-bold text-slate-900">Coordinator Registration Approvals</h2>
             <p className="text-xs text-slate-600 leading-relaxed">
-              State-team coordinator registration approvals are reserved for central Leadership and Administrator accounts.
+              State Team coordinator approvals and invitations are reserved for Administration and Administrator accounts.
             </p>
             <div className="text-xs text-[#093282] bg-sky-50/80 border border-sky-200 rounded-xl p-3 text-left">
               As a State Reviewer for <strong>{reviewerState}</strong>, you can view the active field workers, their assigned districts, SR/SSR details, and survey submission totals in the Field Workers Directory.
@@ -231,9 +349,9 @@ function RegistrationsReviewContent() {
               <Lock className="w-7 h-7" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Administrator Access Required</h2>
+              <h2 className="text-lg font-bold text-slate-900">Administration Access Required</h2>
               <p className="text-xs text-slate-600 leading-relaxed mt-2">
-                Reviewing and approving state-team coordinator registrations requires an authenticated Administrator or Leadership session.
+                Reviewing and approving State Team coordinator registrations requires an authenticated Administration session.
               </p>
             </div>
 
@@ -251,14 +369,14 @@ function RegistrationsReviewContent() {
                 className="w-full bg-[#155AD1] hover:bg-[#093282] text-white rounded-full text-xs py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-semibold"
               >
                 <Shield className="w-4 h-4" />
-                Authenticate as System Administrator
+                Open Staff Access
               </Button>
               <a
                 href={`/leadership/login?returnUrl=${encodeURIComponent(returnUrl)}`}
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-xs"
               >
                 <Building2 className="w-4 h-4 text-[#155AD1]" />
-                Sign In with Leadership Email OTP
+                Sign in with email OTP
               </a>
             </div>
           </div>
@@ -278,7 +396,7 @@ function RegistrationsReviewContent() {
 
   const pendingCount = registrations.filter((r) => r.status === 'PENDING_APPROVAL' || r.status === 'PENDING').length;
   const approvedCount = registrations.filter((r) => r.status === 'APPROVED').length;
-  const rejectedCount = registrations.filter((r) => r.status === 'REJECTED' || r.status === 'SUSPENDED').length;
+  const rejectedCount = registrations.filter((r) => r.status === 'REJECTED' || r.status === 'SUSPENDED' || r.status === 'REVOKED').length;
 
   return (
     <AppShell>
@@ -364,6 +482,113 @@ function RegistrationsReviewContent() {
           </div>
         </div>
 
+        {/* Issue Single-Use Email-Bound State Team Invitation */}
+        <div className="bg-white rounded-3xl border border-sky-100/90 shadow-xs p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-[#155AD1]" />
+                Issue Single-Use State Team Invitation
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Bound to one email address and server-assigned state. Expires automatically after single redemption or timeout.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleIssueAccessInvitation} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div className="md:col-span-2">
+              <label htmlFor="admin-invite-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                Coordinator Work Email
+              </label>
+              <input
+                id="admin-invite-email"
+                type="email"
+                required
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="coordinator@allianceindia.org"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#155AD1]"
+              />
+            </div>
+            <div>
+              <label htmlFor="admin-invite-state" className="block text-xs font-semibold text-slate-700 mb-1">
+                Assigned State Scope
+              </label>
+              <select
+                id="admin-invite-state"
+                value={inviteState}
+                onChange={(e) => setInviteState(e.target.value)}
+                className="w-full px-2.5 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:bg-white"
+              >
+                {INDIAN_STATES_AND_UTS.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 items-center">
+              <select
+                aria-label="Invitation validity days"
+                value={inviteExpiryDays}
+                onChange={(e) => setInviteExpiryDays(Number(e.target.value))}
+                className="w-24 px-2 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl"
+              >
+                <option value={1}>1 day</option>
+                <option value={3}>3 days</option>
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+              </select>
+              <Button
+                type="submit"
+                disabled={isIssuingInvite}
+                className="flex-1 bg-[#155AD1] hover:bg-[#093282] text-white text-xs py-2 px-3 rounded-xl font-semibold"
+              >
+                {isIssuingInvite ? 'Sending…' : 'Send Invite'}
+              </Button>
+            </div>
+          </form>
+
+          {issuedPlainCode && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between flex-wrap gap-2">
+              <span>Single-use invitation code generated:</span>
+              <code className="font-mono font-bold px-2 py-0.5 bg-white border border-emerald-300 rounded">
+                {issuedPlainCode}
+              </code>
+            </div>
+          )}
+
+          {accessInvitations.length > 0 && (
+            <div className="pt-2 border-t border-slate-100 space-y-1.5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Recent State Team Invitations</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {accessInvitations.slice(0, 6).map((inv) => (
+                  <div key={inv.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                    <div className="truncate pr-2">
+                      <p className="font-semibold text-slate-800 truncate">{inv.invitedEmail}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {inv.assignedState} · <span className="font-semibold">{inv.status}</span>
+                      </p>
+                    </div>
+                    {inv.status === 'ACTIVE' && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => handleRevokeAccessInvitation(inv.id)}
+                        disabled={processingId === inv.id}
+                        className="text-rose-600 border-rose-200 hover:bg-rose-50 text-[11px] px-2.5 py-1 h-auto"
+                      >
+                        Revoke
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Registrations List */}
         <div className="bg-white rounded-3xl border border-sky-100/90 shadow-[0_14px_34px_-14px_rgba(7,43,124,0.10)] overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
@@ -383,8 +608,9 @@ function RegistrationsReviewContent() {
                 const isTarget = targetId === reg.id;
                 const isPending = reg.status === 'PENDING_APPROVAL' || reg.status === 'PENDING';
                 const isApproved = reg.status === 'APPROVED';
-                const isRejected = reg.status === 'REJECTED' || reg.status === 'SUSPENDED';
+                const isRejected = reg.status === 'REJECTED' || reg.status === 'SUSPENDED' || reg.status === 'REVOKED';
                 const isProcessing = processingId === reg.id;
+                const effectiveAssignedState = assignedStateMap[reg.id] || reg.assignedState || reg.requestedState;
 
                 let notesParsed: any = null;
                 try {
@@ -457,7 +683,12 @@ function RegistrationsReviewContent() {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <MapPin className="w-3.5 h-3.5 text-[#155AD1]" />
-                          <span className="font-semibold text-slate-800">{reg.requestedState}</span>
+                          <span className="font-semibold text-slate-800">
+                            {reg.assignedState || reg.requestedState}
+                            {reg.assignedState && reg.assignedState !== reg.requestedState
+                              ? ` (requested: ${reg.requestedState})`
+                              : ''}
+                          </span>
                         </div>
                       </div>
 
@@ -468,6 +699,11 @@ function RegistrationsReviewContent() {
                             Approved by: {reg.approvedBy} ({reg.approvedAt ? new Date(reg.approvedAt).toLocaleDateString('en-IN') : ''})
                           </span>
                         )}
+                        {reg.revokedBy && (
+                          <span className="ml-3 font-medium text-rose-700">
+                            Revoked by: {reg.revokedBy} ({reg.revokedAt ? new Date(reg.revokedAt).toLocaleDateString('en-IN') : ''})
+                          </span>
+                        )}
                         {notesParsed?.adminNotifiedAt && (
                           <span className="ml-3 text-slate-500">
                             Notification sent: {new Date(notesParsed.adminNotifiedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
@@ -476,9 +712,23 @@ function RegistrationsReviewContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 self-end md:flex-row items-center gap-2">
+                    <div className="flex items-center gap-2 self-end md:flex-row flex-wrap">
                       {isPending && (
                         <>
+                          <select
+                            aria-label={`Assigned state for ${reg.workEmail}`}
+                            value={effectiveAssignedState}
+                            onChange={(e) =>
+                              setAssignedStateMap((prev) => ({ ...prev, [reg.id]: e.target.value }))
+                            }
+                            className="px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+                          >
+                            {INDIAN_STATES_AND_UTS.map((st) => (
+                              <option key={st} value={st}>
+                                {st}
+                              </option>
+                            ))}
+                          </select>
                           <Button
                             onClick={() => handleNotifyAdmin(reg.id, reg.workEmail)}
                             disabled={isProcessing}
@@ -490,7 +740,7 @@ function RegistrationsReviewContent() {
                             Email Admin
                           </Button>
                           <Button
-                            onClick={() => handleApprove(reg.id, reg.workEmail)}
+                            onClick={() => handleApprove(reg.id, reg.workEmail, reg.requestedState)}
                             disabled={isProcessing || !reg.emailVerified}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 h-auto flex items-center gap-1.5 shadow-xs font-semibold"
                           >
@@ -509,9 +759,20 @@ function RegistrationsReviewContent() {
                         </>
                       )}
                       {isApproved && (
-                        <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1 px-3 py-1 bg-emerald-50 rounded-lg border border-emerald-200">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Invitation Active
-                        </span>
+                        <>
+                          <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1 px-3 py-1 bg-emerald-50 rounded-lg border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Access Active
+                          </span>
+                          <Button
+                            onClick={() => handleRevoke(reg.id, reg.workEmail)}
+                            disabled={isProcessing}
+                            variant="secondary"
+                            className="text-rose-700 hover:bg-rose-50 border-rose-200 text-xs px-3 py-1.5 h-auto flex items-center gap-1.5"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            Revoke
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>

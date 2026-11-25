@@ -802,7 +802,7 @@ export default function SupervisorAssessmentsPage() {
             </h2>
             <p className="text-xs text-slate-500 leading-relaxed">
               {isFieldWorker
-                ? 'The Evaluation portal is permanently restricted to State Reviewers and Leadership. Field caseworkers cannot access clinical surveillance or evaluation linelists.'
+                ? 'Staff Access is permanently restricted to approved State Team reviewers and Administration. Field caseworkers cannot access clinical surveillance or review linelists.'
                 : 'Beneficiary evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.'}
             </p>
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
@@ -913,7 +913,7 @@ export default function SupervisorAssessmentsPage() {
                   {user?.role === 'STATE_REVIEWER'
                     ? `State Reviewer Workspace: ${user.allowedStates?.filter((s) => s !== '*').join(', ') || 'State'}`
                     : user?.role === 'LEADERSHIP'
-                    ? 'National Leadership Surveillance: All States'
+                    ? 'National Administration Workspace: All States'
                     : 'System Administrator Surveillance'}
                 </span>
               </div>
@@ -966,7 +966,7 @@ export default function SupervisorAssessmentsPage() {
               <div className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
                 {worklistCounts.pendingApproval}
               </div>
-              <div className="text-[10px] text-amber-200/80 mt-0.5">Awaiting leadership grant decision</div>
+              <div className="text-[10px] text-amber-200/80 mt-0.5">Awaiting administration grant decision</div>
             </div>
 
             <div

@@ -126,7 +126,7 @@ export default function SupervisorDashboardPage() {
             </h2>
             <p className="text-xs text-slate-500 leading-relaxed">
               {isFieldWorker
-                ? 'The Evaluation portal is permanently restricted to State Reviewers and Leadership. Field caseworkers cannot access clinical surveillance or evaluation linelists.'
+                ? 'Staff Access is permanently restricted to approved State Team reviewers and Administration. Field caseworkers cannot access clinical surveillance or review linelists.'
                 : 'Clinical evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.'}
             </p>
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">

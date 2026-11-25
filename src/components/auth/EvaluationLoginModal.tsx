@@ -130,10 +130,10 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
             </div>
             <div>
               <h2 id="eval-login-title" className="text-base font-bold text-white tracking-tight">
-                Evaluation Portal
+                Staff Access
               </h2>
               <p className="text-xs text-sky-200/80">
-                State &amp; Leadership Surveillance Access
+                State Team &amp; Administration Access
               </p>
             </div>
           </div>
@@ -203,8 +203,8 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   <Shield className="w-3.5 h-3.5 text-teal-200" />
                   <span>
                     {user.role === 'STATE_REVIEWER'
-                      ? `Continue to State Dashboard (${user.allowedStates.filter((s: string) => s !== '*').join(', ') || 'State'})`
-                      : 'Continue to Supervisor Dashboard'}
+                      ? `Continue to State Team Dashboard (${user.allowedStates.filter((s: string) => s !== '*').join(', ') || 'State'})`
+                      : 'Continue to Administration Dashboard'}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
@@ -255,7 +255,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
               <div
                 className="grid grid-cols-2 p-1.5 bg-sky-50/90 rounded-2xl gap-1.5 border border-sky-100"
                 role="tablist"
-                aria-label="Evaluation login type"
+                aria-label="Staff access role"
               >
                 <button
                   type="button"
@@ -276,7 +276,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   }
                 >
                   <MapPin className="w-3.5 h-3.5" />
-                  State Evaluation
+                  State Team
                 </button>
                 <button
                   type="button"
@@ -297,7 +297,7 @@ export function EvaluationLoginModal({ isOpen, onClose, onSuccess }: EvaluationL
                   }
                 >
                   <Building2 className="w-3.5 h-3.5" />
-                  Leadership
+                  Administration
                 </button>
               </div>
 

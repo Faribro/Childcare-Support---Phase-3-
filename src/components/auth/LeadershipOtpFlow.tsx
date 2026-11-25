@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Mail,
   Key,
@@ -26,6 +27,7 @@ export interface LeadershipOtpFlowProps {
   onSuccess?: () => void;
   onCancel?: () => void;
   initialEmail?: string;
+  initialProfiles?: ApprovedLeaderProfile[];
 }
 
 export interface CandidateAuthUser {
@@ -43,38 +45,9 @@ export interface ApprovedLeaderProfile {
   email?: string;
 }
 
-export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] = [
-  {
-    id: 'lead-faridsayyed1010',
-    name: 'Farid Sayyed',
-    title: 'Programme Director',
-    email: 'faridsayyed1010@gmail.com',
-  },
-  {
-    id: 'lead-mbalani',
-    name: 'M Balani',
-    title: 'Chief Executive',
-    email: 'mbalani@allianceindia.org',
-  },
-  {
-    id: 'lead-pramodk',
-    name: 'Pramod Kumar',
-    title: 'Senior Programme Lead',
-    email: 'pramodk@allianceindia.org',
-  },
-  {
-    id: 'lead-agusain',
-    name: 'A Gusain',
-    title: 'Operations Lead',
-    email: 'agusain@allianceindia.org',
-  },
-  {
-    id: 'lead-mbamrotiya',
-    name: 'M Bamrotiya',
-    title: 'Surveillance Lead',
-    email: 'mbamrotiya@allianceindia.org',
-  },
-];
+// Security invariant: never embed real staff/executive emails or privileged directory rows in client JS.
+// Authenticated directory entries are supplied explicitly via server-authorized API or test fixtures only.
+export const APPROVED_LEADERSHIP_PROFILES: ApprovedLeaderProfile[] = [];
 
 // Synthetic fixtures for local development & testing ONLY.
 // Gate: rendered ONLY when process.env.NODE_ENV !== 'production' AND NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true'.
@@ -111,6 +84,7 @@ export function LeadershipOtpFlow({
   onSuccess,
   onCancel,
   initialEmail = '',
+  initialProfiles,
 }: LeadershipOtpFlowProps) {
   const { login } = useEvaluationAccess();
 
@@ -149,20 +123,36 @@ export function LeadershipOtpFlow({
   const hasFixtureFlag = process.env.NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true';
   const showSyntheticFixtures = isDevOrTest && hasFixtureFlag;
 
-  // Available profiles: Approved real directory profiles (always present) + gated dev synthetic fixtures
+  const baseProfiles = initialProfiles ?? APPROVED_LEADERSHIP_PROFILES;
   const availableProfiles: ApprovedLeaderProfile[] = showSyntheticFixtures
-    ? [...APPROVED_LEADERSHIP_PROFILES, ...DEV_SYNTHETIC_FIXTURES]
-    : APPROVED_LEADERSHIP_PROFILES;
+    ? [...baseProfiles, ...DEV_SYNTHETIC_FIXTURES]
+    : baseProfiles;
 
+  const [isMounted, setIsMounted] = useState(false);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [selectedLeaderId, setSelectedLeaderId] = useState<string | null>(null);
+  const [menuCoords, setMenuCoords] = useState<{
+    placement: 'bottom' | 'top';
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const selectedLeader = availableProfiles.find((p) => p.id === selectedLeaderId) || null;
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
   const comboboxRef = useRef<HTMLDivElement>(null);
+  const comboboxTriggerRef = useRef<HTMLButtonElement>(null);
+  const listboxRef = useRef<HTMLUListElement>(null);
+  const optionRefs = useRef<(HTMLLIElement | null)[]>([]);
   const sharedPasswordRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Lifecycle ref to prevent stale in-flight response consumption across account changes
   const activeRequestEmailRef = useRef<string>('');
@@ -241,7 +231,7 @@ export function LeadershipOtpFlow({
           if (validRoles.includes(role)) {
             const user: EvaluationUser = {
               userId: json.data.userId,
-              name: json.data.name || 'Leadership Member',
+              name: json.data.name || 'Administration Member',
               role,
               allowedStates: json.data.allowedStates || ['*'],
               allowedDistricts: json.data.allowedDistricts || ['*'],
@@ -288,38 +278,135 @@ export function LeadershipOtpFlow({
     return () => clearInterval(timer);
   }, [cooldownSeconds]);
 
-  // 4. Click outside to close combobox
-  useEffect(() => {
+  // 4. Viewport/visualViewport-aware placement & click outside to close portaled combobox
+  const updateMenuPosition = useCallback(() => {
+    const trigger = comboboxTriggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const vv = window.visualViewport;
+    const vvTop = vv?.offsetTop ?? 0;
+    const vvHeight = vv?.height ?? window.innerHeight;
+    const vvBottom = vvTop + vvHeight;
+    const vvLeft = vv?.offsetLeft ?? 0;
+    const vvWidth = vv?.width ?? window.innerWidth;
+
+    const spaceBelow = vvBottom - rect.bottom - 10;
+    const spaceAbove = rect.top - vvTop - 10;
+    const shouldOpenUpward = spaceBelow < 180 && spaceAbove > spaceBelow;
+    const rawAvailable = shouldOpenUpward ? spaceAbove : spaceBelow;
+    const maxHeight = Math.max(120, Math.min(280, Math.floor(rawAvailable)));
+
+    const width = Math.max(220, Math.min(rect.width || 320, vvWidth - 16));
+    const left = Math.max(vvLeft + 8, Math.min(rect.left, vvLeft + vvWidth - width - 8));
+
+    if (shouldOpenUpward) {
+      setMenuCoords({
+        placement: 'top',
+        bottom: Math.max(8, window.innerHeight - rect.top + 6),
+        left,
+        width,
+        maxHeight,
+      });
+    } else {
+      const rawTop = rect.bottom + 6;
+      const safeTop =
+        rawTop + maxHeight > vvBottom - 8
+          ? Math.max(vvTop + 8, vvBottom - maxHeight - 8)
+          : rawTop;
+      setMenuCoords({
+        placement: 'bottom',
+        top: safeTop,
+        left,
+        width,
+        maxHeight,
+      });
+    }
+  }, []);
+
+  useLayoutEffect(() => {
     if (!isComboboxOpen) return;
+    updateMenuPosition();
+
     const handleClickOutside = (e: MouseEvent) => {
-      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        (comboboxRef.current && comboboxRef.current.contains(target)) ||
+        (listboxRef.current && listboxRef.current.contains(target))
+      ) {
+        return;
+      }
+      setIsComboboxOpen(false);
+    };
+
+    const handleEscapeCapture = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
         setIsComboboxOpen(false);
+        comboboxTriggerRef.current?.focus();
       }
     };
+
+    const vv = window.visualViewport;
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    vv?.addEventListener('resize', updateMenuPosition);
+    vv?.addEventListener('scroll', updateMenuPosition);
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isComboboxOpen]);
+    window.addEventListener('keydown', handleEscapeCapture, true);
+
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+      vv?.removeEventListener('resize', updateMenuPosition);
+      vv?.removeEventListener('scroll', updateMenuPosition);
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleEscapeCapture, true);
+    };
+  }, [isComboboxOpen, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!isComboboxOpen) return;
+    optionRefs.current[highlightedIndex]?.scrollIntoView?.({ block: 'nearest' });
+  }, [isComboboxOpen, highlightedIndex]);
+
+  const toggleCombobox = () => {
+    if (!isComboboxOpen) {
+      updateMenuPosition();
+      setIsComboboxOpen(true);
+    } else {
+      setIsComboboxOpen(false);
+    }
+  };
 
   // 5. Handle combobox keyboard navigation
   const handleComboboxKeyDown = (e: React.KeyboardEvent) => {
+    if (availableProfiles.length === 0) return;
     if (!isComboboxOpen) {
-      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
+        updateMenuPosition();
         setIsComboboxOpen(true);
+        if (e.key === 'ArrowUp') {
+          setHighlightedIndex(availableProfiles.length - 1);
+        }
       }
       return;
     }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedIndex((prev) =>
-        prev < availableProfiles.length - 1 ? prev + 1 : 0
-      );
+      setHighlightedIndex((prev) => (prev < availableProfiles.length - 1 ? prev + 1 : 0));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setHighlightedIndex((prev) =>
-        prev > 0 ? prev - 1 : availableProfiles.length - 1
-      );
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : availableProfiles.length - 1));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setHighlightedIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setHighlightedIndex(availableProfiles.length - 1);
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       const profile = availableProfiles[highlightedIndex];
@@ -330,6 +417,7 @@ export function LeadershipOtpFlow({
       e.preventDefault();
       e.stopPropagation();
       setIsComboboxOpen(false);
+      comboboxTriggerRef.current?.focus();
     }
   };
 
@@ -340,7 +428,7 @@ export function LeadershipOtpFlow({
     }
     setIsComboboxOpen(false);
     setErrorMessage(null);
-    emailInputRef.current?.focus();
+    (emailInputRef.current || comboboxTriggerRef.current)?.focus();
   };
 
   // 6. Handle code request (Step 1)
@@ -354,7 +442,7 @@ export function LeadershipOtpFlow({
     const hasLeader = Boolean(selectedLeader);
 
     if (!hasEmail && !hasLeader) {
-      setErrorMessage('Please select a leadership profile or enter a valid work email address.');
+      setErrorMessage('Please select an administration account or enter a valid work email address.');
       emailInputRef.current?.focus();
       return;
     }
@@ -428,7 +516,7 @@ export function LeadershipOtpFlow({
 
       setInfoMessage(
         data?.message ||
-          'If this account is an authorized Leadership identity, a single-use verification code has been dispatched.'
+          'If this account is an authorized Administration identity, a single-use verification code has been dispatched.'
       );
       setStep('verify');
       setCooldownSeconds(60);
@@ -495,7 +583,7 @@ export function LeadershipOtpFlow({
         const sessionRole = sessionJson.data.role;
         const validRoles = ['LEADERSHIP', 'supervisor', 'ADMIN'];
         if (!sessionRole || !validRoles.includes(sessionRole)) {
-          throw new Error(`Insufficient role permissions for Leadership evaluation: '${sessionRole}'`);
+          throw new Error(`Insufficient role permissions for Administration access: '${sessionRole}'`);
         }
 
         // Validate server-authorized scope
@@ -507,7 +595,7 @@ export function LeadershipOtpFlow({
         // Use session-returned identity, role, and scope for unlocked state
         const confirmedUser: EvaluationUser = {
           userId: sessionUserId,
-          name: sessionJson.data.name || candidate.name || 'Leadership Member',
+          name: sessionJson.data.name || candidate.name || 'Administration Member',
           role: sessionRole,
           allowedStates: sessionStates,
           allowedDistricts: sessionJson.data.allowedDistricts || ['*'],
@@ -517,7 +605,7 @@ export function LeadershipOtpFlow({
         // Purge any stale read-model caches and update client-side auth state
         supervisorReadModel.purgeSession();
         setEvaluationUnlocked(true, confirmedUser);
-        setSuccessMessage(`Welcome back, ${confirmedUser.name}! Opening Leadership surveillance…`);
+        setSuccessMessage(`Welcome back, ${confirmedUser.name}! Opening Administration workspace…`);
         setSyncFailedCandidate(null);
         setErrorMessage(null);
 
@@ -662,7 +750,7 @@ export function LeadershipOtpFlow({
   const handleSharedPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sharedPassword) {
-      setErrorMessage('Please enter the leadership evaluation password.');
+      setErrorMessage('Please enter the administration evaluation password.');
       return;
     }
 
@@ -672,7 +760,7 @@ export function LeadershipOtpFlow({
     try {
       const result = await login('LEADERSHIP-ALL', sharedPassword);
       if (result.success) {
-        setSuccessMessage('Authentication successful! Leadership surveillance unlocked.');
+        setSuccessMessage('Authentication successful! Administration workspace unlocked.');
         setTimeout(() => {
           onSuccess?.();
         }, 600);
@@ -739,16 +827,16 @@ export function LeadershipOtpFlow({
     );
   }
 
-  // Feature Explicitly Disabled by server: check policy mode
+  // Feature Explicitly Disabled by server
   if (isFeatureEnabled === false) {
     return (
       <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-xs text-amber-900">
         <div className="flex items-center gap-2 font-bold text-amber-950">
           <AlertTriangle className="w-4 h-4 text-amber-700" />
-          <span>Leadership Sign-In Unavailable</span>
+          <span>Administration Sign-In Unavailable</span>
         </div>
         <p className="text-[11px] leading-relaxed text-amber-800">
-          Leadership email authentication is currently disabled on this environment.
+          Administration email authentication is currently disabled on this environment.
         </p>
       </div>
     );
@@ -770,7 +858,7 @@ export function LeadershipOtpFlow({
               </span>
             </div>
             <p className="text-xs text-teal-900">
-              Welcome back, <span className="font-semibold">{existingSession.name}</span>. Your leadership session is currently active and verified.
+              Welcome back, <span className="font-semibold">{existingSession.name}</span>. Your administration session is currently active and verified.
             </p>
             <p className="text-[11px] text-teal-700 font-mono">
               Role: {existingSession.role} • Scope: {existingSession.allowedStates.includes('*') ? 'National (All States)' : existingSession.allowedStates.join(', ')}
@@ -911,96 +999,120 @@ export function LeadershipOtpFlow({
         </div>
       )}
 
-      {/* STEP 1: Enter Email / Select Account */}
+      {/* Administration Account Combobox (Rendered ONLY when explicit/authenticated directory profiles are available) */}
       {step === 'input' && (
         <form onSubmit={handleRequestCode} className="space-y-4">
-          {/* Real Leadership Account Combobox (Rendered when directory profiles are available) */}
           {availableProfiles.length > 0 && (
             <div className="relative" ref={comboboxRef}>
-            <div className="flex items-center justify-between mb-1">
-              <label
-                id="leadership-combobox-label"
-                className="block text-xs font-semibold text-teal-900"
-              >
-                Leadership Account Directory
-              </label>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 font-mono font-medium">
-                Verified Directory
-              </span>
-            </div>
-
-            <button
-              type="button"
-              role="combobox"
-              aria-haspopup="listbox"
-              aria-expanded={isComboboxOpen}
-              aria-controls="leadership-combobox-listbox"
-              aria-labelledby="leadership-combobox-label"
-              onClick={() => setIsComboboxOpen((prev) => !prev)}
-              onKeyDown={handleComboboxKeyDown}
-              className="w-full px-3 py-2 text-left text-xs bg-teal-50/60 border border-teal-200 rounded-xl hover:bg-teal-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 transition-colors cursor-pointer flex items-center justify-between text-teal-950 font-medium"
-            >
-              <div className="flex items-center gap-2 truncate">
-                <UserCheck className="w-3.5 h-3.5 text-teal-700 shrink-0" />
-                <span className="truncate">
-                  {selectedLeader
-                    ? selectedLeader.name
-                    : 'Select approved leadership account…'}
+              <div className="flex items-center justify-between mb-1">
+                <label
+                  id="leadership-combobox-label"
+                  className="block text-xs font-semibold text-teal-900"
+                >
+                  Administration Account Directory
+                </label>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 font-mono font-medium">
+                  Verified Directory
                 </span>
               </div>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-teal-700 transition-transform ${
-                  isComboboxOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
 
-            {isComboboxOpen && (
-              <ul
-                id="leadership-combobox-listbox"
-                role="listbox"
+              <button
+                ref={comboboxTriggerRef}
+                type="button"
+                role="combobox"
+                aria-haspopup="listbox"
+                aria-expanded={isComboboxOpen}
+                aria-controls="leadership-combobox-listbox"
                 aria-labelledby="leadership-combobox-label"
-                className="absolute z-20 w-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100 motion-reduce:animate-none"
+                aria-activedescendant={
+                  isComboboxOpen && availableProfiles[highlightedIndex]
+                    ? `admin-profile-opt-${availableProfiles[highlightedIndex].id}`
+                    : undefined
+                }
+                onClick={toggleCombobox}
+                onKeyDown={handleComboboxKeyDown}
+                className="w-full px-3 py-2 text-left text-xs bg-teal-50/60 border border-teal-200 rounded-xl hover:bg-teal-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 transition-colors cursor-pointer flex items-center justify-between text-teal-950 font-medium"
               >
-                {availableProfiles.map((profile, idx) => {
-                  const isSelected = selectedLeader?.id === profile.id;
-                  const isHighlighted = highlightedIndex === idx;
-                  return (
-                    <li
-                      key={profile.id}
-                      role="option"
-                      aria-selected={isSelected}
-                      onClick={() => selectProfile(profile)}
-                      onMouseEnter={() => setHighlightedIndex(idx)}
-                      className={`px-3 py-2.5 cursor-pointer flex items-center justify-between transition-colors ${
-                        isHighlighted
-                          ? 'bg-teal-50 text-teal-950'
-                          : 'text-slate-700 hover:bg-slate-50'
-                      } ${isSelected ? 'font-semibold text-teal-900 bg-teal-50/70' : ''}`}
-                    >
-                      <div className="truncate pr-2">
-                        <div className="flex items-center gap-1.5">
-                          <p className="font-medium text-slate-900">{profile.name}</p>
-                          {profile.isSynthetic && (
-                            <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-mono">
-                              Demo
-                            </span>
-                          )}
-                        </div>
-                        {profile.email && (
-                          <p className="text-[11px] text-teal-700 font-mono truncate">{profile.email}</p>
-                        )}
-                      </div>
-                      {isSelected && <Check className="w-4 h-4 text-teal-700 shrink-0" />}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+                <div className="flex items-center gap-2 truncate">
+                  <UserCheck className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                  <span className="truncate">
+                    {selectedLeader
+                      ? selectedLeader.name
+                      : 'Select approved administration account…'}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-teal-700 transition-transform ${
+                    isComboboxOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isMounted &&
+                isComboboxOpen &&
+                createPortal(
+                  <ul
+                    ref={listboxRef}
+                    id="leadership-combobox-listbox"
+                    role="listbox"
+                    aria-labelledby="leadership-combobox-label"
+                    onKeyDown={handleComboboxKeyDown}
+                    style={{
+                      position: 'fixed',
+                      zIndex: 70,
+                      left: `${menuCoords?.left ?? 16}px`,
+                      width: `${menuCoords?.width ?? 280}px`,
+                      maxHeight: `${menuCoords?.maxHeight ?? 240}px`,
+                      ...(menuCoords?.placement === 'top'
+                        ? { bottom: `${menuCoords.bottom ?? 16}px` }
+                        : { top: `${menuCoords?.top ?? 100}px` }),
+                    }}
+                    className="bg-white border border-slate-200 rounded-xl shadow-2xl overflow-y-auto overscroll-contain py-1 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100 motion-reduce:animate-none"
+                  >
+                    {availableProfiles.map((profile, idx) => {
+                      const isSelected = selectedLeader?.id === profile.id;
+                      const isHighlighted = highlightedIndex === idx;
+                      return (
+                        <li
+                          key={profile.id}
+                          id={`admin-profile-opt-${profile.id}`}
+                          ref={(el) => {
+                            optionRefs.current[idx] = el;
+                          }}
+                          role="option"
+                          aria-selected={isSelected}
+                          onClick={() => selectProfile(profile)}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          className={`px-3 py-2.5 cursor-pointer flex items-center justify-between transition-colors ${
+                            isHighlighted
+                              ? 'bg-teal-50 text-teal-950'
+                              : 'text-slate-700 hover:bg-slate-50'
+                          } ${isSelected ? 'font-semibold text-teal-900 bg-teal-50/70' : ''}`}
+                        >
+                          <div className="truncate pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-medium text-slate-900">{profile.name}</p>
+                              {profile.isSynthetic && (
+                                <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-mono">
+                                  Demo
+                                </span>
+                              )}
+                            </div>
+                            {profile.email && (
+                              <p className="text-[11px] text-teal-700 font-mono truncate">{profile.email}</p>
+                            )}
+                          </div>
+                          {isSelected && <Check className="w-4 h-4 text-teal-700 shrink-0" />}
+                        </li>
+                      );
+                    })}
+                  </ul>,
+                  document.body
+                )}
             </div>
           )}
 
-          {selectedLeader && (
+          {selectedLeader ? (
             <div className="p-2.5 bg-teal-50/60 border border-teal-100 rounded-xl text-center">
               <p className="text-xs text-slate-600">
                 Verification code will be dispatched to allowlisted address:
@@ -1009,12 +1121,41 @@ export function LeadershipOtpFlow({
                 {selectedLeader.email || email}
               </p>
             </div>
+          ) : (
+            <div>
+              <label
+                htmlFor="leader-email-input"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Administration Work Email
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+                <input
+                  ref={emailInputRef}
+                  id="leader-email-input"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setErrorMessage(null);
+                  }}
+                  placeholder="Enter authorized work email"
+                  className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 transition-all"
+                  required={availableProfiles.length === 0}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Authorized Administration accounts receive a single-use 6-digit email OTP.
+              </p>
+            </div>
           )}
 
           <CosmicSpaceButton
             type="submit"
             variant="nebula"
-            disabled={isLoading || cooldownSeconds > 0 || !selectedLeader}
+            disabled={isLoading || cooldownSeconds > 0 || (!selectedLeader && !email.includes('@'))}
             isLoading={isLoading}
             rightIcon={<ArrowRight className="w-4 h-4 text-white" />}
           >
@@ -1024,7 +1165,7 @@ export function LeadershipOtpFlow({
                 Resend in {cooldownSeconds}s
               </span>
             ) : (
-              'Send Verification Code'
+              'Sign in with email OTP'
             )}
           </CosmicSpaceButton>
         </form>
@@ -1099,7 +1240,7 @@ export function LeadershipOtpFlow({
             isLoading={isLoading || isSyncingSession}
             leftIcon={<CheckCircle className="w-4 h-4 text-white" />}
           >
-            Verify &amp; Open Evaluation
+            Verify &amp; Sign In
           </CosmicSpaceButton>
 
           {/* Resend Action with cooldown */}

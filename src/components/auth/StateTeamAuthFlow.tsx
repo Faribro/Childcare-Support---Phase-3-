@@ -43,6 +43,8 @@ export function StateTeamAuthFlow({
   const [lastName, setLastName] = useState('');
   const [requestedState, setRequestedState] = useState('Maharashtra');
   const [organization, setOrganization] = useState('');
+  const [invitationCode, setInvitationCode] = useState('');
+  const [showPasswordFallback, setShowPasswordFallback] = useState(false);
 
   // OTP Field
   const [otp, setOtp] = useState('');
@@ -145,7 +147,45 @@ export function StateTeamAuthFlow({
     }
   };
 
-  // Step 1: Send OTP / Register
+  // Step 1 (Mode A): Sign in with email OTP (for already-approved State Team accounts)
+  const handleLoginOtpRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workEmail.trim() || !workEmail.includes('@')) {
+      setErrorMessage('Please enter your registered work email address.');
+      return;
+    }
+
+    try {
+      localStorage.setItem('last_state_coordinator_email', workEmail.trim());
+    } catch {}
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const res = await fetch(platformRegistry.resolveUrl('/api/auth/state-team/login-otp/request'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workEmail: workEmail.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        setErrorMessage(data.error || 'Unable to send sign-in OTP. Ensure your request has been approved by Administration.');
+        setIsLoading(false);
+        return;
+      }
+
+      setSuccessMessage(data.message || 'Sign-in OTP sent to your registered email.');
+      setStep('otp');
+    } catch {
+      setErrorMessage('Network or server error sending sign-in code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Step 1 (Mode B): Request State Team access / redeem email-bound invitation
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!workEmail.trim()) {
@@ -175,6 +215,7 @@ export function StateTeamAuthFlow({
           workEmail: workEmail.trim(),
           requestedState: requestedState.trim(),
           organization: organization.trim(),
+          ...(invitationCode.trim() ? { invitationCode: invitationCode.trim() } : {}),
         }),
       });
 
@@ -349,7 +390,7 @@ export function StateTeamAuthFlow({
         </div>
       )}
 
-      {/* Sub-tab switcher: Sign In vs New Registration */}
+      {/* Sub-tab switcher: Sign in vs Request access */}
       {step === 'details' && (
         <div className="grid grid-cols-2 p-1.5 bg-slate-100 rounded-2xl gap-1" role="tablist">
           <button
@@ -366,8 +407,8 @@ export function StateTeamAuthFlow({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Lock className="w-3.5 h-3.5" />
-            Sign In
+            <Mail className="w-3.5 h-3.5" />
+            Sign in with email OTP
           </button>
           <button
             type="button"
@@ -384,16 +425,80 @@ export function StateTeamAuthFlow({
             }`}
           >
             <Shield className="w-3.5 h-3.5" />
-            New Coordinator
+            Request access
           </button>
         </div>
       )}
 
-      {/* Mode A: Sign in with Password */}
-      {step === 'details' && subTab === 'signin' && (
+      {/* Mode A: Approved Coordinator Sign In (Email OTP default + Password disclosure) */}
+      {step === 'details' && subTab === 'signin' && !showPasswordFallback && (
+        <form onSubmit={handleLoginOtpRequest} className="space-y-3.5">
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+            Enter your approved State Team work email to receive a one-time 6-digit verification code.
+          </div>
+
+          <div>
+            <label htmlFor="st-login-email" className="block text-xs font-semibold text-slate-700 mb-1">
+              Official Email Address
+            </label>
+            <div className="relative">
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+              <input
+                ref={emailInputRef}
+                id="st-login-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={workEmail}
+                onChange={(e) => setWorkEmail(e.target.value)}
+                placeholder="coordinator@allianceindia.org"
+                className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col gap-2">
+            <CosmicSpaceButton
+              type="submit"
+              variant="nebula"
+              disabled={isLoading}
+              isLoading={isLoading}
+              rightIcon={<Send className="w-4 h-4 text-white" />}
+            >
+              Sign in with email OTP
+            </CosmicSpaceButton>
+
+            <div className="flex items-center justify-between text-[11px] pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSubTab('register');
+                  setErrorMessage(null);
+                }}
+                className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
+              >
+                Need access? Request access
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPasswordFallback(true);
+                  setErrorMessage(null);
+                }}
+                className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
+              >
+                Use password instead
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {/* Mode A Fallback: Legacy Password Sign-In */}
+      {step === 'details' && subTab === 'signin' && showPasswordFallback && (
         <form onSubmit={handlePasswordSignIn} className="space-y-3.5">
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
-            Sign in using your official email address and the all-time evaluation password sent to your email.
+            Sign in with an Administration-issued staff password, or switch back to Email OTP.
           </div>
 
           <div>
@@ -419,17 +524,17 @@ export function StateTeamAuthFlow({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label htmlFor="st-login-password" className="block text-xs font-semibold text-slate-700">
-                Evaluation Password
+                Staff Password
               </label>
               <button
                 type="button"
                 onClick={() => {
-                  setSubTab('register');
+                  setShowPasswordFallback(false);
                   setErrorMessage(null);
                 }}
                 className="text-[11px] text-teal-700 hover:text-teal-900 font-medium transition-colors cursor-pointer"
               >
-                Forgot password?
+                Sign in with email OTP
               </button>
             </div>
             <div className="relative">
@@ -442,7 +547,7 @@ export function StateTeamAuthFlow({
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your personal evaluation password"
+                placeholder="Enter your staff password"
                 className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all font-mono"
               />
             </div>
@@ -467,17 +572,17 @@ export function StateTeamAuthFlow({
               }}
               className="text-xs text-slate-500 hover:text-slate-800 py-1 transition-colors underline cursor-pointer text-center"
             >
-              First time here? Register as New Coordinator
+              First time here? Request access
             </button>
           </div>
         </form>
       )}
 
-      {/* Mode B: Registration / First-Time details */}
+      {/* Mode B: Request Access / Invitation Redemption */}
       {step === 'details' && subTab === 'register' && (
         <form onSubmit={handleSendOtp} className="space-y-3.5">
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
-            Enter your official programme credentials to receive an email OTP and manage team invitations.
+            Verify your work email to request State Team access. Without an Administration invitation code, access activates only after Administration approval.
           </div>
 
           <div>
@@ -566,6 +671,21 @@ export function StateTeamAuthFlow({
             </div>
           </div>
 
+          <div>
+            <label htmlFor="st-invitation-code" className="block text-xs font-semibold text-slate-700 mb-1">
+              Administration Invitation Code{' '}
+              <span className="font-normal text-slate-400 text-[10px]">(Optional single-use invite)</span>
+            </label>
+            <input
+              id="st-invitation-code"
+              type="text"
+              value={invitationCode}
+              onChange={(e) => setInvitationCode(e.target.value)}
+              placeholder="ALN-XX-XXXX-XXXX"
+              className="w-full px-3 py-2 text-xs font-mono uppercase bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+            />
+          </div>
+
           <div className="pt-2 flex flex-col gap-2">
             <CosmicSpaceButton
               type="submit"
@@ -574,7 +694,7 @@ export function StateTeamAuthFlow({
               isLoading={isLoading}
               rightIcon={<Send className="w-4 h-4 text-white" />}
             >
-              Send Verification Code
+              Request access
             </CosmicSpaceButton>
 
             <button
@@ -585,7 +705,7 @@ export function StateTeamAuthFlow({
               }}
               className="text-xs text-slate-500 hover:text-slate-800 py-1 transition-colors underline cursor-pointer text-center"
             >
-              Already registered? Sign In with Password
+              Already approved? Sign in with email OTP
             </button>
           </div>
         </form>
@@ -648,58 +768,77 @@ export function StateTeamAuthFlow({
         </form>
       )}
 
-      {/* Step 3: Verified / Manage State Team */}
+      {/* Step 3: Pending Approval vs Approved */}
       {step === 'ready' && (
         <div className="space-y-4 pt-1">
-          <div className="p-4 rounded-2xl bg-teal-50/80 border border-teal-200/80 space-y-3">
-            <div className="flex items-center gap-2 text-teal-900 font-bold text-sm">
-              <Shield className="w-4 h-4 text-teal-700" />
-              <span>State Coordinator Access: {requestedState}</span>
-            </div>
+          {teamRegistration?.status === 'APPROVED' ? (
+            <>
+              <div className="p-4 rounded-2xl bg-teal-50/80 border border-teal-200/80 space-y-3">
+                <div className="flex items-center gap-2 text-teal-900 font-bold text-sm">
+                  <Shield className="w-4 h-4 text-teal-700" />
+                  <span>State Team Access: {teamRegistration?.assignedState || requestedState}</span>
+                </div>
 
-            <div className="text-xs text-teal-800 space-y-1">
-              <p>Email: <span className="font-semibold">{workEmail}</span></p>
-              <p>Organization: <span className="font-semibold">{organization}</span></p>
-              <p>Status: <span className="font-semibold uppercase tracking-wider text-emerald-700">Verified</span></p>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-            <div className="flex items-center gap-2 text-slate-900 font-semibold text-xs">
-              <KeyRound className="w-4 h-4 text-slate-700" />
-              <span>Field Team Invitation Code</span>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Share your team invitation code privately with authorized caseworkers in {requestedState} so they can onboard onto the survey portal.
-            </p>
-
-            {invitationStatusMessage && (
-              <div className="p-2.5 rounded-lg bg-emerald-100 text-emerald-900 text-xs font-medium">
-                {invitationStatusMessage}
+                <div className="text-xs text-teal-800 space-y-1">
+                  <p>Email: <span className="font-semibold">{workEmail}</span></p>
+                  <p>Organization: <span className="font-semibold">{organization}</span></p>
+                  <p>Status: <span className="font-semibold uppercase tracking-wider text-emerald-700">Approved</span></p>
+                </div>
               </div>
-            )}
 
-            <button
-              type="button"
-              onClick={handleIssueInvitationCode}
-              disabled={isLoading}
-              className="w-full py-2 px-3 text-xs font-semibold text-teal-900 bg-teal-100/70 hover:bg-teal-200/70 border border-teal-300/60 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-            >
-              <Send className="w-3.5 h-3.5" />
-              Email Team Invitation Code to My Address
-            </button>
-          </div>
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center gap-2 text-slate-900 font-semibold text-xs">
+                  <KeyRound className="w-4 h-4 text-slate-700" />
+                  <span>Field Team Invitation Code</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Share your team invitation code privately with authorized caseworkers in {teamRegistration?.assignedState || requestedState} so they can onboard onto the survey portal.
+                </p>
 
-          <button
-            type="button"
-            onClick={() => {
-              onSuccess?.();
-              router.push('/supervisor');
-            }}
-            className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 text-white font-semibold text-sm rounded-xl transition-colors cursor-pointer"
-          >
-            Continue to State Evaluation Portal
-          </button>
+                {invitationStatusMessage && (
+                  <div className="p-2.5 rounded-lg bg-emerald-100 text-emerald-900 text-xs font-medium">
+                    {invitationStatusMessage}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleIssueInvitationCode}
+                  disabled={isLoading}
+                  className="w-full py-2 px-3 text-xs font-semibold text-teal-900 bg-teal-100/70 hover:bg-teal-200/70 border border-teal-300/60 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Email Team Invitation Code to My Address
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onSuccess?.();
+                  router.push('/supervisor');
+                }}
+                className="w-full py-2.5 px-4 bg-teal-800 hover:bg-teal-900 text-white font-semibold text-sm rounded-xl transition-colors cursor-pointer"
+              >
+                Continue to State Team Workspace
+              </button>
+            </>
+          ) : (
+            <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200 space-y-3">
+              <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+                <Shield className="w-4 h-4 text-amber-700" />
+                <span>Request Submitted — Pending Administration Approval</span>
+              </div>
+              <div className="text-xs text-amber-900 space-y-1.5 leading-relaxed">
+                <p>
+                  Your work email (<span className="font-mono font-semibold">{workEmail}</span>) is verified.
+                </p>
+                <p>
+                  Your access request for <strong>{requestedState}</strong> awaits explicit Administration approval. You can sign in using Email OTP once approved.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

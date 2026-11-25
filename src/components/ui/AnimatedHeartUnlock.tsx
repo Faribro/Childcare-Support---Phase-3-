@@ -8,13 +8,12 @@ interface AnimatedHeartUnlockProps {
   size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
-// Strict secret passcode: exactly 1 click, then 3 clicks, then 2 clicks
-const REQUIRED_PASSCODE = '132';
+const REQUIRED_TAPS = 3;
+const TAP_WINDOW_RESET_MS = 2400;
 
 export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHeartUnlockProps) {
-  const { isUnlocked, unlock, lock } = useEvaluationAccess();
+  const { isUnlocked } = useEvaluationAccess();
 
-  // Dimensions
   const dims = size === 'xs'
     ? { width: 22, height: 20, curve: 6, maxTank: 20 }
     : size === 'sm'
@@ -23,135 +22,71 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     ? { width: 38, height: 33, curve: 10, maxTank: 33 }
     : { width: 32, height: 28, curve: 9, maxTank: 28 };
 
-  // Slots: [slot0, slot1, slot2]
-  const [slots, setSlots] = useState<(number | null)[]>([null, null, null]);
-  const [activeSlot, setActiveSlot] = useState<number>(0);
-  const [currentClicks, setCurrentClicks] = useState<number>(0);
+  const [tapCount, setTapCount] = useState<number>(0);
   const [isPumping, setIsPumping] = useState<boolean>(false);
-  const [isShaking, setIsShaking] = useState<boolean>(false);
-  const [status, setStatus] = useState<'idle' | 'clicking' | 'locked-slot' | 'success' | 'wrong'>('idle');
+  const [status, setStatus] = useState<'idle' | 'tapping' | 'opened'>('idle');
 
-  // Refs for race-condition-free event handling
-  const slotsRef = useRef<(number | null)[]>([null, null, null]);
-  const activeSlotRef = useRef<number>(0);
-  const currentClicksRef = useRef<number>(0);
-  const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const tapCountRef = useRef<number>(0);
+  const resetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Sync state with persistent unlock status
-  useEffect(() => {
-    if (isUnlocked) {
-      slotsRef.current = [1, 3, 2];
-      setSlots([1, 3, 2]);
-      activeSlotRef.current = 3;
-      setActiveSlot(3);
-      setStatus('success');
-    } else {
-      slotsRef.current = [null, null, null];
-      setSlots([null, null, null]);
-      activeSlotRef.current = 0;
-      setActiveSlot(0);
-      currentClicksRef.current = 0;
-      setCurrentClicks(0);
-      setStatus('idle');
-    }
-  }, [isUnlocked]);
-
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     };
   }, []);
 
-  const resetAll = useCallback(() => {
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    slotsRef.current = [null, null, null];
-    activeSlotRef.current = 0;
-    currentClicksRef.current = 0;
-    setSlots([null, null, null]);
-    setActiveSlot(0);
-    setCurrentClicks(0);
+  const resetTaps = useCallback(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    tapCountRef.current = 0;
+    setTapCount(0);
     setStatus('idle');
   }, []);
 
+  const openStaffAccessModal = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('child_nutrition:open_login_modal'));
+    }
+  }, []);
+
   const handleHeartClick = () => {
-    // If already unlocked, clicking it will lock it back and reset
-    if (isUnlocked || activeSlotRef.current >= 3) {
-      lock();
-      resetAll();
+    // Heart entrypoint ONLY opens Staff Access modal cleanly; NEVER grants auth, roles, or scopes.
+    if (isUnlocked) {
+      openStaffAccessModal();
       return;
     }
 
-    if (isShaking) return;
-
-    // Pump pulse visual
     setIsPumping(true);
     setTimeout(() => setIsPumping(false), 220);
 
-    // Reset idle timeout (if no action for 9s, reset)
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      resetAll();
-    }, 9000);
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
 
-    // Increment clicks
-    const nextClicks = currentClicksRef.current + 1;
-    currentClicksRef.current = nextClicks;
-    setCurrentClicks(nextClicks);
-    setStatus('clicking');
+    const nextCount = Math.min(REQUIRED_TAPS, tapCountRef.current + 1);
+    tapCountRef.current = nextCount;
+    setTapCount(nextCount);
 
-    // Clear existing commit timer
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    if (nextCount >= REQUIRED_TAPS) {
+      setStatus('opened');
+      openStaffAccessModal();
+      resetTimerRef.current = setTimeout(() => {
+        resetTaps();
+      }, 900);
+      return;
+    }
 
-    // Commit digit after 850ms of silence
-    commitTimerRef.current = setTimeout(() => {
-      const lockedVal = currentClicksRef.current;
-      const currentSlot = activeSlotRef.current;
-      const updatedSlots = [...slotsRef.current];
-      updatedSlots[currentSlot] = lockedVal;
-      slotsRef.current = updatedSlots;
-      setSlots(updatedSlots);
-
-      // Reset clicks for next slot
-      currentClicksRef.current = 0;
-      setCurrentClicks(0);
-
-      if (currentSlot === 0) {
-        // Slot 0 committed (e.g. 1). Move to slot 1
-        activeSlotRef.current = 1;
-        setActiveSlot(1);
-        setStatus('locked-slot');
-      } else if (currentSlot === 1) {
-        // Slot 1 committed (e.g. 3). Move to slot 2
-        activeSlotRef.current = 2;
-        setActiveSlot(2);
-        setStatus('locked-slot');
-      } else if (currentSlot === 2) {
-        // Slot 2 committed! Validate full passcode
-        const passcodeStr = `${updatedSlots[0]}${updatedSlots[1]}${lockedVal}`;
-        if (passcodeStr === REQUIRED_PASSCODE) {
-          // Success: Unlock evaluation tab!
-          activeSlotRef.current = 3;
-          setActiveSlot(3);
-          setStatus('success');
-          unlock();
-        } else {
-          // Failed (e.g. 123, 321, 312, etc.): Shake, show error, then reset
-          setIsShaking(true);
-          setStatus('wrong');
-          setTimeout(() => {
-            setIsShaking(false);
-            resetAll();
-          }, 850);
-        }
-      }
-    }, 850);
+    setStatus('tapping');
+    resetTimerRef.current = setTimeout(() => {
+      resetTaps();
+    }, TAP_WINDOW_RESET_MS);
   };
 
-  const completedCount = slots.filter((s) => s !== null).length;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleHeartClick();
+    }
+  };
+
+  const levelIndex = isUnlocked ? 3 : tapCount;
   const tankLevels = [
     0,
     Math.round(dims.maxTank * 0.36),
@@ -167,55 +102,28 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   ];
 
   const pumpLevelsZ = [8, 12, 16, 0];
-  const currentTankHeight = isUnlocked ? dims.maxTank : (tankLevels[completedCount] || 0);
-  const currentCurveBottom = isUnlocked ? dims.maxTank - 3 : (curveLevels[completedCount] !== undefined ? curveLevels[completedCount] : -dims.curve);
-  const currentPumpZ = isPumping ? (pumpLevelsZ[completedCount] || 10) : 0;
+  const currentTankHeight = isUnlocked ? dims.maxTank : (tankLevels[levelIndex] || 0);
+  const currentCurveBottom = isUnlocked
+    ? dims.maxTank - 3
+    : (curveLevels[levelIndex] !== undefined ? curveLevels[levelIndex] : -dims.curve);
+  const currentPumpZ = isPumping ? (pumpLevelsZ[levelIndex] || 10) : 0;
   const currentScale = isPumping ? 1.12 : 1;
 
-  // Render badge content
   const renderBadgeContent = () => {
-    if (isUnlocked || status === 'success') {
+    if (isUnlocked) {
       return <span>✓</span>;
     }
-
-    if (status === 'wrong') {
-      return <span>✕</span>;
+    if (status === 'opened') {
+      return <span>3</span>;
     }
-
-    // Initial state before locking slot 0
-    if (activeSlot === 0 && slots[0] === null) {
-      return <span>{currentClicks > 0 ? currentClicks : 0}</span>;
-    }
-
-    // Multi-slot mode: displays locked numbers and dashes (e.g. 1 · 3 · -)
-    return (
-      <span className="flex items-center space-x-1 tracking-tight font-mono text-[9px]">
-        <span className={activeSlot === 0 ? 'text-amber-300 font-black scale-110' : 'text-white'}>
-          {activeSlot === 0 && currentClicks > 0 ? currentClicks : (slots[0] ?? '-')}
-        </span>
-        <span className="text-slate-300 opacity-60">·</span>
-        <span className={activeSlot === 1 ? 'text-amber-300 font-black scale-110' : 'text-white'}>
-          {activeSlot === 1 && currentClicks > 0 ? currentClicks : (slots[1] ?? '-')}
-        </span>
-        <span className="text-slate-300 opacity-60">·</span>
-        <span className={activeSlot === 2 ? 'text-amber-300 font-black scale-110' : 'text-white'}>
-          {activeSlot === 2 && currentClicks > 0 ? currentClicks : (slots[2] ?? '-')}
-        </span>
-      </span>
-    );
+    return <span>{tapCount}</span>;
   };
 
-  const isExpandedPill = activeSlot > 0 || (activeSlot === 0 && slots[0] !== null);
-
   let badgeBg = 'bg-[#506079] text-white';
-  if (status === 'clicking') {
+  if (status === 'tapping') {
     badgeBg = 'bg-purple-700 text-white shadow-md ring-1 ring-purple-300';
-  } else if (status === 'success') {
+  } else if (isUnlocked || status === 'opened') {
     badgeBg = 'bg-emerald-600 text-white shadow-sm';
-  } else if (status === 'wrong') {
-    badgeBg = 'bg-rose-600 text-white animate-pulse shadow-sm';
-  } else if (status === 'locked-slot') {
-    badgeBg = 'bg-[#3e4c63] text-white shadow-xs';
   }
 
   return (
@@ -232,12 +140,12 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
       {/* 3D Heart Wrapper */}
       <div
         onClick={handleHeartClick}
+        onKeyDown={handleKeyDown}
         role="button"
         tabIndex={0}
-        aria-label="Child Nutrition Support"
-        className={`heart-wrap group focus:outline-none rounded-full p-0.5 cursor-pointer relative ${
-          isShaking ? 'animate-heart-shake' : ''
-        }`}
+        aria-label={isUnlocked ? 'Staff Access (Active)' : 'Staff Access - Tap 3 times to sign in'}
+        title={isUnlocked ? 'Staff Access (Active)' : 'Tap 3 times for Staff Access'}
+        className="heart-wrap group focus:outline-none rounded-full p-0.5 cursor-pointer relative"
         style={{
           perspective: '150px',
         }}
@@ -320,11 +228,9 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
           </svg>
         </div>
 
-        {/* Passcode Click Counter Badge: positioned below heart so heart is completely visible while clicking */}
+        {/* Counter Badge below heart */}
         <div
-          className={`absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 flex items-center justify-center ${
-            isExpandedPill ? 'px-2 h-[19px] min-w-[36px] rounded-full' : 'w-[19px] h-[19px] rounded-full'
-          } text-[10px] font-bold border-2 border-white shadow-sm transition-all duration-200 select-none z-10 ${badgeBg}`}
+          className={`absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 flex items-center justify-center w-[19px] h-[19px] rounded-full text-[10px] font-bold border-2 border-white shadow-sm transition-all duration-200 select-none z-10 ${badgeBg}`}
         >
           {renderBadgeContent()}
         </div>

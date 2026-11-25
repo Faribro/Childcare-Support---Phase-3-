@@ -106,7 +106,7 @@ export function ProfileMenu() {
 
   const userRoleBadge = isSupervisorUser
     ? user?.role === 'LEADERSHIP'
-      ? 'Leadership'
+      ? 'Administration'
       : user?.role === 'ADMIN'
       ? 'Administrator'
       : 'State Reviewer'
@@ -411,7 +411,7 @@ export function ProfileMenu() {
                 className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#093282] rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <Shield className="w-4 h-4 text-slate-400 group-hover:text-[#155AD1]" />
-                <span>Supervisor / Leadership Login</span>
+                <span>Supervisor / Administration Login</span>
               </button>
             )}
 

@@ -255,11 +255,11 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
 
       render(<CompactMasthead />);
 
-      const loginButton = screen.getByTitle('Sign in to unlock Evaluation Portal');
+      const loginButton = screen.getByTitle('Sign in for Staff Access');
       expect(loginButton).toBeDefined();
-      expect(loginButton.textContent).toContain('Evaluation');
+      expect(loginButton.textContent).toContain('Staff Access');
       // Should NOT render unlocked supervisor link
-      expect(screen.queryByTitle('Evaluation Portal (Unlocked)')).toBeNull();
+      expect(screen.queryByTitle('Staff Access (Active)')).toBeNull();
     });
 
     it('renders Access Restricted when a FIELD_USER visits /supervisor directly', async () => {
@@ -271,7 +271,7 @@ describe('Evaluation & Surveillance Dashboard Authentication State & UX Error Ha
       render(<SupervisorDashboardPage />);
 
       expect(screen.getByText('Access Restricted')).toBeDefined();
-      expect(screen.getByText(/permanently restricted to State Reviewers and Leadership/i)).toBeDefined();
+      expect(screen.getByText(/permanently restricted to approved State Team reviewers and Administration/i)).toBeDefined();
       expect(screen.getByText('Return to Forms')).toBeDefined();
       // Must NOT show Sign In to Access button to field users
       expect(screen.queryByText('Sign In to Access')).toBeNull();

@@ -55,35 +55,36 @@ describe('EvaluationLoginModal Component', () => {
     localStorage.clear();
   });
 
-  it('1. renders modal header and defaults to State Evaluation with StateTeamAuthFlow', async () => {
+  it('1. renders modal header and defaults to State Team with StateTeamAuthFlow', async () => {
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toBeDefined();
-    expect(screen.getByText('Evaluation Portal')).toBeDefined();
+    expect(screen.getByText('Staff Access')).toBeDefined();
 
     // Tabs
-    expect(screen.getByRole('tab', { name: /State Evaluation/i })).toBeDefined();
-    expect(screen.getByRole('tab', { name: /Leadership/i })).toBeDefined();
+    expect(screen.getByRole('tab', { name: /State Team/i })).toBeDefined();
+    expect(screen.getByRole('tab', { name: /Administration/i })).toBeDefined();
 
-    // Defaults to StateTeamAuthFlow (Sign In tab active)
-    expect(screen.getByRole('tab', { name: /Sign In/i })).toBeDefined();
-    expect(screen.getByRole('tab', { name: /New Coordinator/i })).toBeDefined();
+    // Defaults to StateTeamAuthFlow (Sign in with email OTP vs Request access)
+    expect(screen.getByRole('tab', { name: /Sign in with email OTP/i })).toBeDefined();
+    expect(screen.getByRole('tab', { name: /Request access/i })).toBeDefined();
     expect(screen.getByLabelText(/Official Email Address/i)).toBeDefined();
   });
 
-  it('1b. switches to New Coordinator registration in StateTeamAuthFlow', async () => {
+  it('1b. switches to Request access form in StateTeamAuthFlow', async () => {
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
-    const newCoordBtn = screen.getByRole('tab', { name: /New Coordinator/i });
-    fireEvent.click(newCoordBtn);
+    const requestAccessBtn = screen.getByRole('tab', { name: /Request access/i });
+    fireEvent.click(requestAccessBtn);
 
     // Registration form inputs should now appear
     expect(screen.getByLabelText(/State Scope/i)).toBeDefined();
     expect(screen.getByLabelText(/First Name/i)).toBeDefined();
     expect(screen.getByLabelText(/Email address/i)).toBeDefined();
+    expect(screen.getByLabelText(/Administration Invitation Code/i)).toBeDefined();
   });
 
-  it('2. switches to Leadership tab and mounts LeadershipOtpFlow in-place', async () => {
+  it('2. switches to Administration tab and mounts Administration OTP login without exposing directory emails', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
         return {
@@ -99,18 +100,20 @@ describe('EvaluationLoginModal Component', () => {
 
     render(<EvaluationLoginModal isOpen={true} onClose={vi.fn()} />);
 
-    const leadershipTab = screen.getByRole('tab', { name: /Leadership/i });
-    fireEvent.click(leadershipTab);
+    const adminTab = screen.getByRole('tab', { name: /Administration/i });
+    fireEvent.click(adminTab);
 
-    // State Evaluation inputs should no longer be rendered
-    expect(screen.queryByLabelText(/State Evaluation Password/i)).toBeNull();
+    // State Team password inputs should no longer be rendered
+    expect(screen.queryByLabelText(/Staff Password/i)).toBeNull();
 
-    // Leadership OTP Flow inputs should appear in-place
+    // Manual Administration Work Email input appears with zero exposed executive emails
     await waitFor(() => {
-      expect(screen.getByText(/Leadership Account Directory/i)).toBeDefined();
+      expect(screen.getByLabelText(/Administration Work Email/i)).toBeDefined();
     });
 
-    expect(screen.getByRole('button', { name: /Send Verification Code/i })).toBeDefined();
+    expect(screen.queryByText(/faridsayyed1010@gmail\.com/i)).toBeNull();
+    expect(screen.queryByText(/mbalani@allianceindia\.org/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /Sign in with email OTP/i })).toBeDefined();
   });
 
   it('3. closes modal when Escape key is pressed', async () => {
@@ -140,7 +143,7 @@ describe('EvaluationLoginModal Component', () => {
 
     expect(screen.getByText(/Currently Signed In: Farhan Sayyed/i)).toBeDefined();
     expect(screen.getByText(/Role:/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /Continue to Supervisor Dashboard/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Continue to Administration Dashboard/i })).toBeDefined();
     expect(screen.getByRole('button', { name: /Switch Account \/ Sign Out/i })).toBeDefined();
   });
 });
