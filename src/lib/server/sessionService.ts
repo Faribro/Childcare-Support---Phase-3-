@@ -427,11 +427,29 @@ export async function authenticateUser(
 
     let role: AuthPolicyRole = 'STATE_REVIEWER';
     let allowedStates: string[] = [];
+    let resolvedUserId = credential.id;
+    let resolvedVersion = credential.credentialVersion;
 
     if (credential.credentialKind === 'STATE_EVALUATION') {
       role = 'STATE_REVIEWER';
-      const canonState = credential.stateCode
-        ? (canonicalizeStateName(credential.stateCode) || credential.stateCode)
+      const { getOnboardingStore } = await import('./onboardingStore');
+      const reg = credential.accessIdentifier.includes('@')
+        ? await getOnboardingStore().getStateTeamRegistrationByEmail(credential.accessIdentifier)
+        : null;
+      if (reg && (reg.status !== 'APPROVED' || !reg.emailVerified)) {
+        return {
+          success: false,
+          error: 'Your State Team access is pending Administration approval or has been revoked.',
+          statusCode: 403,
+        };
+      }
+      if (reg) {
+        resolvedUserId = reg.id;
+        resolvedVersion = Math.max(credential.credentialVersion || 1, reg.authVersion || 1);
+      }
+      const rawState = reg?.assignedState || reg?.requestedState || credential.stateCode;
+      const canonState = rawState
+        ? (canonicalizeStateName(rawState) || rawState)
         : 'Maharashtra';
       allowedStates = [canonState];
     } else if (credential.credentialKind === 'LEADERSHIP_EVALUATION') {
@@ -443,14 +461,14 @@ export async function authenticateUser(
     }
 
     const sessionPayload: SessionPayload = {
-      userId: credential.id,
+      userId: resolvedUserId,
       username: credential.accessIdentifier,
       name: credential.displayName,
       role,
       allowedStates,
       allowedDistricts: ['*'],
       allowedProgrammes: credential.programmeScope || ['alliance-childcare-phase3'],
-      credentialVersion: credential.credentialVersion,
+      credentialVersion: resolvedVersion,
       credentialKind: credential.credentialKind,
       createdAt: now,
       expiresAt: now + SESSION_TTL_MS,
@@ -546,11 +564,11 @@ export async function authenticateUser(
 
   if (legacyAccount) {
     const appEnv = (process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development').toLowerCase();
-    const isProd = appEnv === 'production';
+    const isRestrictedEnv = appEnv === 'production' || appEnv === 'staging';
     const allowEnvFallback = process.env.ALLOW_ENV_CREDENTIAL_FALLBACK === 'true';
 
-    if (isProd && !allowEnvFallback) {
-      console.warn('[AUTH] Environment-variable account fallback is disabled in production without ALLOW_ENV_CREDENTIAL_FALLBACK=true.');
+    if (isRestrictedEnv && !allowEnvFallback) {
+      console.warn('[AUTH] Environment-variable account fallback is disabled in production and staging without ALLOW_ENV_CREDENTIAL_FALLBACK=true.');
       await recordAuthAttempt(cleanIdentifier, clientIp, false);
       return { success: false, error: 'Invalid username or password.', statusCode: 401 };
     }

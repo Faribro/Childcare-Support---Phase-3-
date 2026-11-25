@@ -12,6 +12,7 @@ import {
 import { signOnboardingTicket, ONBOARDING_TICKET_COOKIE } from '@/lib/server/googleAuth';
 import { issueStateTeamOtpChallenge } from '@/lib/server/stateTeamAuthChallenge';
 import { createSessionToken } from '@/lib/server/sessionService';
+import { MockEmailStore } from '@/lib/server/emailProvider';
 
 describe('Onboarding Next.js HTTP API Route Handlers', () => {
   let store: MemoryOnboardingStore;
@@ -71,6 +72,8 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
       });
 
       expect(issue.success).toBe(true);
+      await store.approveStateTeamRegistration(issue.registration.id, 'admin-01', 'Tamil Nadu');
+      const otpFromEmail = MockEmailStore.getLastFor('meenakshi@allianceindia.org')?.otp;
 
       // 2. Call HTTP verify endpoint
       const req = new NextRequest('http://localhost:3000/api/auth/state-team/verify-otp', {
@@ -78,7 +81,7 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: 'meenakshi@allianceindia.org',
-          otp: issue.otp,
+          otp: otpFromEmail,
         }),
       });
 
@@ -105,8 +108,9 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
         workEmail: 'alok@allianceindia.org',
         requestedState: 'Delhi',
         organization: 'Alliance India',
-        autoApprove: true,
       });
+      await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin-01', 'Delhi');
 
       const sessionToken = createSessionToken({
         userId: reg.id,
@@ -183,9 +187,9 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
         workEmail: 'suraj@allianceindia.org',
         requestedState: 'Rajasthan',
         organization: 'Alliance India',
-        autoApprove: true,
       });
       await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin-leader', 'Rajasthan');
 
       const { issueStateTeamInvitation } = await import('@/lib/server/stateTeamAuthChallenge');
       const inv = await issueStateTeamInvitation({ stateTeamId: reg.id });
@@ -239,9 +243,9 @@ describe('Onboarding Next.js HTTP API Route Handlers', () => {
         workEmail: 'anjali@allianceindia.org',
         requestedState: 'Maharashtra',
         organization: 'Alliance India MH',
-        autoApprove: true,
       });
       await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin-leader', 'Maharashtra');
 
       const { issueStateTeamInvitation } = await import('@/lib/server/stateTeamAuthChallenge');
       const { createEmailTicket } = await import('@/lib/server/fieldEmailOtpChallenge');

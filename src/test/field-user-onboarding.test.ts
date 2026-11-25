@@ -71,9 +71,9 @@ describe('Field User Onboarding & Returning User Lifecycle', () => {
         workEmail: 'vijay@allianceindia.org',
         requestedState: 'Maharashtra',
         organization: 'Alliance India',
-        autoApprove: true,
       });
       await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin-01', 'Maharashtra');
 
       const inv = await issueStateTeamInvitation({ stateTeamId: reg.id });
       expect(inv.success).toBe(true);
@@ -116,9 +116,9 @@ describe('Field User Onboarding & Returning User Lifecycle', () => {
         workEmail: 'deepa@allianceindia.org',
         requestedState: 'Kerala',
         organization: 'Alliance India',
-        autoApprove: true,
       });
       await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin-01', 'Kerala');
 
       // Issue invitation with max 2 redemptions
       const invRecord = await store.createInvitation({

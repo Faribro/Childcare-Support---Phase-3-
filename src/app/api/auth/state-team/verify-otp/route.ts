@@ -39,14 +39,26 @@ export async function POST(req: NextRequest) {
   }
 
   if (result.status === 'APPROVED' && result.sessionToken) {
+    const safeSession = result.session
+      ? {
+          userId: result.session.userId,
+          name: result.session.name,
+          role: result.session.role,
+          allowedStates: result.session.allowedStates,
+          allowedDistricts: result.session.allowedDistricts,
+          canEdit: result.session.canEdit,
+        }
+      : null;
+
     const response = NextResponse.json(
       {
         status: 'success',
         registrationStatus: 'APPROVED',
-        message: 'Authentication successful. State Evaluation unlocked.',
+        sessionActive: true,
+        message: 'Authentication successful. State Team workspace unlocked.',
         registration: result.registration,
         data: {
-          session: result.session,
+          session: safeSession,
           registration: result.registration,
         },
       },
@@ -62,8 +74,9 @@ export async function POST(req: NextRequest) {
     {
       status: 'success',
       registrationStatus: 'PENDING_APPROVAL',
+      sessionActive: false,
       message:
-        'Email verified successfully. Your registration has been submitted for programme administrator review.',
+        'Email verified successfully. Your access request has been submitted for Administration review. No portal session is active until approved.',
       registration: result.registration,
       data: {
         registration: result.registration,

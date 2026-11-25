@@ -1,37 +1,29 @@
 /**
- * State Team Registration, OTP Verification, and Invitation Issuance Challenge Manager
+ * State Team Registration, OTP Verification, Sign-In, and Invitation Challenge Manager
  *
- * Invariants:
- * - 6-digit cryptographically secure numeric OTP for state-team email verification
- * - Salted SHA-256 verifier storage (zero plaintext OTP in persistence)
- * - 10-minute challenge expiration
- * - Lockout after 5 failed verification attempts
- * - Email verification proves email ownership, NOT administrative authority over state
- * - Automatic allowlist matching for configured domains/emails, otherwise PENDING_APPROVAL
- * - Plaintext invitation code delivered strictly via approved email to verified staff
+ * Security Invariants:
+ * - Zero domain-based self-approval (`isEmailPreApprovedForState` always returns false)
+ * - Self-registration without an Administration-issued email-bound invitation stays `PENDING_APPROVAL`
+ *   with zero sessions, passwords, or active field invitations until Administration approves
+ * - Administration-issued email-bound single-use invitations assign `assignedState` server-side and
+ *   redeem atomically only after 6-digit email OTP verification succeeds
+ * - Existing approved State Team members sign in via individual email OTP (`requestStateTeamLoginOtp`)
  */
 
 import crypto from 'crypto';
 import { getOnboardingStore } from './onboardingStore';
+import { DuplicateRegistrationError } from '@/lib/types/onboarding';
 import { sendStateTeamOtpEmail, sendStateTeamInvitationEmail, sendAdminPendingRegistrationEmail } from './emailProvider';
-import { createSessionToken, hashPassword } from './sessionService';
+import { createSessionToken } from './sessionService';
 import {
-  getFirestoreDb,
-  EVALUATION_CREDENTIALS_COLLECTION,
   getCredentialByIdentifier,
-  registerCredential,
 } from './credentialRegistry';
 import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 import {
   generatePlaintextInvitationCode,
   createInvitationVerifierPair,
-  verifyInvitationCode,
-  encryptInvitationEnvelope,
-  decryptInvitationEnvelope,
   DEFAULT_MAX_REDEMPTIONS,
-  DEFAULT_INVITATION_EXPIRY_MS,
   DEFAULT_INVITATION_EXPIRY_DAYS,
-  getStateAbbreviation,
 } from './invitationCrypto';
 
 export const STATE_TEAM_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -39,16 +31,18 @@ export const STATE_TEAM_MAX_VERIFY_ATTEMPTS = 5;
 
 export interface StateTeamOtpChallenge {
   challengeId: string;
+  purpose?: 'registration' | 'login';
   workEmail: string;
   name: string;
   state: string;
+  registrationId?: string;
+  pendingAccessInvitationId?: string | null;
   codeSalt: string;
   codeHash: string;
   expiresAt: number;
   failedAttempts: number;
   isUsed: boolean;
   isLocked: boolean;
-  encryptedInvitation?: string;
 }
 
 // In-memory challenge store (keyed by lowercase normalized workEmail)
@@ -69,47 +63,16 @@ export function normalizeEmail(email?: string | null): string {
 /**
  * Checks if a work email domain or specific email is in the pre-approved state-team allowlist.
  */
-export function isEmailPreApprovedForState(email: string, state: string): boolean {
-  const normEmail = normalizeEmail(email);
-  if (!normEmail) return false;
-
-  // 1. Check exact email allowlist from env
-  const exactAllowlist = (process.env.STATE_TEAM_APPROVED_EMAILS || '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (exactAllowlist.includes(normEmail)) {
-    return true;
-  }
-
-  // 2. Check approved domain patterns (e.g. allianceindia.org, childcare.allianceindia.org)
-  const approvedDomains = (process.env.STATE_TEAM_APPROVED_DOMAINS || 'allianceindia.org,childcare.allianceindia.org')
-    .split(',')
-    .map((d) => d.trim().toLowerCase())
-    .filter(Boolean);
-
-  const domain = normEmail.split('@')[1];
-  if (domain && (approvedDomains.includes(domain) || domain.endsWith('.allianceindia.org'))) {
-    return true;
-  }
-
-  // 3. Optional state-specific allowlist: STATE_TEAM_APPROVED_<STATE_CODE>
-  const stateKey = `STATE_TEAM_APPROVED_${state.toUpperCase().replace(/\s+/g, '_')}`;
-  const stateAllowlist = (process.env[stateKey] || '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (stateAllowlist.includes(normEmail)) {
-    return true;
-  }
-
+export function isEmailPreApprovedForState(_email: string, _state: string): boolean {
+  // Security hardening: email-domain self-approval is permanently disabled.
+  // State Team access requires either an Administration-issued email-bound single-use
+  // invitation or explicit Administration approval after email OTP verification.
   return false;
 }
 
 /**
- * Requests a State-Team registration & verification OTP.
+ * Requests a State-Team access request OTP (either with an Administration-issued single-use
+ * email-bound invitation code, or an unprivileged pending access request awaiting Administration approval).
  */
 export async function requestStateTeamOtp(params: {
   firstName: string;
@@ -117,6 +80,7 @@ export async function requestStateTeamOtp(params: {
   workEmail: string;
   requestedState: string;
   organization: string;
+  invitationCode?: string;
 }): Promise<{
   success: boolean;
   error?: string;
@@ -132,7 +96,9 @@ export async function requestStateTeamOtp(params: {
   if (!params.firstName?.trim()) {
     return { success: false, error: 'First name is required.', statusCode: 400 };
   }
-  if (!params.requestedState?.trim()) {
+
+  const trimmedInviteCode = typeof params.invitationCode === 'string' ? params.invitationCode.trim() : '';
+  if (!params.requestedState?.trim() && !trimmedInviteCode) {
     return { success: false, error: 'Requested state is required.', statusCode: 400 };
   }
 
@@ -149,162 +115,117 @@ export async function requestStateTeamOtp(params: {
     };
   }
 
-  const autoApprove = isEmailPreApprovedForState(normEmail, params.requestedState);
-
-  // Register or retrieve existing registration
-  const registration = await store.createStateTeamRegistration({
-    firstName: params.firstName,
-    lastName: params.lastName || '',
-    workEmail: normEmail,
-    requestedState: params.requestedState,
-    organization: params.organization || 'Alliance India Partner',
-    autoApprove,
-  });
-
-  // Check if an active invitation already exists for this coordinator registration
-  const existingInv = await store.getActiveInvitationForCoordinator(registration.id);
-  const existingChallenge = (await store.getStateTeamChallenge(normEmail)) || activeChallenges.get(normEmail);
-
-  let plainInvitationCode = '';
-  if (existingInv && existingChallenge?.encryptedInvitation) {
-    const decrypted = decryptInvitationEnvelope(existingChallenge.encryptedInvitation);
-    if (decrypted && verifyInvitationCode(decrypted, existingInv.codeSalt, existingInv.codeVerifier)) {
-      plainInvitationCode = decrypted;
+  // Prevent overwriting or hijacking any existing registration or active credential
+  const existingReg = await store.getStateTeamRegistrationByEmail(normEmail);
+  if (existingReg) {
+    if (
+      existingReg.status === 'APPROVED' ||
+      existingReg.emailVerified ||
+      existingReg.status === 'REJECTED' ||
+      existingReg.status === 'SUSPENDED' ||
+      existingReg.status === 'REVOKED'
+    ) {
+      return {
+        success: false,
+        error: 'An account or registration for this email already exists and cannot be overwritten. Use Sign in with email OTP or contact Administration.',
+        statusCode: 409,
+      };
     }
   }
 
-  if (!plainInvitationCode) {
-    plainInvitationCode = generatePlaintextInvitationCode(registration.requestedState);
-    const { salt: invSalt, verifier: invVerifier } = createInvitationVerifierPair(plainInvitationCode);
-    await store.createInvitation({
-      stateTeamId: registration.id,
-      state: registration.requestedState,
-      salt: invSalt,
-      verifier: invVerifier,
-      maxRedemptions: DEFAULT_MAX_REDEMPTIONS,
-      expiresAt: now + DEFAULT_INVITATION_EXPIRY_MS,
-    });
+  const existingCred = await getCredentialByIdentifier(normEmail).catch(() => null);
+  if (existingCred && existingCred.isActive) {
+    return {
+      success: false,
+      error: 'An active staff account for this email already exists. Please use Sign in with email OTP.',
+      statusCode: 409,
+    };
   }
 
-  const encryptedInvitation = encryptInvitationEnvelope(plainInvitationCode);
+  // If an invitation code is provided, verify it against an Administration-issued email-bound invitation
+  // (Atomic single-use redemption happens strictly AFTER OTP verification succeeds)
+  let validInviteId: string | null = null;
+  let authoritativeState = params.requestedState
+    ? canonicalizeStateName(params.requestedState) || params.requestedState.trim()
+    : '';
 
-  // Generate 6-digit numeric OTP
+  if (trimmedInviteCode) {
+    const inviteCheck = await store.findValidStateTeamAccessInvitation({
+      invitedEmail: normEmail,
+      plainCode: trimmedInviteCode,
+      now,
+    });
+    if (!inviteCheck.valid || !inviteCheck.invitation) {
+      return {
+        success: false,
+        error: inviteCheck.error || 'Invalid, expired, or email-mismatched invitation code.',
+        statusCode: inviteCheck.statusCode || 403,
+      };
+    }
+    validInviteId = inviteCheck.invitation.id;
+    // Server invitation strictly dictates assigned state (never client-chosen state)
+    authoritativeState = canonicalizeStateName(inviteCheck.invitation.assignedState) || inviteCheck.invitation.assignedState;
+  }
+
+  let registration;
+  try {
+    registration = await store.createStateTeamRegistration({
+      firstName: params.firstName,
+      lastName: params.lastName || '',
+      workEmail: normEmail,
+      requestedState: authoritativeState,
+      assignedState: validInviteId ? authoritativeState : undefined,
+      invitationId: validInviteId || undefined,
+      organization: params.organization || 'Alliance India Partner',
+      autoApprove: false,
+    });
+  } catch (err: any) {
+    if (err instanceof DuplicateRegistrationError || err?.code === 'EMAIL_ALREADY_REGISTERED') {
+      return {
+        success: false,
+        error: 'An account or registration for this email already exists and cannot be overwritten.',
+        statusCode: 409,
+      };
+    }
+    throw err;
+  }
+
+  // Generate 6-digit numeric OTP (NO credentials, NO passwords, NO field-team invitations created prior to approval)
   const rawOtp = crypto.randomInt(100000, 1000000).toString();
   const salt = crypto.randomBytes(16).toString('hex');
   const codeHash = hashOtp(rawOtp, salt);
 
   const challenge: StateTeamOtpChallenge = {
     challengeId: crypto.randomUUID(),
+    purpose: 'registration',
     workEmail: normEmail,
     name: `${registration.firstName} ${registration.lastName}`.trim(),
-    state: registration.requestedState,
+    state: authoritativeState,
+    registrationId: registration.id,
+    pendingAccessInvitationId: validInviteId,
     codeSalt: salt,
     codeHash,
     expiresAt: now + STATE_TEAM_OTP_TTL_MS,
     failedAttempts: 0,
     isUsed: false,
     isLocked: false,
-    encryptedInvitation,
   };
 
   await store.saveStateTeamChallenge(challenge);
   activeChallenges.set(normEmail, challenge);
 
-  // Atomic coordinator credential initialization / preservation
-  const stateCode = getStateAbbreviation(registration.requestedState) || 'MH';
-  let committedPersonalPassword: string | undefined = undefined;
-
-  try {
-    const db = await getFirestoreDb();
-    if (db && typeof db.runTransaction === 'function') {
-      const credRef = db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(normEmail.toUpperCase());
-      await db.runTransaction(async (transaction: any) => {
-        const credSnap = await transaction.get(credRef);
-        if (!credSnap.exists) {
-          // First-time registration: generate and atomically commit new password hash
-          const personalPassword = `ALN-${stateCode}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-          const passwordHash = await hashPassword(personalPassword);
-          const nowIso = new Date().toISOString();
-          transaction.set(credRef, {
-            id: `coord-${normEmail}`,
-            accessIdentifier: normEmail.toUpperCase(),
-            displayName: `${registration.firstName} ${registration.lastName}`.trim(),
-            credentialKind: 'STATE_EVALUATION',
-            stateCode,
-            programmeScope: ['alliance-childcare-phase3'],
-            passwordHash,
-            credentialVersion: 1,
-            isActive: true,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          });
-          committedPersonalPassword = personalPassword;
-        } else {
-          // Existing credential exists:
-          // Strictly PRESERVE existing credentials:
-          // 1. Do NOT overwrite passwordHash (prevents credential staleness on retries/resends)
-          // 2. Do NOT reactivate disabled account (isActive: false remains false)
-          // 3. Do NOT alter role/scope/stateCode
-          // 4. Do NOT email a new password
-        }
-      });
-    } else {
-      // In-memory fallback
-      const existing = await getCredentialByIdentifier(normEmail);
-      if (!existing) {
-        const personalPassword = `ALN-${stateCode}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-        const passwordHash = await hashPassword(personalPassword);
-        const nowIso = new Date().toISOString();
-        registerCredential({
-          id: `coord-${normEmail}`,
-          accessIdentifier: normEmail.toUpperCase(),
-          displayName: `${registration.firstName} ${registration.lastName}`.trim(),
-          credentialKind: 'STATE_EVALUATION',
-          stateCode,
-          programmeScope: ['alliance-childcare-phase3'],
-          passwordHash,
-          credentialVersion: 1,
-          isActive: true,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        });
-        committedPersonalPassword = personalPassword;
-      }
-    }
-  } catch (err: any) {
-    console.warn('[STATE_TEAM_AUTH] Failed to atomically verify or persist evaluation_credentials:', err?.message);
-    return {
-      success: false,
-      error: 'Authentication database is temporarily unavailable. Please retry in a moment.',
-      statusCode: 503,
-    };
-  }
-
-  // Dispatch combined email with Section A (OTP), All-Time Password (if newly created), and Section B (Invitation Code)
   const emailResult = await sendStateTeamOtpEmail({
     to: normEmail,
     name: challenge.name,
     state: challenge.state,
     code: rawOtp,
     expiryMinutes: 10,
-    invitationCode: plainInvitationCode,
-    invitationExpiryDays: DEFAULT_INVITATION_EXPIRY_DAYS,
-    maxRedemptions: DEFAULT_MAX_REDEMPTIONS,
-    isPreApproved: autoApprove,
-    personalPassword: committedPersonalPassword,
+    isLoginOtp: false,
   });
 
   if (!emailResult.success) {
     await store.deleteStateTeamChallenge(normEmail);
     activeChallenges.delete(normEmail);
-    if (committedPersonalPassword) {
-      try {
-        const db = await getFirestoreDb();
-        if (db) {
-          await db.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(normEmail.toUpperCase()).delete();
-        }
-      } catch (_) {}
-    }
     return {
       success: false,
       error: 'Unable to deliver verification email. Please check the address or try again later.',
@@ -315,9 +236,123 @@ export async function requestStateTeamOtp(params: {
   return {
     success: true,
     statusCode: 200,
-    message: 'Verification code sent to your work email address.',
-    otp: rawOtp,
+    message: validInviteId
+      ? `Verification code sent to ${normEmail}. Enter the code to activate your invited ${authoritativeState} State Team access.`
+      : `Verification code sent to ${normEmail}. After confirming your email, your access request will await Administration approval.`,
     registration,
+  };
+}
+
+/**
+ * Requests a sign-in OTP exclusively for an already-approved, active State Team coordinator.
+ * Rejects unapproved, pending, rejected, revoked, suspended, or unknown accounts without granting credentials.
+ */
+export async function requestStateTeamLoginOtp(params: {
+  workEmail: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  statusCode: number;
+  message?: string;
+}> {
+  const normEmail = normalizeEmail(params.workEmail);
+  if (!normEmail || !normEmail.includes('@')) {
+    return { success: false, error: 'A valid work email address is required.', statusCode: 400 };
+  }
+
+  const store = getOnboardingStore();
+  const now = Date.now();
+
+  const rateLimit = await store.checkRateLimit(`state-team-login-otp:${normEmail}`, now, 5, 15 * 60 * 1000);
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      error: `Too many sign-in attempts. Please retry in ${rateLimit.retryAfterSeconds} seconds.`,
+      statusCode: 429,
+    };
+  }
+
+  const reg = await store.getStateTeamRegistrationByEmail(normEmail);
+  if (!reg) {
+    return {
+      success: false,
+      error: 'No approved State Team account found for this work email. Submit Request access or contact Administration.',
+      statusCode: 403,
+    };
+  }
+
+  if (reg.status === 'PENDING_APPROVAL' || reg.status === 'PENDING') {
+    return {
+      success: false,
+      error: 'Your access request is awaiting Administration approval.',
+      statusCode: 403,
+    };
+  }
+
+  if (reg.status !== 'APPROVED' || !reg.emailVerified) {
+    return {
+      success: false,
+      error: 'Your State Team access is inactive or has been revoked. Contact Administration.',
+      statusCode: 403,
+    };
+  }
+
+  const cred = await getCredentialByIdentifier(normEmail).catch(() => null);
+  if (cred && !cred.isActive) {
+    return {
+      success: false,
+      error: 'Your State Team access has been deactivated. Contact Administration.',
+      statusCode: 403,
+    };
+  }
+
+  const assignedState = canonicalizeStateName(reg.assignedState || reg.requestedState) || reg.requestedState;
+  const rawOtp = crypto.randomInt(100000, 1000000).toString();
+  const salt = crypto.randomBytes(16).toString('hex');
+  const codeHash = hashOtp(rawOtp, salt);
+
+  const challenge: StateTeamOtpChallenge = {
+    challengeId: crypto.randomUUID(),
+    purpose: 'login',
+    workEmail: normEmail,
+    name: `${reg.firstName} ${reg.lastName}`.trim(),
+    state: assignedState,
+    registrationId: reg.id,
+    pendingAccessInvitationId: null,
+    codeSalt: salt,
+    codeHash,
+    expiresAt: now + STATE_TEAM_OTP_TTL_MS,
+    failedAttempts: 0,
+    isUsed: false,
+    isLocked: false,
+  };
+
+  await store.saveStateTeamChallenge(challenge);
+  activeChallenges.set(normEmail, challenge);
+
+  const emailResult = await sendStateTeamOtpEmail({
+    to: normEmail,
+    name: challenge.name,
+    state: assignedState,
+    code: rawOtp,
+    expiryMinutes: 10,
+    isLoginOtp: true,
+  });
+
+  if (!emailResult.success) {
+    await store.deleteStateTeamChallenge(normEmail);
+    activeChallenges.delete(normEmail);
+    return {
+      success: false,
+      error: 'Unable to deliver sign-in code. Please try again later.',
+      statusCode: 502,
+    };
+  }
+
+  return {
+    success: true,
+    statusCode: 200,
+    message: `One-time sign-in code sent to ${normEmail}.`,
   };
 }
 
@@ -403,16 +438,65 @@ export async function verifyStateTeamOtp(params: {
   challenge.isUsed = true;
   activeChallenges.delete(normEmail);
   await store.deleteStateTeamChallenge(normEmail);
-  await store.verifyStateTeamEmail(normEmail);
-  const registration = await store.getStateTeamRegistrationByEmail(normEmail);
 
+  let registration = await store.getStateTeamRegistrationByEmail(normEmail);
   if (!registration) {
     return { success: false, error: 'Registration record not found.', statusCode: 404 };
   }
 
+  if (registration.status === 'REJECTED' || registration.status === 'SUSPENDED' || registration.status === 'REVOKED') {
+    return {
+      success: false,
+      error: 'Your State Team access is inactive or has been revoked. Contact Administration.',
+      statusCode: 403,
+    };
+  }
+
+  if (challenge.purpose !== 'login') {
+    await store.verifyStateTeamEmail(normEmail);
+
+    if (challenge.pendingAccessInvitationId) {
+      const redeem = await store.atomicRedeemStateTeamAccessInvitation({
+        invitationId: challenge.pendingAccessInvitationId,
+        invitedEmail: normEmail,
+        registrationId: registration.id,
+        now,
+      });
+      if (!redeem.success || !redeem.invitation) {
+        return {
+          success: false,
+          error: redeem.error || 'This single-use invitation code could not be redeemed.',
+          statusCode: redeem.statusCode || 409,
+        };
+      }
+      await store.approveStateTeamRegistration(
+        registration.id,
+        redeem.invitation.issuedBy,
+        redeem.invitation.assignedState
+      );
+    }
+
+    registration = await store.getStateTeamRegistrationByEmail(normEmail);
+    if (!registration) {
+      return { success: false, error: 'Registration record not found.', statusCode: 404 };
+    }
+  } else {
+    if (!registration.emailVerified || registration.status !== 'APPROVED') {
+      return {
+        success: false,
+        error: 'Your State Team access is pending Administration approval or has been revoked.',
+        statusCode: 403,
+      };
+    }
+  }
+
   if (registration.status === 'APPROVED') {
-    const canonicalState = canonicalizeStateName(registration.requestedState) || registration.requestedState;
-    // Generate authenticated State Reviewer session token
+    const canonicalState =
+      canonicalizeStateName(registration.assignedState || registration.requestedState) ||
+      registration.assignedState ||
+      registration.requestedState;
+    const authVersion = registration.authVersion || 1;
+    // Generate individual State Reviewer session token bound to server-assigned state & revocation version
     const token = createSessionToken({
       userId: registration.id,
       username: registration.workEmail,
@@ -420,6 +504,7 @@ export async function verifyStateTeamOtp(params: {
       role: 'STATE_REVIEWER',
       allowedStates: [canonicalState],
       allowedDistricts: ['*'],
+      credentialVersion: authVersion,
       credentialKind: 'STATE_EVALUATION',
       canEdit: true,
       authMethod: 'email_otp',
@@ -537,10 +622,17 @@ export async function issueStateTeamInvitation(params: {
   }
 
   if (registration.status !== 'APPROVED') {
-    throw new Error('Cannot issue invitation codes. State team registration is pending approval.');
+    throw new Error('Cannot issue invitation codes. State team access is not approved or has been revoked.');
   }
 
-  const targetState = (params.state || registration.requestedState || '').trim();
+  const authoritativeState =
+    canonicalizeStateName(registration.assignedState || registration.requestedState) ||
+    registration.assignedState ||
+    registration.requestedState;
+  const targetState = (params.state || authoritativeState || '').trim();
+  if (authoritativeState && targetState && canonicalizeStateName(targetState).toLowerCase() !== authoritativeState.toLowerCase()) {
+    throw new Error(`Forbidden: Cannot issue field invitations outside assigned state (${authoritativeState}).`);
+  }
   const plainCode = generatePlaintextInvitationCode(targetState);
   const { salt, verifier } = createInvitationVerifierPair(plainCode);
 

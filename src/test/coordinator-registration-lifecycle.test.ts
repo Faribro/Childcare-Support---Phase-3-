@@ -1,191 +1,158 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   requestStateTeamOtp,
+  requestStateTeamLoginOtp,
   verifyStateTeamOtp,
 } from '@/lib/server/stateTeamAuthChallenge';
 import {
   MemoryOnboardingStore,
   setOnboardingStoreForTesting,
 } from '@/lib/server/onboardingStore';
+import { MockEmailStore } from '@/lib/server/emailProvider';
 import {
-  getCredentialByIdentifier,
-  registerCredential,
-  clearRegistry,
-  getFirestoreDb,
-  setFirestoreDbForTesting,
-  resetFirestoreDb,
   createMockFirestore,
+  setFirestoreDbForTesting,
   EVALUATION_CREDENTIALS_COLLECTION,
+  clearRegistry,
 } from '@/lib/server/credentialRegistry';
-import { verifyPassword } from '@/lib/server/sessionService';
+import {
+  generatePlaintextInvitationCode,
+  createInvitationVerifierPair,
+} from '@/lib/server/invitationCrypto';
 
 describe('Coordinator Registration Lifecycle & Credential Invariants', () => {
-  let mockDb: any;
   let store: MemoryOnboardingStore;
+  let mockDb: ReturnType<typeof createMockFirestore>;
 
   beforeEach(() => {
     clearRegistry();
-    mockDb = createMockFirestore();
-    setFirestoreDbForTesting(mockDb);
+    MockEmailStore.clear();
     store = new MemoryOnboardingStore();
     setOnboardingStoreForTesting(store);
+    mockDb = createMockFirestore();
+    setFirestoreDbForTesting(mockDb);
+    process.env.SESSION_SECRET = 'b'.repeat(64);
+    process.env.STATE_TEAM_APPROVED_DOMAINS = 'allianceindia.org';
   });
 
-  it('atomically initializes credential on first registration and includes personal password', async () => {
-    const email = 'coordinator.alpha@allianceindia.org';
+  it('never writes active evaluation_credentials, passwords, or field invitations during unapproved signup', async () => {
+    const email = 'rohan.mh@allianceindia.org';
     const res = await requestStateTeamOtp({
-      firstName: 'Alpha',
-      lastName: 'Coordinator',
+      firstName: 'Rohan',
+      lastName: 'Patil',
       workEmail: email,
       requestedState: 'Maharashtra',
-      organization: 'Alliance India Partner',
+      organization: 'Alliance India MH',
     });
 
     expect(res.success).toBe(true);
-    expect(res.statusCode).toBe(200);
+    expect(res.registration?.status).toBe('PENDING_APPROVAL');
+    expect((res as any).otp).toBeUndefined();
 
-    // Verify credential was committed to Firestore
+    // No credentials provisioned in evaluation_credentials
     const credSnap = await mockDb.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(email.toUpperCase()).get();
-    expect(credSnap.exists).toBe(true);
-    const credData = credSnap.data();
-    expect(credData.accessIdentifier).toBe(email.toUpperCase());
-    expect(credData.isActive).toBe(true);
-    expect(credData.credentialKind).toBe('STATE_EVALUATION');
-    expect(credData.stateCode).toBe('MH');
-    expect(credData.passwordHash).toBeDefined();
-    expect(credData.passwordHash.length).toBeGreaterThan(20);
+    expect(credSnap.exists).toBe(false);
+
+    // Email contains ONLY 6-digit OTP verification code (zero password, zero ALN- field invite)
+    const sent = MockEmailStore.getLastFor(email);
+    expect(sent).toBeDefined();
+    expect(sent?.otp).toMatch(/^\d{6}$/);
+    expect(sent?.text).not.toMatch(/ALN-[A-Z]{2}-/);
+    expect(sent?.text).not.toContain('Password:');
   });
 
-  it('registration retry / OTP resend preserves existing password hash without overwriting', async () => {
-    const email = 'coordinator.beta@allianceindia.org';
+  it('prevents duplicate registration from overwriting an approved, verified, or revoked coordinator', async () => {
+    const email = 'anita.mh@allianceindia.org';
+    const invCode = generatePlaintextInvitationCode('Maharashtra');
+    const { salt, verifier } = createInvitationVerifierPair(invCode);
+    await store.createStateTeamAccessInvitation({
+      invitedEmail: email,
+      assignedState: 'Maharashtra',
+      codeSalt: salt,
+      codeVerifier: verifier,
+      issuedBy: 'admin@allianceindia.org',
+      expiresAt: Date.now() + 86400000,
+    });
 
-    // 1. First registration
-    const res1 = await requestStateTeamOtp({
-      firstName: 'Beta',
-      lastName: 'Coordinator',
+    await requestStateTeamOtp({
+      firstName: 'Anita',
+      lastName: 'Joshi',
       workEmail: email,
       requestedState: 'Maharashtra',
-      organization: 'Alliance India Partner',
+      organization: 'Alliance India',
+      invitationCode: invCode,
     });
-    expect(res1.success).toBe(true);
+    const otp = MockEmailStore.getLastFor(email)!.otp!;
+    const verifyRes = await verifyStateTeamOtp({ workEmail: email, code: otp });
+    expect(verifyRes.success).toBe(true);
+    expect(verifyRes.status).toBe('APPROVED');
 
-    const snap1 = await mockDb.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(email.toUpperCase()).get();
-    const initialHash = snap1.data().passwordHash;
-    const initialUpdatedAt = snap1.data().updatedAt;
-
-    // 2. Second registration (OTP resend / retry)
-    const res2 = await requestStateTeamOtp({
-      firstName: 'Beta',
-      lastName: 'Coordinator',
+    // Attempt second self-registration requesting a different state must fail 409 without overwriting state
+    const dupRes = await requestStateTeamOtp({
+      firstName: 'Anita',
+      lastName: 'Hijack',
       workEmail: email,
-      requestedState: 'Maharashtra',
-      organization: 'Alliance India Partner',
+      requestedState: 'Gujarat',
+      organization: 'Other Org',
     });
-    expect(res2.success).toBe(true);
+    expect(dupRes.success).toBe(false);
+    expect(dupRes.statusCode).toBe(409);
 
-    const snap2 = await mockDb.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(email.toUpperCase()).get();
-    const secondHash = snap2.data().passwordHash;
-
-    // Invariant: passwordHash must be strictly identical; never replaced on retry
-    expect(secondHash).toBe(initialHash);
+    const reg = await store.getStateTeamRegistrationByEmail(email);
+    expect(reg?.assignedState).toBe('Maharashtra');
+    expect(reg?.firstName).toBe('Anita');
   });
 
-  it('registration retry does not reactivate a disabled account', async () => {
-    const email = 'coordinator.disabled@allianceindia.org';
-
-    // 1. Initial registration
+  it('rejects login OTP for revoked or unapproved coordinator', async () => {
+    const email = 'pending.revoked@allianceindia.org';
     await requestStateTeamOtp({
-      firstName: 'Disabled',
-      lastName: 'User',
-      workEmail: email,
-      requestedState: 'Maharashtra',
-      organization: 'Alliance India Partner',
-    });
-
-    // 2. Administrator deactivates the account
-    const credRef = mockDb.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(email.toUpperCase());
-    await credRef.update({ isActive: false });
-
-    const checkSnap = await credRef.get();
-    expect(checkSnap.data().isActive).toBe(false);
-
-    // 3. User attempts to re-register or request OTP
-    const res = await requestStateTeamOtp({
-      firstName: 'Disabled',
-      lastName: 'User',
-      workEmail: email,
-      requestedState: 'Maharashtra',
-      organization: 'Alliance India Partner',
-    });
-    expect(res.success).toBe(true);
-
-    // Invariant: Account remains deactivated; registration retry cannot bypass administrative suspension
-    const afterSnap = await credRef.get();
-    expect(afterSnap.data().isActive).toBe(false);
-  });
-
-  it('registration retry does not alter role, stateCode, or programme scope', async () => {
-    const email = 'coordinator.immutable@allianceindia.org';
-
-    await requestStateTeamOtp({
-      firstName: 'Immutable',
-      lastName: 'User',
-      workEmail: email,
-      requestedState: 'Maharashtra',
-      organization: 'Alliance India Partner',
-    });
-
-    // Attempt retry with different state and org
-    await requestStateTeamOtp({
-      firstName: 'Hacker',
-      lastName: 'Attempt',
+      firstName: 'Vikram',
+      lastName: 'Singh',
       workEmail: email,
       requestedState: 'Delhi',
-      organization: 'Different Org',
+      organization: 'Partner NGO',
     });
+    const otp = MockEmailStore.getLastFor(email)!.otp!;
+    const verifyRes = await verifyStateTeamOtp({ workEmail: email, code: otp });
+    expect(verifyRes.status).toBe('PENDING_APPROVAL');
+    expect(verifyRes.sessionToken).toBeUndefined();
 
-    const snap = await mockDb.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(email.toUpperCase()).get();
-    const data = snap.data();
-    expect(data.stateCode).toBe('MH'); // Preserved original state
-    expect(data.credentialKind).toBe('STATE_EVALUATION');
-    expect(data.programmeScope).toEqual(['alliance-childcare-phase3']);
+    // Pending coordinator cannot request login OTP
+    const pendingLogin = await requestStateTeamLoginOtp({ workEmail: email });
+    expect(pendingLogin.success).toBe(false);
+    expect(pendingLogin.statusCode).toBe(403);
+
+    // Approve then revoke
+    const reg = await store.getStateTeamRegistrationByEmail(email);
+    await store.approveStateTeamRegistration(reg!.id, 'admin@allianceindia.org', 'Delhi');
+    await store.revokeStateTeamRegistration(reg!.id, 'admin@allianceindia.org', 'Completed rotation');
+
+    const revokedLogin = await requestStateTeamLoginOtp({ workEmail: email });
+    expect(revokedLogin.success).toBe(false);
+    expect(revokedLogin.statusCode).toBe(403);
   });
 
-  it('handles concurrent initial registration requests atomically without data corruption', async () => {
-    const email = 'coordinator.concurrent@allianceindia.org';
+  it('allows approved coordinator to request and verify individual login OTP bound to server state', async () => {
+    const email = 'approved.coord@allianceindia.org';
+    const reg = await store.createStateTeamRegistration({
+      firstName: 'Meera',
+      lastName: 'Nair',
+      workEmail: email,
+      requestedState: 'Karnataka',
+      organization: 'Alliance Partner',
+    });
+    await store.verifyStateTeamEmail(email);
+    await store.approveStateTeamRegistration(reg.id, 'admin@allianceindia.org', 'Karnataka');
 
-    // Fire 3 simultaneous registration requests
-    const promises = [
-      requestStateTeamOtp({
-        firstName: 'Concurrent',
-        lastName: 'One',
-        workEmail: email,
-        requestedState: 'Maharashtra',
-        organization: 'Alliance India Partner',
-      }),
-      requestStateTeamOtp({
-        firstName: 'Concurrent',
-        lastName: 'Two',
-        workEmail: email,
-        requestedState: 'Maharashtra',
-        organization: 'Alliance India Partner',
-      }),
-      requestStateTeamOtp({
-        firstName: 'Concurrent',
-        lastName: 'Three',
-        workEmail: email,
-        requestedState: 'Maharashtra',
-        organization: 'Alliance India Partner',
-      }),
-    ];
+    const loginReq = await requestStateTeamLoginOtp({ workEmail: email });
+    expect(loginReq.success).toBe(true);
+    const loginOtp = MockEmailStore.getLastFor(email)?.otp;
+    expect(loginOtp).toMatch(/^\d{6}$/);
 
-    const results = await Promise.all(promises);
-    expect(results.every((r) => r.success)).toBe(true);
-
-    // Verify only one valid credential document exists
-    const credSnap = await mockDb.collection(EVALUATION_CREDENTIALS_COLLECTION).doc(email.toUpperCase()).get();
-    expect(credSnap.exists).toBe(true);
-    expect(credSnap.data().passwordHash).toBeDefined();
-    expect(credSnap.data().isActive).toBe(true);
+    const verifyRes = await verifyStateTeamOtp({ workEmail: email, code: loginOtp! });
+    expect(verifyRes.success).toBe(true);
+    expect(verifyRes.status).toBe('APPROVED');
+    expect(verifyRes.session?.allowedStates).toEqual(['Karnataka']);
+    expect(verifyRes.sessionToken).toBeDefined();
   });
 });

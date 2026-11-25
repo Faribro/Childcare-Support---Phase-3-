@@ -491,6 +491,7 @@ export async function sendStateTeamOtpEmail({
   maxRedemptions = 50,
   isPreApproved = false,
   personalPassword,
+  isLoginOtp = false,
 }: {
   to: string;
   name: string;
@@ -502,11 +503,14 @@ export async function sendStateTeamOtpEmail({
   maxRedemptions?: number;
   isPreApproved?: boolean;
   personalPassword?: string;
+  isLoginOtp?: boolean;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
-  const subject = invitationCode
-    ? `Your State Team Verification & Field Invitation Code — ${state}`
-    : `Your State Team Verification Code — ${state}`;
+  const subject = isLoginOtp
+    ? `Your State Team Sign-In Verification Code — ${state}`
+    : invitationCode
+      ? `Your State Team Verification & Field Invitation Code — ${state}`
+      : `Your State Team Verification Code — ${state}`;
 
   const personalPasswordHtml = personalPassword
     ? `
@@ -589,10 +593,12 @@ export async function sendStateTeamOtpEmail({
           <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello <strong>${name}</strong>,</p>
 
           <div style="margin-bottom: 24px;">
-            <span style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">SECTION A</span>
-            <h2 style="color: #0f172a; font-size: 17px; font-weight: 700; margin: 0 0 8px 0;">Your personal email verification code</h2>
+            <span style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">${isLoginOtp ? 'SIGN-IN VERIFICATION' : 'SECTION A'}</span>
+            <h2 style="color: #0f172a; font-size: 17px; font-weight: 700; margin: 0 0 8px 0;">${isLoginOtp ? 'Your State Team sign-in code' : 'Your personal email verification code'}</h2>
             <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 14px;">
-              Your one-time verification code for state-team staff registration (${state}) is:
+              ${isLoginOtp
+                ? `Use the one-time verification code below to sign in to your approved State Team workspace (${state}):`
+                : `Your one-time verification code for State Team access verification (${state}) is:`}
             </p>
 
             <div style="background-color: #f1f5f9; border: 1.5px solid #cbd5e1; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 14px;">
@@ -603,12 +609,14 @@ export async function sendStateTeamOtpEmail({
 
             <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px;">
               <p style="color: #b91c1c; font-size: 12px; font-weight: 600; line-height: 1.5; margin: 0;">
-                ⚠️ For your email verification only. Do NOT share this code with field users or caseworkers.
+                ⚠️ For your personal verification only. Do NOT share this code with anyone else.
               </p>
             </div>
 
             <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
-              This code expires in <strong>${expiryMinutes} minutes</strong>. Verifying your email confirms ownership of your address. State-level administrative authority is granted upon programme approval.
+              ${isLoginOtp
+                ? `This sign-in code expires in <strong>${expiryMinutes} minutes</strong>.`
+                : `This code expires in <strong>${expiryMinutes} minutes</strong>. Verifying your email confirms ownership of your address. Access requires an Administration invitation or approval.`}
             </p>
           </div>
 
@@ -663,11 +671,15 @@ Instructions for authorized caseworkers:
 4. Enter invitation code (${invitationCode}) to activate access for ${state}
 
 Share privately with authorized field caseworkers only.`.trim()
-    : `Your State Team verification code for ${state} is: ${code}
+    : isLoginOtp
+      ? `Your State Team sign-in verification code for ${state} is: ${code}
 
 This code expires in ${expiryMinutes} minutes.
-For your email verification only. Do not share.
-${personalPasswordText}`.trim();
+For your personal sign-in only. Do not share.`
+      : `Your State Team verification code for ${state} is: ${code}
+
+This code expires in ${expiryMinutes} minutes.
+For your email verification only. Do not share.`.trim();
 
   return provider.sendEmail({
     to,
@@ -980,18 +992,18 @@ export async function sendCoordinatorApprovalNotificationEmail({
           </p>
 
           <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 18px; margin-bottom: 24px; font-size: 13px; color: #064e3b; line-height: 1.6;">
-            <strong>Your Field Team Invitation Code is Now Active:</strong><br/>
-            The field-team invitation code provided in your original registration email is now fully active and authorized for caseworker onboarding in ${state}.
+            <strong>Your State Team Access is Active (${state}):</strong><br/>
+            Sign in using Email OTP under Staff Access &rarr; State Team to access state review and issue field-team invitations.
           </div>
 
           <div style="text-align: center; margin: 28px 0;">
             <a href="${portalUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
-              Sign In to State Evaluation Portal
+              Sign In to State Team Workspace
             </a>
           </div>
 
           <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
-            To log in, simply enter your registered email at the portal to receive a 6-digit sign-in code.
+            To sign in, open Staff Access &rarr; State Team and choose Sign in with email OTP.
           </p>
         </div>
       </body>
@@ -1003,9 +1015,9 @@ State Team Coordinator Registration Approved:
 
 Dear ${coordinatorName},
 
-Your registration for ${state} has been approved. Your field-team invitation code is now active.
+Your registration for ${state} has been approved by Administration.
 
-You may sign in to the State Evaluation portal:
+Sign in using Email OTP under Staff Access -> State Team at:
 ${portalUrl}
   `.trim();
 
@@ -1015,6 +1027,93 @@ ${portalUrl}
     html,
     text,
     otp: `tx-${Date.now()}`,
+    action: 'send_transactional_email',
+  });
+}
+
+
+/**
+ * Sends a single-use, email-bound, expiring State Team access invitation issued by Administration.
+ */
+export async function sendStateTeamAccessInvitationEmail({
+  to,
+  assignedState,
+  plainCode,
+  issuedBy,
+  expiresAtIso,
+  portalUrl,
+}: {
+  to: string;
+  assignedState: string;
+  plainCode: string;
+  issuedBy: string;
+  expiresAtIso: string;
+  portalUrl: string;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const subject = `State Team Access Invitation — ${assignedState}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
+            <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
+            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — State Team Access Invitation</p>
+          </div>
+
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello,</p>
+
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+            Administration (${issuedBy}) has issued a single-use State Team access invitation bound to <strong>${to}</strong> for <strong>${assignedState}</strong>.
+          </p>
+
+          <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">Single-Use State Team Access Code</span>
+            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 22px; font-weight: 800; letter-spacing: 0.12em; color: #064e3b; word-break: break-all; display: block;">
+              ${plainCode}
+            </code>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.6;">
+            <ul style="margin: 0; padding-left: 18px;">
+              <li><strong>Bound Email:</strong> Valid only for <strong>${to}</strong> after email OTP verification.</li>
+              <li><strong>Assigned State Scope:</strong> ${assignedState}</li>
+              <li><strong>Redemption Limit:</strong> Single-use only.</li>
+              <li><strong>Expires At:</strong> ${expiresAtIso}</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${portalUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+              Complete State Team Setup
+            </a>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+State Team Access Invitation (${assignedState})
+
+Issued by: ${issuedBy}
+Bound email: ${to}
+Assigned state: ${assignedState}
+Single-use invitation code: ${plainCode}
+Expires at: ${expiresAtIso}
+
+Open Staff Access -> State Team -> Request access and enter this invitation code along with your email verification OTP:
+${portalUrl}
+  `.trim();
+
+  return provider.sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    otp: plainCode,
     action: 'send_transactional_email',
   });
 }

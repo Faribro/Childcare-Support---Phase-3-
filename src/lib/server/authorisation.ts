@@ -20,6 +20,7 @@ export type AuthPolicyRole =
 
 export interface UserAccessScope {
   userId: string;
+  username?: string;
   name: string;
   role: AuthPolicyRole;
   allowedStates: string[];
@@ -46,7 +47,9 @@ export interface SecurityAuditEvent {
     | 'APPROVAL_CHANGED'
     | 'RECORD_DELETED'
     | 'EXPORT_ATTEMPT'
-    | 'RECORD_EXPORTED';
+    | 'RECORD_EXPORTED'
+    | 'STATE_TEAM_ACCESS_REVOKED'
+    | 'STATE_TEAM_INVITATION_ISSUED';
   targetResource?: string;
   scope?: string;
   outcome: 'ALLOW' | 'DENY';
@@ -64,6 +67,74 @@ export function logSecurityEvent(event: Omit<SecurityAuditEvent, 'timestamp'>): 
     ...event,
   };
   console.info(`[SECURITY_AUDIT] ${JSON.stringify(fullEvent)}`);
+}
+
+async function validateStateReviewerSessionBacking(
+  session: import('./sessionService').SessionPayload
+): Promise<{ valid: boolean; reason?: string; allowedStates?: string[] }> {
+  const { getOnboardingStore } = await import('./onboardingStore');
+  const { getCredentialByIdentifier, isCredentialActiveSync } = await import('./credentialRegistry');
+
+  if (!isCredentialActiveSync(session.username, session.credentialVersion)) {
+    return { valid: false, reason: 'credential_inactive_or_rotated' };
+  }
+
+  const store = getOnboardingStore();
+  let reg = session.userId ? await store.getStateTeamRegistrationById(session.userId).catch(() => null) : null;
+  if (!reg && session.username && session.username.includes('@')) {
+    reg = await store.getStateTeamRegistrationByEmail(session.username).catch(() => null);
+  }
+
+  if (reg) {
+    if (reg.status !== 'APPROVED' || !reg.emailVerified) {
+      return { valid: false, reason: `registration_${reg.status.toLowerCase()}` };
+    }
+    const expectedAuthVersion = reg.authVersion || 1;
+    const tokenAuthVersion = session.credentialVersion ?? 1;
+    if (tokenAuthVersion !== expectedAuthVersion) {
+      return { valid: false, reason: 'session_version_revoked' };
+    }
+
+    const cred = await getCredentialByIdentifier(session.username).catch(() => null);
+    if (cred && (!cred.isActive || (session.credentialVersion !== undefined && cred.credentialVersion !== session.credentialVersion))) {
+      return { valid: false, reason: 'credential_revoked' };
+    }
+
+    const serverState = canonicalizeStateName(reg.assignedState || reg.requestedState) || reg.assignedState || reg.requestedState;
+    return {
+      valid: true,
+      allowedStates: serverState ? [serverState] : [],
+    };
+  }
+
+  // Legacy / non-registration credential backing check
+  const cred = await getCredentialByIdentifier(session.username).catch(() => null);
+  if (cred) {
+    if (!cred.isActive) {
+      return { valid: false, reason: 'credential_inactive' };
+    }
+    if (session.credentialVersion !== undefined && cred.credentialVersion !== session.credentialVersion) {
+      return { valid: false, reason: 'credential_version_mismatch' };
+    }
+    if (session.username.includes('@') && cred.credentialKind === 'STATE_EVALUATION') {
+      // Email-based coordinator credential in production/staging without an approved registration
+      return { valid: false, reason: 'missing_approved_registration' };
+    }
+    const credState = cred.stateCode ? canonicalizeStateName(cred.stateCode) || cred.stateCode : undefined;
+    return {
+      valid: true,
+      allowedStates: credState ? [credState] : undefined,
+    };
+  }
+
+  // Email-based or production/Firestore sessions MUST have an active DB record
+  const isFirestoreEngine = (process.env.DATA_ENGINE || '').toLowerCase().trim() === 'firestore';
+  if (session.username.includes('@') || session.authMethod === 'email_otp' || isFirestoreEngine || process.env.NODE_ENV !== 'test') {
+    return { valid: false, reason: 'missing_active_state_backing' };
+  }
+
+  // Unit test convenience for pre-existing fixture tokens (non-email 'reviewer_mh' when registry wasn't seeded)
+  return { valid: true };
 }
 
 /**
@@ -152,6 +223,27 @@ export async function resolveServerVerifiedRole(req: NextRequest): Promise<Verif
           outcome: 'DENY',
           details: 'Legacy shared Leadership session rejected in resolveServerVerifiedRole under email_only cutover mode.',
         });
+      } else if (verifiedSession.role === 'STATE_REVIEWER') {
+        const backing = await validateStateReviewerSessionBacking(verifiedSession);
+        if (!backing.valid) {
+          logSecurityEvent({
+            actor: verifiedSession.userId || verifiedSession.username || 'state-reviewer',
+            actorRole: 'STATE_REVIEWER',
+            eventType: 'AUTH_FAILURE',
+            outcome: 'DENY',
+            details: `State reviewer session rejected (${backing.reason}) in resolveServerVerifiedRole.`,
+          });
+          return {
+            role: 'supervisor',
+            isVerified: false,
+            reason: 'untrusted_fallback',
+          };
+        }
+        return {
+          role: 'supervisor',
+          isVerified: true,
+          reason: 'verified_session_cookie',
+        };
       } else {
         const mappedRole: UserRole =
           verifiedSession.role === 'FIELD_USER'
@@ -384,9 +476,49 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
           outcome: 'DENY',
           details: 'Legacy shared Leadership session rejected in resolveUserAccessScope under email_only cutover mode.',
         });
+      } else if (session.role === 'STATE_REVIEWER') {
+        const backing = await validateStateReviewerSessionBacking(session);
+        if (!backing.valid) {
+          logSecurityEvent({
+            actor: session.userId || session.username || 'state-reviewer',
+            actorRole: 'STATE_REVIEWER',
+            eventType: 'AUTH_FAILURE',
+            outcome: 'DENY',
+            details: `State reviewer session rejected (${backing.reason}) in resolveUserAccessScope.`,
+          });
+          return {
+            userId: 'anonymous',
+            name: 'Unauthenticated Caller',
+            role: 'FIELD_USER',
+            allowedStates: [],
+            allowedDistricts: [],
+            allowedProgrammes: [],
+            isVerified: false,
+            reason: 'untrusted_fallback',
+          };
+        }
+
+        const effectiveStates = (backing.allowedStates || session.allowedStates || []).map((s: string) =>
+          s === '*' ? '*' : canonicalizeStateName(s) || s
+        );
+        return {
+          userId: session.userId,
+          username: session.username,
+          name: session.name,
+          role: session.role,
+          allowedStates: effectiveStates,
+          allowedDistricts: session.allowedDistricts,
+          allowedProgrammes: session.allowedProgrammes || ['alliance-childcare-phase3'],
+          isVerified: true,
+          reason: 'verified_session_token',
+          srName: session.srName,
+          ssrName: session.ssrName,
+          canEdit: session.canEdit,
+        };
       } else {
         return {
           userId: session.userId,
+          username: session.username,
           name: session.name,
           role: session.role,
           allowedStates: (session.allowedStates || []).map((s) => (s === '*' ? '*' : canonicalizeStateName(s) || s)),

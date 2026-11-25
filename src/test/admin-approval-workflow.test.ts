@@ -14,9 +14,23 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
   let adminSessionToken: string;
   let stateReviewerToken: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.SESSION_SECRET = 'a'.repeat(64);
     process.env.ADMIN_NOTIFICATION_EMAIL = 'fsayyed@allianceindia.org';
+
+    store = new MemoryOnboardingStore();
+    setOnboardingStoreForTesting(store);
+    MockEmailStore.clear();
+
+    const reviewerReg = await store.createStateTeamRegistration({
+      firstName: 'Maharashtra',
+      lastName: 'Coordinator',
+      workEmail: 'coord.mh@partner.org',
+      requestedState: 'Maharashtra',
+      organization: 'Alliance Partner',
+    });
+    await store.verifyStateTeamEmail('coord.mh@partner.org');
+    await store.approveStateTeamRegistration(reviewerReg.id, 'admin-01', 'Maharashtra');
 
     adminSessionToken = createSessionToken({
       userId: 'admin-01',
@@ -28,17 +42,14 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
     });
 
     stateReviewerToken = createSessionToken({
-      userId: 'coord-mh-01',
+      userId: reviewerReg.id,
       username: 'coord.mh@partner.org',
       name: 'Maharashtra Coordinator',
       role: 'STATE_REVIEWER',
       allowedStates: ['Maharashtra'],
       allowedDistricts: ['*'],
+      credentialVersion: 1,
     });
-
-    store = new MemoryOnboardingStore();
-    setOnboardingStoreForTesting(store);
-    MockEmailStore.clear();
   });
 
   afterEach(() => {
@@ -102,7 +113,7 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
     });
     expect(regRes.success).toBe(true);
 
-    const otpCode = regRes.otp!;
+    const otpCode = MockEmailStore.getLastFor('faridsayyed1010@gmail.com')?.otp!;
     MockEmailStore.clear(); // Clear signup emails to observe only verification emails
 
     // Verify OTP
@@ -138,7 +149,7 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
       requestedState: 'Delhi',
       organization: 'Child Support Trust',
     });
-    const otpCode = regRes.otp!;
+    const otpCode = MockEmailStore.getLastFor('pooja.sharma@ngo-india.org')?.otp!;
     MockEmailStore.clear();
 
     // Verify OTP 1st time
@@ -219,7 +230,7 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
       requestedState: 'Maharashtra',
       organization: 'Alliance Partner',
     });
-    const otpCode = regRes.otp!;
+    const otpCode = MockEmailStore.getLastFor('faridsayyed1010@gmail.com')?.otp!;
 
     // 2. Coordinator verifies email OTP
     await verifyStateTeamOtp({
@@ -227,9 +238,9 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
       code: otpCode,
     });
 
-    // 3. Before approval, check that invitation exists but is not yet active for field users
-    const inv = await store.getActiveInvitationForCoordinator(regRes.registration.id);
-    expect(inv).toBeDefined();
+    // 3. Before approval, ZERO field-team invitations exist and ZERO credentials are granted
+    const invBeforeApproval = await store.getActiveInvitationForCoordinator(regRes.registration.id);
+    expect(invBeforeApproval).toBeNull();
 
     // 4. Admin approves registration
     MockEmailStore.clear();
@@ -258,9 +269,11 @@ describe('Administrator Review & Approval Workflow (End-to-End)', () => {
     expect(coordEmail!.text).toContain('Farid Sayyed');
     expect(coordEmail!.text).toContain('Maharashtra');
 
-    // 7. Check that existing invitation is now valid without generating duplicates
+    // 7. After approval, coordinator can issue a valid field-team invitation
+    const { issueStateTeamInvitation } = await import('@/lib/server/stateTeamAuthChallenge');
+    const issued = await issueStateTeamInvitation({ stateTeamId: regRes.registration.id, state: 'Maharashtra' });
     const invAfterApproval = await store.getActiveInvitationForCoordinator(regRes.registration.id);
-    expect(invAfterApproval!.id).toBe(inv!.id); // EXACT SAME INVITATION, ZERO DUPLICATE!
+    expect(invAfterApproval!.id).toBe(issued.invitationId);
   });
 
   it('8. Rejects registration with reason and records in notes', async () => {

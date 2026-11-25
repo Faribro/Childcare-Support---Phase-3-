@@ -153,7 +153,12 @@ export async function POST(
     // Enforce FIELD_USER own-record policy and non-wildcard state/district boundaries
     if (scope.role === 'FIELD_USER' || !scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
       const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
-      if (scope.role === 'FIELD_USER' && (existing.status !== 'success' || !existing.data)) {
+      if (
+      (scope.role === 'FIELD_USER' ||
+        !scope.allowedStates.includes('*') ||
+        !scope.allowedDistricts.includes('*')) &&
+      (existing.status !== 'success' || !existing.data)
+    ) {
         return NextResponse.json(
           { status: 'error', code: 'NOT_FOUND', message: `Record ${submissionId} not found`, requestId },
           { status: 404, headers: ASSET_NO_STORE_HEADERS }
@@ -1096,7 +1101,12 @@ export async function PUT(
     // Enforce FIELD_USER own-record policy and non-wildcard state/district boundaries
     if (scope.role === 'FIELD_USER' || !scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
       const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
-      if (scope.role === 'FIELD_USER' && (existing.status !== 'success' || !existing.data)) {
+      if (
+      (scope.role === 'FIELD_USER' ||
+        !scope.allowedStates.includes('*') ||
+        !scope.allowedDistricts.includes('*')) &&
+      (existing.status !== 'success' || !existing.data)
+    ) {
         return NextResponse.json(
           { status: 'error', code: 'NOT_FOUND', message: `Record ${submissionId} not found`, requestId },
           { status: 404, headers: ASSET_NO_STORE_HEADERS }

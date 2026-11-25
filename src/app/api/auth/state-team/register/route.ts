@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'error', error: 'Malformed JSON payload' }, { status: 400 });
   }
 
-  const { firstName, lastName, workEmail, requestedState, organization } = body || {};
+  const { firstName, lastName, workEmail, requestedState, organization, invitationCode } = body || {};
 
   try {
     const result = await requestStateTeamOtp({
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       workEmail,
       requestedState,
       organization,
+      invitationCode,
     });
 
     if (!result.success) {

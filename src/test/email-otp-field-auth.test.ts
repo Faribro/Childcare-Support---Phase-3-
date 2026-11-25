@@ -41,9 +41,9 @@ describe('Field Worker Email OTP Authentication & Account Recovery Suite', () =>
       workEmail: 'anjali@allianceindia.org',
       requestedState: 'Maharashtra',
       organization: 'Alliance India MH State Office',
-      autoApprove: true,
     });
     await store.verifyStateTeamEmail(reg.workEmail);
+    await store.approveStateTeamRegistration(reg.id, 'admin-01', 'Maharashtra');
 
     const inv = await issueStateTeamInvitation({ stateTeamId: reg.id });
     invitationCode = inv.plainInvitationCode;

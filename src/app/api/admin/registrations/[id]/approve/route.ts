@@ -84,9 +84,24 @@ export async function POST(
     );
   }
 
-  // 5. Approve registration
+  // 5. Optional server-assigned state override supplied by Administration
+  let body: any = null;
+  try {
+    body = await req.json().catch(() => null);
+  } catch {
+    body = null;
+  }
+  const requestedAssignedState =
+    typeof body?.assignedState === 'string' && body.assignedState.trim()
+      ? body.assignedState.trim()
+      : typeof body?.state === 'string' && body.state.trim()
+        ? body.state.trim()
+        : undefined;
+  const effectiveState = requestedAssignedState || registration.assignedState || registration.requestedState;
+
+  // 6. Approve registration with server-assigned state scope
   const approverIdentifier = scope.name ? `${scope.name} (${scope.userId})` : scope.userId;
-  const approved = await store.approveStateTeamRegistration(registrationId, approverIdentifier);
+  const approved = await store.approveStateTeamRegistration(registrationId, approverIdentifier, effectiveState);
 
   if (!approved) {
     return NextResponse.json(
@@ -95,24 +110,24 @@ export async function POST(
     );
   }
 
-  // 6. Record security audit event
+  // 7. Record security audit event
   logSecurityEvent({
     actor: scope.userId,
     actorRole: scope.role,
     eventType: 'APPROVAL_CHANGED',
     targetResource: `state_team_registration:${registrationId}`,
-    scope: registration.requestedState,
+    scope: effectiveState,
     outcome: 'ALLOW',
-    details: `Coordinator registration approved by ${approverIdentifier} for state: ${registration.requestedState}`,
+    details: `Coordinator registration approved by ${approverIdentifier} for state: ${effectiveState}`,
   });
 
-  // 7. Dispatch approval notification to coordinator
+  // 8. Dispatch approval notification to coordinator
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://childcare-support-phase-3.vercel.app';
   try {
     await sendCoordinatorApprovalNotificationEmail({
       coordinatorEmail: registration.workEmail,
       coordinatorName: `${registration.firstName} ${registration.lastName}`.trim(),
-      state: registration.requestedState,
+      state: effectiveState,
       portalUrl: appUrl,
     });
   } catch (err: any) {
@@ -124,7 +139,7 @@ export async function POST(
   return NextResponse.json(
     {
       status: 'success',
-      message: `Registration for ${registration.workEmail} successfully approved for ${registration.requestedState}.`,
+      message: `Registration for ${registration.workEmail} successfully approved for ${effectiveState}.`,
       data: {
         registration: updated,
       },

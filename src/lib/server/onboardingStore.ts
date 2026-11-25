@@ -13,20 +13,28 @@ import crypto from 'crypto';
 import type {
   StateTeamRegistration,
   StateTeamInvitation,
+  StateTeamAccessInvitation,
   FieldUserProfile,
   StateTeamRegistrationStatus,
 } from '@/lib/types/onboarding';
+import { DuplicateRegistrationError } from '@/lib/types/onboarding';
 import {
   verifyInvitationCode,
   DEFAULT_INVITATION_EXPIRY_MS,
   DEFAULT_MAX_REDEMPTIONS,
 } from './invitationCrypto';
 import { validateFirestoreDatabaseEnvironment } from './firestoreSubmissionAdapter';
-import { getFirestoreDb, sanitizeIpForDocId } from './credentialRegistry';
+import {
+  getFirestoreDb,
+  sanitizeIpForDocId,
+  deactivateCredential,
+  deactivateCredentialInFirestore,
+} from './credentialRegistry';
 import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
 
 export const STATE_TEAM_REGISTRATIONS_COLLECTION = 'state_team_registrations';
 export const STATE_TEAM_INVITATIONS_COLLECTION = 'state_team_invitations';
+export const STATE_TEAM_ACCESS_INVITATIONS_COLLECTION = 'state_team_access_invitations';
 export const STATE_TEAM_CHALLENGES_COLLECTION = 'state_team_challenges';
 export const FIELD_USER_PROFILES_COLLECTION = 'field_user_profiles';
 
@@ -54,14 +62,50 @@ export interface OnboardingStore {
     organization: string;
     autoApprove?: boolean;
     notes?: string;
+    invitationId?: string;
+    assignedState?: string;
   }): Promise<StateTeamRegistration>;
   getStateTeamRegistrationById(id: string): Promise<StateTeamRegistration | null>;
   getStateTeamRegistrationByEmail(email: string): Promise<StateTeamRegistration | null>;
   verifyStateTeamEmail(email: string): Promise<boolean>;
-  approveStateTeamRegistration(id: string, approvedBy: string): Promise<boolean>;
+  approveStateTeamRegistration(id: string, approvedBy: string, assignedState?: string): Promise<boolean>;
   rejectStateTeamRegistration(id: string, rejectedBy: string, reason?: string): Promise<boolean>;
+  revokeStateTeamRegistration(id: string, revokedBy: string, reason?: string): Promise<boolean>;
   updateRegistrationNotes(id: string, notes: string): Promise<boolean>;
   listStateTeamRegistrations(): Promise<StateTeamRegistration[]>;
+
+  createStateTeamAccessInvitation(data: {
+    invitedEmail: string;
+    assignedState: string;
+    codeSalt: string;
+    codeVerifier: string;
+    issuedBy: string;
+    expiresAt: number;
+    note?: string;
+  }): Promise<StateTeamAccessInvitation>;
+  listStateTeamAccessInvitations(): Promise<StateTeamAccessInvitation[]>;
+  findValidStateTeamAccessInvitation(params: {
+    invitedEmail: string;
+    plainCode: string;
+    now?: number;
+  }): Promise<{
+    valid: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }>;
+  atomicRedeemStateTeamAccessInvitation(params: {
+    invitationId: string;
+    invitedEmail: string;
+    registrationId: string;
+    now?: number;
+  }): Promise<{
+    success: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }>;
+  revokeStateTeamAccessInvitation(id: string, revokedBy: string): Promise<boolean>;
 
   // State Team Invitations
   createInvitation(params: {
@@ -128,6 +172,7 @@ export interface OnboardingStore {
 export class MemoryOnboardingStore implements OnboardingStore {
   private registrations: Map<string, StateTeamRegistration> = new Map();
   private invitations: Map<string, StateTeamInvitation> = new Map();
+  private accessInvitations: Map<string, StateTeamAccessInvitation> = new Map();
   private fieldProfiles: Map<string, FieldUserProfile> = new Map();
   private rateLimitEvents: Map<string, number[]> = new Map();
 
@@ -174,10 +219,26 @@ export class MemoryOnboardingStore implements OnboardingStore {
     organization: string;
     autoApprove?: boolean;
     notes?: string;
+    invitationId?: string;
+    assignedState?: string;
   }): Promise<StateTeamRegistration> {
     const normEmail = data.workEmail.trim().toLowerCase();
+    const canonicalRequested = canonicalizeStateName(data.requestedState) || data.requestedState.trim();
     const existing = await this.getStateTeamRegistrationByEmail(normEmail);
     if (existing) {
+      const existingCanon = (canonicalizeStateName(existing.requestedState) || existing.requestedState).toLowerCase();
+      if (
+        existing.status === 'APPROVED' ||
+        existing.emailVerified ||
+        existing.status === 'REJECTED' ||
+        existing.status === 'SUSPENDED' ||
+        existing.status === 'REVOKED' ||
+        existingCanon !== canonicalRequested.toLowerCase()
+      ) {
+        throw new DuplicateRegistrationError(
+          'An account or registration for this work email already exists and cannot be overwritten via self-registration.'
+        );
+      }
       return existing;
     }
 
@@ -187,14 +248,20 @@ export class MemoryOnboardingStore implements OnboardingStore {
       firstName: data.firstName.trim(),
       lastName: (data.lastName || '').trim(),
       workEmail: normEmail,
-      requestedState: data.requestedState.trim(),
+      requestedState: canonicalRequested,
+      assignedState: data.assignedState ? canonicalizeStateName(data.assignedState) : null,
       organization: data.organization.trim(),
-      status: data.autoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
+      status: 'PENDING_APPROVAL',
       emailVerified: false,
       createdAt: now,
       updatedAt: now,
-      approvedBy: data.autoApprove ? 'SYSTEM_ALLOWLIST' : null,
-      approvedAt: data.autoApprove ? now : null,
+      approvedBy: null,
+      approvedAt: null,
+      revokedBy: null,
+      revokedAt: null,
+      revocationReason: null,
+      authVersion: 1,
+      invitationId: data.invitationId || null,
       notes: data.notes,
     };
     this.registrations.set(reg.id, reg);
@@ -224,13 +291,19 @@ export class MemoryOnboardingStore implements OnboardingStore {
     return true;
   }
 
-  async approveStateTeamRegistration(id: string, approvedBy: string): Promise<boolean> {
+  async approveStateTeamRegistration(id: string, approvedBy: string, assignedState?: string): Promise<boolean> {
     const reg = this.registrations.get(id);
     if (!reg) return false;
+    const now = Date.now();
     reg.status = 'APPROVED';
     reg.approvedBy = approvedBy;
-    reg.approvedAt = Date.now();
-    reg.updatedAt = Date.now();
+    reg.approvedAt = now;
+    reg.assignedState = canonicalizeStateName(assignedState || reg.assignedState || reg.requestedState);
+    reg.revokedBy = null;
+    reg.revokedAt = null;
+    reg.revocationReason = null;
+    reg.authVersion = Math.max(1, reg.authVersion || 1);
+    reg.updatedAt = now;
     this.registrations.set(reg.id, reg);
     return true;
   }
@@ -239,6 +312,7 @@ export class MemoryOnboardingStore implements OnboardingStore {
     const reg = this.registrations.get(id);
     if (!reg) return false;
     reg.status = 'REJECTED';
+    reg.authVersion = (reg.authVersion || 1) + 1;
     let notesObj: any = {};
     try {
       if (reg.notes) notesObj = JSON.parse(reg.notes);
@@ -249,6 +323,38 @@ export class MemoryOnboardingStore implements OnboardingStore {
     reg.notes = JSON.stringify(notesObj);
     reg.updatedAt = Date.now();
     this.registrations.set(reg.id, reg);
+    deactivateCredential(reg.workEmail);
+    return true;
+  }
+
+  async revokeStateTeamRegistration(id: string, revokedBy: string, reason?: string): Promise<boolean> {
+    const reg = this.registrations.get(id);
+    if (!reg) return false;
+    const now = Date.now();
+    const revokeReason = reason || 'Access revoked by administrator';
+    reg.status = 'REVOKED';
+    reg.revokedBy = revokedBy;
+    reg.revokedAt = now;
+    reg.revocationReason = revokeReason;
+    reg.authVersion = (reg.authVersion || 1) + 1;
+    let notesObj: any = {};
+    try {
+      if (reg.notes) notesObj = JSON.parse(reg.notes);
+    } catch {
+      notesObj = { text: reg.notes };
+    }
+    notesObj.revocation = { revokedBy, reason: revokeReason, revokedAt: now };
+    reg.notes = JSON.stringify(notesObj);
+    reg.updatedAt = now;
+    this.registrations.set(reg.id, reg);
+    deactivateCredential(reg.workEmail);
+    for (const inv of this.invitations.values()) {
+      if (inv.stateTeamId === id && inv.status === 'ACTIVE') {
+        inv.status = 'REVOKED';
+        inv.revokedAt = now;
+        this.invitations.set(inv.id, inv);
+      }
+    }
     return true;
   }
 
@@ -263,6 +369,113 @@ export class MemoryOnboardingStore implements OnboardingStore {
 
   async listStateTeamRegistrations(): Promise<StateTeamRegistration[]> {
     return Array.from(this.registrations.values());
+  }
+
+  async createStateTeamAccessInvitation(data: {
+    invitedEmail: string;
+    assignedState: string;
+    codeSalt: string;
+    codeVerifier: string;
+    issuedBy: string;
+    expiresAt: number;
+    note?: string;
+  }): Promise<StateTeamAccessInvitation> {
+    const inv: StateTeamAccessInvitation = {
+      id: `st_acc_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
+      invitedEmail: data.invitedEmail.trim().toLowerCase(),
+      assignedState: canonicalizeStateName(data.assignedState) || data.assignedState.trim(),
+      codeSalt: data.codeSalt,
+      codeVerifier: data.codeVerifier,
+      status: 'ACTIVE',
+      issuedBy: data.issuedBy,
+      issuedAt: Date.now(),
+      expiresAt: data.expiresAt,
+      redeemedAt: null,
+      redeemedByRegistrationId: null,
+      revokedBy: null,
+      revokedAt: null,
+      note: data.note,
+    };
+    this.accessInvitations.set(inv.id, inv);
+    return { ...inv };
+  }
+
+  async listStateTeamAccessInvitations(): Promise<StateTeamAccessInvitation[]> {
+    return Array.from(this.accessInvitations.values()).sort((a, b) => b.issuedAt - a.issuedAt);
+  }
+
+  async findValidStateTeamAccessInvitation(params: {
+    invitedEmail: string;
+    plainCode: string;
+    now?: number;
+  }): Promise<{
+    valid: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }> {
+    const normEmail = params.invitedEmail.trim().toLowerCase();
+    const now = params.now ?? Date.now();
+    for (const inv of this.accessInvitations.values()) {
+      if (verifyInvitationCode(params.plainCode, inv.codeSalt, inv.codeVerifier)) {
+        if (inv.invitedEmail !== normEmail) {
+          return { valid: false, statusCode: 403, error: 'This invitation code is bound to a different email address.' };
+        }
+        if (inv.status === 'REVOKED') {
+          return { valid: false, statusCode: 403, error: 'This invitation code has been revoked.' };
+        }
+        if (inv.status === 'REDEEMED') {
+          return { valid: false, statusCode: 409, error: 'This single-use invitation code has already been used.' };
+        }
+        if (inv.expiresAt <= now) {
+          inv.status = 'EXPIRED';
+          this.accessInvitations.set(inv.id, inv);
+          return { valid: false, statusCode: 410, error: 'This invitation code has expired.' };
+        }
+        return { valid: true, statusCode: 200, invitation: { ...inv } };
+      }
+    }
+    return { valid: false, statusCode: 403, error: 'Invalid State Team invitation code.' };
+  }
+
+  async atomicRedeemStateTeamAccessInvitation(params: {
+    invitationId: string;
+    invitedEmail: string;
+    registrationId: string;
+    now?: number;
+  }): Promise<{
+    success: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }> {
+    const inv = this.accessInvitations.get(params.invitationId);
+    const now = params.now ?? Date.now();
+    const normEmail = params.invitedEmail.trim().toLowerCase();
+    if (!inv) return { success: false, statusCode: 404, error: 'Invitation not found.' };
+    if (inv.invitedEmail !== normEmail) return { success: false, statusCode: 403, error: 'Invitation email mismatch.' };
+    if (inv.status === 'REVOKED') return { success: false, statusCode: 403, error: 'Invitation has been revoked.' };
+    if (inv.status === 'REDEEMED') return { success: false, statusCode: 409, error: 'Invitation has already been redeemed.' };
+    if (inv.expiresAt <= now) {
+      inv.status = 'EXPIRED';
+      this.accessInvitations.set(inv.id, inv);
+      return { success: false, statusCode: 410, error: 'Invitation has expired.' };
+    }
+    inv.status = 'REDEEMED';
+    inv.redeemedAt = now;
+    inv.redeemedByRegistrationId = params.registrationId;
+    this.accessInvitations.set(inv.id, inv);
+    return { success: true, statusCode: 200, invitation: { ...inv } };
+  }
+
+  async revokeStateTeamAccessInvitation(id: string, revokedBy: string): Promise<boolean> {
+    const inv = this.accessInvitations.get(id);
+    if (!inv) return false;
+    inv.status = 'REVOKED';
+    inv.revokedBy = revokedBy;
+    inv.revokedAt = Date.now();
+    this.accessInvitations.set(inv.id, inv);
+    return true;
   }
 
   async createInvitation(params: {
@@ -623,8 +836,10 @@ export class MemoryOnboardingStore implements OnboardingStore {
   clear(): void {
     this.registrations.clear();
     this.invitations.clear();
+    this.accessInvitations.clear();
     this.fieldProfiles.clear();
     this.rateLimitEvents.clear();
+    this.stateTeamChallenges.clear();
   }
 }
 
@@ -670,8 +885,14 @@ export class UnavailableOnboardingStore implements OnboardingStore {
   async verifyStateTeamEmail(): Promise<boolean> { throw new Error(this.reason); }
   async approveStateTeamRegistration(): Promise<boolean> { throw new Error(this.reason); }
   async rejectStateTeamRegistration(): Promise<boolean> { throw new Error(this.reason); }
+  async revokeStateTeamRegistration(): Promise<boolean> { throw new Error(this.reason); }
   async updateRegistrationNotes(): Promise<boolean> { throw new Error(this.reason); }
   async listStateTeamRegistrations(): Promise<StateTeamRegistration[]> { throw new Error(this.reason); }
+  async createStateTeamAccessInvitation(): Promise<StateTeamAccessInvitation> { throw new Error(this.reason); }
+  async listStateTeamAccessInvitations(): Promise<StateTeamAccessInvitation[]> { throw new Error(this.reason); }
+  async findValidStateTeamAccessInvitation(): Promise<any> { throw new Error(this.reason); }
+  async atomicRedeemStateTeamAccessInvitation(): Promise<any> { throw new Error(this.reason); }
+  async revokeStateTeamAccessInvitation(): Promise<boolean> { throw new Error(this.reason); }
   async createInvitation(): Promise<StateTeamInvitation> { throw new Error(this.reason); }
   async getInvitationById(): Promise<StateTeamInvitation | null> { throw new Error(this.reason); }
   async getActiveInvitationForState(): Promise<StateTeamInvitation | null> { throw new Error(this.reason); }
@@ -795,23 +1016,35 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     organization: string;
     autoApprove?: boolean;
     notes?: string;
+    invitationId?: string;
+    assignedState?: string;
   }): Promise<StateTeamRegistration> {
-    // Prevent 409 duplicate key errors: return and update existing registration
     const existing = await this.getStateTeamRegistrationByEmail(data.workEmail);
     if (existing) {
+      const requestedNorm = (canonicalizeStateName(data.requestedState) || data.requestedState.trim()).toLowerCase();
+      const existingNorm = (canonicalizeStateName(existing.requestedState) || existing.requestedState.trim()).toLowerCase();
+      if (
+        existing.status === 'APPROVED' ||
+        existing.emailVerified ||
+        existing.status === 'REJECTED' ||
+        existing.status === 'SUSPENDED' ||
+        existing.status === 'REVOKED' ||
+        requestedNorm !== existingNorm
+      ) {
+        throw new DuplicateRegistrationError(
+          'An account or registration for this work email already exists and cannot be overwritten via self-registration.'
+        );
+      }
+
       const updateUrl = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${existing.id}`;
       const updateBody: any = {
         first_name: data.firstName.trim(),
         last_name: (data.lastName || '').trim(),
-        requested_state: data.requestedState.trim(),
         organization: data.organization.trim(),
         updated_at: new Date().toISOString(),
       };
       if (data.notes !== undefined) {
         updateBody.notes = data.notes;
-      }
-      if (data.autoApprove && (existing.status === 'PENDING_APPROVAL' || existing.status === 'PENDING')) {
-        updateBody.status = 'APPROVED';
       }
       await fetch(updateUrl, {
         method: 'PATCH',
@@ -822,14 +1055,13 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         ...existing,
         firstName: data.firstName.trim(),
         lastName: (data.lastName || '').trim(),
-        requestedState: data.requestedState.trim(),
         organization: data.organization.trim(),
         notes: data.notes !== undefined ? data.notes : existing.notes,
-        status: data.autoApprove && (existing.status === 'PENDING_APPROVAL' || existing.status === 'PENDING') ? 'APPROVED' : existing.status,
       };
     }
 
     const url = `${this.baseUrl}/rest/v1/state_team_registrations`;
+    const canonicalRequested = canonicalizeStateName(data.requestedState) || data.requestedState.trim();
     const res = await fetch(url, {
       method: 'POST',
       headers: this.headers,
@@ -837,9 +1069,9 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         first_name: data.firstName.trim(),
         last_name: (data.lastName || '').trim(),
         work_email: data.workEmail.trim().toLowerCase(),
-        requested_state: data.requestedState.trim(),
+        requested_state: canonicalRequested,
         organization: data.organization.trim(),
-        status: data.autoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
+        status: 'PENDING_APPROVAL',
         notes: data.notes,
       }),
     });
@@ -857,6 +1089,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       lastName: row.last_name || '',
       workEmail: row.work_email,
       requestedState: row.requested_state,
+      assignedState: data.assignedState ? canonicalizeStateName(data.assignedState) : null,
       organization: row.organization,
       status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
       emailVerified: Boolean(row.email_verified_at),
@@ -864,6 +1097,41 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       updatedAt: new Date(row.updated_at).getTime(),
       approvedBy: row.approved_by,
       approvedAt: row.approved_at ? new Date(row.approved_at).getTime() : null,
+      authVersion: 1,
+      invitationId: data.invitationId || null,
+      notes: row.notes,
+    };
+  }
+
+  private mapSupabaseRegistrationRow(row: any): StateTeamRegistration {
+    let notesObj: any = {};
+    if (row.notes) {
+      try {
+        notesObj = JSON.parse(row.notes);
+      } catch {
+        notesObj = {};
+      }
+    }
+    const secMeta = notesObj?.__securityMeta || {};
+    return {
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name || '',
+      workEmail: row.work_email,
+      requestedState: row.requested_state,
+      assignedState: secMeta.assignedState || null,
+      organization: row.organization,
+      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
+      emailVerified: Boolean(row.email_verified_at),
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+      approvedBy: row.approved_by,
+      approvedAt: row.approved_at ? new Date(row.approved_at).getTime() : null,
+      revokedBy: secMeta.revokedBy || null,
+      revokedAt: secMeta.revokedAt || null,
+      revocationReason: secMeta.revocationReason || null,
+      authVersion: typeof secMeta.authVersion === 'number' ? secMeta.authVersion : 1,
+      invitationId: secMeta.invitationId || null,
       notes: row.notes,
     };
   }
@@ -874,22 +1142,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     if (!res.ok) return null;
     const rows = await res.json();
     if (!rows || rows.length === 0) return null;
-    const row = rows[0];
-    return {
-      id: row.id,
-      firstName: row.first_name,
-      lastName: row.last_name || '',
-      workEmail: row.work_email,
-      requestedState: row.requested_state,
-      organization: row.organization,
-      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
-      emailVerified: Boolean(row.email_verified_at),
-      createdAt: new Date(row.created_at).getTime(),
-      updatedAt: new Date(row.updated_at).getTime(),
-      approvedBy: row.approved_by,
-      approvedAt: row.approved_at ? new Date(row.approved_at).getTime() : null,
-      notes: row.notes,
-    };
+    return this.mapSupabaseRegistrationRow(rows[0]);
   }
 
   async getStateTeamRegistrationByEmail(email: string): Promise<StateTeamRegistration | null> {
@@ -899,22 +1152,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     if (!res.ok) return null;
     const rows = await res.json();
     if (!rows || rows.length === 0) return null;
-    const row = rows[0];
-    return {
-      id: row.id,
-      firstName: row.first_name,
-      lastName: row.last_name || '',
-      workEmail: row.work_email,
-      requestedState: row.requested_state,
-      organization: row.organization,
-      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
-      emailVerified: Boolean(row.email_verified_at),
-      createdAt: new Date(row.created_at).getTime(),
-      updatedAt: new Date(row.updated_at).getTime(),
-      approvedBy: row.approved_by,
-      approvedAt: row.approved_at ? new Date(row.approved_at).getTime() : null,
-      notes: row.notes,
-    };
+    return this.mapSupabaseRegistrationRow(rows[0]);
   }
 
   async verifyStateTeamEmail(email: string): Promise<boolean> {
@@ -928,7 +1166,26 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     return res.ok;
   }
 
-  async approveStateTeamRegistration(id: string, approvedBy: string): Promise<boolean> {
+  async approveStateTeamRegistration(id: string, approvedBy: string, assignedState?: string): Promise<boolean> {
+    const existing = await this.getStateTeamRegistrationById(id);
+    if (!existing) return false;
+    let notesObj: any = {};
+    if (existing.notes) {
+      try { notesObj = JSON.parse(existing.notes); } catch { notesObj = { text: existing.notes }; }
+    }
+    const authoritativeState = canonicalizeStateName(
+      assignedState || existing.assignedState || existing.requestedState
+    );
+    const nextAuthVersion = Math.max(1, existing.authVersion || 1);
+    notesObj.__securityMeta = {
+      ...(notesObj.__securityMeta || {}),
+      assignedState: authoritativeState,
+      authVersion: nextAuthVersion,
+      revokedBy: null,
+      revokedAt: null,
+      revocationReason: null,
+    };
+
     const url = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${encodeURIComponent(id)}`;
     const res = await fetch(url, {
       method: 'PATCH',
@@ -937,6 +1194,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
         status: 'APPROVED',
         approved_by: approvedBy,
         approved_at: new Date().toISOString(),
+        notes: JSON.stringify(notesObj),
         updated_at: new Date().toISOString(),
       }),
     });
@@ -945,11 +1203,16 @@ export class SupabaseOnboardingStore implements OnboardingStore {
 
   async rejectStateTeamRegistration(id: string, rejectedBy: string, reason?: string): Promise<boolean> {
     const existing = await this.getStateTeamRegistrationById(id);
+    if (!existing) return false;
     let notesObj: any = {};
-    if (existing?.notes) {
+    if (existing.notes) {
       try { notesObj = JSON.parse(existing.notes); } catch { notesObj = { text: existing.notes }; }
     }
     notesObj.rejection = { rejectedBy, reason: reason || 'Registration rejected by administrator', rejectedAt: new Date().toISOString() };
+    notesObj.__securityMeta = {
+      ...(notesObj.__securityMeta || {}),
+      authVersion: (existing.authVersion || 1) + 1,
+    };
     const url = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${encodeURIComponent(id)}`;
     const res = await fetch(url, {
       method: 'PATCH',
@@ -961,6 +1224,141 @@ export class SupabaseOnboardingStore implements OnboardingStore {
       }),
     });
     return res.ok;
+  }
+
+  async revokeStateTeamRegistration(id: string, revokedBy: string, reason?: string): Promise<boolean> {
+    const existing = await this.getStateTeamRegistrationById(id);
+    if (!existing) return false;
+    const now = Date.now();
+    const revokeReason = reason || 'Access revoked by administrator';
+    let notesObj: any = {};
+    if (existing.notes) {
+      try { notesObj = JSON.parse(existing.notes); } catch { notesObj = { text: existing.notes }; }
+    }
+    notesObj.revocation = { revokedBy, reason: revokeReason, revokedAt: new Date(now).toISOString() };
+    notesObj.__securityMeta = {
+      ...(notesObj.__securityMeta || {}),
+      revokedBy,
+      revokedAt: now,
+      revocationReason: revokeReason,
+      authVersion: (existing.authVersion || 1) + 1,
+    };
+    const url = `${this.baseUrl}/rest/v1/state_team_registrations?id=eq.${encodeURIComponent(id)}`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify({
+        status: 'REVOKED',
+        notes: JSON.stringify(notesObj),
+        updated_at: new Date(now).toISOString(),
+      }),
+    });
+    return res.ok;
+  }
+
+  private supabaseAccessInvitationsFallback = new Map<string, StateTeamAccessInvitation>();
+
+  async createStateTeamAccessInvitation(data: {
+    invitedEmail: string;
+    assignedState: string;
+    codeSalt: string;
+    codeVerifier: string;
+    issuedBy: string;
+    expiresAt: number;
+    note?: string;
+  }): Promise<StateTeamAccessInvitation> {
+    const inv: StateTeamAccessInvitation = {
+      id: `st_acc_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
+      invitedEmail: data.invitedEmail.trim().toLowerCase(),
+      assignedState: canonicalizeStateName(data.assignedState) || data.assignedState.trim(),
+      codeSalt: data.codeSalt,
+      codeVerifier: data.codeVerifier,
+      status: 'ACTIVE',
+      issuedBy: data.issuedBy,
+      issuedAt: Date.now(),
+      expiresAt: data.expiresAt,
+      redeemedAt: null,
+      redeemedByRegistrationId: null,
+      revokedBy: null,
+      revokedAt: null,
+      note: data.note,
+    };
+    this.supabaseAccessInvitationsFallback.set(inv.id, inv);
+    return { ...inv };
+  }
+
+  async listStateTeamAccessInvitations(): Promise<StateTeamAccessInvitation[]> {
+    return Array.from(this.supabaseAccessInvitationsFallback.values()).sort((a, b) => b.issuedAt - a.issuedAt);
+  }
+
+  async findValidStateTeamAccessInvitation(params: {
+    invitedEmail: string;
+    plainCode: string;
+    now?: number;
+  }): Promise<{
+    valid: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }> {
+    const normEmail = params.invitedEmail.trim().toLowerCase();
+    const now = params.now ?? Date.now();
+    for (const inv of this.supabaseAccessInvitationsFallback.values()) {
+      if (verifyInvitationCode(params.plainCode, inv.codeSalt, inv.codeVerifier)) {
+        if (inv.invitedEmail !== normEmail) {
+          return { valid: false, statusCode: 403, error: 'This invitation code is bound to a different email address.' };
+        }
+        if (inv.status === 'REVOKED') {
+          return { valid: false, statusCode: 403, error: 'This invitation code has been revoked.' };
+        }
+        if (inv.status === 'REDEEMED') {
+          return { valid: false, statusCode: 409, error: 'This single-use invitation code has already been used.' };
+        }
+        if (inv.expiresAt <= now) {
+          inv.status = 'EXPIRED';
+          return { valid: false, statusCode: 410, error: 'This invitation code has expired.' };
+        }
+        return { valid: true, statusCode: 200, invitation: { ...inv } };
+      }
+    }
+    return { valid: false, statusCode: 403, error: 'Invalid State Team invitation code.' };
+  }
+
+  async atomicRedeemStateTeamAccessInvitation(params: {
+    invitationId: string;
+    invitedEmail: string;
+    registrationId: string;
+    now?: number;
+  }): Promise<{
+    success: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }> {
+    const inv = this.supabaseAccessInvitationsFallback.get(params.invitationId);
+    const now = params.now ?? Date.now();
+    const normEmail = params.invitedEmail.trim().toLowerCase();
+    if (!inv) return { success: false, statusCode: 404, error: 'Invitation not found.' };
+    if (inv.invitedEmail !== normEmail) return { success: false, statusCode: 403, error: 'Invitation email mismatch.' };
+    if (inv.status === 'REVOKED') return { success: false, statusCode: 403, error: 'Invitation revoked.' };
+    if (inv.status === 'REDEEMED') return { success: false, statusCode: 409, error: 'Invitation already redeemed.' };
+    if (inv.expiresAt <= now) {
+      inv.status = 'EXPIRED';
+      return { success: false, statusCode: 410, error: 'Invitation expired.' };
+    }
+    inv.status = 'REDEEMED';
+    inv.redeemedAt = now;
+    inv.redeemedByRegistrationId = params.registrationId;
+    return { success: true, statusCode: 200, invitation: { ...inv } };
+  }
+
+  async revokeStateTeamAccessInvitation(id: string, revokedBy: string): Promise<boolean> {
+    const inv = this.supabaseAccessInvitationsFallback.get(id);
+    if (!inv) return false;
+    inv.status = 'REVOKED';
+    inv.revokedBy = revokedBy;
+    inv.revokedAt = Date.now();
+    return true;
   }
 
   async updateRegistrationNotes(id: string, notes: string): Promise<boolean> {
@@ -981,21 +1379,7 @@ export class SupabaseOnboardingStore implements OnboardingStore {
     const res = await fetch(url, { headers: this.headers });
     if (!res.ok) return [];
     const rows = await res.json();
-    return rows.map((row: any) => ({
-      id: row.id,
-      firstName: row.first_name,
-      lastName: row.last_name || '',
-      workEmail: row.work_email,
-      requestedState: row.requested_state,
-      organization: row.organization,
-      status: row.status === 'PENDING' ? 'PENDING_APPROVAL' : row.status,
-      emailVerified: Boolean(row.email_verified_at),
-      createdAt: new Date(row.created_at).getTime(),
-      updatedAt: new Date(row.updated_at).getTime(),
-      approvedBy: row.approved_by,
-      approvedAt: row.approved_at ? new Date(row.approved_at).getTime() : null,
-      notes: row.notes,
-    }));
+    return rows.map((row: any) => this.mapSupabaseRegistrationRow(row));
   }
 
   async createInvitation(params: {
@@ -1650,11 +2034,27 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     organization: string;
     autoApprove?: boolean;
     notes?: string;
+    invitationId?: string;
+    assignedState?: string;
   }): Promise<StateTeamRegistration> {
     const db = await this.getDb();
     const normEmail = data.workEmail.toLowerCase().trim();
+    const canonicalRequested = canonicalizeStateName(data.requestedState) || data.requestedState.trim();
     const existing = await this.getStateTeamRegistrationByEmail(normEmail);
     if (existing) {
+      const existingCanon = (canonicalizeStateName(existing.requestedState) || existing.requestedState).toLowerCase();
+      if (
+        existing.status === 'APPROVED' ||
+        existing.emailVerified ||
+        existing.status === 'REJECTED' ||
+        existing.status === 'SUSPENDED' ||
+        existing.status === 'REVOKED' ||
+        existingCanon !== canonicalRequested.toLowerCase()
+      ) {
+        throw new DuplicateRegistrationError(
+          'An account or registration for this work email already exists and cannot be overwritten via self-registration.'
+        );
+      }
       return existing;
     }
 
@@ -1663,14 +2063,20 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     const registration: StateTeamRegistration = {
       id,
       firstName: data.firstName.trim(),
-      lastName: data.lastName.trim(),
-      workEmail: data.workEmail.toLowerCase().trim(),
-      requestedState: canonicalizeStateName(data.requestedState) || data.requestedState.trim(),
+      lastName: (data.lastName || '').trim(),
+      workEmail: normEmail,
+      requestedState: canonicalRequested,
+      assignedState: data.assignedState ? canonicalizeStateName(data.assignedState) : null,
       organization: data.organization.trim(),
-      status: data.autoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
-      emailVerified: Boolean(data.autoApprove),
-      approvedAt: data.autoApprove ? now : undefined,
-      approvedBy: data.autoApprove ? 'SYSTEM_AUTO' : undefined,
+      status: 'PENDING_APPROVAL',
+      emailVerified: false,
+      approvedAt: null,
+      approvedBy: null,
+      revokedBy: null,
+      revokedAt: null,
+      revocationReason: null,
+      authVersion: 1,
+      invitationId: data.invitationId || null,
       notes: data.notes || '',
       createdAt: now,
       updatedAt: now,
@@ -1694,7 +2100,9 @@ export class FirestoreOnboardingStore implements OnboardingStore {
       .where('workEmail', '==', norm)
       .get();
     if (!snap.docs || snap.docs.length === 0) return null;
-    return snap.docs[0].data() as StateTeamRegistration;
+    const docs = snap.docs.map((d: any) => d.data() as StateTeamRegistration);
+    docs.sort((a: StateTeamRegistration, b: StateTeamRegistration) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    return docs.find((r: StateTeamRegistration) => r.status === 'APPROVED') || docs[0];
   }
 
   async verifyStateTeamEmail(email: string): Promise<boolean> {
@@ -1709,16 +2117,22 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     return true;
   }
 
-  async approveStateTeamRegistration(id: string, approvedBy: string): Promise<boolean> {
+  async approveStateTeamRegistration(id: string, approvedBy: string, assignedState?: string): Promise<boolean> {
     const db = await this.getDb();
     const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
     if (!snap.exists) return false;
+    const prev = snap.data() as StateTeamRegistration;
     const now = Date.now();
     await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set({
-      ...snap.data(),
+      ...prev,
       status: 'APPROVED',
       approvedBy,
       approvedAt: now,
+      assignedState: canonicalizeStateName(assignedState || prev.assignedState || prev.requestedState),
+      revokedBy: null,
+      revokedAt: null,
+      revocationReason: null,
+      authVersion: Math.max(1, prev.authVersion || 1),
       reviewedBy: approvedBy,
       reviewedAt: now,
       updatedAt: now,
@@ -1730,16 +2144,61 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     const db = await this.getDb();
     const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
     if (!snap.exists) return false;
+    const prev = snap.data() as StateTeamRegistration;
     const now = Date.now();
     await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set({
-      ...snap.data(),
+      ...prev,
       status: 'REJECTED',
       reviewedBy: rejectedBy,
       rejectionReason: reason || null,
       reviewedAt: now,
-      notes: reason || snap.data().notes,
+      authVersion: (prev.authVersion || 1) + 1,
+      notes: reason || prev.notes,
       updatedAt: now,
     });
+    try {
+      await deactivateCredentialInFirestore(prev.workEmail, db);
+      deactivateCredential(prev.workEmail);
+    } catch {}
+    return true;
+  }
+
+  async revokeStateTeamRegistration(id: string, revokedBy: string, reason?: string): Promise<boolean> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return false;
+    const prev = snap.data() as StateTeamRegistration;
+    const now = Date.now();
+    const revokeReason = reason || 'Access revoked by administrator';
+    await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).doc(id).set({
+      ...prev,
+      status: 'REVOKED',
+      revokedBy,
+      revokedAt: now,
+      revocationReason: revokeReason,
+      authVersion: (prev.authVersion || 1) + 1,
+      updatedAt: now,
+    });
+    try {
+      await deactivateCredentialInFirestore(prev.workEmail, db);
+      deactivateCredential(prev.workEmail);
+    } catch {}
+    try {
+      const invSnap = await db.collection(STATE_TEAM_INVITATIONS_COLLECTION)
+        .where('stateTeamId', '==', id)
+        .get();
+      for (const docSnap of invSnap.docs || []) {
+        const inv = docSnap.data() as StateTeamInvitation;
+        if (inv.status === 'ACTIVE') {
+          await db.collection(STATE_TEAM_INVITATIONS_COLLECTION).doc(docSnap.id).set({
+            ...inv,
+            status: 'REVOKED',
+            revokedAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    } catch {}
     return true;
   }
 
@@ -1759,6 +2218,143 @@ export class FirestoreOnboardingStore implements OnboardingStore {
     const db = await this.getDb();
     const snap = await db.collection(STATE_TEAM_REGISTRATIONS_COLLECTION).get();
     return (snap.docs || []).map((d: any) => d.data() as StateTeamRegistration);
+  }
+
+  async createStateTeamAccessInvitation(data: {
+    invitedEmail: string;
+    assignedState: string;
+    codeSalt: string;
+    codeVerifier: string;
+    issuedBy: string;
+    expiresAt: number;
+    note?: string;
+  }): Promise<StateTeamAccessInvitation> {
+    const db = await this.getDb();
+    const id = `st_acc_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const inv: StateTeamAccessInvitation = {
+      id,
+      invitedEmail: data.invitedEmail.trim().toLowerCase(),
+      assignedState: canonicalizeStateName(data.assignedState) || data.assignedState.trim(),
+      codeSalt: data.codeSalt,
+      codeVerifier: data.codeVerifier,
+      status: 'ACTIVE',
+      issuedBy: data.issuedBy,
+      issuedAt: Date.now(),
+      expiresAt: data.expiresAt,
+      redeemedAt: null,
+      redeemedByRegistrationId: null,
+      revokedBy: null,
+      revokedAt: null,
+      note: data.note,
+    };
+    await db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).doc(id).set({
+      ...inv,
+      expiresAtDate: new Date(inv.expiresAt),
+    });
+    return inv;
+  }
+
+  async listStateTeamAccessInvitations(): Promise<StateTeamAccessInvitation[]> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).get();
+    return (snap.docs || [])
+      .map((d: any) => d.data() as StateTeamAccessInvitation)
+      .sort((a: StateTeamAccessInvitation, b: StateTeamAccessInvitation) => (b.issuedAt || 0) - (a.issuedAt || 0));
+  }
+
+  async findValidStateTeamAccessInvitation(params: {
+    invitedEmail: string;
+    plainCode: string;
+    now?: number;
+  }): Promise<{
+    valid: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }> {
+    const db = await this.getDb();
+    const normEmail = params.invitedEmail.trim().toLowerCase();
+    const now = params.now ?? Date.now();
+    const snap = await db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).get();
+    for (const docSnap of snap.docs || []) {
+      const inv = docSnap.data() as StateTeamAccessInvitation;
+      if (verifyInvitationCode(params.plainCode, inv.codeSalt, inv.codeVerifier)) {
+        if ((inv.invitedEmail || '').trim().toLowerCase() !== normEmail) {
+          return { valid: false, statusCode: 403, error: 'This invitation code is bound to a different email address.' };
+        }
+        if (inv.status === 'REVOKED') {
+          return { valid: false, statusCode: 403, error: 'This invitation code has been revoked.' };
+        }
+        if (inv.status === 'REDEEMED') {
+          return { valid: false, statusCode: 409, error: 'This single-use invitation code has already been used.' };
+        }
+        if (inv.expiresAt <= now || inv.status === 'EXPIRED') {
+          await db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).doc(inv.id).set({
+            ...inv,
+            status: 'EXPIRED',
+          });
+          return { valid: false, statusCode: 410, error: 'This invitation code has expired.' };
+        }
+        return { valid: true, statusCode: 200, invitation: inv };
+      }
+    }
+    return { valid: false, statusCode: 403, error: 'Invalid State Team invitation code.' };
+  }
+
+  async atomicRedeemStateTeamAccessInvitation(params: {
+    invitationId: string;
+    invitedEmail: string;
+    registrationId: string;
+    now?: number;
+  }): Promise<{
+    success: boolean;
+    statusCode: number;
+    error?: string;
+    invitation?: StateTeamAccessInvitation;
+  }> {
+    const db = await this.getDb();
+    const normEmail = params.invitedEmail.trim().toLowerCase();
+    const now = params.now ?? Date.now();
+    const docRef = db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).doc(params.invitationId);
+    return await db.runTransaction(async (transaction: any) => {
+      const snap = await transaction.get(docRef);
+      if (!snap.exists) return { success: false, statusCode: 404, error: 'Invitation not found.' };
+      const inv = snap.data() as StateTeamAccessInvitation;
+      if ((inv.invitedEmail || '').trim().toLowerCase() !== normEmail) {
+        return { success: false, statusCode: 403, error: 'Invitation email mismatch.' };
+      }
+      if (inv.status === 'REVOKED') return { success: false, statusCode: 403, error: 'Invitation has been revoked.' };
+      if (inv.status === 'REDEEMED') return { success: false, statusCode: 409, error: 'Invitation has already been redeemed.' };
+      if (inv.expiresAt <= now || inv.status === 'EXPIRED') {
+        await transaction.set(docRef, { ...inv, status: 'EXPIRED' });
+        return { success: false, statusCode: 410, error: 'Invitation has expired.' };
+      }
+      const updated: StateTeamAccessInvitation = {
+        ...inv,
+        status: 'REDEEMED',
+        redeemedAt: now,
+        redeemedByRegistrationId: params.registrationId,
+      };
+      await transaction.set(docRef, {
+        ...updated,
+        expiresAtDate: new Date(updated.expiresAt),
+      });
+      return { success: true, statusCode: 200, invitation: updated };
+    });
+  }
+
+  async revokeStateTeamAccessInvitation(id: string, revokedBy: string): Promise<boolean> {
+    const db = await this.getDb();
+    const snap = await db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).doc(id).get();
+    if (!snap.exists) return false;
+    const prev = snap.data() as StateTeamAccessInvitation;
+    await db.collection(STATE_TEAM_ACCESS_INVITATIONS_COLLECTION).doc(id).set({
+      ...prev,
+      status: 'REVOKED',
+      revokedBy,
+      revokedAt: Date.now(),
+    });
+    return true;
   }
 
   // State Team Invitations

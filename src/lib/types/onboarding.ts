@@ -2,7 +2,7 @@
  * Domain types for State Team Registration, Team Invitations, and Field User Onboarding
  */
 
-export type StateTeamRegistrationStatus = 'PENDING_APPROVAL' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+export type StateTeamRegistrationStatus = 'PENDING_APPROVAL' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'REVOKED';
 
 export interface StateTeamRegistration {
   id: string;
@@ -17,6 +17,12 @@ export interface StateTeamRegistration {
   updatedAt: number;
   approvedBy?: string | null;
   approvedAt?: number | null;
+  assignedState?: string | null;
+  revokedBy?: string | null;
+  revokedAt?: number | null;
+  revocationReason?: string | null;
+  authVersion?: number;
+  invitationId?: string | null;
   notes?: string;
 }
 
@@ -63,4 +69,35 @@ export interface InvitationRedemptionResult {
   statusCode: number;
   invitation?: StateTeamInvitation;
   fieldProfile?: FieldUserProfile;
+}
+
+
+export type StateTeamAccessInvitationStatus = 'ACTIVE' | 'REDEEMED' | 'EXPIRED' | 'REVOKED';
+
+export interface StateTeamAccessInvitation {
+  id: string;
+  invitedEmail: string;
+  assignedState: string;
+  codeSalt: string;
+  codeVerifier: string;
+  status: StateTeamAccessInvitationStatus;
+  issuedBy: string;
+  issuedAt: number;
+  expiresAt: number;
+  redeemedAt?: number | null;
+  redeemedByRegistrationId?: string | null;
+  revokedBy?: string | null;
+  revokedAt?: number | null;
+  note?: string;
+}
+
+export class DuplicateRegistrationError extends Error {
+  statusCode: number;
+  code: string;
+  constructor(message: string = 'A registration or account for this email already exists.') {
+    super(message);
+    this.name = 'DuplicateRegistrationError';
+    this.statusCode = 409;
+    this.code = 'EMAIL_ALREADY_REGISTERED';
+  }
 }

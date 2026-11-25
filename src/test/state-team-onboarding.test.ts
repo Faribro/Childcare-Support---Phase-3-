@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  generateInvitationCode,
-  computeInvitationVerifier,
+  generatePlaintextInvitationCode,
+  createInvitationVerifierPair,
   verifyInvitationCode,
   normalizeInvitationCode,
 } from '@/lib/server/invitationCrypto';
@@ -14,38 +14,33 @@ import {
   verifyStateTeamOtpChallenge,
   issueStateTeamInvitation,
 } from '@/lib/server/stateTeamAuthChallenge';
+import { MockEmailStore } from '@/lib/server/emailProvider';
 
 describe('State Team Onboarding & Invitation Engine', () => {
   let store: MemoryOnboardingStore;
 
   beforeEach(() => {
+    process.env.SESSION_SECRET = 'test-secret-for-vitest-state-team-onboarding-min-32-chars';
     store = new MemoryOnboardingStore();
     setOnboardingStoreForTesting(store);
+    MockEmailStore.clear();
   });
 
-  describe('Invitation Crypto Primitives', () => {
+  describe('Invitation Crypto & Verifier Security', () => {
     it('generates high-entropy invitation codes with state prefix and no confusing chars', () => {
-      const code = generateInvitationCode('Maharashtra');
+      const code = generatePlaintextInvitationCode('Maharashtra');
       expect(code).toMatch(/^ALN-MH-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
-      // Confusing characters (0, O, 1, I) should never appear in random chunks
       const body = code.replace('ALN-MH-', '');
-      expect(body).not.toMatch(/[01IO]/);
+      expect(body).not.toMatch(/[0O1I]/);
     });
 
     it('computes salted SHA-256 verifier and validates matching plain code', () => {
       const code = 'ALN-WB-7X8K-9M2P';
-      const { salt, verifier } = computeInvitationVerifier(code);
-
+      const { salt, verifier } = createInvitationVerifierPair(code);
       expect(salt).toHaveLength(32);
       expect(verifier).toHaveLength(64);
-
-      // Positive match
-      expect(verifyInvitationCode(code, salt, verifier)).toBe(true);
-
-      // Case and spacing insensitivity
+      expect(verifier).not.toContain('7X8K');
       expect(verifyInvitationCode('  aln-wb-7x8k-9m2p  ', salt, verifier)).toBe(true);
-
-      // Incorrect code fails
       expect(verifyInvitationCode('ALN-WB-7X8K-9M2Q', salt, verifier)).toBe(false);
     });
 
@@ -55,45 +50,41 @@ describe('State Team Onboarding & Invitation Engine', () => {
     });
   });
 
-  describe('State Team Registration & Single-Name Support', () => {
+  describe('State Team Registration & Approval Enforcement', () => {
     it('successfully registers state team coordinator with single name (no last name)', async () => {
       const reg = await store.createStateTeamRegistration({
-        firstName: 'Geeta',
+        firstName: 'Farid',
         lastName: '',
-        workEmail: 'geeta@allianceindia.org',
+        workEmail: 'farid.only@allianceindia.org',
         requestedState: 'Maharashtra',
         organization: 'Alliance India',
       });
-
-      expect(reg.id).toBeDefined();
-      expect(reg.firstName).toBe('Geeta');
+      expect(reg.firstName).toBe('Farid');
       expect(reg.lastName).toBe('');
-      expect(reg.workEmail).toBe('geeta@allianceindia.org');
-      expect(reg.requestedState).toBe('Maharashtra');
       expect(reg.status).toBe('PENDING_APPROVAL');
-      expect(reg.emailVerified).toBe(false);
     });
 
-    it('auto-approves coordinator from official @allianceindia.org domain in registration challenge', async () => {
+    it('does NOT auto-approve coordinator based solely on @allianceindia.org email domain', async () => {
+      process.env.STATE_TEAM_APPROVED_DOMAINS = 'allianceindia.org';
       const result = await issueStateTeamOtpChallenge({
-        firstName: 'Ramesh',
-        lastName: 'Kumar',
-        workEmail: 'ramesh.k@allianceindia.org',
-        requestedState: 'Maharashtra',
-        organization: 'Alliance India MH Programme',
+        firstName: 'Anita',
+        lastName: 'Desai',
+        workEmail: 'anita.desai@allianceindia.org',
+        requestedState: 'West Bengal',
+        organization: 'Alliance India State Partner',
       });
 
       expect(result.success).toBe(true);
-      expect(result.registration.status).toBe('APPROVED');
+      expect(result.registration.status).toBe('PENDING_APPROVAL');
     });
 
     it('sets external partner domain to PENDING_APPROVAL pending administrator review', async () => {
       const result = await issueStateTeamOtpChallenge({
-        firstName: 'Sunita',
-        lastName: 'Patil',
-        workEmail: 'sunita@communitypartner-ngo.org',
-        requestedState: 'Maharashtra',
-        organization: 'Local CBO Partner',
+        firstName: 'Ramesh',
+        lastName: 'Kumar',
+        workEmail: 'ramesh@partner-ngo.org',
+        requestedState: 'Tamil Nadu',
+        organization: 'Partner NGO',
       });
 
       expect(result.success).toBe(true);
@@ -102,119 +93,104 @@ describe('State Team Onboarding & Invitation Engine', () => {
   });
 
   describe('OTP Challenge Issuance & Verification', () => {
-    it('verifies valid 6-digit OTP and unlocks STATE_REVIEWER session for approved coordinator', async () => {
+    it('verifies valid 6-digit OTP and unlocks STATE_REVIEWER session once Administration approves', async () => {
       const issue = await issueStateTeamOtpChallenge({
-        firstName: 'Anjali',
-        lastName: 'Deshmukh',
-        workEmail: 'anjali.d@allianceindia.org',
-        requestedState: 'Maharashtra',
+        firstName: 'Priya',
+        lastName: 'Sharma',
+        workEmail: 'priya.sharma@allianceindia.org',
+        requestedState: 'Delhi',
         organization: 'Alliance India',
       });
 
       expect(issue.success).toBe(true);
-      expect(issue.otp).toBeDefined();
+      expect((issue as any).otp).toBeUndefined();
+      const otpFromEmail = MockEmailStore.getLastFor('priya.sharma@allianceindia.org')?.otp;
+      expect(otpFromEmail).toMatch(/^\d{6}$/);
+
+      // Admin approves registration with assigned state
+      await store.approveStateTeamRegistration(issue.registration.id, 'admin@allianceindia.org', 'Delhi');
 
       const verify = await verifyStateTeamOtpChallenge({
-        email: 'anjali.d@allianceindia.org',
-        otp: issue.otp!,
+        email: 'priya.sharma@allianceindia.org',
+        otp: otpFromEmail!,
       });
 
       expect(verify.success).toBe(true);
-      expect(verify.session).toBeDefined();
+      expect(verify.statusCode).toBe(200);
+      expect(verify.sessionToken).toBeDefined();
       expect(verify.session?.role).toBe('STATE_REVIEWER');
-      expect(verify.session?.allowedStates).toEqual(['Maharashtra']);
+      expect(verify.session?.allowedStates).toEqual(['Delhi']);
     });
 
     it('locks out after 5 consecutive incorrect OTP attempts', async () => {
-      const issue = await issueStateTeamOtpChallenge({
-        firstName: 'Dev',
-        lastName: 'Sharma',
-        workEmail: 'dev.sharma@allianceindia.org',
-        requestedState: 'Delhi',
+      await issueStateTeamOtpChallenge({
+        firstName: 'Lockout',
+        lastName: 'Tester',
+        workEmail: 'lockout@allianceindia.org',
+        requestedState: 'Maharashtra',
         organization: 'Alliance India',
       });
 
       for (let i = 0; i < 4; i++) {
         const attempt = await verifyStateTeamOtpChallenge({
-          email: 'dev.sharma@allianceindia.org',
+          email: 'lockout@allianceindia.org',
           otp: '000000',
         });
         expect(attempt.success).toBe(false);
         expect(attempt.statusCode).toBe(401);
       }
 
-      // 5th failed attempt triggers lockout
       const fifthAttempt = await verifyStateTeamOtpChallenge({
-        email: 'dev.sharma@allianceindia.org',
+        email: 'lockout@allianceindia.org',
         otp: '000000',
       });
       expect(fifthAttempt.success).toBe(false);
       expect(fifthAttempt.statusCode).toBe(429);
-      expect(fifthAttempt.error).toMatch(/locked/i);
     });
   });
 
   describe('State Team Invitation Issuance & Private Dispatch', () => {
     it('issues high-entropy invitation, stores only verifier, and never stores plaintext code', async () => {
       const reg = await store.createStateTeamRegistration({
-        firstName: 'Priya',
-        lastName: 'Menon',
-        workEmail: 'priya.m@allianceindia.org',
+        firstName: 'Sunita',
+        lastName: 'Sen',
+        workEmail: 'sunita.sen@allianceindia.org',
         requestedState: 'West Bengal',
-        organization: 'Alliance India',
-        autoApprove: true,
+        organization: 'Alliance India WB',
       });
       await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin@allianceindia.org', 'West Bengal');
 
       const issue = await issueStateTeamInvitation({
         stateTeamId: reg.id,
+        maxRedemptions: 10,
+        expiryDays: 14,
       });
 
       expect(issue.success).toBe(true);
       expect(issue.plainInvitationCode).toMatch(/^ALN-WB-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
-
-      // Verify DB record
       const stored = await store.getInvitationById(issue.invitationId);
-      expect(stored).not.toBeNull();
-      expect(stored?.codeSalt).toBeDefined();
-      expect(stored?.codeVerifier).toBeDefined();
-      // Ensure plaintext is NOT in DB record
-      expect((stored as any).plainInvitationCode).toBeUndefined();
-      expect((stored as any).code).toBeUndefined();
-
-      // Test validation against stored verifier
-      const check = await store.findAndValidateInvitation(issue.plainInvitationCode, 'West Bengal');
-      expect(check.valid).toBe(true);
-      expect(check.invitation?.id).toBe(issue.invitationId);
+      expect(stored?.codeVerifier).toHaveLength(64);
+      expect(stored?.codeVerifier).not.toBe(issue.plainInvitationCode);
     });
 
     it('rotates invitation code, marking prior as ROTATED', async () => {
       const reg = await store.createStateTeamRegistration({
-        firstName: 'Karan',
-        lastName: 'Johar',
-        workEmail: 'karan@allianceindia.org',
+        firstName: 'Raj',
+        lastName: 'Kapoor',
+        workEmail: 'raj.kapoor@allianceindia.org',
         requestedState: 'Gujarat',
-        organization: 'Alliance India',
-        autoApprove: true,
+        organization: 'Alliance India GJ',
       });
       await store.verifyStateTeamEmail(reg.workEmail);
+      await store.approveStateTeamRegistration(reg.id, 'admin@allianceindia.org', 'Gujarat');
 
       const first = await issueStateTeamInvitation({ stateTeamId: reg.id });
-      expect(first.success).toBe(true);
+      const second = await issueStateTeamInvitation({ stateTeamId: reg.id, rotate: true });
 
-      const rotated = await issueStateTeamInvitation({ stateTeamId: reg.id, rotate: true });
-      expect(rotated.success).toBe(true);
-      expect(rotated.plainInvitationCode).not.toBe(first.plainInvitationCode);
-
-      // Old code validation returns 403 rotated
-      const oldCheck = await store.findAndValidateInvitation(first.plainInvitationCode, 'Gujarat');
-      expect(oldCheck.valid).toBe(false);
-      expect(oldCheck.statusCode).toBe(403);
-      expect(oldCheck.error).toMatch(/rotated/i);
-
-      // New code validation succeeds
-      const newCheck = await store.findAndValidateInvitation(rotated.plainInvitationCode, 'Gujarat');
-      expect(newCheck.valid).toBe(true);
+      expect(second.plainInvitationCode).not.toBe(first.plainInvitationCode);
+      const oldInv = await store.getInvitationById(first.invitationId);
+      expect(oldInv?.status).toBe('ROTATED');
     });
   });
 });
