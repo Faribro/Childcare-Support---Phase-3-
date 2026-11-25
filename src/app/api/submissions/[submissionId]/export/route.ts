@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import {
   resolveUserAccessScope,
-  isStateAuthorized,
-  isDistrictAuthorized,
+  evaluateRecordAccess,
   logSecurityEvent,
 } from '@/lib/server/authorisation';
 import { generateBeneficiaryPdfBuffer } from '@/lib/server/pdfExportService';
@@ -71,48 +70,24 @@ export async function GET(
     }
 
     const record = result.data;
-    const recordState = record.state || record['18\nState'] || record.demographics?.state || 'Maharashtra';
-    const recordDistrict = record.district || record['19\nDistrict'] || record.demographics?.district || undefined;
-    const recordAuthorId = record.authorId || record.submittedByWorkerId || record.authorIdentifier || record.userId;
-    const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
-
-    if (scope.role === 'FIELD_USER' && !isAuthor) {
+    const access = evaluateRecordAccess(scope, record, 'assessment dossier');
+    if (!access.allowed) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
-        eventType: 'ACCESS_DENIED',
+        eventType: access.eventType || 'ACCESS_DENIED',
         outcome: 'DENY',
         targetResource: submissionId,
-        details: 'Field worker attempted to export a record authored by another worker.',
+        scope: `state=${access.recordState},district=${access.recordDistrict || ''}`,
+        details: access.details,
       });
       return NextResponse.json(
         {
           status: 'error',
-          code: 'FORBIDDEN_AUTHOR_MISMATCH',
-          message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can export this assessment dossier.',
+          code: access.code,
+          message: access.message,
         },
-        { status: 403, headers: EXPORT_NO_STORE_HEADERS }
-      );
-    }
-
-    // Verify state & district authorization
-    if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
-      logSecurityEvent({
-        actor: scope.userId,
-        actorRole: scope.role,
-        eventType: 'SCOPE_VIOLATION',
-        outcome: 'DENY',
-        targetResource: submissionId,
-        scope: `state=${recordState},district=${recordDistrict || ''}`,
-        details: `Caller with scope [${scope.allowedStates.join(',')}/${scope.allowedDistricts.join(',')}] forbidden to export record for state '${recordState}'`,
-      });
-      return NextResponse.json(
-        {
-          status: 'error',
-          code: 'FORBIDDEN_SCOPE',
-          message: `Access denied to records for state "${recordState}".`,
-        },
-        { status: 403, headers: EXPORT_NO_STORE_HEADERS }
+        { status: access.statusCode || 403, headers: EXPORT_NO_STORE_HEADERS }
       );
     }
 

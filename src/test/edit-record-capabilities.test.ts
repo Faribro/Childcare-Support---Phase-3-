@@ -193,11 +193,11 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
       expect(data.capabilities.reason).toContain('approved by Leadership and is locked against field-worker edits');
     });
 
-    it('returns canEdit=false for field worker who is not the author of the record', async () => {
+    it('denies field worker who is not the author of the record within same district with 403 FORBIDDEN_AUTHOR_MISMATCH', async () => {
       const nonAuthorToken = await createSessionToken({
         userId: 'worker-other',
         role: 'FIELD_USER',
-        name: 'Other Worker', // Does not match Anil Deshmukh
+        name: 'Other Worker', // Same state/district (Maharashtra/Pune) but different author
         allowedStates: ['Maharashtra'],
         allowedDistricts: ['Pune'],
       });
@@ -207,11 +207,10 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
       });
 
       const res = await getSubmissionDetailRoute(req, { params: { submissionId: 'MH-PUN-081200-02' } });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
       const data = await res.json();
-      expect(data.capabilities).toBeDefined();
-      expect(data.capabilities.canEdit).toBe(false);
-      expect(data.capabilities.reason).toContain('Only the originating field worker');
+      expect(data.code).toBe('FORBIDDEN_AUTHOR_MISMATCH');
+      expect(data.data).toBeUndefined();
     });
 
     it('denies anonymous unauthenticated caller with 401 UNAUTHORIZED', async () => {

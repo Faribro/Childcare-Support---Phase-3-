@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import {
   resolveUserAccessScope,
-  isStateAuthorized,
-  isDistrictAuthorized,
+  evaluateRecordAccess,
   logSecurityEvent,
 } from '@/lib/server/authorisation';
 import { validateAssetPayload } from '@/lib/server/assetValidation';
@@ -151,36 +150,39 @@ export async function POST(
       );
     }
 
-    // When caller does not have global wildcard scope, verify the target submission belongs to their authorized scope
-    if (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
+    // Enforce FIELD_USER own-record policy and non-wildcard state/district boundaries
+    if (scope.role === 'FIELD_USER' || !scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
       const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+      if (scope.role === 'FIELD_USER' && (existing.status !== 'success' || !existing.data)) {
+        return NextResponse.json(
+          { status: 'error', code: 'NOT_FOUND', message: `Record ${submissionId} not found`, requestId },
+          { status: 404, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
       if (existing.status === 'success' && existing.data) {
-        const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
-        const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
-        const recordAuthorId = existing.data.authorId || existing.data.submittedByWorkerId || existing.data.authorIdentifier || existing.data.userId;
-        const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
+        const access = evaluateRecordAccess(scope, existing.data, 'document upload');
+        if (!access.allowed) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: access.eventType || 'ACCESS_DENIED',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            scope: `state=${access.recordState},district=${access.recordDistrict || ''}`,
+            details: access.details,
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: access.code,
+              message: access.message,
+              requestId,
+            },
+            { status: access.statusCode || 403, headers: ASSET_NO_STORE_HEADERS }
+          );
+        }
 
         if (scope.role === 'FIELD_USER') {
-          if (!isAuthor) {
-            logSecurityEvent({
-              actor: scope.userId,
-              actorRole: scope.role,
-              eventType: 'ACCESS_DENIED',
-              outcome: 'DENY',
-              targetResource: submissionId,
-              details: 'Field worker attempted to upload asset on a record authored by another worker.',
-            });
-            return NextResponse.json(
-              {
-                status: 'error',
-                code: 'FORBIDDEN_AUTHOR_MISMATCH',
-                message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can upload documents to this assessment.',
-                requestId,
-              },
-              { status: 403, headers: ASSET_NO_STORE_HEADERS }
-            );
-          }
-
           const isApproved = Boolean(
             existing.data.isApproved === true ||
             existing.data.approvedAllianceIndia === 'APPROVED' ||
@@ -211,27 +213,6 @@ export async function POST(
               );
             }
           }
-        }
-
-        if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
-          logSecurityEvent({
-            actor: scope.userId,
-            actorRole: scope.role,
-            eventType: 'SCOPE_VIOLATION',
-            outcome: 'DENY',
-            targetResource: submissionId,
-            scope: `state=${recordState},district=${recordDistrict || ''}`,
-            details: 'Caller forbidden to update asset outside authorized geographic scope',
-          });
-          return NextResponse.json(
-            {
-              status: 'error',
-              code: 'FORBIDDEN_SCOPE',
-              message: `Access denied to update assets for records in state "${recordState}".`,
-              requestId,
-            },
-            { status: 403, headers: ASSET_NO_STORE_HEADERS }
-          );
         }
       }
     }
@@ -367,49 +348,25 @@ export async function GET(
 
   const record = result.data;
 
-  // Geographic scope enforcement
-  const recordState = record.state || record['18\nState'] || record.demographics?.state || 'Maharashtra';
-  const recordDistrict = record.district || record['19\nDistrict'] || record.demographics?.district || undefined;
-
-  const recordAuthorId = record.authorId || record.submittedByWorkerId || record.authorIdentifier || record.userId;
-  const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
-
-  if (scope.role === 'FIELD_USER' && !isAuthor) {
+  // Record ownership and geographic scope enforcement
+  const access = evaluateRecordAccess(scope, record, 'document attachment');
+  if (!access.allowed) {
     logSecurityEvent({
       actor: scope.userId,
       actorRole: scope.role,
-      eventType: 'ACCESS_DENIED',
+      eventType: access.eventType || 'ACCESS_DENIED',
       outcome: 'DENY',
       targetResource: `${submissionId}:${rawDocType}`,
-      details: 'Field worker attempted to read document attachment of a record authored by another worker.',
+      scope: `state=${access.recordState},district=${access.recordDistrict || ''}`,
+      details: access.details,
     });
     return NextResponse.json(
       {
         status: 'error',
-        code: 'FORBIDDEN_AUTHOR_MISMATCH',
-        message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can view documents on this assessment.',
+        code: access.code,
+        message: access.message,
       },
-      { status: 403, headers: ASSET_NO_STORE_HEADERS }
-    );
-  }
-
-  if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
-    logSecurityEvent({
-      actor: scope.userId,
-      actorRole: scope.role,
-      eventType: 'SCOPE_VIOLATION',
-      outcome: 'DENY',
-      targetResource: `${submissionId}:${rawDocType}`,
-      scope: `state=${recordState},district=${recordDistrict || ''}`,
-      details: 'Caller forbidden to access document attachment outside authorized geographic scope',
-    });
-    return NextResponse.json(
-      {
-        status: 'error',
-        code: 'FORBIDDEN_SCOPE',
-        message: `Access denied to records and documents in state "${recordState}".`,
-      },
-      { status: 403, headers: ASSET_NO_STORE_HEADERS }
+      { status: access.statusCode || 403, headers: ASSET_NO_STORE_HEADERS }
     );
   }
 
@@ -1136,36 +1093,39 @@ export async function PUT(
       }
     }
 
-    // Verify geographic scope if not wildcard
-    if (!scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
+    // Enforce FIELD_USER own-record policy and non-wildcard state/district boundaries
+    if (scope.role === 'FIELD_USER' || !scope.allowedStates.includes('*') || !scope.allowedDistricts.includes('*')) {
       const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+      if (scope.role === 'FIELD_USER' && (existing.status !== 'success' || !existing.data)) {
+        return NextResponse.json(
+          { status: 'error', code: 'NOT_FOUND', message: `Record ${submissionId} not found`, requestId },
+          { status: 404, headers: ASSET_NO_STORE_HEADERS }
+        );
+      }
       if (existing.status === 'success' && existing.data) {
-        const recordState = existing.data.state || existing.data['18\nState'] || existing.data.demographics?.state || 'Maharashtra';
-        const recordDistrict = existing.data.district || existing.data['19\nDistrict'] || existing.data.demographics?.district || undefined;
-        const recordAuthorId = existing.data.authorId || existing.data.submittedByWorkerId || existing.data.authorIdentifier || existing.data.userId;
-        const isAuthor = Boolean(recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase());
+        const access = evaluateRecordAccess(scope, existing.data, 'document replacement');
+        if (!access.allowed) {
+          logSecurityEvent({
+            actor: scope.userId,
+            actorRole: scope.role,
+            eventType: access.eventType || 'ACCESS_DENIED',
+            outcome: 'DENY',
+            targetResource: submissionId,
+            scope: `state=${access.recordState},district=${access.recordDistrict || ''}`,
+            details: access.details,
+          });
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: access.code,
+              message: access.message,
+              requestId,
+            },
+            { status: access.statusCode || 403, headers: ASSET_NO_STORE_HEADERS }
+          );
+        }
 
         if (scope.role === 'FIELD_USER') {
-          if (!isAuthor) {
-            logSecurityEvent({
-              actor: scope.userId,
-              actorRole: scope.role,
-              eventType: 'ACCESS_DENIED',
-              outcome: 'DENY',
-              targetResource: submissionId,
-              details: 'Field worker attempted to replace asset on a record authored by another worker.',
-            });
-            return NextResponse.json(
-              {
-                status: 'error',
-                code: 'FORBIDDEN_AUTHOR_MISMATCH',
-                message: 'Only the originating field worker, authorized State Team reviewer, or Leadership can replace documents on this assessment.',
-                requestId,
-              },
-              { status: 403, headers: ASSET_NO_STORE_HEADERS }
-            );
-          }
-
           const isApproved = Boolean(
             existing.data.isApproved === true ||
             existing.data.approvedAllianceIndia === 'APPROVED' ||
@@ -1196,27 +1156,6 @@ export async function PUT(
               );
             }
           }
-        }
-
-        if (!isAuthor && (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict)))) {
-          logSecurityEvent({
-            actor: scope.userId,
-            actorRole: scope.role,
-            eventType: 'SCOPE_VIOLATION',
-            outcome: 'DENY',
-            targetResource: submissionId,
-            scope: `state=${recordState},district=${recordDistrict || ''}`,
-            details: 'Caller forbidden to replace asset outside authorized geographic scope',
-          });
-          return NextResponse.json(
-            {
-              status: 'error',
-              code: 'FORBIDDEN_SCOPE',
-              message: `Access denied to replace assets for records in state "${recordState}".`,
-              requestId,
-            },
-            { status: 403, headers: ASSET_NO_STORE_HEADERS }
-          );
         }
       }
     }

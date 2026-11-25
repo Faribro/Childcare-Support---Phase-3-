@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveUserAccessScope, logSecurityEvent } from '@/lib/server/authorisation';
+import {
+  resolveUserAccessScope,
+  evaluateRecordAccess,
+  logSecurityEvent,
+} from '@/lib/server/authorisation';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { SheetsMirrorWorker, GatewayClient } from '@/lib/server/sheetsMirrorWorker';
 
@@ -20,6 +24,32 @@ export async function POST(
       return NextResponse.json(
         { status: 'error', code: 'UNAUTHORIZED', message: 'Authentication required to retry sync.', requestId },
         { status: 401 }
+      );
+    }
+
+    // Enforce record ownership / geographic scope before triggering any sync retry
+    const preflight = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+    if (preflight.status !== 'success' || !preflight.data) {
+      return NextResponse.json(
+        { status: 'error', code: preflight.code || 'NOT_FOUND', message: preflight.message || `Record ${submissionId} not found.`, requestId },
+        { status: preflight.statusCode || 404 }
+      );
+    }
+
+    const access = evaluateRecordAccess(scope, preflight.data, 'sync retry');
+    if (!access.allowed) {
+      logSecurityEvent({
+        actor: scope.userId,
+        actorRole: scope.role,
+        eventType: access.eventType || 'ACCESS_DENIED',
+        outcome: 'DENY',
+        targetResource: submissionId,
+        scope: `state=${access.recordState},district=${access.recordDistrict || ''}`,
+        details: access.details,
+      });
+      return NextResponse.json(
+        { status: 'error', code: access.code, message: access.message, requestId },
+        { status: access.statusCode || 403 }
       );
     }
 

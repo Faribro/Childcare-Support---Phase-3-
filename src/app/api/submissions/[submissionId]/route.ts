@@ -10,6 +10,8 @@ import {
   isSyntheticDemoModeAllowed,
   isStateAuthorized,
   isDistrictAuthorized,
+  extractRecordAuthorId,
+  evaluateRecordAccess,
   logSecurityEvent,
   validateCsrfOrigin,
 } from '@/lib/server/authorisation';
@@ -75,25 +77,24 @@ export async function GET(
     }
 
     if (!syntheticDemoAllowed && result.data) {
-      const recordState = result.data.state || result.data['18\nState'] || result.data.demographics?.state || 'Maharashtra';
-      const recordDistrict = result.data.district || result.data['19\nDistrict'] || result.data.demographics?.district || undefined;
-      if (!isStateAuthorized(scope, recordState) || (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))) {
+      const access = evaluateRecordAccess(scope, result.data, 'record');
+      if (!access.allowed) {
         logSecurityEvent({
           actor: scope.userId,
           actorRole: scope.role,
-          eventType: 'SCOPE_VIOLATION',
+          eventType: access.eventType || 'ACCESS_DENIED',
           outcome: 'DENY',
           targetResource: submissionId,
-          scope: `state=${recordState},district=${recordDistrict || ''}`,
-          details: `Caller forbidden to read record in state '${recordState}' / district '${recordDistrict || ''}'`,
+          scope: `state=${access.recordState},district=${access.recordDistrict || ''}`,
+          details: access.details,
         });
         return NextResponse.json(
           {
             status: 'error',
-            code: 'FORBIDDEN_SCOPE',
-            message: `Access denied to record in state "${recordState}".`,
+            code: access.code,
+            message: access.message,
           },
-          { status: 403, headers: NO_STORE_HEADERS }
+          { status: access.statusCode || 403, headers: NO_STORE_HEADERS }
         );
       }
     }
@@ -106,10 +107,9 @@ export async function GET(
       record?.['67\nApproved Alliance India'] === 'APPROVED'
     );
 
-    const recordAuthorId = record?.authorId || record?.submittedByWorkerId || record?.authorIdentifier || record?.userId;
+    const recordAuthorId = extractRecordAuthorId(record);
     const isAuthor = Boolean(
-      (recordAuthorId && scope.userId && recordAuthorId.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
-      (!recordAuthorId && record?.submittedBy && scope.userId && record.submittedBy.trim().toLowerCase() === scope.userId.trim().toLowerCase()) ||
+      (recordAuthorId && scope.userId && recordAuthorId.toLowerCase() === scope.userId.trim().toLowerCase()) ||
       (!recordAuthorId && syntheticDemoAllowed)
     );
 

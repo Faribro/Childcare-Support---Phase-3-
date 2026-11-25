@@ -540,6 +540,96 @@ export function isProgrammeAuthorized(
 }
 
 /**
+ * Extracts the canonical immutable author identifier from a submission record.
+ */
+export function extractRecordAuthorId(record: any): string | undefined {
+  if (!record || typeof record !== 'object') return undefined;
+  const raw =
+    record.authorId ||
+    record.submittedByWorkerId ||
+    record.authorIdentifier ||
+    record.userId;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
+}
+
+/**
+ * Checks whether the verified caller is the originating author of a submission record.
+ */
+export function isRecordAuthor(scope: UserAccessScope, record: any): boolean {
+  const recordAuthorId = extractRecordAuthorId(record);
+  if (!recordAuthorId || !scope.userId) return false;
+  return recordAuthorId.toLowerCase() === scope.userId.trim().toLowerCase();
+}
+
+export interface RecordAccessEvaluation {
+  allowed: boolean;
+  isAuthor: boolean;
+  recordState: string;
+  recordDistrict?: string;
+  statusCode?: 403;
+  code?: 'FORBIDDEN_SCOPE' | 'FORBIDDEN_AUTHOR_MISMATCH';
+  eventType?: 'SCOPE_VIOLATION' | 'ACCESS_DENIED';
+  message?: string;
+  details?: string;
+}
+
+/**
+ * Evaluates single-record access policy:
+ * - FIELD_USER: own authorised records within assigned state/district only
+ * - STATE_REVIEWER: assigned state/district jurisdiction
+ * - LEADERSHIP / ADMIN: authorised national scope
+ */
+export function evaluateRecordAccess(
+  scope: UserAccessScope,
+  record: any,
+  resourceLabel: string = 'record'
+): RecordAccessEvaluation {
+  const recordState =
+    record?.state || record?.['18\nState'] || record?.demographics?.state || 'Maharashtra';
+  const recordDistrict =
+    record?.district || record?.['19\nDistrict'] || record?.demographics?.district || undefined;
+  const isAuthor = isRecordAuthor(scope, record);
+
+  if (
+    !isStateAuthorized(scope, recordState) ||
+    (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))
+  ) {
+    return {
+      allowed: false,
+      isAuthor,
+      recordState,
+      recordDistrict,
+      statusCode: 403,
+      code: 'FORBIDDEN_SCOPE',
+      eventType: 'SCOPE_VIOLATION',
+      message: `Access denied to ${resourceLabel} in state "${recordState}".`,
+      details: `Caller forbidden to read/modify ${resourceLabel} in state '${recordState}' / district '${recordDistrict || ''}'`,
+    };
+  }
+
+  if (scope.role === 'FIELD_USER' && !isAuthor) {
+    return {
+      allowed: false,
+      isAuthor: false,
+      recordState,
+      recordDistrict,
+      statusCode: 403,
+      code: 'FORBIDDEN_AUTHOR_MISMATCH',
+      eventType: 'ACCESS_DENIED',
+      message: `Only the originating field worker, authorized State Team reviewer, or Leadership can access this ${resourceLabel}.`,
+      details: `Field worker attempted to access ${resourceLabel} authored by another worker.`,
+    };
+  }
+
+  return {
+    allowed: true,
+    isAuthor,
+    recordState,
+    recordDistrict,
+  };
+}
+
+/**
  * Filters a linelist record collection strictly to authorized geographic and programme bounds.
  */
 export function filterRecordsByScope<T extends { state?: string; district?: string; programme_id?: string; programmeId?: string; authorId?: string; submittedByWorkerId?: string; authorIdentifier?: string; userId?: string }>(
@@ -552,11 +642,8 @@ export function filterRecordsByScope<T extends { state?: string; district?: stri
 
   return records.filter((r: any) => {
     // If caller is a FIELD_USER, author ownership is strictly required
-    if (scope.role === 'FIELD_USER') {
-      const recordAuthorId = r.authorId || r.submittedByWorkerId || r.authorIdentifier || r.userId;
-      if (!recordAuthorId || recordAuthorId !== scope.userId) {
-        return false;
-      }
+    if (scope.role === 'FIELD_USER' && !isRecordAuthor(scope, r)) {
+      return false;
     }
 
     if (scope.allowedProgrammes && !scope.allowedProgrammes.includes('*')) {
