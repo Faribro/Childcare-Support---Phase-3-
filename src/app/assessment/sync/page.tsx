@@ -554,6 +554,24 @@ function SyncCentreContent() {
   } = useSupervisorData();
 
   const { user, isUnlocked } = useEvaluationAccess();
+  const tabParam = searchParams.get('tab');
+
+  // Strict role-aware workspace routing: Evaluation users belong in /supervisor/assessments
+  useEffect(() => {
+    if (isUnlocked && user && user.isVerified) {
+      const isEval = user.role === 'LEADERSHIP' || user.role === 'STATE_REVIEWER' || user.role === 'ADMIN';
+      if (isEval) {
+        if (tabParam === 'bank_pending' || tabParam === 'bank-pending') {
+          router.replace('/supervisor/assessments?worklist=bank_pending');
+        } else if (tabParam === 'docs' || tabParam === 'missing_docs') {
+          router.replace('/supervisor/assessments?worklist=intake_pending');
+        } else {
+          router.replace('/supervisor/assessments');
+        }
+      }
+    }
+  }, [isUnlocked, user, tabParam, router]);
+
   const canEnterBankDetails = Boolean(
     isUnlocked &&
     (user?.role === 'ADMIN' || user?.role === 'LEADERSHIP')
@@ -563,7 +581,6 @@ function SyncCentreContent() {
   const [bankSuccessToast, setBankSuccessToast] = useState<string | null>(null);
 
   // Tab State: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending'
-  const tabParam = searchParams.get('tab');
   const initialTab: 'all' | 'drafts' | 'outbox' | 'synced' | 'bank_pending' =
     tabParam === 'drafts'
       ? 'drafts'

@@ -14,11 +14,14 @@ import {
   ChevronDown,
   Mail,
   Sparkles,
+  Activity,
+  TableProperties,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
 import { platformRegistry } from '@/lib/platform/platformRegistry';
 import { CosmicSpaceButton } from '@/components/ui/CosmicSpaceButton';
+import { supervisorReadModel } from '@/lib/read-model/supervisorReadModel';
 
 interface FieldUserProfile {
   id?: string;
@@ -124,7 +127,13 @@ export function ProfileMenu() {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('field_user_profile');
         localStorage.removeItem('field_user_sr');
+        localStorage.removeItem('child_nutrition_evaluation_unlocked');
+        localStorage.removeItem('child_nutrition:user_session_v1');
+        localStorage.removeItem('child_nutrition:supervisor_cache_v1');
       }
+      try {
+        supervisorReadModel.purgeSession();
+      } catch (_) {}
       try {
         const storage = platformRegistry.getSecureStorage();
         await storage.removeSecret('field_session_token');
@@ -136,7 +145,7 @@ export function ProfileMenu() {
     } finally {
       setIsOpen(false);
       setShowLogoutConfirm(false);
-      router.push('/app');
+      router.push('/');
       if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
         try {
           window.location.reload();
@@ -336,7 +345,36 @@ export function ProfileMenu() {
                   Sign In / Register (Email OTP)
                 </CosmicSpaceButton>
               </div>
+            ) : isSupervisorUser ? (
+              /* Evaluation Workspace Shortcuts */
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsOpen(false);
+                    router.push('/supervisor');
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#093282] rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <Activity className="w-4 h-4 text-[#155AD1]" />
+                  <span>Overview &amp; Surveillance</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsOpen(false);
+                    router.push('/supervisor/assessments');
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#093282] rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <TableProperties className="w-4 h-4 text-[#155AD1]" />
+                  <span>Beneficiary Linelist</span>
+                </button>
+              </>
             ) : (
+              /* Field Caseworker Switch/Restore */
               <button
                 type="button"
                 role="menuitem"
@@ -373,7 +411,7 @@ export function ProfileMenu() {
               </button>
             )}
 
-            {isLoggedIn && (
+            {isLoggedIn && !isSupervisorUser && (
               <button
                 type="button"
                 role="menuitem"

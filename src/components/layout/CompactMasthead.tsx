@@ -11,6 +11,8 @@ import {
   Shield,
   Lock,
   Unlock,
+  TableProperties,
+  Activity,
 } from 'lucide-react';
 import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import { useSubmissionSummary } from '@/hooks/useSubmissionSummary';
@@ -26,8 +28,14 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const [isOnline, setIsOnline] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const pathname = usePathname();
-  const { isUnlocked } = useEvaluationAccess();
+  const { isUnlocked, user } = useEvaluationAccess();
   const summary = useSubmissionSummary({ enabled: submittedCount === undefined });
+
+  const isEvalRole = Boolean(
+    isUnlocked &&
+    user?.isVerified &&
+    (user.role === 'LEADERSHIP' || user.role === 'STATE_REVIEWER' || user.role === 'ADMIN')
+  );
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -57,15 +65,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
 
   const headerRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isDisintegrated, setIsDisintegrated] = useState(isSupervisorActive);
-
-  useEffect(() => {
-    if (isSupervisorActive) {
-      setIsDisintegrated(true);
-    } else {
-      setIsDisintegrated(false);
-    }
-  }, [isSupervisorActive]);
+  const [isDisintegrated, setIsDisintegrated] = useState(false);
 
   const triggerDisintegration = () => {
     if (!headerRef.current || !canvasRef.current) return;
@@ -171,7 +171,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
         >
           {/* Brand Logo — Unboxed on light cloud surface */}
           <Link
-            href="/app"
+            href={isEvalRole ? '/supervisor' : '/app'}
             aria-label="Alliance India Home"
             className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             title="India HIV/AIDS Alliance"
@@ -186,104 +186,184 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
             />
           </Link>
 
-          {/* Center Pill Dock: Forms, Submitted Surveys, Evaluation */}
+          {/* Center Pill Dock */}
           <nav className="flex items-center space-x-1" aria-label="Main Navigation">
-            <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
-              {/* Tab 1: Forms */}
-              <Link
-                href="/app"
-                aria-current={isFormsActive ? 'page' : undefined}
-                className={`flex items-center px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
-                  isFormsActive
-                    ? 'text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
-                }`}
-                style={
-                  isFormsActive
-                    ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
-                    : undefined
-                }
-              >
-                <span>Forms</span>
-              </Link>
-
-              {/* Tab 2: Submitted Surveys + Golden Sun Count Badge */}
-              <Link
-                href="/assessment/sync"
-                aria-current={isSyncActive ? 'page' : undefined}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
-                  isSyncActive
-                    ? 'text-white shadow-xs'
-                    : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
-                }`}
-                style={
-                  isSyncActive
-                    ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
-                    : undefined
-                }
-              >
-                <span>Submitted Surveys</span>
-                <span
-                  className="inline-flex items-center justify-center rounded-full px-1.5 py-0.2 font-mono text-[11px] font-black leading-tight shadow-2xs"
-                  style={{
-                    background: 'linear-gradient(135deg, #FEF08A 0%, #FACC15 100%)',
-                    color: '#081226',
-                    border: '1px solid rgba(234, 179, 8, 0.45)',
-                  }}
-                  title={
-                    summary.isLocalOnlyCount
-                      ? 'Submissions saved locally on this device'
-                      : 'Authoritative server-confirmed submissions'
-                  }
-                  aria-label={
-                    summary.isLocalOnlyCount
-                      ? `${displayCount} local submissions saved on this device`
-                      : `${displayCount} server-confirmed submissions`
-                  }
-                >
-                  {displayCount}
-                </span>
-                {effectivePending > 0 && (
-                  <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-2xs">
-                    {effectivePending}
-                  </span>
-                )}
-              </Link>
-
-              {/* Tab 3: Evaluation Portal */}
-              {isUnlocked ? (
+            {isEvalRole ? (
+              /* Evaluation Workspace Navigation (National Leadership & State Team) */
+              <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
+                {/* Tab 1: Overview & Surveillance */}
                 <Link
                   href="/supervisor"
-                  onClick={triggerDisintegration}
-                  aria-current={isSupervisorActive ? 'page' : undefined}
+                  aria-current={pathname === '/supervisor' ? 'page' : undefined}
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
-                    isSupervisorActive
+                    pathname === '/supervisor'
                       ? 'text-white shadow-xs'
                       : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
                   }`}
                   style={
-                    isSupervisorActive
+                    pathname === '/supervisor'
                       ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
                       : undefined
                   }
-                  title="Evaluation Portal (Unlocked)"
                 >
-                  <Unlock className={`w-3.5 h-3.5 ${isSupervisorActive ? 'text-white' : 'text-blue-600'}`} />
-                  <span>Evaluation</span>
+                  <Activity className={`w-3.5 h-3.5 ${pathname === '/supervisor' ? 'text-white' : 'text-blue-600'}`} />
+                  <span>Overview</span>
                 </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsLoginModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/70 cursor-pointer transition-all select-none"
-                  title="Sign in to unlock Evaluation Portal"
-                  aria-label="Evaluation Portal Locked - Sign in to access"
+
+                {/* Tab 2: Beneficiary Linelist */}
+                <Link
+                  href="/supervisor/assessments"
+                  aria-current={pathname?.startsWith('/supervisor/assessments') ? 'page' : undefined}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                    pathname?.startsWith('/supervisor/assessments')
+                      ? 'text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                  style={
+                    pathname?.startsWith('/supervisor/assessments')
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
                 >
-                  <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span>Evaluation</span>
-                </button>
-              )}
-            </div>
+                  <TableProperties className={`w-3.5 h-3.5 ${pathname?.startsWith('/supervisor/assessments') ? 'text-white' : 'text-blue-600'}`} />
+                  <span>Beneficiary Linelist</span>
+                </Link>
+
+                {/* Tab 3: Clinical Analytics */}
+                <Link
+                  href="/supervisor/analytics"
+                  aria-current={pathname?.startsWith('/supervisor/analytics') ? 'page' : undefined}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                    pathname?.startsWith('/supervisor/analytics')
+                      ? 'text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                  style={
+                    pathname?.startsWith('/supervisor/analytics')
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
+                >
+                  <span>Analytics</span>
+                </Link>
+
+                {/* Tab 4: Field Workers */}
+                <Link
+                  href="/supervisor/field-workers"
+                  aria-current={pathname?.startsWith('/supervisor/field-workers') ? 'page' : undefined}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                    pathname?.startsWith('/supervisor/field-workers')
+                      ? 'text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                  style={
+                    pathname?.startsWith('/supervisor/field-workers')
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
+                >
+                  <span>Field Workers</span>
+                </Link>
+              </div>
+            ) : (
+              /* Field Caseworker & Signed-out Dock: Forms, Submitted Surveys, Evaluation */
+              <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
+                {/* Tab 1: Forms */}
+                <Link
+                  href="/app"
+                  aria-current={isFormsActive ? 'page' : undefined}
+                  className={`flex items-center px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                    isFormsActive
+                      ? 'text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                  style={
+                    isFormsActive
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
+                >
+                  <span>Forms</span>
+                </Link>
+
+                {/* Tab 2: Submitted Surveys + Golden Sun Count Badge */}
+                <Link
+                  href="/assessment/sync"
+                  aria-current={isSyncActive ? 'page' : undefined}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                    isSyncActive
+                      ? 'text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                  style={
+                    isSyncActive
+                      ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                      : undefined
+                  }
+                >
+                  <span>Submitted Surveys</span>
+                  <span
+                    className="inline-flex items-center justify-center rounded-full px-1.5 py-0.2 font-mono text-[11px] font-black leading-tight shadow-2xs"
+                    style={{
+                      background: 'linear-gradient(135deg, #FEF08A 0%, #FACC15 100%)',
+                      color: '#081226',
+                      border: '1px solid rgba(234, 179, 8, 0.45)',
+                    }}
+                    title={
+                      summary.isLocalOnlyCount
+                        ? 'Submissions saved locally on this device'
+                        : 'Authoritative server-confirmed submissions'
+                    }
+                    aria-label={
+                      summary.isLocalOnlyCount
+                        ? `${displayCount} local submissions saved on this device`
+                        : `${displayCount} server-confirmed submissions`
+                    }
+                  >
+                    {displayCount}
+                  </span>
+                  {effectivePending > 0 && (
+                    <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-2xs">
+                      {effectivePending}
+                    </span>
+                  )}
+                </Link>
+
+                {/* Tab 3: Evaluation Portal */}
+                {isUnlocked ? (
+                  <Link
+                    href="/supervisor"
+                    onClick={triggerDisintegration}
+                    aria-current={isSupervisorActive ? 'page' : undefined}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 select-none ${
+                      isSupervisorActive
+                        ? 'text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-white/70'
+                    }`}
+                    style={
+                      isSupervisorActive
+                        ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                        : undefined
+                    }
+                    title="Evaluation Portal (Unlocked)"
+                  >
+                    <Unlock className={`w-3.5 h-3.5 ${isSupervisorActive ? 'text-white' : 'text-blue-600'}`} />
+                    <span>Evaluation</span>
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/70 cursor-pointer transition-all select-none"
+                    title="Sign in to unlock Evaluation Portal"
+                    aria-label="Evaluation Portal Locked - Sign in to access"
+                  >
+                    <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span>Evaluation</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             <EvaluationLoginModal
               isOpen={isLoginModalOpen}
@@ -293,8 +373,8 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
 
           {/* Right Utility Cluster: Wi-Fi, Profile / Sign In, Refresh */}
           <div className="flex items-center space-x-2 shrink-0">
-            {/* Outbox Badge when items are waiting */}
-            {effectivePending > 0 && (
+            {/* Outbox Badge when items are waiting (Field Workers only) */}
+            {!isEvalRole && effectivePending > 0 && (
               <Link
                 href="/assessment/sync?tab=outbox"
                 data-testid="waiting-to-send-badge"
@@ -353,7 +433,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
       >
         {/* Brand Logo */}
         <Link
-          href="/app"
+          href={isEvalRole ? '/supervisor' : '/app'}
           aria-label="Alliance India Home"
           className="flex items-center rounded-lg p-0.5 group focus-visible:outline-none"
           title="India HIV/AIDS Alliance"
@@ -370,7 +450,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
 
         {/* Right Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {effectivePending > 0 && (
+          {!isEvalRole && effectivePending > 0 && (
             <Link
               href="/assessment/sync?tab=outbox"
               data-testid="waiting-to-send-badge-mobile"
@@ -403,15 +483,26 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
           {/* Profile Menu Trigger */}
           <ProfileMenu />
 
-          {/* Sync Centre shortcut */}
-          <Link
-            href="/assessment/sync"
-            className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
-            title="Open Sync Centre"
-            aria-label={`Open Sync Centre, ${effectivePending} pending`}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Link>
+          {/* Right Action: Linelist for Evaluation, Sync Centre for Field */}
+          {isEvalRole ? (
+            <Link
+              href="/supervisor/assessments"
+              className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
+              title="Beneficiary Linelist"
+              aria-label="Beneficiary Linelist"
+            >
+              <TableProperties className="h-3.5 w-3.5" />
+            </Link>
+          ) : (
+            <Link
+              href="/assessment/sync"
+              className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
+              title="Open Sync Centre"
+              aria-label={`Open Sync Centre, ${effectivePending} pending`}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Link>
+          )}
         </div>
       </div>
     </header>

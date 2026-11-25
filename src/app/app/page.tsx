@@ -11,7 +11,7 @@ import { DraftCard } from '@/components/forms/DraftCard';
 import { getDraftsCount, getAllDrafts, deleteDraft } from '@/lib/db/draftRepository';
 import { getWaitingQueueCount, getLocalSyncedCount } from '@/lib/db/syncQueueRepository';
 import type { AssessmentRecord } from '@/types/domain';
-import { Plus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import { AnimatedHeartUnlock } from '@/components/ui/AnimatedHeartUnlock';
 import { MiniatureGardenPlayground } from '@/components/garden/MiniatureGardenPlayground';
 import { MobileKoboHomeScreen } from '@/components/mobile/MobileKoboHomeScreen';
@@ -52,6 +52,17 @@ export default function FieldWorkspacePage() {
   useEffect(() => {
     setIsAuthenticated(checkAuth());
   }, [checkAuth]);
+
+  // Strict role-aware workspace routing: Evaluation users (Leadership, State Reviewer, Admin)
+  // belong in the Evaluation workspace (/supervisor) and must never be shown the field-worker forms dashboard.
+  useEffect(() => {
+    if (isLoaded && user && user.isVerified) {
+      const isEvalRole = user.role === 'LEADERSHIP' || user.role === 'STATE_REVIEWER' || user.role === 'ADMIN';
+      if (isEvalRole) {
+        router.replace('/supervisor');
+      }
+    }
+  }, [isLoaded, user, router]);
 
   // Decoupled state for Drafts
   const [draftCount, setDraftCount] = useState<number | null>(null);
@@ -495,6 +506,20 @@ export default function FieldWorkspacePage() {
     }
     router.push(`/assessment/draft/${id}`);
   };
+
+  if (isLoaded && user && user.isVerified) {
+    const isEvalRole = user.role === 'LEADERSHIP' || user.role === 'STATE_REVIEWER' || user.role === 'ADMIN';
+    if (isEvalRole) {
+      return (
+        <AppShell>
+          <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-20 text-center">
+            <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
+            <h2 className="text-sm font-semibold text-slate-800">Opening Evaluation Workspace…</h2>
+          </div>
+        </AppShell>
+      );
+    }
+  }
 
   return (
     <AppShell

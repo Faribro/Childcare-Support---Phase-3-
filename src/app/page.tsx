@@ -2,8 +2,9 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useEvaluationAccess } from '@/lib/auth/evaluationAccess';
 import {
   Check
 } from 'lucide-react';
@@ -21,9 +22,20 @@ import motionStyles from '@/components/landing/landing-motion.module.css';
 
 export default function LandingPage() {
   const router = useRouter();
+  const { user, isLoaded, isUnlocked } = useEvaluationAccess();
   const { canInstall, hasPrompt, isStandalone, promptInstall } = usePwaInstall();
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
+
+  // Evaluation users (Leadership / State Reviewer) land directly in their workspace
+  useEffect(() => {
+    if (isLoaded && isUnlocked && user && user.isVerified) {
+      const isEval = user.role === 'LEADERSHIP' || user.role === 'STATE_REVIEWER' || user.role === 'ADMIN';
+      if (isEval) {
+        router.replace('/supervisor');
+      }
+    }
+  }, [isLoaded, isUnlocked, user, router]);
 
   const handleInstallClick = () => {
     setShowInstallModal(true);
