@@ -194,8 +194,24 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
           {/* Center Pill Dock */}
           <nav className="flex items-center space-x-1" aria-label="Main Navigation">
             {isEvalRole ? (
-              /* Evaluation Workspace Navigation (National Leadership & State Team) */
-              <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
+              isSupervisorActive ? (
+                /* Inside /supervisor* routes, SupervisorTabNav right below provides the single workspace nav bar */
+                <div
+                  data-testid="evaluation-scope-pill"
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#EFF6FF] border border-blue-100/90 text-xs font-bold text-[#093282] shadow-2xs select-none"
+                >
+                  <Shield className="w-3.5 h-3.5 text-[#155AD1] shrink-0" aria-hidden="true" />
+                  <span>
+                    {user?.role === 'STATE_REVIEWER'
+                      ? `State Evaluation · ${(user.allowedStates || []).filter((s) => s !== '*').join(', ') || 'Assigned Scope'}`
+                      : user?.role === 'ADMIN'
+                      ? 'System Evaluation · All States'
+                      : 'National Leadership · All States'}
+                  </span>
+                </div>
+              ) : (
+                /* Evaluation Workspace Quick Switcher when viewing sub-pages outside /supervisor* (e.g. Full Dossier) */
+                <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
                 {/* Tab 1: Overview & Surveillance */}
                 <Link
                   href="/supervisor"
@@ -270,6 +286,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                   <span>Field Workers</span>
                 </Link>
               </div>
+              )
             ) : (
               /* Field Caseworker & Signed-out Dock: Forms, Submitted Surveys, Evaluation */
               <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
@@ -490,17 +507,19 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
           {/* Profile Menu Trigger */}
           <ProfileMenu />
 
-          {/* Right Action: Linelist for Evaluation, Sync Centre for Field (Hidden on form routes) */}
+          {/* Right Action: Sync Centre for Field, Quick Linelist only when Eval is outside /supervisor* */}
           {!isFormRoute && (
             isEvalRole ? (
-              <Link
-                href="/supervisor/assessments"
-                className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
-                title="Beneficiary Linelist"
-                aria-label="Beneficiary Linelist"
-              >
-                <TableProperties className="h-3.5 w-3.5" />
-              </Link>
+              !isSupervisorActive ? (
+                <Link
+                  href="/supervisor/assessments"
+                  className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
+                  title="Beneficiary Linelist"
+                  aria-label="Beneficiary Linelist"
+                >
+                  <TableProperties className="h-3.5 w-3.5" />
+                </Link>
+              ) : null
             ) : (
               <Link
                 href="/assessment/sync"

@@ -56,7 +56,7 @@ const DOC_BADGE_MAP = {
     railColor: 'bg-[#1E6EEB]',
   },
   complete: {
-    label: 'Docs Verified',
+    label: 'Docs Complete',
     className: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     railColor: 'bg-emerald-500',
   },

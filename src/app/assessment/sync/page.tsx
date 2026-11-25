@@ -1197,8 +1197,12 @@ function SyncCentreContent() {
 
   const missingDocsItems = useMemo(() => {
     return syncedItems.filter((item) => {
-      const readiness = deriveBeneficiaryReadiness(item.rawRecord || item);
-      return !readiness.isComplete;
+      const stages = deriveSubmissionStages(item.rawRecord || item);
+      return (
+        stages.intakeCompleteness === 'incomplete' ||
+        stages.intakeCompleteness === 'pending_review' ||
+        stages.intakeCompleteness === 'partial'
+      );
     });
   }, [syncedItems]);
 

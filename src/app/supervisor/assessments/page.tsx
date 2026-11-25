@@ -236,16 +236,20 @@ export default function SupervisorAssessmentsPage() {
 
     for (const r of currentChildRecords) {
       const stages = deriveSubmissionStages(r.rawRecord || r);
+      const hasIntakeIncomplete =
+        stages.intakeCompleteness === 'incomplete' ||
+        stages.intakeCompleteness === 'pending_review' ||
+        stages.intakeCompleteness === 'partial';
       if (r.isApproved) {
         if (stages.bankWorkflow !== 'complete') {
           bankPending++;
-        } else if (r.documentStatus.isComplete) {
+        } else if (!hasIntakeIncomplete) {
           intakeComplete++;
         }
       } else {
         pendingApproval++;
       }
-      if (!r.documentStatus.isComplete) {
+      if (hasIntakeIncomplete) {
         intakePending++;
       }
     }
@@ -278,11 +282,18 @@ export default function SupervisorAssessmentsPage() {
     } else if (worklistTab === 'pending_approval') {
       subset = subset.filter((r) => !r.isApproved);
     } else if (worklistTab === 'intake_pending') {
-      subset = subset.filter((r) => !r.documentStatus.isComplete);
+      subset = subset.filter((r) => {
+        const stages = deriveSubmissionStages(r.rawRecord || r);
+        return (
+          stages.intakeCompleteness === 'incomplete' ||
+          stages.intakeCompleteness === 'pending_review' ||
+          stages.intakeCompleteness === 'partial'
+        );
+      });
     } else if (worklistTab === 'intake_complete') {
       subset = subset.filter((r) => {
         const stages = deriveSubmissionStages(r.rawRecord || r);
-        return r.isApproved && stages.bankWorkflow === 'complete' && r.documentStatus.isComplete;
+        return r.isApproved && stages.bankWorkflow === 'complete' && stages.intakeCompleteness === 'complete';
       });
     }
 
@@ -322,14 +333,17 @@ export default function SupervisorAssessmentsPage() {
   // 4b. Formatted Evaluation Rows for 8-column layout with 1-click copy and zero overflow
   const evaluationRows: EvaluationBeneficiaryRow[] = useMemo(() => {
     return paginatedRows.map((row) => {
+      const stages = deriveSubmissionStages(row.rawRecord || row);
       const isApproved = row.isApproved;
-      const hasPendingDocs = (row.documentStatus?.pendingDocs?.length || 0) > 0;
-      const isComplete = row.documentStatus?.isComplete;
+      const hasIntakeGap =
+        stages.intakeCompleteness === 'incomplete' ||
+        stages.intakeCompleteness === 'pending_review' ||
+        stages.intakeCompleteness === 'partial';
 
       let docsStatus: 'intake_pending' | 'bank_pending' | 'complete' = 'intake_pending';
-      if (isApproved && hasPendingDocs) {
+      if (isApproved && stages.bankWorkflow === 'pending') {
         docsStatus = 'bank_pending';
-      } else if (isComplete) {
+      } else if (!hasIntakeGap && (!isApproved || stages.bankWorkflow === 'complete')) {
         docsStatus = 'complete';
       }
 
@@ -1653,7 +1667,10 @@ export default function SupervisorAssessmentsPage() {
       <ChildApprovalDrawer
         isOpen={isDrawerOpen}
         row={selectedDrawerRow}
-        rawRecord={sortedData.find((r) => r.id === selectedDrawerRow?.id)?.rawRecord}
+        rawRecord={(() => {
+          const match = sortedData.find((r) => r.id === selectedDrawerRow?.id);
+          return match?.rawRecord || match;
+        })()}
         isLoading={updatingApprovalId === selectedDrawerRow?.id}
         onClose={() => {
           setIsDrawerOpen(false);

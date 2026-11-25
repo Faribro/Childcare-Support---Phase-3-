@@ -386,8 +386,12 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     'Government school'
   );
 
+  const incomingCategories = it.supportCategories ?? it.categories;
+  const isCategoryAware = Array.isArray(incomingCategories) && incomingCategories.length > 0;
+  const isEducationApplicable = !isCategoryAware || incomingCategories.includes('education');
   const isEnrolled = isChildEnrolledInSchool(it, schoolType);
   const isOutOfSchool = !isEnrolled;
+  const isSchoolDocsApplicable = isEducationApplicable && isEnrolled;
 
   // 1. Passbook Front Page
   const passbookVal =
@@ -448,7 +452,7 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     it.caregiverConsent?.signatureStatus === 'UPLOADED';
   let sigPresent = isAttachmentPresent(sigVal, it.hasSignature ?? (isSigStatusCaptured ? true : undefined));
 
-  // 5. School Fee Receipt (Applicable only if child is enrolled in school)
+  // 5. School Fee Receipt (Applicable only if education is applicable and child is enrolled in school)
   const feeVal =
     it['64\nSchool Fee Receipt Link'] ||
     it['64\\nSchool Fee Receipt Link'] ||
@@ -458,9 +462,9 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     it.fee_receipt_photo_url ||
     it.educationExpenses?.feeReceiptPhotoUrl ||
     it.raw_payload?.educationExpenses?.feeReceiptPhotoUrl;
-  let feeReceiptPresent = isEnrolled ? isAttachmentPresent(feeVal, it.hasFeeReceipt) : false;
+  let feeReceiptPresent = isSchoolDocsApplicable ? isAttachmentPresent(feeVal, it.hasFeeReceipt) : false;
 
-  // 6. Marksheet (Applicable only if child is enrolled in school)
+  // 6. Marksheet (Applicable only if education is applicable and child is enrolled in school)
   const marksheetVal =
     it['65\nMarksheet Photo Link'] ||
     it['65\\nMarksheet Photo Link'] ||
@@ -470,7 +474,7 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     it.marksheet_photo_url ||
     it.educationExpenses?.marksheetPhotoUrl ||
     it.raw_payload?.educationExpenses?.marksheetPhotoUrl;
-  let marksheetPresent = isEnrolled ? isAttachmentPresent(marksheetVal, it.hasMarksheet) : false;
+  let marksheetPresent = isSchoolDocsApplicable ? isAttachmentPresent(marksheetVal, it.hasMarksheet) : false;
 
   // Fallback to pre-existing documentStatus for mock rows or pre-parsed SupervisorBeneficiaryRows
   if (it.documentStatus && typeof it.documentStatus.isComplete === 'boolean') {
@@ -480,7 +484,7 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
       aadhaarPresent = true;
       photoPresent = true;
       sigPresent = true;
-      if (isEnrolled) {
+      if (isSchoolDocsApplicable) {
         feeReceiptPresent = true;
         marksheetPresent = true;
       }
@@ -490,8 +494,8 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
         if (ds.uploadedDocs.some((d: string) => d.includes('Aadhaar'))) aadhaarPresent = true;
         if (ds.uploadedDocs.some((d: string) => d.includes('Photo'))) photoPresent = true;
         if (ds.uploadedDocs.some((d: string) => d.includes('Signature'))) sigPresent = true;
-        if (isEnrolled && ds.uploadedDocs.some((d: string) => d.includes('Fee Receipt'))) feeReceiptPresent = true;
-        if (isEnrolled && ds.uploadedDocs.some((d: string) => d.includes('Marksheet'))) marksheetPresent = true;
+        if (isSchoolDocsApplicable && ds.uploadedDocs.some((d: string) => d.includes('Fee Receipt'))) feeReceiptPresent = true;
+        if (isSchoolDocsApplicable && ds.uploadedDocs.some((d: string) => d.includes('Marksheet'))) marksheetPresent = true;
       }
       if (Array.isArray(ds.pendingDocs)) {
         if (ds.pendingDocs.some((d: string) => d.includes('Passbook'))) passbookPresent = false;
@@ -585,23 +589,23 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     },
     'School Fee Receipt': {
       docType: 'School Fee Receipt',
-      required: isEnrolled,
-      state: !isEnrolled ? 'not_applicable' : !feeReceiptPresent ? 'missing' : isFeeReceiptVerified ? 'verified' : 'uploaded',
+      required: isSchoolDocsApplicable,
+      state: !isSchoolDocsApplicable ? 'not_applicable' : !feeReceiptPresent ? 'missing' : isFeeReceiptVerified ? 'verified' : 'uploaded',
       label: 'School Fee Receipt',
-      isMissing: isEnrolled && !feeReceiptPresent,
+      isMissing: isSchoolDocsApplicable && !feeReceiptPresent,
       isPresent: feeReceiptPresent,
       isVerified: isFeeReceiptVerified,
-      isNotApplicable: !isEnrolled,
+      isNotApplicable: !isSchoolDocsApplicable,
     },
     'Academic Marksheet': {
       docType: 'Academic Marksheet',
-      required: isEnrolled,
-      state: !isEnrolled ? 'not_applicable' : !marksheetPresent ? 'missing' : isMarksheetVerified ? 'verified' : 'uploaded',
+      required: isSchoolDocsApplicable,
+      state: !isSchoolDocsApplicable ? 'not_applicable' : !marksheetPresent ? 'missing' : isMarksheetVerified ? 'verified' : 'uploaded',
       label: 'Academic Marksheet / Certificate',
-      isMissing: isEnrolled && !marksheetPresent,
+      isMissing: isSchoolDocsApplicable && !marksheetPresent,
       isPresent: marksheetPresent,
       isVerified: isMarksheetVerified,
-      isNotApplicable: !isEnrolled,
+      isNotApplicable: !isSchoolDocsApplicable,
     },
   };
 

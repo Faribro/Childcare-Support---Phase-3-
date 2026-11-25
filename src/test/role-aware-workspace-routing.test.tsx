@@ -135,4 +135,34 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
     // Evaluation portal is shown locked
     expect(screen.getByRole('button', { name: /Evaluation Portal Locked/i })).toBeDefined();
   });
+
+  it('4. Eliminates duplicate top-bar Evaluation links when inside /supervisor* routes while keeping single scope pill', () => {
+    mockPathname = '/supervisor';
+    vi.spyOn(evalAccess, 'useEvaluationAccess').mockReturnValue({
+      isUnlocked: true,
+      isAuthenticated: true,
+      isLoading: false,
+      isLoaded: true,
+      user: {
+        userId: 'lead-001',
+        name: 'National Director',
+        role: 'LEADERSHIP',
+        allowedStates: ['*'],
+        allowedDistricts: ['*'],
+        isVerified: true,
+      },
+      login: vi.fn(),
+      logout: vi.fn(),
+      unlock: vi.fn(),
+      lock: vi.fn() as any,
+      toggle: vi.fn(),
+    });
+
+    render(<CompactMasthead />);
+    expect(screen.getByTestId('evaluation-scope-pill').textContent).toContain('National Leadership');
+    expect(screen.queryByRole('link', { name: /^Overview$/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Beneficiary Linelist/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /^Analytics$/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Field Workers/i })).toBeNull();
+  });
 });

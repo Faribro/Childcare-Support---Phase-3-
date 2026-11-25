@@ -249,4 +249,44 @@ describe('Workstream C: Evaluation Portal Redesign, 8-Column Linelist & Approval
     fireEvent.click(aadhaarLink);
     expect(onShortcut).toHaveBeenCalledWith('missingDoc', 'aadhaar');
   });
+
+  it('6. ChildApprovalDrawer applies Nutrition-only & post-approval rules and never equates Uploaded with Verified', () => {
+    const nutritionRawRecord = {
+      childName: 'Nutrition Only Child',
+      dob: '2018-04-02',
+      gender: 'Female',
+      caregiverName: 'Meera Devi',
+      state: 'Maharashtra',
+      district: 'Pune',
+      supportCategories: ['nutrition'],
+      schoolType: 'Government school',
+      approval: 'Pending',
+      isApproved: false,
+      aadhaarCardPhotoUrl: 'asset://vault/aadhaar-1',
+      childPhotoUrl: 'asset://vault/photo-1',
+      signatureDataUrl: 'asset://vault/sig-1',
+      isAadhaarVerified: true,
+      // Photo & Signature uploaded only (NOT verified); School docs N/A; Passbook not yet due
+    };
+
+    render(
+      <ChildApprovalDrawer
+        isOpen={true}
+        row={sampleEvalRows[0]}
+        rawRecord={nutritionRawRecord}
+        onClose={vi.fn()}
+        onConfirmApproval={vi.fn(async () => {})}
+        onViewDossier={vi.fn()}
+      />
+    );
+
+    // Applicable intake docs: Aadhaar + Photo + Signature = 3 (School fee & marksheet Not Applicable; Passbook Not Yet Due)
+    expect(screen.getByTestId('drawer-applicable-summary').textContent).toBe(
+      '3 of 3 Applicable Present · 1 Verified'
+    );
+    expect(screen.getAllByText('Not Applicable').length).toBe(2);
+    expect(screen.getByText('Not Yet Due')).toBeDefined();
+    expect(screen.getByText('Verified')).toBeDefined();
+    expect(screen.getAllByText('Uploaded').length).toBe(2);
+  });
 });

@@ -18,6 +18,10 @@ import {
 import { CosmicSpaceButton } from '@/components/ui/CosmicSpaceButton';
 import { triggerHaptic } from '@/hooks/useMobileTouch';
 import { cosmicSound } from '@/lib/audio/cosmicSoundEngine';
+import {
+  deriveSubmissionStages,
+  type DocumentReviewState,
+} from '@/lib/shared/submissionStages';
 import type { EvaluationBeneficiaryRow } from './EvaluationLinelistTable';
 
 interface ChildApprovalDrawerProps {
@@ -30,13 +34,46 @@ interface ChildApprovalDrawerProps {
   onViewDossier?: (row: EvaluationBeneficiaryRow) => void;
 }
 
-const KYC_DOCS_LIST = [
-  { key: 'aadhaar', label: 'Aadhaar Card', icon: FileText },
-  { key: 'passbook', label: 'Bank Passbook / Details', icon: FileText },
-  { key: 'photo', label: 'Beneficiary Passport Photo', icon: FileText },
-  { key: 'signature', label: 'Caregiver Signed Consent', icon: FileText },
-  { key: 'school', label: 'School Enrollment / Fee Receipt', icon: School },
-];
+type DrawerDocStatus = DocumentReviewState | 'not_yet_due';
+
+interface DrawerChecklistItem {
+  key: string;
+  label: string;
+  icon: typeof FileText;
+  status: DrawerDocStatus;
+  applicable: boolean;
+}
+
+function buildFallbackRecordFromRow(row: EvaluationBeneficiaryRow): Record<string, any> {
+  const missingLower = (row.missingDocs || []).map((m) => m.toLowerCase());
+  const isMissing = (needle: string) => missingLower.some((m) => m.includes(needle));
+  const verifiedLower = ((row as any).verifiedDocs || []).map((v: string) => v.toLowerCase());
+  const isVerified = (needle: string) => verifiedLower.some((v: string) => v.includes(needle));
+
+  return {
+    childName: row.childName,
+    schoolType: row.schoolType,
+    state: row.state,
+    district: row.district,
+    approval: row.approvalStatus === 'approved' ? 'Approved' : row.approvalStatus === 'rejected' ? 'Rejected' : 'Pending',
+    isApproved: row.approvalStatus === 'approved',
+    dob: '2016-01-01',
+    gender: row.sexText && row.sexText !== '—' ? row.sexText : 'Unknown',
+    caregiverName: 'Recorded Caregiver',
+    aadhaarCardPhotoUrl: isMissing('aadhaar') ? '' : 'asset://uploaded-aadhaar',
+    childPhotoUrl: isMissing('photo') ? '' : 'asset://uploaded-photo',
+    signatureDataUrl: isMissing('signature') || isMissing('consent') ? '' : 'asset://uploaded-signature',
+    feeReceiptPhotoUrl: isMissing('fee') || isMissing('school') ? '' : 'asset://uploaded-fee',
+    marksheetPhotoUrl: isMissing('marksheet') ? '' : 'asset://uploaded-marksheet',
+    passbookPhotoUrl: isMissing('passbook') || isMissing('bank') ? '' : 'asset://uploaded-passbook',
+    isAadhaarVerified: isVerified('aadhaar'),
+    isPhotoVerified: isVerified('photo'),
+    isSignatureVerified: isVerified('signature'),
+    isFeeReceiptVerified: isVerified('fee'),
+    isMarksheetVerified: isVerified('marksheet'),
+    isPassbookVerified: isVerified('passbook'),
+  };
+}
 
 export function ChildApprovalDrawer({
   isOpen,
@@ -75,11 +112,66 @@ export function ChildApprovalDrawer({
     }
   };
 
-  const isDocMissing = (docKey: string): boolean => {
-    const lowerKey = docKey.toLowerCase();
-    const missing = row.missingDocs || [];
-    return missing.some((m) => m.toLowerCase().includes(lowerKey));
-  };
+  const stageSource = rawRecord || buildFallbackRecordFromRow(row);
+  const stages = deriveSubmissionStages(stageSource);
+  const passbookStatus: DrawerDocStatus =
+    stages.approvalState !== 'approved' && stages.documentReview.passbook === 'missing'
+      ? 'not_yet_due'
+      : stages.documentReview.passbook;
+
+  const checklistItems: DrawerChecklistItem[] = [
+    {
+      key: 'aadhaar',
+      label: 'Aadhaar Card',
+      icon: FileText,
+      status: stages.documentReview.aadhaar,
+      applicable: stages.documentReview.aadhaar !== 'not_applicable',
+    },
+    {
+      key: 'photo',
+      label: 'Beneficiary Passport Photo',
+      icon: FileText,
+      status: stages.documentReview.photo,
+      applicable: stages.documentReview.photo !== 'not_applicable',
+    },
+    {
+      key: 'signature',
+      label: 'Caregiver Signed Consent',
+      icon: FileText,
+      status: stages.documentReview.signature,
+      applicable: stages.documentReview.signature !== 'not_applicable',
+    },
+    {
+      key: 'feeReceipt',
+      label: 'School Enrollment / Fee Receipt',
+      icon: School,
+      status: stages.documentReview.feeReceipt,
+      applicable: stages.documentReview.feeReceipt !== 'not_applicable',
+    },
+    {
+      key: 'marksheet',
+      label: 'Academic Marksheet',
+      icon: School,
+      status: stages.documentReview.marksheet,
+      applicable: stages.documentReview.marksheet !== 'not_applicable',
+    },
+    {
+      key: 'passbook',
+      label: 'Bank Passbook / Details',
+      icon: FileText,
+      status: passbookStatus,
+      applicable: passbookStatus !== 'not_applicable' && passbookStatus !== 'not_yet_due',
+    },
+  ];
+
+  const applicableItems = checklistItems.filter((item) => item.applicable);
+  const presentOrExemptCount = applicableItems.filter(
+    (item) =>
+      item.status === 'verified' ||
+      item.status === 'uploaded' ||
+      item.status === 'not_available_reason_recorded'
+  ).length;
+  const verifiedCount = applicableItems.filter((item) => item.status === 'verified').length;
 
   const shortId = row.displayCode || `#${row.id.slice(0, 8).toUpperCase()}`;
 
@@ -227,38 +319,69 @@ export function ChildApprovalDrawer({
             )}
           </div>
 
-          {/* KYC & Verification Checklist */}
+          {/* KYC & Applicable Document Checklist */}
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">
                 KYC &amp; Attachment Checklist
               </h3>
-              <span className="text-[11px] font-semibold text-slate-500">
-                {KYC_DOCS_LIST.filter((doc) => !isDocMissing(doc.key)).length} of {KYC_DOCS_LIST.length} Verified
+              <span
+                data-testid="drawer-applicable-summary"
+                className="text-[11px] font-semibold text-slate-600 tabular-nums"
+              >
+                {presentOrExemptCount} of {applicableItems.length} Applicable Present · {verifiedCount} Verified
               </span>
             </div>
 
             <div className="divide-y divide-slate-100 rounded-2xl border border-sky-100 bg-white overflow-hidden shadow-xs">
-              {KYC_DOCS_LIST.map((doc) => {
-                const missing = isDocMissing(doc.key);
+              {checklistItems.map((doc) => {
+                const badge =
+                  doc.status === 'verified' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                      Verified
+                    </span>
+                  ) : doc.status === 'uploaded' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-[#093282] border border-sky-200 text-[11px] font-bold">
+                      <FileText className="h-3 w-3 text-[#155AD1]" />
+                      Uploaded
+                    </span>
+                  ) : doc.status === 'not_available_reason_recorded' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold">
+                      Reason Recorded
+                    </span>
+                  ) : doc.status === 'not_applicable' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 text-[11px] font-semibold">
+                      Not Applicable
+                    </span>
+                  ) : doc.status === 'not_yet_due' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-semibold">
+                      Not Yet Due
+                    </span>
+                  ) : doc.status === 'rejected' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200 text-[11px] font-bold">
+                      <AlertCircle className="h-3 w-3 text-rose-600" />
+                      Rejected
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold">
+                      <AlertCircle className="h-3 w-3 text-amber-600" />
+                      Missing
+                    </span>
+                  );
+
                 return (
-                  <div key={doc.key} className="flex items-center justify-between p-3 text-xs">
+                  <div
+                    key={doc.key}
+                    className={`flex items-center justify-between p-3 text-xs ${
+                      doc.applicable ? '' : 'opacity-65 bg-slate-50/50'
+                    }`}
+                  >
                     <div className="flex items-center gap-2.5 font-medium text-slate-800">
-                      <doc.icon className="h-4 w-4 text-slate-400" />
+                      <doc.icon className="h-4 w-4 text-slate-400 shrink-0" />
                       <span>{doc.label}</span>
                     </div>
-
-                    {missing ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold">
-                        <AlertCircle className="h-3 w-3 text-amber-600" />
-                        Missing
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                        Verified
-                      </span>
-                    )}
+                    {badge}
                   </div>
                 );
               })}
