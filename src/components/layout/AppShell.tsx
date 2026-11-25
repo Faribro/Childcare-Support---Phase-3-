@@ -28,12 +28,15 @@ export function AppShell({
 }: AppShellProps) {
   const pathname = usePathname();
   const isCosmicPage = pathname === '/app' || pathname === '/';
+  const isSupervisorPage = Boolean(pathname?.startsWith('/supervisor'));
 
   return (
     <div
-      className={`min-h-screen flex flex-col w-full overflow-x-hidden ${
+      className={`min-h-screen flex flex-col w-full overflow-x-clip ${
         isCosmicPage
           ? 'bg-transparent text-slate-900'
+          : isSupervisorPage
+          ? 'bg-[#F4F8FF] text-slate-900 cosmic-scroll'
           : 'bg-surface-canvas text-ink-900'
       }`}
       style={

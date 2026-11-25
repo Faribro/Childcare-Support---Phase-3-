@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Activity, TableProperties, BarChart3, Users, Shield } from 'lucide-react';
@@ -62,19 +62,6 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
 
     return baseTabs;
   }, [user?.role]);
-  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number; opacity: number }>({
-    left: 0,
-    width: 0,
-    opacity: 0,
-  });
-  const [hoverStyle, setHoverStyle] = useState<{ left: number; width: number; opacity: number }>({
-    left: 0,
-    width: 0,
-    opacity: 0,
-  });
-
-  const tabRefs = useRef<{ [key: string]: HTMLAnchorElement | null }>({});
-  const navContainerRef = useRef<HTMLDivElement>(null);
 
   // Identify active tab accurately
   const getActiveTabHref = (): string => {
@@ -90,59 +77,13 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
 
   const activeHref = getActiveTabHref();
 
-  // Recalculate indicator position on route change or window resize
-  useEffect(() => {
-    const updateActiveIndicator = () => {
-      const activeEl = tabRefs.current[activeHref];
-      const containerEl = navContainerRef.current;
-      if (activeEl && containerEl) {
-        const containerRect = containerEl.getBoundingClientRect();
-        const tabRect = activeEl.getBoundingClientRect();
-        setIndicatorStyle({
-          left: tabRect.left - containerRect.left,
-          width: tabRect.width,
-          opacity: 1,
-        });
-      }
-    };
-
-    updateActiveIndicator();
-    // Allow slight delay for font rendering / layout reflow
-    const rafId = requestAnimationFrame(updateActiveIndicator);
-    const timeoutId = setTimeout(updateActiveIndicator, 60);
-
-    window.addEventListener('resize', updateActiveIndicator);
-    return () => {
-      cancelAnimationFrame(rafId);
-      clearTimeout(timeoutId);
-      window.removeEventListener('resize', updateActiveIndicator);
-    };
-  }, [activeHref]);
-
-  const handleMouseEnter = (href: string) => {
-    const el = tabRefs.current[href];
-    const containerEl = navContainerRef.current;
-    if (el && containerEl && href !== activeHref) {
-      const containerRect = containerEl.getBoundingClientRect();
-      const tabRect = el.getBoundingClientRect();
-      setHoverStyle({
-        left: tabRect.left - containerRect.left,
-        width: tabRect.width,
-        opacity: 1,
-      });
-    }
-  };
-
-  const handleMouseLeave = () => {
-    setHoverStyle((prev) => ({ ...prev, opacity: 0 }));
-  };
-
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 mb-3 sm:mb-4 gap-3 relative">
+    <nav
+      aria-label="Evaluation Workspace Navigation"
+      className="sticky top-[60px] md:top-[72px] z-30 mb-3 sm:mb-4 bg-white/92 backdrop-blur-md border border-sky-100/90 rounded-2xl p-1.5 shadow-[0_4px_16px_-4px_rgba(7,43,124,0.08)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 select-none"
+    >
       <div
-        ref={navContainerRef}
-        onMouseLeave={handleMouseLeave}
-        className="relative flex items-center space-x-1 overflow-x-auto sm:overflow-x-visible no-scrollbar pb-[1px]"
+        className="relative flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory p-0.5"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {supervisorTabs.map((tab) => {
@@ -153,57 +94,35 @@ export function SupervisorTabNav({ rightAction }: SupervisorTabNavProps) {
             <Link
               key={tab.href}
               href={tab.href}
-              ref={(el) => {
-                tabRefs.current[tab.href] = el;
-              }}
-              onMouseEnter={() => handleMouseEnter(tab.href)}
-              className={`group relative flex items-center space-x-2 py-2.5 px-4 text-xs font-semibold rounded-t-xl transition-all duration-200 whitespace-nowrap select-none ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`group relative flex items-center space-x-2 py-2 px-3.5 text-xs font-bold rounded-xl transition-all duration-200 whitespace-nowrap snap-start shrink-0 min-h-[44px] md:min-h-[38px] ${
                 isActive
-                  ? 'text-teal-900 font-bold bg-teal-50/70 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100/70'
+                  ? 'text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-950 hover:bg-sky-50/70'
               }`}
+              style={
+                isActive
+                  ? { background: 'linear-gradient(135deg, #2563EB 0%, #155AD1 100%)' }
+                  : undefined
+              }
             >
               <Icon
-                className={`h-4 w-4 transition-all duration-200 group-hover:scale-110 ${
-                  isActive
-                    ? 'text-teal-600 scale-105'
-                    : 'text-slate-400 group-hover:text-teal-700'
+                className={`h-3.5 w-3.5 transition-all duration-200 group-hover:scale-110 ${
+                  isActive ? 'text-white' : 'text-slate-400 group-hover:text-[#155AD1]'
                 }`}
               />
-              <span className="relative z-10">{tab.label}</span>
+              <span>{tab.label}</span>
             </Link>
           );
         })}
-
-        {/* Hover Highlight Underline Preview */}
-        <div
-          aria-hidden="true"
-          className="absolute bottom-0 h-[2.5px] bg-teal-400/40 rounded-full pointer-events-none transition-all duration-200 ease-out"
-          style={{
-            transform: `translateX(${hoverStyle.left}px)`,
-            width: `${hoverStyle.width}px`,
-            opacity: hoverStyle.opacity,
-          }}
-        />
-
-        {/* Active Animated Gradient Underline Bar */}
-        <div
-          aria-hidden="true"
-          className="absolute bottom-0 h-[3.5px] bg-gradient-to-r from-teal-500 via-emerald-500 to-teal-600 rounded-full shadow-[0_2px_8px_rgba(13,148,136,0.45)] pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-          style={{
-            transform: `translateX(${indicatorStyle.left}px)`,
-            width: `${indicatorStyle.width}px`,
-            opacity: indicatorStyle.opacity,
-          }}
-        />
       </div>
 
       {/* Right Side Actions / Tools */}
       {rightAction && (
-        <div className="flex items-center space-x-2 pb-2 sm:pb-0 shrink-0">
+        <div className="flex items-center space-x-2 px-1.5 pb-1 sm:pb-0 shrink-0">
           {rightAction}
         </div>
       )}
-    </div>
+    </nav>
   );
 }

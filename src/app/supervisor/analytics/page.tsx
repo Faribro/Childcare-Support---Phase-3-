@@ -140,7 +140,7 @@ export default function AnalyticsDashboardPage() {
       <AppShell>
         <div className="flex-1 w-full max-w-md mx-auto px-4 py-20 text-center">
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
-            <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto" />
+            <Loader2 className="w-8 h-8 text-[#155AD1] animate-spin mx-auto" />
             <h2 className="text-sm font-semibold text-slate-800">Verifying Authorization…</h2>
             <p className="text-xs text-slate-500">Checking credentials and scope clearance.</p>
           </div>
@@ -154,7 +154,7 @@ export default function AnalyticsDashboardPage() {
       <AppShell>
         <div className="flex-1 w-full max-w-md mx-auto px-4 py-16 text-center">
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-[#155AD1] flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
             <h2 className="text-base font-bold text-slate-900">Authentication Required</h2>
@@ -166,7 +166,7 @@ export default function AnalyticsDashboardPage() {
                 variant="primary"
                 size="sm"
                 onClick={() => setIsLoginModalOpen(true)}
-                className="w-full sm:w-auto text-xs bg-teal-800 hover:bg-teal-900 text-white"
+                className="w-full sm:w-auto text-xs bg-[#155AD1] hover:bg-[#093282] text-white rounded-full"
               >
                 <Lock className="w-3.5 h-3.5 mr-1.5" />
                 Sign In to Access
@@ -203,9 +203,9 @@ export default function AnalyticsDashboardPage() {
                 variant="ghost"
                 size="sm"
                 onClick={refresh}
-                className="h-9 px-3 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer"
+                className="h-9 px-3.5 text-xs font-semibold text-[#093282] bg-sky-50/80 hover:bg-sky-100 border border-sky-200 rounded-full cursor-pointer transition-colors"
               >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin text-teal-700' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 text-[#155AD1] ${isLoading ? 'animate-spin' : ''}`} />
                 <span>Refresh</span>
               </Button>
             </div>
@@ -229,7 +229,7 @@ export default function AnalyticsDashboardPage() {
                 variant="primary"
                 size="sm"
                 onClick={() => setIsLoginModalOpen(true)}
-                className="text-xs bg-teal-800 hover:bg-teal-900 text-white"
+                className="text-xs bg-[#155AD1] hover:bg-[#093282] text-white rounded-full"
               >
                 <Lock className="w-3.5 h-3.5 mr-1" />
                 Sign In Again
@@ -325,10 +325,10 @@ export default function AnalyticsDashboardPage() {
         {/* 4 Core Clinical Surveillance KPI Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5">
           {/* 1. Total Children */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-slate-300 transition-all">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 sm:p-5 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] hover:border-sky-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
               <span className="text-xs font-bold uppercase tracking-wider">Children Evaluated</span>
-              <Users className="h-4 w-4 text-teal-700" />
+              <Users className="h-4 w-4 text-[#155AD1]" />
             </div>
             <div className="text-2xl sm:text-3xl font-bold text-slate-900">
               {isLoading && totalCount === 0 ? (
@@ -339,7 +339,7 @@ export default function AnalyticsDashboardPage() {
                 totalCount
               )}
             </div>
-            <p className="text-[11px] text-teal-700 font-medium mt-1 flex items-center">
+            <p className="text-[11px] text-[#155AD1] font-medium mt-1 flex items-center">
               <TrendingUp className="h-3 w-3 mr-1" />
               <span>
                 {isError && totalCount === 0 ? 'Data Unavailable' : 'Active Linelist Surveillance'}
@@ -348,7 +348,7 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           {/* 2. Viral Load Suppression Rate */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-emerald-300 transition-all">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 sm:p-5 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] hover:border-emerald-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">VL Suppressed</span>
               <Activity className="h-4 w-4 text-emerald-600" />
@@ -372,7 +372,7 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           {/* 3. Pediatric Nutritional Risk */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-amber-300 transition-all">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 sm:p-5 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] hover:border-amber-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-amber-800">Nutritional Risk</span>
               <HeartPulse className="h-4 w-4 text-amber-600" />
@@ -396,12 +396,12 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           {/* 4. Total DBT Grants Committed */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs hover:border-teal-300 transition-all">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 sm:p-5 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] hover:border-sky-300 transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-teal-800">DBT Committed</span>
-              <Award className="h-4 w-4 text-teal-700" />
+              <span className="text-xs font-bold uppercase tracking-wider text-[#093282]">DBT Committed</span>
+              <Award className="h-4 w-4 text-[#155AD1]" />
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-teal-900">
+            <div className="text-2xl sm:text-3xl font-bold text-[#07225E]">
               {isLoading && totalCount === 0 ? (
                 <span className="text-slate-300 text-xl font-normal">Loading...</span>
               ) : isError && totalCount === 0 ? (
@@ -423,7 +423,7 @@ export default function AnalyticsDashboardPage() {
         {/* SECTION 1: 3D Isometric Cylinder Bar Chart & 3D Extruded Donut Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* CHART 1: 3D Isometric Cylinder Bar Chart - Viral Load Suppression Cascade */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-5 sm:p-6 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -625,9 +625,9 @@ export default function AnalyticsDashboardPage() {
 
             {/* Legend Breakdown */}
             <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-xs">
-              <div className="p-2 rounded-xl bg-teal-50 border border-teal-200">
-                <span className="font-bold text-teal-900 block">Undetectable</span>
-                <span className="text-teal-700 font-semibold">{undetectableCount} ({undetectableRate}%)</span>
+              <div className="p-2 rounded-xl bg-sky-50 border border-sky-200">
+                <span className="font-bold text-[#07225E] block">Undetectable</span>
+                <span className="text-[#155AD1] font-semibold">{undetectableCount} ({undetectableRate}%)</span>
               </div>
               <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
                 <span className="font-bold text-emerald-900 block">Suppressed</span>
@@ -641,7 +641,7 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           {/* CHART 2: 3D Beveled Donut Chart - Pediatric BMI & Growth Stunting */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-5 sm:p-6 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -761,7 +761,7 @@ export default function AnalyticsDashboardPage() {
         {/* SECTION 2: 2D Clinical Curve Chart & 2D Comparative State Bars */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* CHART 3: 2D Clinical Frequency Curve - Haemoglobin Anemia Spectrum */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-5 sm:p-6 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -871,7 +871,7 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           {/* CHART 4: 2D Grouped Comparative State Surveillance Performance */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-5 sm:p-6 shadow-[0_10px_28px_-14px_rgba(7,43,124,0.10)] flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -881,8 +881,8 @@ export default function AnalyticsDashboardPage() {
                   <span className="flex items-center">
                     <span className="h-2.5 w-2.5 rounded-xs bg-slate-300 mr-1" /> Total
                   </span>
-                  <span className="flex items-center font-bold text-teal-800">
-                    <span className="h-2.5 w-2.5 rounded-xs bg-teal-600 mr-1" /> Suppressed
+                  <span className="flex items-center font-bold text-[#093282]">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#155AD1] mr-1" /> Suppressed
                   </span>
                 </div>
               </div>
@@ -911,7 +911,7 @@ export default function AnalyticsDashboardPage() {
                       <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex gap-0.5 shadow-inner">
                         <div
                           style={{ width: `${Math.min(100, (s.vlSuppressed / Math.max(1, s.total)) * 100)}%` }}
-                          className="bg-teal-600 h-full rounded-full transition-all duration-500"
+                          className="bg-[#155AD1] h-full rounded-full transition-all duration-500"
                           title={`${s.vlSuppressed} Suppressed`}
                         />
                       </div>
@@ -923,7 +923,7 @@ export default function AnalyticsDashboardPage() {
 
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
               <span>High viral suppression ensures community transmission interruption.</span>
-              <span className="font-bold text-teal-800">State Target 95%</span>
+              <span className="font-bold text-[#093282]">State Target 95%</span>
             </div>
           </div>
         </div>

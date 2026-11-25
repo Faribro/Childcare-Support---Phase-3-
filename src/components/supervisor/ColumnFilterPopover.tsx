@@ -27,6 +27,7 @@ export interface ColumnFilterPopoverProps {
   onClear: () => void;
   sortDirection?: 'asc' | 'desc' | null;
   onSortChange?: (direction: 'asc' | 'desc' | null) => void;
+  showLabel?: boolean;
   className?: string;
 }
 
@@ -38,6 +39,7 @@ export function ColumnFilterPopover({
   onClear,
   sortDirection = null,
   onSortChange,
+  showLabel = false,
   className = '',
 }: ColumnFilterPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -179,17 +181,24 @@ export function ColumnFilterPopover({
         aria-expanded={isOpen}
         aria-label={`Filter and sort ${columnTitle}${isFilterActive ? ` (${totalActiveCount} active)` : ''}`}
         title={`Filter ${columnTitle}${isFilterActive ? ` (${totalActiveCount} active)` : ''}`}
-        className={`ml-1.5 p-1 rounded-md transition-all inline-flex items-center justify-center cursor-pointer ${
+        className={`${
+          showLabel
+            ? 'px-3 py-1.5 rounded-full text-xs font-semibold border min-h-[36px] gap-1.5'
+            : 'ml-1.5 p-1 rounded-md'
+        } transition-all inline-flex items-center justify-center cursor-pointer ${
           isFilterActive
-            ? 'bg-teal-600 text-white shadow-2xs hover:bg-teal-700'
+            ? 'bg-[#155AD1] text-white border-[#155AD1] shadow-2xs hover:bg-[#093282]'
             : sortDirection
-            ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
+            ? 'bg-sky-100 text-[#093282] border-sky-200 hover:bg-sky-200/80'
+            : showLabel
+            ? 'bg-sky-50/70 text-slate-700 border-sky-200/80 hover:bg-sky-100/80 hover:text-[#093282]'
             : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60'
         }`}
       >
         <Filter className="h-3 w-3 shrink-0" />
+        {showLabel && <span>{columnTitle}</span>}
         {isFilterActive && (
-          <span className="ml-0.5 text-[9px] font-extrabold px-1 py-0.2 rounded-full bg-white text-teal-800 leading-none">
+          <span className="ml-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-white text-[#093282] leading-none tabular-nums">
             {totalActiveCount}
           </span>
         )}
@@ -199,18 +208,18 @@ export function ColumnFilterPopover({
         <div
           role="dialog"
           aria-label={`${columnTitle} filter options`}
-          className="absolute left-0 top-full mt-1.5 w-64 sm:w-72 rounded-2xl bg-white shadow-2xl border border-slate-200 z-50 text-slate-800 focus:outline-none animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+          className="absolute left-0 top-full mt-1.5 w-64 sm:w-72 rounded-2xl bg-white shadow-2xl border border-sky-100 z-50 text-slate-800 focus:outline-none animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-3 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-900 truncate">
+          <div className="p-3 bg-[#F4F8FF] border-b border-sky-100 flex items-center justify-between">
+            <span className="text-xs font-bold text-[#07225E] truncate">
               Filter: {columnTitle}
             </span>
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-colors"
+              className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-sky-100/60 transition-colors cursor-pointer"
               aria-label="Close filter"
             >
               <X className="h-3.5 w-3.5" />
@@ -229,7 +238,7 @@ export function ColumnFilterPopover({
                   onClick={() => handleSortClick('asc')}
                   className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
                     sortDirection === 'asc'
-                      ? 'bg-teal-100 text-teal-900 border border-teal-300'
+                      ? 'bg-sky-100 text-[#093282] border border-sky-300'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 border border-slate-200'
                   }`}
                   title="Sort Ascending"
@@ -242,7 +251,7 @@ export function ColumnFilterPopover({
                   onClick={() => handleSortClick('desc')}
                   className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
                     sortDirection === 'desc'
-                      ? 'bg-teal-100 text-teal-900 border border-teal-300'
+                      ? 'bg-sky-100 text-[#093282] border border-sky-300'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 border border-slate-200'
                   }`}
                   title="Sort Descending"
@@ -256,7 +265,7 @@ export function ColumnFilterPopover({
 
           {/* Multi-Section Tabs if > 1 section */}
           {sections.length > 1 && (
-            <div className="flex border-b border-slate-200 bg-slate-100/60 p-1 gap-1 text-xs">
+            <div className="flex border-b border-sky-100 bg-sky-50/50 p-1 gap-1 text-xs">
               {sections.map((sec) => {
                 const count = (stagedSelections[sec.id] || []).length;
                 const isSelected = sec.id === activeSectionId;
@@ -267,13 +276,13 @@ export function ColumnFilterPopover({
                     onClick={() => setActiveSectionId(sec.id)}
                     className={`flex-1 py-1 px-2 rounded-lg text-xs font-semibold text-center transition-all truncate cursor-pointer ${
                       isSelected
-                        ? 'bg-white text-teal-900 shadow-xs border border-slate-200/80'
+                        ? 'bg-white text-[#093282] shadow-xs border border-sky-200/80'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <span>{sec.title}</span>
                     {count > 0 && (
-                      <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-teal-100 text-teal-800">
+                      <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-sky-100 text-[#093282]">
                         {count}
                       </span>
                     )}
@@ -298,7 +307,7 @@ export function ColumnFilterPopover({
                     [activeSection?.id || '']: e.target.value,
                   }))
                 }
-                className="w-full h-8 pl-8 pr-7 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all font-medium text-slate-800"
+                className="w-full h-8 pl-8 pr-7 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-[#155AD1] transition-all font-medium text-slate-800"
               />
               {(searchQueries[activeSection?.id || ''] || '') && (
                 <button
@@ -322,7 +331,7 @@ export function ColumnFilterPopover({
                 <button
                   type="button"
                   onClick={handleSelectAllVisible}
-                  className="text-teal-700 hover:text-teal-900 font-semibold hover:underline cursor-pointer"
+                  className="text-[#155AD1] hover:text-[#093282] font-semibold hover:underline cursor-pointer"
                 >
                   Select All
                 </button>
@@ -348,7 +357,7 @@ export function ColumnFilterPopover({
           </div>
 
           {/* Checkbox Options List */}
-          <div className="max-h-48 overflow-y-auto p-1.5 space-y-0.5 divide-y divide-slate-50">
+          <div className="max-h-48 overflow-y-auto cosmic-scroll p-1.5 space-y-0.5 divide-y divide-slate-50">
             {filteredOptions.length === 0 ? (
               <div className="py-6 text-center text-xs text-slate-400">
                 No matching options found
@@ -361,7 +370,7 @@ export function ColumnFilterPopover({
                     key={opt.value}
                     className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer select-none transition-colors ${
                       isChecked
-                        ? 'bg-teal-50/70 text-teal-950 font-semibold'
+                        ? 'bg-sky-50/90 text-[#07225E] font-semibold'
                         : opt.count === 0
                         ? 'text-slate-400 hover:bg-slate-50'
                         : 'text-slate-700 hover:bg-slate-100/70 font-medium'
@@ -372,7 +381,7 @@ export function ColumnFilterPopover({
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => handleToggleOption(opt.value)}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-teal-700 focus:ring-teal-500/30 cursor-pointer"
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#155AD1] focus:ring-sky-500/30 cursor-pointer"
                       />
                       <span className="truncate">{opt.label}</span>
                     </div>
@@ -380,7 +389,7 @@ export function ColumnFilterPopover({
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                         opt.count > 0
                           ? isChecked
-                            ? 'bg-teal-200/80 text-teal-900'
+                            ? 'bg-sky-200/80 text-[#07225E]'
                             : 'bg-slate-100 text-slate-600'
                           : 'bg-slate-100/60 text-slate-400'
                       }`}
@@ -394,7 +403,7 @@ export function ColumnFilterPopover({
           </div>
 
           {/* Footer Controls: Clear All, Cancel, Apply */}
-          <div className="p-2.5 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between gap-2">
+          <div className="p-2.5 bg-[#F4F8FF] border-t border-sky-100 flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={handleClearAll}
@@ -416,7 +425,7 @@ export function ColumnFilterPopover({
               <button
                 type="button"
                 onClick={handleApply}
-                className="px-3 py-1 text-xs font-bold text-white bg-teal-800 hover:bg-teal-900 rounded-lg shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                className="px-3.5 py-1 text-xs font-bold text-white bg-[#155AD1] hover:bg-[#093282] rounded-full shadow-xs transition-all cursor-pointer flex items-center gap-1"
               >
                 <Check className="h-3.5 w-3.5" />
                 <span>Apply</span>

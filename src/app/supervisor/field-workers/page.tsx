@@ -112,7 +112,7 @@ export default function SupervisorFieldWorkersPage() {
     return (
       <AppShell>
         <div className="flex-1 w-full max-w-6xl mx-auto px-4 py-16 text-center">
-          <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto mb-4" />
+          <Loader2 className="w-8 h-8 text-[#155AD1] animate-spin mx-auto mb-4" />
           <h2 className="text-sm font-semibold text-slate-800">Verifying session…</h2>
         </div>
       </AppShell>
@@ -135,7 +135,7 @@ export default function SupervisorFieldWorkersPage() {
             </div>
             <Button
               onClick={() => setIsLoginModalOpen(true)}
-              className="w-full bg-teal-800 hover:bg-teal-900 text-white text-xs py-3 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-xs"
+              className="w-full bg-[#155AD1] hover:bg-[#093282] text-white rounded-full text-xs py-3 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-xs"
             >
               <Shield className="w-4 h-4" />
               Sign In to State Evaluation Portal
@@ -162,41 +162,64 @@ export default function SupervisorFieldWorkersPage() {
 
   return (
     <AppShell>
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8 sm:px-6 lg:px-8 space-y-5">
         <SupervisorTabNav
           rightAction={
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
               onClick={fetchFieldWorkers}
               disabled={isLoading}
-              className="text-xs h-9 gap-1.5 border-slate-300 hover:bg-slate-50 cursor-pointer"
+              className="h-9 px-3.5 text-xs font-semibold text-[#093282] bg-sky-50/80 hover:bg-sky-100 border border-sky-200 rounded-full gap-1.5 cursor-pointer transition-colors"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-[#155AD1] ${isLoading ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
             </Button>
           }
         />
 
-        {/* State Reviewer Header & KPI Summary */}
-        <div className="bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        {/* State Reviewer Header & KPI Summary (Authority Cosmic Royal Blue) */}
+        <div
+          className="relative overflow-hidden rounded-3xl p-6 sm:p-8 text-white shadow-[0_16px_36px_-12px_rgba(7,43,124,0.35)] space-y-6"
+          style={{
+            background: 'linear-gradient(135deg, #07225E 0%, #0F3E9E 58%, #1E5CC7 100%)',
+          }}
+        >
+          {/* Subtle Star Sparkles Overlay */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none opacity-40"
+            style={{
+              backgroundImage: `radial-gradient(1.5px 1.5px at 20px 30px, #ffffff, transparent),
+                                radial-gradient(1px 1px at 80px 60px, rgba(255,255,255,0.7), transparent),
+                                radial-gradient(1.5px 1.5px at 160px 25px, #ffffff, transparent),
+                                radial-gradient(1px 1px at 240px 75px, rgba(255,255,255,0.6), transparent),
+                                radial-gradient(2px 2px at 340px 40px, rgba(255,255,255,0.9), transparent),
+                                radial-gradient(1px 1px at 450px 85px, rgba(255,255,255,0.7), transparent),
+                                radial-gradient(1.5px 1.5px at 560px 30px, #ffffff, transparent),
+                                radial-gradient(1px 1px at 700px 65px, rgba(255,255,255,0.8), transparent)`,
+              backgroundRepeat: 'repeat',
+              backgroundSize: '400px 100px',
+            }}
+          />
+
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 bg-teal-700/60 border border-teal-500/30 rounded-full text-xs font-medium text-teal-200 mb-2">
-                <MapPin className="w-3.5 h-3.5 text-teal-300" />
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/15 border border-white/20 rounded-full text-xs font-semibold text-sky-100 mb-2 backdrop-blur-xs">
+                <MapPin className="w-3.5 h-3.5 text-sky-200" />
                 <span>State Scope: {displayState}</span>
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white">
                 Field Workers Directory
               </h1>
-              <p className="text-xs sm:text-sm text-teal-100/80 mt-1 max-w-2xl">
+              <p className="text-xs sm:text-sm text-sky-100/90 mt-1 max-w-2xl">
                 Active caseworkers collecting child nutrition assessments in {displayState}. View onboarded staff, assigned districts, SR/SSR partnerships, and survey submission volume.
               </p>
             </div>
-            <div className="flex items-center gap-2 self-start sm:self-auto">
+            <div className="relative z-10 flex items-center gap-2 self-start sm:self-auto">
               <Button
                 onClick={() => router.push('/supervisor/assessments')}
-                className="bg-teal-600 hover:bg-teal-500 text-white text-xs px-4 py-2.5 rounded-xl font-semibold shadow-xs flex items-center gap-2 cursor-pointer"
+                className="bg-white/16 hover:bg-white/24 text-white border border-white/25 text-xs px-4 py-2.5 rounded-full font-semibold shadow-xs flex items-center gap-2 cursor-pointer transition-all backdrop-blur-xs"
               >
                 <FileText className="w-4 h-4" />
                 <span>View State Assessments</span>
@@ -204,22 +227,22 @@ export default function SupervisorFieldWorkersPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-              <div className="text-teal-200 text-xs font-medium">Field Workers Active</div>
-              <div className="text-2xl font-bold text-white mt-1">{workers.length}</div>
+          <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            <div className="bg-white/12 backdrop-blur-xs rounded-2xl p-4 border border-white/20">
+              <div className="text-sky-200 text-xs font-semibold">Field Workers Active</div>
+              <div className="text-2xl font-extrabold text-white mt-1">{workers.length}</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-              <div className="text-teal-200 text-xs font-medium">Total State Submissions</div>
-              <div className="text-2xl font-bold text-white mt-1">{totalSubmissionsInState}</div>
+            <div className="bg-white/12 backdrop-blur-xs rounded-2xl p-4 border border-white/20">
+              <div className="text-sky-200 text-xs font-semibold">Total State Submissions</div>
+              <div className="text-2xl font-extrabold text-white mt-1">{totalSubmissionsInState}</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-              <div className="text-teal-200 text-xs font-medium">Districts Covered</div>
-              <div className="text-2xl font-bold text-white mt-1">{uniqueDistricts.length}</div>
+            <div className="bg-white/12 backdrop-blur-xs rounded-2xl p-4 border border-white/20">
+              <div className="text-sky-200 text-xs font-semibold">Districts Covered</div>
+              <div className="text-2xl font-extrabold text-white mt-1">{uniqueDistricts.length}</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-              <div className="text-teal-200 text-xs font-medium">Avg Surveys / Worker</div>
-              <div className="text-2xl font-bold text-white mt-1">
+            <div className="bg-white/12 backdrop-blur-xs rounded-2xl p-4 border border-white/20">
+              <div className="text-sky-200 text-xs font-semibold">Avg Surveys / Worker</div>
+              <div className="text-2xl font-extrabold text-white mt-1">
                 {workers.length > 0 ? (totalSubmissionsInState / workers.length).toFixed(1) : '0'}
               </div>
             </div>
@@ -227,7 +250,7 @@ export default function SupervisorFieldWorkersPage() {
         </div>
 
         {/* Filters & Search Toolbar */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="bg-white rounded-3xl border border-sky-100/90 p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             <input
@@ -235,7 +258,7 @@ export default function SupervisorFieldWorkersPage() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by worker name, email, district, SR/SSR…"
-              className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+              className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-[#155AD1] transition-all"
             />
           </div>
 
@@ -244,7 +267,7 @@ export default function SupervisorFieldWorkersPage() {
             <select
               value={districtFilter}
               onChange={(e) => setDistrictFilter(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+              className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-[#155AD1] cursor-pointer"
             >
               <option value="ALL">All Districts ({uniqueDistricts.length})</option>
               {uniqueDistricts.map((d) => (
@@ -295,7 +318,7 @@ export default function SupervisorFieldWorkersPage() {
                 {isLoading ? (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-slate-400">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-700" />
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-[#155AD1]" />
                       Loading field workers in {displayState}…
                     </td>
                   </tr>
@@ -313,7 +336,7 @@ export default function SupervisorFieldWorkersPage() {
                   </tr>
                 ) : (
                   filteredWorkers.map((worker) => (
-                    <tr key={worker.id} className="hover:bg-teal-50/30 transition-colors">
+                    <tr key={worker.id} className="hover:bg-sky-50/45 transition-colors">
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-slate-900 text-sm">{worker.name}</div>
                         <div className="text-slate-500 font-mono text-[11px] flex items-center gap-1.5 mt-0.5">
@@ -323,7 +346,7 @@ export default function SupervisorFieldWorkersPage() {
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="font-medium text-slate-800 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-teal-600" />
+                          <MapPin className="w-3 h-3 text-[#155AD1]" />
                           <span>{worker.assignedDistrict || 'All Districts'}</span>
                         </div>
                         <div className="text-[11px] text-slate-500">{worker.assignedState}</div>
@@ -333,7 +356,7 @@ export default function SupervisorFieldWorkersPage() {
                         <div className="text-[11px] text-slate-500">{worker.ssrName || '—'}</div>
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-800">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 text-[#093282] border border-sky-200">
                           {worker.totalSubmissions}
                         </span>
                       </td>
@@ -373,7 +396,7 @@ export default function SupervisorFieldWorkersPage() {
                               `/supervisor/assessments?worker=${encodeURIComponent(worker.name)}`
                             );
                           }}
-                          className="text-xs text-teal-700 hover:text-teal-900 hover:bg-teal-50 cursor-pointer"
+                          className="text-xs text-[#155AD1] hover:text-[#093282] hover:bg-sky-50 cursor-pointer"
                         >
                           View Surveys
                         </Button>

@@ -178,7 +178,7 @@ function RegistrationsReviewContent() {
     return (
       <AppShell>
         <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-16 text-center">
-          <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto mb-4" />
+          <Loader2 className="w-8 h-8 text-[#155AD1] animate-spin mx-auto mb-4" />
           <h2 className="text-sm font-semibold text-slate-800">Loading Administrator Review…</h2>
           <p className="text-xs text-slate-500">Checking clearance and retrieving registrations.</p>
         </div>
@@ -193,20 +193,20 @@ function RegistrationsReviewContent() {
         <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8">
           <SupervisorTabNav />
           <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm text-center max-w-md mx-auto my-8 space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-[#155AD1] flex items-center justify-center mx-auto">
               <Users className="w-6 h-6" />
             </div>
             <h2 className="text-base font-bold text-slate-900">Coordinator Registration Approvals</h2>
             <p className="text-xs text-slate-600 leading-relaxed">
               State-team coordinator registration approvals are reserved for central Leadership and Administrator accounts.
             </p>
-            <div className="text-xs text-teal-800 bg-teal-50/80 border border-teal-200/80 rounded-xl p-3 text-left">
+            <div className="text-xs text-[#093282] bg-sky-50/80 border border-sky-200 rounded-xl p-3 text-left">
               As a State Reviewer for <strong>{reviewerState}</strong>, you can view the active field workers, their assigned districts, SR/SSR details, and survey submission totals in the Field Workers Directory.
             </div>
             <div className="pt-2">
               <Button
                 onClick={() => router.push('/supervisor/field-workers')}
-                className="w-full bg-teal-800 hover:bg-teal-900 text-white text-xs py-2.5 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-xs"
+                className="w-full bg-[#155AD1] hover:bg-[#093282] text-white rounded-full text-xs py-2.5 rounded-xl flex items-center justify-center gap-2 font-semibold shadow-xs"
               >
                 <Users className="w-4 h-4" />
                 View {reviewerState} Field Workers Directory
@@ -238,17 +238,17 @@ function RegistrationsReviewContent() {
             </div>
 
             {targetId && (
-              <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 text-left">
-                <span className="text-[11px] font-semibold text-teal-800 uppercase tracking-wider block">Target Application</span>
-                <span className="text-xs text-teal-900 font-mono break-all">{targetId}</span>
-                <span className="text-[11px] text-teal-600 block mt-1">You will be returned directly to this record after signing in.</span>
+              <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-left">
+                <span className="text-[11px] font-semibold text-[#093282] uppercase tracking-wider block">Target Application</span>
+                <span className="text-xs text-[#07225E] font-mono break-all">{targetId}</span>
+                <span className="text-[11px] text-[#155AD1] block mt-1">You will be returned directly to this record after signing in.</span>
               </div>
             )}
 
             <div className="pt-2 flex flex-col gap-3">
               <Button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="w-full bg-teal-700 hover:bg-teal-800 text-white text-xs py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-semibold"
+                className="w-full bg-[#155AD1] hover:bg-[#093282] text-white rounded-full text-xs py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm font-semibold"
               >
                 <Shield className="w-4 h-4" />
                 Authenticate as System Administrator
@@ -257,7 +257,7 @@ function RegistrationsReviewContent() {
                 href={`/leadership/login?returnUrl=${encodeURIComponent(returnUrl)}`}
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-xs"
               >
-                <Building2 className="w-4 h-4 text-teal-600" />
+                <Building2 className="w-4 h-4 text-[#155AD1]" />
                 Sign In with Leadership Email OTP
               </a>
             </div>
@@ -282,13 +282,26 @@ function RegistrationsReviewContent() {
 
   return (
     <AppShell>
-      <div className="w-full max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <SupervisorTabNav />
+      <div className="w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8 space-y-5">
+        <SupervisorTabNav
+          rightAction={
+            <Button
+              onClick={fetchRegistrations}
+              variant="ghost"
+              size="sm"
+              className="h-9 px-3.5 text-xs font-semibold text-[#093282] bg-sky-50/80 hover:bg-sky-100 border border-sky-200 rounded-full flex items-center gap-1.5 cursor-pointer transition-colors"
+              disabled={isLoading}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-[#155AD1] ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </Button>
+          }
+        />
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-              <Shield className="w-6 h-6 text-teal-700" />
+              <Shield className="w-6 h-6 text-[#155AD1]" />
               State Team Registrations Review
             </h1>
             <p className="text-sm text-slate-500 mt-1">
@@ -328,21 +341,21 @@ function RegistrationsReviewContent() {
 
         {/* Metrics Row */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase">Pending Review</span>
               <Clock className="w-4 h-4 text-amber-600" />
             </div>
             <p className="text-2xl font-bold text-amber-700 mt-2">{pendingCount}</p>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase">Approved</span>
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
             <p className="text-2xl font-bold text-emerald-700 mt-2">{approvedCount}</p>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div className="bg-white rounded-3xl border border-sky-100/90 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase">Rejected / Suspended</span>
               <XCircle className="w-4 h-4 text-slate-500" />
@@ -352,7 +365,7 @@ function RegistrationsReviewContent() {
         </div>
 
         {/* Registrations List */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-3xl border border-sky-100/90 shadow-[0_14px_34px_-14px_rgba(7,43,124,0.10)] overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
               All Applications ({registrations.length})
@@ -386,14 +399,14 @@ function RegistrationsReviewContent() {
                     id={`reg-${reg.id}`}
                     className={`p-6 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
                       isTarget
-                        ? 'bg-teal-50/40 ring-2 ring-teal-600 border-l-4 border-teal-600'
+                        ? 'bg-sky-50/60 ring-2 ring-[#155AD1] border-l-4 border-[#155AD1]'
                         : 'hover:bg-slate-50'
                     }`}
                   >
                     <div className="space-y-1.5 flex-1">
                       {isTarget && (
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-teal-100 text-teal-800 text-[11px] font-bold uppercase tracking-wider mb-1">
-                          <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-100 text-[#093282] text-[11px] font-bold uppercase tracking-wider mb-1">
+                          <Sparkles className="w-3.5 h-3.5 text-[#155AD1]" />
                           Target Application for Review
                         </div>
                       )}
@@ -418,7 +431,7 @@ function RegistrationsReviewContent() {
                           </span>
                         )}
                         {reg.emailVerified ? (
-                          <span className="bg-teal-50 text-teal-700 text-xs font-medium px-2 py-0.5 rounded border border-teal-200 flex items-center gap-1">
+                          <span className="bg-sky-50 text-[#155AD1] text-xs font-medium px-2 py-0.5 rounded border border-sky-200 flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" /> Email Verified
                           </span>
                         ) : (
@@ -443,7 +456,7 @@ function RegistrationsReviewContent() {
                           <span>{reg.organization}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-teal-600" />
+                          <MapPin className="w-3.5 h-3.5 text-[#155AD1]" />
                           <span className="font-semibold text-slate-800">{reg.requestedState}</span>
                         </div>
                       </div>
@@ -516,8 +529,8 @@ export default function PendingRegistrationsPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center text-teal-800 text-sm">
-          <Loader2 className="w-6 h-6 animate-spin text-teal-700 mr-2" />
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center text-[#093282] text-sm">
+          <Loader2 className="w-6 h-6 animate-spin text-[#155AD1] mr-2" />
           Loading Administrator Review Screen...
         </div>
       }

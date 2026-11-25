@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import Link from 'next/link';
 import {
   FileCheck2,
   FileWarning,
@@ -38,13 +39,13 @@ export function CaseStatusSummaryDashboard({
 
   return (
     <div
-      className={`bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4 ${className}`}
+      className={`bg-white rounded-3xl border border-sky-100/90 p-4 sm:p-5 shadow-[0_14px_34px_-14px_rgba(7,43,124,0.10)] space-y-4 ${className}`}
       aria-label="Case Status and Document Completeness Dashboard"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-sky-100/70 pb-3">
         <div>
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <FileCheck2 className="h-4 w-4 text-teal-600 shrink-0" />
+            <FileCheck2 className="h-4 w-4 text-[#155AD1] shrink-0" />
             <span>Case Status & Document Verification Readiness</span>
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -131,22 +132,22 @@ export function CaseStatusSummaryDashboard({
         </div>
 
         {/* Alliance Approval Status Card */}
-        <div className="p-3 rounded-xl border border-teal-100 bg-teal-50/40 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-teal-800 font-medium">
+        <div className="p-3 rounded-xl border border-sky-200/80 bg-sky-50/50 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-xs text-[#093282] font-medium">
             <span>Alliance Approval</span>
-            <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-[#155AD1]" />
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-xl font-extrabold text-teal-900">{summary.approvedCount}</span>
-            <span className="text-xs font-semibold text-teal-700">
+            <span className="text-xl font-extrabold text-[#07225E] tabular-nums">{summary.approvedCount}</span>
+            <span className="text-xs font-semibold text-[#155AD1] tabular-nums">
               {summary.approvalRate}% Approved
             </span>
           </div>
-          <div className="text-[11px] text-teal-700/80 mt-1">
+          <div className="text-[11px] text-[#093282]/80 mt-1">
             {summary.pendingApprovalCount} Pending Approval
             {summary.rejectedApprovalCount > 0 && ` • ${summary.rejectedApprovalCount} Rejected`}
           </div>
-          <div className="text-[10px] text-teal-600/70 mt-1 truncate" title={summary.metricDocumentation.approvalFormula}>
+          <div className="text-[10px] text-[#155AD1]/80 mt-1 truncate" title={summary.metricDocumentation.approvalFormula}>
             Numerator: {summary.approvedCount} approved / Denominator: {summary.total}
           </div>
         </div>
@@ -158,37 +159,90 @@ export function CaseStatusSummaryDashboard({
           <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
             <span>Missing KYC & Attachment Bottlenecks:</span>
+            <span className="text-[10px] text-slate-400 font-normal ml-1">
+              (Click to filter linelist)
+            </span>
           </div>
           <div className="flex flex-wrap gap-2">
             {summary.missingAadhaar > 0 && (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
-                Aadhaar Card: <strong className="ml-1">{summary.missingAadhaar}</strong>
-              </span>
+              <Link
+                href="/supervisor/assessments?missingDoc=aadhaar"
+                onClick={(e) => {
+                  if (onFilterShortcut) {
+                    e.preventDefault();
+                    onFilterShortcut('missingDoc', 'aadhaar');
+                  }
+                }}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-all cursor-pointer shadow-2xs active:scale-95"
+                title="Filter Beneficiary Linelist to children missing Aadhaar Card"
+              >
+                <span>Aadhaar Card:</span> <strong className="ml-1">{summary.missingAadhaar}</strong>
+              </Link>
             )}
             {summary.missingPassbook > 0 && (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
-                Bank Passbook: <strong className="ml-1">{summary.missingPassbook}</strong>
-              </span>
+              <Link
+                href="/supervisor/assessments?missingDoc=passbook"
+                onClick={(e) => {
+                  if (onFilterShortcut) {
+                    e.preventDefault();
+                    onFilterShortcut('missingDoc', 'passbook');
+                  }
+                }}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-all cursor-pointer shadow-2xs active:scale-95"
+                title="Filter Beneficiary Linelist to children missing Bank Passbook"
+              >
+                <span>Bank Passbook:</span> <strong className="ml-1">{summary.missingPassbook}</strong>
+              </Link>
             )}
             {summary.missingPhoto > 0 && (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                Passport Photo: <strong className="ml-1">{summary.missingPhoto}</strong>
-              </span>
+              <Link
+                href="/supervisor/assessments?missingDoc=photo"
+                onClick={(e) => {
+                  if (onFilterShortcut) {
+                    e.preventDefault();
+                    onFilterShortcut('missingDoc', 'photo');
+                  }
+                }}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-sky-50 hover:text-[#093282] hover:border-sky-200 transition-all cursor-pointer shadow-2xs active:scale-95"
+                title="Filter Beneficiary Linelist to children missing Passport Photo"
+              >
+                <span>Passport Photo:</span> <strong className="ml-1">{summary.missingPhoto}</strong>
+              </Link>
             )}
             {summary.missingSignature > 0 && (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                Caregiver Signature: <strong className="ml-1">{summary.missingSignature}</strong>
-              </span>
+              <Link
+                href="/supervisor/assessments?missingDoc=signature"
+                onClick={(e) => {
+                  if (onFilterShortcut) {
+                    e.preventDefault();
+                    onFilterShortcut('missingDoc', 'signature');
+                  }
+                }}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-sky-50 hover:text-[#093282] hover:border-sky-200 transition-all cursor-pointer shadow-2xs active:scale-95"
+                title="Filter Beneficiary Linelist to children missing Caregiver Signature"
+              >
+                <span>Caregiver Signature:</span> <strong className="ml-1">{summary.missingSignature}</strong>
+              </Link>
             )}
             {summary.missingSchoolDoc > 0 && (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                School Certificate/Receipt: <strong className="ml-1">{summary.missingSchoolDoc}</strong>
-              </span>
+              <Link
+                href="/supervisor/assessments?missingDoc=school"
+                onClick={(e) => {
+                  if (onFilterShortcut) {
+                    e.preventDefault();
+                    onFilterShortcut('missingDoc', 'school');
+                  }
+                }}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-sky-50 hover:text-[#093282] hover:border-sky-200 transition-all cursor-pointer shadow-2xs active:scale-95"
+                title="Filter Beneficiary Linelist to children missing School Certificate/Receipt"
+              >
+                <span>School Certificate/Receipt:</span> <strong className="ml-1">{summary.missingSchoolDoc}</strong>
+              </Link>
             )}
             {summary.clinicalAlerts > 0 && (
               <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200">
                 <ShieldAlert className="h-3 w-3 mr-1 text-rose-600" />
-                Clinical Alerts: <strong className="ml-1">{summary.clinicalAlerts}</strong>
+                <span>Clinical Alerts:</span> <strong className="ml-1">{summary.clinicalAlerts}</strong>
               </span>
             )}
           </div>
