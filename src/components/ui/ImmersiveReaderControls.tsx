@@ -516,7 +516,7 @@ export function ImmersiveReaderControls({
 
   return (
     <div className="flex items-center flex-wrap gap-2 text-xs">
-      <div className="flex items-center space-x-1.5 bg-white border border-black rounded-xl px-2.5 py-1.5 shadow-2xs">
+      <div className="flex items-center space-x-1.5 bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-2xs">
         <Languages className="w-3.5 h-3.5 text-purple-700 shrink-0" />
         <select
           value={currentLanguage}
@@ -531,38 +531,6 @@ export function ImmersiveReaderControls({
           ))}
         </select>
       </div>
-
-      <button
-        type="button"
-        onClick={isLiveGuide ? stopLiveGuide : startLiveGuide}
-        className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border font-bold transition-all shadow-2xs group ${
-          isLiveGuide
-            ? 'bg-purple-600 border-purple-700 text-white shadow-[0_0_16px_rgba(147,51,234,0.45)]'
-            : allDone
-            ? 'bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100'
-            : 'bg-purple-50 hover:bg-purple-100/90 text-purple-950 border-purple-200'
-        }`}
-        title={isLiveGuide ? 'Stop Live Guide' : 'Live field-by-field voice guide'}
-      >
-        {isLiveGuide && (
-          <span className="flex items-end space-x-px">
-            {[4, 7, 5, 9, 6].map((h, i) => (
-              <span key={i} className="w-0.5 bg-white/90 rounded-full inline-block"
-                style={{ height: `${h}px`, animation: `lgsw 0.7s ease-in-out ${i*0.12}s infinite alternate` }} />
-            ))}
-          </span>
-        )}
-        {allDone && !isLiveGuide ? (
-          <span className="flex items-center space-x-1"><span>?</span><span>All Done</span></span>
-        ) : isLiveGuide ? (
-          <><MicOff className="w-3.5 h-3.5" /><span>Stop Guide</span></>
-        ) : (
-          <><Mic className="w-3.5 h-3.5 text-purple-700 group-hover:scale-110 transition-transform" /><span>Live Guide</span></>
-        )}
-      </button>
-
-      {/* Listen button removed per mobile-first user requirement */}
-      <style>{`@keyframes lgsw{from{transform:scaleY(.35);opacity:.6}to{transform:scaleY(1);opacity:1}}`}</style>
     </div>
   );
 }

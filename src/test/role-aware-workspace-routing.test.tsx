@@ -41,6 +41,8 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
   it('1. Renders Evaluation Navigation Pill Dock when authenticated as LEADERSHIP', () => {
     vi.spyOn(evalAccess, 'useEvaluationAccess').mockReturnValue({
       isUnlocked: true,
+      isAuthenticated: true,
+      isLoading: false,
       isLoaded: true,
       user: {
         userId: 'lead-001',
@@ -53,6 +55,8 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
       login: vi.fn(),
       logout: vi.fn(),
       unlock: vi.fn(),
+      lock: vi.fn() as any,
+      toggle: vi.fn(),
     });
 
     render(<CompactMasthead />);
@@ -78,6 +82,8 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
   it('2. Renders Field-Worker Forms & Outbox navigation when user is FIELD_USER', () => {
     vi.spyOn(evalAccess, 'useEvaluationAccess').mockReturnValue({
       isUnlocked: false,
+      isAuthenticated: true,
+      isLoading: false,
       isLoaded: true,
       user: {
         userId: 'field-001',
@@ -90,6 +96,8 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
       login: vi.fn(),
       logout: vi.fn(),
       unlock: vi.fn(),
+      lock: vi.fn() as any,
+      toggle: vi.fn(),
     });
 
     render(<CompactMasthead pendingSyncCount={3} submittedCount={5} />);
@@ -109,11 +117,15 @@ describe('Workstream A: Role-Aware Workspace Routing & Navigation Isolation', ()
   it('3. Renders public/locked navigation for signed-out visitors', () => {
     vi.spyOn(evalAccess, 'useEvaluationAccess').mockReturnValue({
       isUnlocked: false,
+      isAuthenticated: false,
+      isLoading: false,
       isLoaded: true,
       user: null,
       login: vi.fn(),
       logout: vi.fn(),
       unlock: vi.fn(),
+      lock: vi.fn() as any,
+      toggle: vi.fn(),
     });
 
     render(<CompactMasthead />);

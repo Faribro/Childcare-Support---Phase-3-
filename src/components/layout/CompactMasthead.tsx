@@ -62,6 +62,11 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
   const isFormsActive = pathname === '/' || pathname === '/app';
   const isSyncActive = Boolean(pathname?.startsWith('/assessment/sync'));
   const isSupervisorActive = Boolean(pathname?.startsWith('/supervisor'));
+  const isFormRoute = Boolean(
+    pathname?.startsWith('/assessment/new') ||
+    pathname?.startsWith('/assessment/draft') ||
+    pathname?.startsWith('/assessment/record')
+  );
 
   const headerRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -409,15 +414,17 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
             {/* Profile Menu Trigger (Blazing Solar Comet Pill or Solar Avatar) */}
             <ProfileMenu />
 
-            {/* Refresh / Sync Button */}
-            <Link
-              href="/assessment/sync"
-              className="h-9 w-9 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 hover:bg-sky-100 active:scale-95 transition-all shadow-2xs"
-              title="Open Sync Centre"
-              aria-label={`Open Sync Centre, ${effectivePending} pending`}
-            >
-              <RefreshCw className={`w-4 h-4 ${effectivePending > 0 ? 'animate-spin' : ''}`} />
-            </Link>
+            {/* Refresh / Sync Button (Hidden on Form Pages) */}
+            {!isFormRoute && (
+              <Link
+                href="/assessment/sync"
+                className="h-9 w-9 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 hover:bg-sky-100 active:scale-95 transition-all shadow-2xs"
+                title="Open Sync Centre"
+                aria-label={`Open Sync Centre, ${effectivePending} pending`}
+              >
+                <RefreshCw className={`w-4 h-4 ${effectivePending > 0 ? 'animate-spin' : ''}`} />
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -483,25 +490,27 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
           {/* Profile Menu Trigger */}
           <ProfileMenu />
 
-          {/* Right Action: Linelist for Evaluation, Sync Centre for Field */}
-          {isEvalRole ? (
-            <Link
-              href="/supervisor/assessments"
-              className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
-              title="Beneficiary Linelist"
-              aria-label="Beneficiary Linelist"
-            >
-              <TableProperties className="h-3.5 w-3.5" />
-            </Link>
-          ) : (
-            <Link
-              href="/assessment/sync"
-              className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
-              title="Open Sync Centre"
-              aria-label={`Open Sync Centre, ${effectivePending} pending`}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Link>
+          {/* Right Action: Linelist for Evaluation, Sync Centre for Field (Hidden on form routes) */}
+          {!isFormRoute && (
+            isEvalRole ? (
+              <Link
+                href="/supervisor/assessments"
+                className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
+                title="Beneficiary Linelist"
+                aria-label="Beneficiary Linelist"
+              >
+                <TableProperties className="h-3.5 w-3.5" />
+              </Link>
+            ) : (
+              <Link
+                href="/assessment/sync"
+                className="relative h-8 w-8 rounded-full bg-[rgba(239,246,255,0.95)] border border-[rgba(191,219,254,0.9)] flex items-center justify-center text-sky-700 active:bg-sky-100 transition-colors"
+                title="Open Sync Centre"
+                aria-label={`Open Sync Centre, ${effectivePending} pending`}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Link>
+            )
           )}
         </div>
       </div>
