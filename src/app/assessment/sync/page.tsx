@@ -1790,7 +1790,7 @@ function SyncCentreContent() {
                   triggerHaptic();
                   setActiveTab('bank_pending');
                 }}
-                className={`col-span-2 sm:col-span-1 px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
+                className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer touch-target min-h-[44px] flex items-center justify-between sm:justify-start gap-2 ${
                   activeTab === 'bank_pending'
                     ? 'bg-gradient-to-r from-[#2563EB] to-[#155AD1] text-white shadow-md shadow-blue-500/20 font-bold border border-blue-400/40'
                     : 'bg-white hover:bg-sky-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 sm:border-transparent'

@@ -754,16 +754,20 @@ export default function SupervisorAssessmentsPage() {
     }
   };
 
-  // Loading authorization gate
+  // Loading authorization gate (layout-stabilized skeleton matching Evaluation workspace geometry)
   if (!isLoaded) {
     return (
       <AppShell>
-        <div className="flex-1 w-full max-w-md mx-auto px-4 py-20 text-center">
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4">
-            <Loader2 className="w-8 h-8 text-[#155AD1] animate-spin mx-auto" />
-            <h2 className="text-sm font-semibold text-slate-800">Verifying Authorization…</h2>
-            <p className="text-xs text-slate-500">Checking credentials and scope clearance.</p>
-          </div>
+        <div
+          className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8 animate-pulse"
+          aria-busy="true"
+        >
+          <span className="sr-only">Verifying Authorization…</span>
+          <div className="mb-4 h-[52px] rounded-2xl border border-sky-100/90 bg-white/95 shadow-2xs" />
+          <div className="mb-5 rounded-3xl bg-gradient-to-br from-[#07225E] via-[#155AD1] to-[#1E5CC7] h-[204px] shadow-md" />
+          <div className="mb-5 h-[48px] rounded-2xl border border-sky-100/90 bg-white" />
+          <div className="mb-4 h-[56px] rounded-2xl border border-sky-100/90 bg-white" />
+          <div className="rounded-3xl border border-sky-100/90 bg-white h-[360px]" />
         </div>
       </AppShell>
     );

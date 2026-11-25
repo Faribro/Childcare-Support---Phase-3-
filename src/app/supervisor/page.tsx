@@ -84,11 +84,28 @@ export default function SupervisorDashboardPage() {
   if (!isLoaded) {
     return (
       <AppShell>
-        <div className="flex-1 w-full max-w-md mx-auto px-4 py-20 text-center">
-          <div className="bg-white rounded-3xl border border-sky-100 p-8 shadow-xs space-y-4">
-            <Loader2 className="w-8 h-8 text-[#155AD1] animate-spin mx-auto" />
-            <h2 className="text-sm font-semibold text-slate-800">Verifying Authorization…</h2>
-            <p className="text-xs text-slate-500">Checking credentials and scope clearance.</p>
+        <div
+          className="flex-1 w-full max-w-7xl mx-auto px-4 pt-2 pb-6 sm:pt-3 sm:pb-8 animate-pulse"
+          aria-busy="true"
+        >
+          <span className="sr-only">Verifying Authorization…</span>
+          <div className="mb-4 h-[52px] rounded-2xl border border-sky-100/90 bg-white/95 shadow-2xs" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5 mb-6">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-3xl border border-sky-100/90 p-4 sm:p-5 h-[116px] shadow-2xs"
+              />
+            ))}
+          </div>
+          <div className="mb-6 min-h-[345px] sm:min-h-[325px] rounded-3xl border border-sky-100/90 bg-white p-5 shadow-2xs" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 mb-8">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-3xl border border-sky-100/90 h-[196px] shadow-2xs"
+              />
+            ))}
           </div>
         </div>
       </AppShell>
