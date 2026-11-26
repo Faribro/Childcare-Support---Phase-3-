@@ -621,6 +621,10 @@ function doPost(e) {
       return handleDelete_(payload);
     }
 
+    if (action === 'restore') {
+      return handleRestore_(payload);
+    }
+
     if (action === 'schemaAudit') {
       var sAudit = schemaAudit_();
       return ContentService.createTextOutput(JSON.stringify(sAudit)).setMimeType(ContentService.MimeType.JSON);
@@ -4407,32 +4411,118 @@ function setupCleanSheet() {
   };
 }
 
+function getOrCreateTrashSheet_(ss) {
+  if (!ss) return null;
+  var sheet = ss.getSheetByName('Trash');
+  if (!sheet) {
+    sheet = ss.insertSheet('Trash');
+    sheet.getRange(1, 1, 1, 6).setValues([[
+      'Submission ID',
+      'State',
+      'Deleted At',
+      'Deleted By',
+      'Reason',
+      'Drive Folder ID'
+    ]]);
+    sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
+  }
+  try {
+    sheet.hideSheet();
+  } catch (e) {
+    // Ignored in test / headless environments
+  }
+  return sheet;
+}
+
+function upsertTrashRow_(ss, entry) {
+  var trashSheet = getOrCreateTrashSheet_(ss);
+  if (!trashSheet || !entry || !entry.submissionId) return;
+  var cleanId = String(entry.submissionId).trim();
+  var rowVals = [[
+    cleanId,
+    entry.state ? String(entry.state) : '',
+    entry.deletedAt ? String(entry.deletedAt) : new Date().toISOString(),
+    entry.deletedBy ? String(entry.deletedBy) : 'app-user',
+    entry.reason ? String(entry.reason) : '',
+    entry.folderId ? String(entry.folderId) : ''
+  ]];
+
+  var lastRow = trashSheet.getLastRow();
+  if (lastRow >= 2) {
+    var existingIds = trashSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (var i = 0; i < existingIds.length; i++) {
+      if (String(existingIds[i][0]).trim() === cleanId) {
+        trashSheet.getRange(2 + i, 1, 1, 6).setValues(rowVals);
+        return;
+      }
+    }
+  }
+  trashSheet.getRange(Math.max(lastRow + 1, 2), 1, 1, 6).setValues(rowVals);
+}
+
+function removeTrashRow_(ss, submissionId) {
+  if (!ss) return null;
+  var trashSheet = ss.getSheetByName('Trash');
+  if (!trashSheet || trashSheet.getLastRow() < 2) return null;
+  var cleanId = String(submissionId).trim();
+  var rows = trashSheet.getRange(2, 1, trashSheet.getLastRow() - 1, 6).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === cleanId) {
+      var found = {
+        submissionId: cleanId,
+        state: String(rows[i][1] || ''),
+        deletedAt: String(rows[i][2] || ''),
+        deletedBy: String(rows[i][3] || ''),
+        reason: String(rows[i][4] || ''),
+        folderId: String(rows[i][5] || '')
+      };
+      if (typeof trashSheet.deleteRow === 'function') {
+        trashSheet.deleteRow(2 + i);
+      } else if (typeof trashSheet.deleteRows === 'function') {
+        trashSheet.deleteRows(2 + i, 1);
+      }
+      return found;
+    }
+  }
+  return null;
+}
+
 function handleDelete_(payload) {
   var targetId = payload.uniqueId || payload.artNumber || payload.uuid || payload.submissionId || payload.remoteSubmissionId;
   if (!targetId) {
     return errorResponse_('Missing uniqueId or submissionId for deletion.', 400);
   }
 
+  var isSoftDelete = Boolean(
+    payload.softDelete === true ||
+    payload.actionType === 'SOFT_DELETE' ||
+    payload.reason
+  );
   var cleanTargetId = String(targetId).trim();
   var ctx = getSheetAndColMap_();
   var sheet = ctx.sheet;
   var lastRow = sheet.getLastRow();
 
   var foundRow = -1;
+  var foundRowState = payload.state || '';
   if (lastRow >= 4) {
-    var ids = sheet.getRange(4, 1, lastRow - 3, 1).getValues();
+    var ids = sheet.getRange(4, 1, lastRow - 3, 18).getValues();
     for (var r = 0; r < ids.length; r++) {
       var existingId = String(ids[r][0]).trim();
       if (existingId === cleanTargetId) {
         foundRow = 4 + r;
+        if (!foundRowState && ids[r][17]) {
+          foundRowState = String(ids[r][17]).trim();
+        }
         break;
       }
     }
   }
 
-  // 1. Exact-ID Google Drive Container & Metadata Registry Cleanup
+  // 1. Exact-ID Google Drive Container & Metadata Registry Cleanup (Trash-not-Destroy)
   var driveTrashed = false;
   var assetContainerId = null;
+  var archivedFolderId = null;
   var ss = null;
   try {
     ss = getTargetSpreadsheet_();
@@ -4444,6 +4534,7 @@ function handleDelete_(payload) {
       if (String(regData[regIdx][0]).trim() === cleanTargetId) {
         assetContainerId = String(regData[regIdx][1]).trim();
         var fid = String(regData[regIdx][2]).trim();
+        archivedFolderId = fid || null;
         if (fid) {
           try {
             var targetFolder = DriveApp.getFolderById(fid);
@@ -4468,9 +4559,10 @@ function handleDelete_(payload) {
                   var metaFolder = metaSubfolders.next();
                   logMetadataAudit_(metaFolder, {
                     timestamp: new Date().toISOString(),
-                    action: 'DELETE_RECORD',
+                    action: isSoftDelete ? 'SOFT_DELETE_RECORD' : 'DELETE_RECORD',
                     uniqueId: cleanTargetId,
-                    details: 'Record deleted from linelist; folder preserved with [DELETED_ prefix'
+                    reason: payload.reason || '',
+                    details: 'Record removed from active linelist; Drive folder trashed cleanly (recoverable)'
                   });
                 }
               } catch (auditErr) {
@@ -4482,26 +4574,49 @@ function handleDelete_(payload) {
             Logger.log('Could not archive asset container folder ' + fid + ': ' + fErr);
           }
         }
-        try {
-          if (typeof registrySheet.deleteRow === 'function') {
-            registrySheet.deleteRow(2 + regIdx);
-          } else if (typeof registrySheet.deleteRows === 'function') {
-            registrySheet.deleteRows(2 + regIdx, 1);
+        if (!isSoftDelete) {
+          try {
+            if (typeof registrySheet.deleteRow === 'function') {
+              registrySheet.deleteRow(2 + regIdx);
+            } else if (typeof registrySheet.deleteRows === 'function') {
+              registrySheet.deleteRows(2 + regIdx, 1);
+            }
+          } catch (rErr) {
+            Logger.log('Could not delete registry row: ' + rErr);
           }
-        } catch (rErr) {
-          Logger.log('Could not delete registry row: ' + rErr);
         }
         break;
       }
     }
   }
 
-  // If neither linelist row nor asset container existed, return 404
-  if (foundRow === -1 && !assetContainerId) {
+  // If neither linelist row nor asset container existed, and not explicitly an idempotent softDelete tombstone, return 404
+  if (foundRow === -1 && !assetContainerId && !isSoftDelete) {
     return errorResponse_('Record not found with ID: ' + targetId, 404);
   }
 
-  // 2. Linelist Row Deletion
+  // 2. Hidden Trash tab tombstone metadata (if soft delete mirror is enabled)
+  if (isSoftDelete && ss) {
+    var trashMirrorEnabled = false;
+    try {
+      var props = PropertiesService.getScriptProperties();
+      trashMirrorEnabled =
+        (props && props.getProperty('SHEET_TRASH_MIRROR_ENABLED') === 'true') ||
+        payload.mirrorToTrashTab === true;
+    } catch (e) {}
+    if (trashMirrorEnabled) {
+      upsertTrashRow_(ss, {
+        submissionId: cleanTargetId,
+        state: foundRowState,
+        deletedAt: payload.deletedAt || new Date().toISOString(),
+        deletedBy: payload.deletedBy || 'app-user',
+        reason: payload.reason || '',
+        folderId: archivedFolderId || ''
+      });
+    }
+  }
+
+  // 3. Active Linelist Row Removal
   if (foundRow !== -1) {
     if (typeof sheet.deleteRow === 'function') {
       sheet.deleteRow(foundRow);
@@ -4513,13 +4628,96 @@ function handleDelete_(payload) {
   return ContentService.createTextOutput(
     JSON.stringify({
       status: 'success',
+      success: true,
       acknowledged: true,
-      message: 'Record ' + targetId + ' deleted successfully (linelist row, registry metadata, and Drive asset container trashed).',
+      softDelete: isSoftDelete,
+      message: 'Record ' + targetId + ' deleted successfully (linelist row removed, Drive folder trashed safely).',
       deletedId: targetId,
       deletedRow: foundRow,
       assetContainerId: assetContainerId,
       driveTrashed: driveTrashed,
       remainingRows: sheet.getLastRow() >= 3 ? sheet.getLastRow() - 3 : 0,
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleRestore_(payload) {
+  var targetId = payload.uniqueId || payload.artNumber || payload.uuid || payload.submissionId || payload.remoteSubmissionId;
+  if (!targetId) {
+    return errorResponse_('Missing uniqueId or submissionId for restoration.', 400);
+  }
+
+  var cleanTargetId = String(targetId).trim();
+  var ss = null;
+  try {
+    ss = getTargetSpreadsheet_();
+  } catch (e) {}
+
+  var trashEntry = ss ? removeTrashRow_(ss, cleanTargetId) : null;
+  var restoreFolderId = (trashEntry && trashEntry.folderId) ? trashEntry.folderId : null;
+
+  if (!restoreFolderId && ss) {
+    var registrySheet = getOrCreateAssetRegistrySheet_(ss);
+    if (registrySheet && registrySheet.getLastRow() >= 2) {
+      var regData = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 3).getValues();
+      for (var regIdx = 0; regIdx < regData.length; regIdx++) {
+        if (String(regData[regIdx][0]).trim() === cleanTargetId) {
+          restoreFolderId = String(regData[regIdx][2]).trim() || null;
+          break;
+        }
+      }
+    }
+  }
+
+  var driveRestored = false;
+  if (restoreFolderId) {
+    try {
+      var folder = DriveApp.getFolderById(restoreFolderId);
+      if (folder) {
+        if (typeof folder.setTrashed === 'function') {
+          folder.setTrashed(false);
+        }
+        if (typeof folder.getName === 'function' && typeof folder.setName === 'function') {
+          var fname = folder.getName();
+          var stripped = fname.replace(/^\[DELETED_[^\]]+\]_/, '');
+          if (stripped && stripped !== fname) {
+            folder.setName(stripped);
+          }
+        }
+        try {
+          var metaSubfolders = typeof folder.getFoldersByName === 'function' ? folder.getFoldersByName('metadata') : null;
+          if (metaSubfolders && metaSubfolders.hasNext()) {
+            logMetadataAudit_(metaSubfolders.next(), {
+              timestamp: new Date().toISOString(),
+              action: 'RESTORE_RECORD',
+              uniqueId: cleanTargetId,
+              details: 'Soft-deleted record restored; Drive container untrashed'
+            });
+          }
+        } catch (auditErr) {}
+        driveRestored = true;
+      }
+    } catch (fErr) {
+      Logger.log('Could not untrash Drive folder ' + restoreFolderId + ': ' + fErr);
+    }
+  }
+
+  var rowRestored = false;
+  var recordObj = payload.record || payload.data || payload.payload || null;
+  if (recordObj && typeof upsertLinelistRowFromReconcile_ === 'function') {
+    var sheetCtx = getSheetAndColMap_();
+    upsertLinelistRowFromReconcile_(sheetCtx.sheet, recordObj);
+    rowRestored = true;
+  }
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      status: 'success',
+      success: true,
+      acknowledged: true,
+      restoredId: cleanTargetId,
+      driveRestored: driveRestored,
+      rowRestored: rowRestored
     })
   ).setMimeType(ContentService.MimeType.JSON);
 }
