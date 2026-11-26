@@ -23,7 +23,40 @@ import type {
 } from './canonicalSubmissionAdapter';
 import type { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
-import { stampSubmissionRowIntegrity } from './submissionRowHash';
+import { computeSubmissionRowHash, stampSubmissionRowIntegrity } from './submissionRowHash';
+
+export interface ReconcileSnapshotItem {
+  id: string;
+  uniqueId: string;
+  submissionId: string;
+  state: string;
+  rowVersion: number;
+  rowHash: string;
+  version: number;
+  updatedAt: string | null;
+  isDeleted: boolean;
+  deletedAt: string | null;
+  deletedBy: string | null;
+  deleteReason: string | null;
+}
+
+export interface ReconcileSnapshotPage {
+  items: ReconcileSnapshotItem[];
+  nextAfterId: string | null;
+  hasMore: boolean;
+  limit: number;
+  sourceEngine: 'firestore';
+  generatedAt: string;
+}
+
+export interface ReconcileFullRecord extends ReconcileSnapshotItem {
+  submissionTime: string | null;
+  revisionNumber: number;
+  sheetRowNumber: number | null;
+  mirrorStatus: string | null;
+  payload: Record<string, any>;
+  doc: Record<string, any>;
+}
 
 export interface FirestoreAdapterOptions {
   projectId?: string;
@@ -1226,6 +1259,152 @@ export class FirestoreSubmissionAdapter {
       rowHash: integrity.rowHash,
       updatedAt: now,
       requestId: input.requestId,
+    };
+  }
+
+  private buildSnapshotItem(docId: string, data: Record<string, any>): ReconcileSnapshotItem {
+    const isDeleted = Boolean(data.deletedAt || data.isDeleted === true || data.is_deleted === true || data.status === 'DELETED');
+    const rowVersion =
+      typeof data.rowVersion === 'number' && Number.isFinite(data.rowVersion) && data.rowVersion >= 1
+        ? data.rowVersion
+        : typeof data.row_version === 'number' && Number.isFinite(data.row_version) && data.row_version >= 1
+          ? data.row_version
+          : Number(data.version || data.revisionNumber || 1) || 1;
+    const rowHash =
+      typeof data.rowHash === 'string' && /^[a-f0-9]{64}$/i.test(data.rowHash)
+        ? data.rowHash
+        : computeSubmissionRowHash(data);
+
+    const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+    const demo = payload.demographics && typeof payload.demographics === 'object' ? payload.demographics : data.demographics || {};
+    const state = String(
+      data.state ||
+      demo.state ||
+      payload.state ||
+      data['18\nState'] ||
+      ''
+    ).trim();
+
+    return {
+      id: docId,
+      uniqueId: String(data.uniqueId || data['1\nUnique Identifier'] || data.clientSubmissionId || data.id || docId).trim(),
+      submissionId: String(data.clientSubmissionId || data.id || docId).trim(),
+      state,
+      rowVersion,
+      rowHash,
+      version: Number(data.version || data.revisionNumber || 1) || 1,
+      updatedAt: data.updatedAt || data.submissionTime || data.createdAt || null,
+      isDeleted,
+      deletedAt: data.deletedAt || data.deleted_at || null,
+      deletedBy: data.deletedBy || data.deleted_by || null,
+      deleteReason: data.deleteReason || data.delete_reason || null,
+    };
+  }
+
+  /**
+   * Keyset-paginated, ID-ordered reconciliation snapshot over all Firestore submissions
+   * (both active records and soft-deleted tombstones) without leaking child PII.
+   */
+  public async listReconcileSnapshot(
+    params: { afterId?: string; limit?: number } = {}
+  ): Promise<ReconcileSnapshotPage> {
+    const limit = Math.min(Math.max(Math.trunc(Number(params.limit) || 200), 1), 500);
+    const afterId = params.afterId ? String(params.afterId).trim() : '';
+
+    const db = await this.getDb();
+    let rawDocs: Array<{ docId: string; data: Record<string, any> }> = [];
+
+    if (db) {
+      const col = db.collection('submissions');
+      if (typeof col.orderBy === 'function') {
+        const firestoreMod = await import('@google-cloud/firestore').catch(() => null as any);
+        const docIdField = firestoreMod?.FieldPath?.documentId?.() ?? '__name__';
+        let query = col.orderBy(docIdField);
+        if (afterId) {
+          query = query.startAfter(afterId);
+        }
+        const snap = await query.limit(limit + 1).get();
+        rawDocs = (snap.docs || []).map((d: any) => {
+          const data = typeof d.data === 'function' ? d.data() : d;
+          return {
+            docId: String(d.id || data?.id || ''),
+            data,
+          };
+        });
+      } else {
+        const snap = await col.get();
+        rawDocs = (snap.docs || [])
+          .map((d: any) => {
+            const data = typeof d.data === 'function' ? d.data() : d;
+            return {
+              docId: String(d.id || data?.id || ''),
+              data,
+            };
+          })
+          .sort((a: { docId: string }, b: { docId: string }) =>
+            a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0
+          )
+          .filter((entry: { docId: string }) => !afterId || entry.docId > afterId)
+          .slice(0, limit + 1);
+      }
+    } else {
+      rawDocs = Array.from(this.mockSubmissions.entries())
+        .map(([docId, data]) => ({ docId: String(docId), data }))
+        .sort((a, b) => (a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0))
+        .filter((entry) => !afterId || entry.docId > afterId)
+        .slice(0, limit + 1);
+    }
+
+    const hasMore = rawDocs.length > limit;
+    const pageRows = hasMore ? rawDocs.slice(0, limit) : rawDocs;
+    const items = pageRows.map((entry) => this.buildSnapshotItem(entry.docId, entry.data));
+    const nextAfterId = hasMore && pageRows.length > 0 ? pageRows[pageRows.length - 1].docId : null;
+
+    return {
+      items,
+      nextAfterId,
+      hasMore,
+      limit,
+      sourceEngine: 'firestore',
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Fetches full Firestore document payload for on-demand repair of a missing or
+   * hash-mismatched Sheet row during reconciliation.
+   */
+  public async getReconcileSubmissionRecord(submissionId: string): Promise<ReconcileFullRecord | null> {
+    const cleanId = String(submissionId || '').trim();
+    if (!cleanId) return null;
+
+    const db = await this.getDb();
+    let docId = cleanId;
+    let data: Record<string, any> | null = null;
+
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(cleanId, db);
+      if (!resolved) return null;
+      docId = String(resolved.ref?.id || resolved.data.id || cleanId);
+      data = resolved.data;
+    } else {
+      const existing = this.resolveMockSubmission(cleanId);
+      if (!existing) return null;
+      docId = String(existing.id || cleanId);
+      data = existing;
+    }
+
+    if (!data) return null;
+
+    const baseItem = this.buildSnapshotItem(docId, data);
+    return {
+      ...baseItem,
+      submissionTime: data.submissionTime || data.createdAt || null,
+      revisionNumber: Number(data.revisionNumber || data.version || 1) || 1,
+      sheetRowNumber: typeof data.sheetRowNumber === 'number' ? data.sheetRowNumber : null,
+      mirrorStatus: data.mirrorStatus || null,
+      payload: data.payload && typeof data.payload === 'object' ? { ...data.payload } : {},
+      doc: { ...data },
     };
   }
 }
