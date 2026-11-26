@@ -4725,7 +4725,7 @@ function handleSendLinelistEmail_(payload) {
   try {
     var scriptProps = PropertiesService.getScriptProperties();
     var isEnabled = scriptProps.getProperty('EMAIL_DISPATCH_ENABLED');
-    var expectedSecret = scriptProps.getProperty('DISPATCH_SECRET');
+    var expectedSecret = scriptProps.getProperty('DISPATCH_SECRET') || scriptProps.getProperty('WEBHOOK_SECRET');
 
     // 1. Operational kill-switch check
     if (isEnabled !== 'true') {
@@ -4735,9 +4735,9 @@ function handleSendLinelistEmail_(payload) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 2. Secret / API key verification
+    // 2. Fail-closed secret verification (reject when configured secret OR caller secret is missing/mismatched)
     var callerSecret = (payload && (payload.secret || payload.apiKey)) ? String(payload.secret || payload.apiKey) : '';
-    if (expectedSecret && callerSecret !== String(expectedSecret)) {
+    if (!expectedSecret || !callerSecret || callerSecret !== String(expectedSecret)) {
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
         error: 'AUTH_INVALID_SECRET'

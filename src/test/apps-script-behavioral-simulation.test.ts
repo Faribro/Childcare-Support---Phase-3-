@@ -1232,4 +1232,60 @@ describe('Google Apps Script Behavioral Simulation Suite (14 Security Review Sce
     expect(storedNew.uniqueId).toBe('MH-PUN-888001-01');
     expect(typeof storedNew.ts).toBe('number');
   });
+
+  it('Scenario 27: sendLinelistEmail fails closed when DISPATCH_SECRET and WEBHOOK_SECRET are unset or mismatched', () => {
+    const sentEmails: any[] = [];
+    sandbox.MailApp = {
+      getRemainingDailyQuota: () => 50,
+      sendEmail: (opts: any) => {
+        sentEmails.push(opts);
+      },
+    };
+
+    scriptProperties.EMAIL_DISPATCH_ENABLED = 'true';
+    delete scriptProperties.DISPATCH_SECRET;
+    delete scriptProperties.WEBHOOK_SECRET;
+
+    const unsetSecretRes = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'sendLinelistEmail',
+          recipientEmail: 'director@allianceindia.org',
+          subject: 'Linelist',
+        }),
+      },
+    });
+    const unsetSecretData = JSON.parse(unsetSecretRes.getContent());
+    expect(unsetSecretData.success).toBe(false);
+    expect(unsetSecretData.error).toBe('AUTH_INVALID_SECRET');
+    expect(sentEmails).toHaveLength(0);
+
+    scriptProperties.DISPATCH_SECRET = 'linelist-dispatch-secret-32chars!';
+    const wrongSecretRes = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'sendLinelistEmail',
+          recipientEmail: 'director@allianceindia.org',
+          apiKey: 'wrong-secret',
+        }),
+      },
+    });
+    expect(JSON.parse(wrongSecretRes.getContent()).error).toBe('AUTH_INVALID_SECRET');
+    expect(sentEmails).toHaveLength(0);
+
+    const validRes = sandbox.doPost({
+      postData: {
+        contents: JSON.stringify({
+          action: 'sendLinelistEmail',
+          recipientEmail: 'director@allianceindia.org',
+          apiKey: 'linelist-dispatch-secret-32chars!',
+          subject: 'Verified Linelist',
+        }),
+      },
+    });
+    const validData = JSON.parse(validRes.getContent());
+    expect(validData.success).toBe(true);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0].to).toBe('director@allianceindia.org');
+  });
 });
