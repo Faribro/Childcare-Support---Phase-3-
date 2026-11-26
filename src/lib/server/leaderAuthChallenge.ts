@@ -160,10 +160,31 @@ export async function requestLeadershipAuthCode({
     };
   }
 
+  const parsedFloor = Number(process.env.LEADER_OTP_TIMING_FLOOR_MS);
+  const timingFloorMs = Number.isFinite(parsedFloor) && parsedFloor >= 0
+    ? parsedFloor
+    : process.env.NODE_ENV === 'test'
+      ? 0
+      : 1200;
+  const opStartedAt = Date.now();
+
+  const waitForTimingFloor = async () => {
+    if (timingFloorMs <= 0) return;
+    const targetMs = timingFloorMs + crypto.randomInt(0, 120);
+    const remaining = targetMs - (Date.now() - opStartedAt);
+    if (remaining > 0) {
+      await new Promise((r) => setTimeout(r, remaining));
+    }
+  };
+
   // If email is not allowlisted or leader is inactive, return generic success
-  // Artificial small delay prevents timing attacks
+  // Match response floor to prevent timing differences vs active dispatch path
   if (!leader || !leader.isActive) {
-    await new Promise((r) => setTimeout(r, 15));
+    if (timingFloorMs <= 0) {
+      await new Promise((r) => setTimeout(r, 15));
+    } else {
+      await waitForTimingFloor();
+    }
     return { success: true, statusCode: 200 };
   }
 
@@ -213,9 +234,11 @@ export async function requestLeadershipAuthCode({
     await store.invalidateChallenge(challengeId).catch(() => {});
     console.error('[LEADER_AUTH:EMAIL_DISPATCH_FAILED] Invalidation triggered. Sanitized reason:', emailResult.error);
     // Return generic success to external client to prevent leaking allowlist membership through provider errors
+    await waitForTimingFloor();
     return { success: true, statusCode: 200 };
   }
 
+  await waitForTimingFloor();
   return { success: true, statusCode: 200 };
 }
 
