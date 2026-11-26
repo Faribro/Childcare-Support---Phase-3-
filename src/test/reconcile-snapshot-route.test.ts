@@ -151,13 +151,14 @@ describe('GET /api/workers/reconcile-snapshot Suite', () => {
     expect(page2.nextAfterId).toBeNull();
   });
 
-  it('computes lazy fallback rowHash for pre-migration Firestore docs lacking rowHash', async () => {
+  it('computes lazy fallback rowHash for pre-migration Firestore docs without mutating updatedAt or rowVersion', async () => {
     const legacyDoc = {
       id: 'rec-d-legacy',
       uniqueId: 'rec-d-legacy',
       clientSubmissionId: 'rec-d-legacy',
       version: 3,
       revisionNumber: 3,
+      updatedAt: '2026-10-15T10:00:00.000Z',
       state: 'Assam',
       payload: {
         demographics: {
@@ -167,10 +168,20 @@ describe('GET /api/workers/reconcile-snapshot Suite', () => {
         },
       },
     };
+    let firestoreWrites = 0;
     const mockDb = {
       collection: () => ({
         get: async () => ({
           docs: [{ id: 'rec-d-legacy', data: () => legacyDoc }],
+        }),
+        doc: () => ({
+          get: async () => ({ exists: true, id: 'rec-d-legacy', data: () => legacyDoc }),
+          set: async () => {
+            firestoreWrites++;
+          },
+          update: async () => {
+            firestoreWrites++;
+          },
         }),
       }),
     };
@@ -181,16 +192,35 @@ describe('GET /api/workers/reconcile-snapshot Suite', () => {
     });
     canonicalSubmissionAdapter.setFirestoreAdapter(legacyAdapter);
 
-    const res = await reconcileSnapshotRoute(
+    const res1 = await reconcileSnapshotRoute(
       new NextRequest('http://localhost:3000/api/workers/reconcile-snapshot', {
         headers: { 'X-Reconcile-Secret': validReconcileSecret },
       })
     );
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.items).toHaveLength(1);
-    expect(body.items[0].rowVersion).toBe(3);
-    expect(body.items[0].rowHash).toBe(computeSubmissionRowHash(legacyDoc));
+    const res2 = await reconcileSnapshotRoute(
+      new NextRequest('http://localhost:3000/api/workers/reconcile-snapshot?mode=record&submissionId=rec-d-legacy', {
+        headers: { 'X-Reconcile-Secret': validReconcileSecret },
+      })
+    );
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    const body1 = await res1.json();
+    const body2 = await res2.json();
+    const expectedHash = computeSubmissionRowHash(legacyDoc);
+
+    expect(body1.items).toHaveLength(1);
+    expect(body1.items[0].rowVersion).toBe(3);
+    expect(body1.items[0].updatedAt).toBe('2026-10-15T10:00:00.000Z');
+    expect(body1.items[0].rowHash).toBe(expectedHash);
+
+    expect(body2.record.rowVersion).toBe(3);
+    expect(body2.record.updatedAt).toBe('2026-10-15T10:00:00.000Z');
+    expect(body2.record.rowHash).toBe(expectedHash);
+
+    // Strictly read-only: zero writes, zero updatedAt mutations, zero rowVersion bumps
+    expect(firestoreWrites).toBe(0);
+    expect((legacyDoc as any).rowVersion).toBeUndefined();
+    expect(legacyDoc.updatedAt).toBe('2026-10-15T10:00:00.000Z');
   });
 
   it('supports on-demand mode=record for missing/mismatched Sheet repair and returns 404 for unknown ID', async () => {

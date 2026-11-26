@@ -1233,10 +1233,17 @@ export const MockSheetStore = {
   },
 
   /**
-   * Return number of records in store
+   * Return number of active (non-deleted) records in store
    */
-  recordCount(): number {
-    return recordsByRemoteId.size;
+  recordCount(options?: { includeDeleted?: boolean }): number {
+    if (options?.includeDeleted) {
+      return recordsByRemoteId.size;
+    }
+    let count = 0;
+    for (const r of recordsByRemoteId.values()) {
+      if (!r.is_deleted && !r.deleted_at) count++;
+    }
+    return count;
   },
 
   /**

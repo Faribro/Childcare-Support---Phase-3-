@@ -28,6 +28,14 @@ var RECONCILE_QUARANTINE_TAB = 'Quarantine';
 var RECONCILE_LOG_TAB = 'Reconcile Run Log';
 var RECONCILE_DEFAULT_MAX_DESTRUCTIVE_RATIO = 0.20;
 var RECONCILE_DEFAULT_MIN_DESTRUCTIVE_COUNT = 5;
+var RECONCILE_DEFAULT_EMPTY_DB_MIN_SHEET_ROWS = 3;
+
+function parsePositiveNumberProp_(rawVal, fallback, minVal, maxVal) {
+  if (rawVal === undefined || rawVal === null || String(rawVal).trim() === '') return fallback;
+  var n = Number(String(rawVal).trim());
+  if (!isFinite(n) || n < minVal || (maxVal !== undefined && n > maxVal)) return fallback;
+  return n;
+}
 
 var RECONCILE_DOC_COL_INDICES = {
   5: true,  // Col 6: Signature / Thumb Impression
@@ -678,28 +686,41 @@ function readSortedSheetEntries_(sheet) {
   return { rawCount: rowCount, entries: deduped, duplicates: duplicates };
 }
 
-function trashDriveFolderForReconcile_(ss, cleanTargetId, reason) {
+function moveDriveFolderToDeletedForReconcile_(ss, cleanTargetId, reason) {
   try {
-    if (typeof getOrCreateAssetRegistrySheet_ !== 'function' || typeof DriveApp === 'undefined') return '';
+    if (typeof getOrCreateAssetRegistrySheet_ !== 'function' || typeof DriveApp === 'undefined') {
+      return { folderId: '', originalParentId: '' };
+    }
     var registrySheet = getOrCreateAssetRegistrySheet_(ss);
-    if (!registrySheet || registrySheet.getLastRow() < 2) return '';
+    if (!registrySheet || registrySheet.getLastRow() < 2) {
+      return { folderId: '', originalParentId: '' };
+    }
     var regData = registrySheet.getRange(2, 1, registrySheet.getLastRow() - 1, 3).getValues();
     for (var i = 0; i < regData.length; i++) {
       if (String(regData[i][0]).trim() === cleanTargetId) {
         var fid = String(regData[i][2]).trim();
         if (fid) {
-          var folder = DriveApp.getFolderById(fid);
-          if (folder && typeof folder.setTrashed === 'function') {
-            folder.setTrashed(true);
+          if (typeof moveDriveFolderToDeleted_ === 'function') {
+            var moved = moveDriveFolderToDeleted_(fid, cleanTargetId, reason);
+            return {
+              folderId: moved.folderId || fid,
+              originalParentId: moved.originalParentId || ''
+            };
           }
-          return fid;
+          var folder = DriveApp.getFolderById(fid);
+          if (folder && typeof folder.moveTo === 'function' && typeof getOrCreateDeletedArchiveFolder_ === 'function') {
+            var deletedFolder = getOrCreateDeletedArchiveFolder_(folder);
+            var origParentId = moveFolderBetweenParents_(folder, deletedFolder);
+            return { folderId: fid, originalParentId: origParentId || '' };
+          }
+          return { folderId: fid, originalParentId: '' };
         }
       }
     }
   } catch (err) {
-    Logger.log('Drive trash error for ' + cleanTargetId + ': ' + err);
+    Logger.log('Drive Deleted-archive move error for ' + cleanTargetId + ': ' + err);
   }
-  return '';
+  return { folderId: '', originalParentId: '' };
 }
 
 /**
@@ -734,10 +755,24 @@ function runNightlySheetReconciliation(options) {
 
   var nowFn = typeof opts.nowMs === 'function' ? opts.nowMs : function () { return Date.now(); };
   var startMs = nowFn();
-  var budgetMs = Number(opts.budgetMs || (props.getProperty('RECONCILE_BUDGET_MS') || RECONCILE_DEFAULT_BUDGET_MS));
-  var pageSize = Number(opts.pageSize || (props.getProperty('RECONCILE_PAGE_SIZE') || RECONCILE_DEFAULT_PAGE_SIZE));
-  var maxDestructiveRatio = Number(props.getProperty('RECONCILE_MAX_DESTRUCTIVE_RATIO') || RECONCILE_DEFAULT_MAX_DESTRUCTIVE_RATIO);
-  var minDestructiveCount = Number(props.getProperty('RECONCILE_MIN_DESTRUCTIVE_COUNT') || RECONCILE_DEFAULT_MIN_DESTRUCTIVE_COUNT);
+  var budgetMs = parsePositiveNumberProp_(opts.budgetMs !== undefined ? opts.budgetMs : props.getProperty('RECONCILE_BUDGET_MS'), RECONCILE_DEFAULT_BUDGET_MS, 1000);
+  var pageSize = parsePositiveNumberProp_(opts.pageSize !== undefined ? opts.pageSize : props.getProperty('RECONCILE_PAGE_SIZE'), RECONCILE_DEFAULT_PAGE_SIZE, 1, 500);
+  var maxDestructiveRatio = parsePositiveNumberProp_(
+    opts.maxDestructiveRatio !== undefined ? opts.maxDestructiveRatio : props.getProperty('RECONCILE_MAX_DESTRUCTIVE_RATIO'),
+    RECONCILE_DEFAULT_MAX_DESTRUCTIVE_RATIO,
+    0,
+    1
+  );
+  var minDestructiveCount = parsePositiveNumberProp_(
+    opts.minDestructiveCount !== undefined ? opts.minDestructiveCount : props.getProperty('RECONCILE_MIN_DESTRUCTIVE_COUNT'),
+    RECONCILE_DEFAULT_MIN_DESTRUCTIVE_COUNT,
+    1
+  );
+  var emptyDbMinSheetRows = parsePositiveNumberProp_(
+    opts.emptyDbMinSheetRows !== undefined ? opts.emptyDbMinSheetRows : props.getProperty('RECONCILE_EMPTY_DB_MIN_SHEET_ROWS'),
+    RECONCILE_DEFAULT_EMPTY_DB_MIN_SHEET_ROWS,
+    1
+  );
 
   var ss = null;
   var state = null;
@@ -895,7 +930,7 @@ function runNightlySheetReconciliation(options) {
     if (state.phase === 'CIRCUIT_CHECK') {
       var pendingDestructive = state.toSoftDelete.length + state.toQuarantine.length;
       var sheetTotal = sheetEntries.length;
-      var emptyDbAbort = state.activeDbCount === 0 && sheetTotal >= 3;
+      var emptyDbAbort = state.activeDbCount === 0 && sheetTotal >= emptyDbMinSheetRows;
       var ratio = sheetTotal > 0 ? (pendingDestructive / sheetTotal) : 0;
       var massRatioAbort = pendingDestructive >= minDestructiveCount && ratio > maxDestructiveRatio;
 
@@ -972,10 +1007,10 @@ function runNightlySheetReconciliation(options) {
         removals.push(qEntry);
       }
 
-      // 3c. Soft-delete tombstones: write metadata into hidden "Trash" tab & trash Drive folder
+      // 3c. Soft-delete tombstones: write metadata into hidden "Trash" tab & move Drive folder to "Deleted"
       for (var si = 0; si < state.toSoftDelete.length; si++) {
         var sdEntry = state.toSoftDelete[si];
-        var folderId = trashDriveFolderForReconcile_(ss, sdEntry.id, sdEntry.reason);
+        var archiveRes = moveDriveFolderToDeletedForReconcile_(ss, sdEntry.id, sdEntry.reason);
         if (typeof upsertTrashRow_ === 'function') {
           upsertTrashRow_(ss, {
             submissionId: sdEntry.id,
@@ -983,7 +1018,8 @@ function runNightlySheetReconciliation(options) {
             deletedAt: sdEntry.deletedAt,
             deletedBy: sdEntry.deletedBy,
             reason: sdEntry.reason,
-            folderId: folderId
+            folderId: archiveRes.folderId,
+            originalParentId: archiveRes.originalParentId
           });
         }
         state.stats.softDeleted++;

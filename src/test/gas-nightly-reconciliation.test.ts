@@ -193,7 +193,49 @@ function createGasHarness(options: {
 
   const triggers: MockTrigger[] = [];
   const emailsSent: any[] = [];
-  const driveFolders = new Map<string, { id: string; name: string; trashed: boolean }>();
+  const driveFolders = new Map<string, { id: string; name: string; trashed: boolean; parentId: string | null }>();
+  driveFolders.set('root-docs-001', { id: 'root-docs-001', name: 'Root Documents', trashed: false, parentId: null });
+
+  function makeFolderHandle(entry: { id: string; name: string; trashed: boolean; parentId: string | null }): any {
+    return {
+      getId: () => entry.id,
+      getName: () => entry.name,
+      setName: (n: string) => {
+        entry.name = n;
+      },
+      isTrashed: () => entry.trashed,
+      setTrashed: (t: boolean) => {
+        entry.trashed = t;
+      },
+      getParents: () => {
+        const list = entry.parentId && driveFolders.has(entry.parentId) ? [makeFolderHandle(driveFolders.get(entry.parentId)!)] : [];
+        let idx = 0;
+        return {
+          hasNext: () => idx < list.length,
+          next: () => list[idx++],
+        };
+      },
+      moveTo: (destParent: { getId: () => string }) => {
+        entry.parentId = destParent.getId();
+      },
+      getFoldersByName: (targetName: string) => {
+        const matches = Array.from(driveFolders.values())
+          .filter((f) => f.parentId === entry.id && f.name === targetName)
+          .map(makeFolderHandle);
+        let idx = 0;
+        return {
+          hasNext: () => idx < matches.length,
+          next: () => matches[idx++],
+        };
+      },
+      createFolder: (newName: string) => {
+        const fid = `fld-${newName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Math.random().toString(36).slice(2, 6)}`;
+        const created = { id: fid, name: newName, trashed: false, parentId: entry.id };
+        driveFolders.set(fid, created);
+        return makeFolderHandle(created);
+      },
+    };
+  }
 
   const spreadsheet = {
     getId: () => '1FAKE_STAGING_SHEET_ID_DO_NOT_USE_IN_PROD',
@@ -246,20 +288,11 @@ function createGasHarness(options: {
       getUi: () => ({ createMenu: () => ({ addItem: () => ({ addToUi: () => {} }), addToUi: () => {} }) }),
     },
     DriveApp: {
+      getRootFolder: () => makeFolderHandle(driveFolders.get('root-docs-001')!),
       getFolderById: (id: string) => {
         const entry = driveFolders.get(id);
         if (!entry) throw new Error('Folder not found: ' + id);
-        return {
-          getId: () => entry.id,
-          getName: () => entry.name,
-          setName: (n: string) => {
-            entry.name = n;
-          },
-          setTrashed: (t: boolean) => {
-            entry.trashed = t;
-          },
-          getFoldersByName: () => ({ hasNext: () => false }),
-        };
+        return makeFolderHandle(entry);
       },
     },
     Utilities: {
@@ -560,8 +593,10 @@ describe('GAS Nightly Sheet Reconciliation & Safety Circuit Breakers Suite', () 
       routeHandler: async () => ({ statusCode: 200, body: {} }),
     });
 
-    // Populate Drive folder & registry for rec-d-deleted
-    h.driveFolders.set('folder-d-001', { id: 'folder-d-001', name: 'ast-d-001', trashed: false });
+    // Populate Drive folder & registry for rec-d-deleted under SSR parent
+    h.propMap.set('ROOT_DOCUMENTS_FOLDER_ID', 'root-docs-001');
+    h.driveFolders.set('ssr-wb-001', { id: 'ssr-wb-001', name: 'Alliance WB', trashed: false, parentId: 'root-docs-001' });
+    h.driveFolders.set('folder-d-001', { id: 'folder-d-001', name: 'ast-d-001', trashed: false, parentId: 'ssr-wb-001' });
     h.registry.getRange(2, 1, 1, 5).setValues([['rec-d-deleted', 'ast-d-001', 'folder-d-001', '2026-11-25T00:00:00Z', '2026-11-25T00:00:00Z']]);
 
     // Pre-seed active Sheet rows (UNSORTED order + Sheet-only orphan 'rec-z-orphan')
@@ -634,12 +669,16 @@ describe('GAS Nightly Sheet Reconciliation & Safety Circuit Breakers Suite', () 
     const liveRowC = h.primary.rows.slice(3).find((r) => r[0] === 'rec-c-missing')!;
     expect(h.sandbox.computeGasSheetCellsRowHash_(liveRowC, [], false, null)).toBe(computeSubmissionRowHash(docC));
 
-    // Hidden Trash tab has rec-d-deleted minimal metadata, and Drive folder is trashed (not permanently deleted)
+    // Hidden Trash tab has rec-d-deleted minimal metadata, and Drive folder is moved to "Deleted" folder (NEVER Drive setTrashed auto-purge)
     const trashSheet = h.sheetsMap.get('Trash')!;
     expect(trashSheet.hidden).toBe(true);
     expect(trashSheet.rows[1][0]).toBe('rec-d-deleted');
     expect(trashSheet.rows[1][5]).toBe('folder-d-001');
-    expect(h.driveFolders.get('folder-d-001')!.trashed).toBe(true);
+    expect(trashSheet.rows[1][6]).toBe('ssr-wb-001');
+    const deletedFolder = Array.from(h.driveFolders.values()).find((f) => f.name === 'Deleted');
+    expect(deletedFolder).toBeDefined();
+    expect(h.driveFolders.get('folder-d-001')!.parentId).toBe(deletedFolder!.id);
+    expect(h.driveFolders.get('folder-d-001')!.trashed).toBe(false);
 
     // Quarantine tab preserves full snapshot JSON of rec-z-orphan
     const qSheet = h.sheetsMap.get('Quarantine')!;
@@ -673,7 +712,7 @@ describe('GAS Nightly Sheet Reconciliation & Safety Circuit Breakers Suite', () 
     expect(res2.stats.quarantined).toBe(0);
     expect(rerunFetched).toHaveLength(1); // Only 1 snapshot call!
 
-    // Restore via GAS handleRestore_ removes Trash entry, untrashes Drive folder, and restores active Sheet row
+    // Restore via GAS handleRestore_ removes Trash entry, moves Drive folder BACK to original parent, and restores active Sheet row
     const restoreOut = h.sandbox.handleRestore_({
       uniqueId: 'rec-d-deleted',
       record: await fsAdapter.getReconcileSubmissionRecord('rec-d-deleted'),
@@ -682,6 +721,8 @@ describe('GAS Nightly Sheet Reconciliation & Safety Circuit Breakers Suite', () 
     expect(parsedRestore.success).toBe(true);
     expect(parsedRestore.driveRestored).toBe(true);
     expect(parsedRestore.rowRestored).toBe(true);
+    expect(h.driveFolders.get('folder-d-001')!.parentId).toBe('ssr-wb-001');
+    expect(h.driveFolders.get('folder-d-001')!.name).toBe('ast-d-001');
     expect(h.driveFolders.get('folder-d-001')!.trashed).toBe(false);
     expect(h.sheetsMap.get('Trash')!.rows).toHaveLength(1); // Header only
   });
@@ -813,5 +854,81 @@ describe('GAS Nightly Sheet Reconciliation & Safety Circuit Breakers Suite', () 
     expect(h.sheetsMap.get('Trash')).toBeUndefined();
     expect(h.emailsSent).toHaveLength(1);
     expect(h.emailsSent[0].subject).toContain('CIRCUIT_BREAKER_ABORT');
+  });
+
+  it('does not trigger default ratio breaker below 5 rows, and honors configurable thresholds (<5 rows) fail-closed', () => {
+    const baseSheetRows = () => {
+      const out: any[][] = [];
+      for (let i = 1; i <= 4; i++) {
+        const r = new Array(83).fill('');
+        r[0] = `sm-${i}`;
+        r[8] = `Small ${i}`;
+        r[17] = 'Maharashtra';
+        out.push(r);
+      }
+      return out;
+    };
+
+    // 4 Sheet rows, 1 active in DB, 3 deleted -> default minDestructiveCount=5 does NOT abort
+    const hDefault = createGasHarness({
+      initialProps: {
+        RECONCILE_ENABLED: 'true',
+        APP_BASE_URL: 'https://staging.example.org',
+        SHEET_RECONCILE_SECRET: reconcileSecret,
+      },
+      routeHandler: async () => ({ statusCode: 200, body: {} }),
+    });
+    hDefault.primary.getRange(4, 1, 4, 83).setValues(baseSheetRows());
+    wireSyncNextRouteFetch(hDefault.sandbox, [
+      {
+        statusCode: 200,
+        body: {
+          status: 'success',
+          mode: 'snapshot',
+          items: [{ id: 'sm-1', uniqueId: 'sm-1', rowHash: 'different', isDeleted: false }],
+          hasMore: false,
+          nextAfterId: null,
+        },
+      },
+      {
+        statusCode: 200,
+        body: {
+          status: 'success',
+          mode: 'record',
+          record: { id: 'sm-1', uniqueId: 'sm-1', doc: { demographics: { childName: 'Small 1', state: 'Maharashtra' } } },
+        },
+      },
+    ]);
+    const defaultSmallRes = hDefault.sandbox.runNightlySheetReconciliation();
+    expect(defaultSmallRes.status).toBe('COMPLETED');
+    expect(defaultSmallRes.stats.quarantined).toBe(3);
+
+    // Configuring RECONCILE_MIN_DESTRUCTIVE_COUNT=2 and RECONCILE_MAX_DESTRUCTIVE_RATIO=0.40 protects small (<5 row) sheets!
+    const hCustom = createGasHarness({
+      initialProps: {
+        RECONCILE_ENABLED: 'true',
+        APP_BASE_URL: 'https://staging.example.org',
+        SHEET_RECONCILE_SECRET: reconcileSecret,
+        RECONCILE_MIN_DESTRUCTIVE_COUNT: '2',
+        RECONCILE_MAX_DESTRUCTIVE_RATIO: '0.40',
+      },
+      routeHandler: async () => ({ statusCode: 200, body: {} }),
+    });
+    hCustom.primary.getRange(4, 1, 4, 83).setValues(baseSheetRows());
+    wireSyncNextRouteFetch(hCustom.sandbox, [
+      {
+        statusCode: 200,
+        body: {
+          status: 'success',
+          mode: 'snapshot',
+          items: [{ id: 'sm-1', uniqueId: 'sm-1', rowHash: 'different', isDeleted: false }],
+          hasMore: false,
+          nextAfterId: null,
+        },
+      },
+    ]);
+    const customSmallAbort = hCustom.sandbox.runNightlySheetReconciliation();
+    expect(customSmallAbort).toMatchObject({ status: 'CIRCUIT_BREAKER_ABORT' });
+    expect(hCustom.primary.rows).toHaveLength(7); // 3 headers + all 4 rows untouched!
   });
 });

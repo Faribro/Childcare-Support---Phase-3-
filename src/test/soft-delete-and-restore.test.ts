@@ -7,6 +7,11 @@ import {
 } from '@/app/api/submissions/[submissionId]/route';
 import { POST as restoreSubmissionRoute } from '@/app/api/submissions/[submissionId]/restore/route';
 import { GET as listSubmissionsRoute } from '@/app/api/submissions/route';
+import { GET as summarySubmissionsRoute } from '@/app/api/submissions/summary/route';
+import { GET as exportSubmissionRoute } from '@/app/api/submissions/[submissionId]/export/route';
+import { GET as historySubmissionRoute } from '@/app/api/submissions/[submissionId]/history/route';
+import { GET as assetSubmissionRoute } from '@/app/api/submissions/[submissionId]/asset/route';
+import { GET as fieldWorkersRoute } from '@/app/api/supervisor/field-workers/route';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import { FirestoreSubmissionAdapter } from '@/lib/server/firestoreSubmissionAdapter';
 import { MockSheetStore } from '@/lib/server/mockSheetStore';
@@ -302,5 +307,156 @@ describe('Soft Delete, Restore, & DELETE Bug Fix Suite', () => {
       { params: { submissionId: 'SD-WB-001' } }
     );
     expect(fieldDelRes.status).toBe(403);
+  });
+
+  it('excludes soft-deleted records from ALL lists, summaries, counts, exports, history, assets, search filters, and detail reads', async () => {
+    const adminToken = createSessionToken({
+      userId: 'lead-admin-01',
+      name: 'National Lead',
+      role: 'LEADERSHIP',
+      allowedStates: ['*'],
+      allowedDistricts: ['*'],
+    });
+
+    // Ensure baseline both active records appear in list + summary + search + detail
+    const preSummaryRes = await summarySubmissionsRoute(
+      new NextRequest('http://localhost:3000/api/submissions/summary', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      })
+    );
+    expect(preSummaryRes.status).toBe(200);
+    const preSummary = await preSummaryRes.json();
+    expect(preSummary.data.total).toBe(2);
+
+    // Soft-delete SD-WB-001
+    const delRes = await deleteSubmissionRoute(
+      new NextRequest('http://localhost:3000/api/submissions/SD-WB-001', {
+        method: 'DELETE',
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `evaluation_session_token=${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: 'Duplicate beneficiary cleanup' }),
+      }),
+      { params: { submissionId: 'SD-WB-001' } }
+    );
+    expect(delRes.status).toBe(200);
+
+    // 1. Lists & pagination counts
+    const listRes = await listSubmissionsRoute(
+      new NextRequest('http://localhost:3000/api/submissions', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      })
+    );
+    const listJson = await listRes.json();
+    expect(listJson.submissions.map((s: any) => s.uniqueId)).toEqual(['SD-MH-001']);
+    expect(listJson.pagination.totalCount).toBe(1);
+
+    // 2. Summaries & aggregate counts
+    const postSummaryRes = await summarySubmissionsRoute(
+      new NextRequest('http://localhost:3000/api/submissions/summary', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      })
+    );
+    const postSummary = await postSummaryRes.json();
+    expect(postSummary.data.serverConfirmed).toBe(1);
+    expect(postSummary.data.total).toBe(1);
+    expect(postSummary.pagination.totalCount).toBe(1);
+
+    // 3. Single-ID & filtered state/district search queries
+    const byIdRes = await listSubmissionsRoute(
+      new NextRequest('http://localhost:3000/api/submissions?clientSubmissionId=SD-WB-001', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      })
+    );
+    expect(byIdRes.status).toBe(404);
+
+    const byStateRes = await listSubmissionsRoute(
+      new NextRequest('http://localhost:3000/api/submissions?state=West%20Bengal&district=Kolkata', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      })
+    );
+    const byStateJson = await byStateRes.json();
+    expect(byStateJson.submissions).toHaveLength(0);
+    expect(byStateJson.pagination.totalCount).toBe(0);
+
+    // 4. Detail read -> 404
+    const detailRes = await getSubmissionRoute(
+      new NextRequest('http://localhost:3000/api/submissions/SD-WB-001', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      }),
+      { params: { submissionId: 'SD-WB-001' } }
+    );
+    expect(detailRes.status).toBe(404);
+
+    // 5. Export (PDF) -> 404
+    const exportRes = await exportSubmissionRoute(
+      new NextRequest('http://localhost:3000/api/submissions/SD-WB-001/export', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      }),
+      { params: { submissionId: 'SD-WB-001' } }
+    );
+    expect(exportRes.status).toBe(404);
+
+    // 6. Audit History -> 404
+    const historyRes = await historySubmissionRoute(
+      new NextRequest('http://localhost:3000/api/submissions/SD-WB-001/history', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      }),
+      { params: { submissionId: 'SD-WB-001' } }
+    );
+    expect(historyRes.status).toBe(404);
+
+    // 7. Asset preview -> 404
+    const assetRes = await assetSubmissionRoute(
+      new NextRequest('http://localhost:3000/api/submissions/SD-WB-001/asset?docType=passbook', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      }),
+      { params: { submissionId: 'SD-WB-001' } }
+    );
+    expect(assetRes.status).toBe(404);
+
+    // 8. Supervisor field workers count endpoint excludes deleted records
+    const fwRes = await fieldWorkersRoute(
+      new NextRequest('http://localhost:3000/api/supervisor/field-workers?state=West%20Bengal', {
+        headers: { Cookie: `evaluation_session_token=${adminToken}` },
+      })
+    );
+    expect(fwRes.status).toBe(200);
+    const fwJson = await fwRes.json();
+    expect(JSON.stringify(fwJson)).not.toContain('WB');
+
+    // 9. MockSheetStore.recordCount() excludes deleted records too
+    const baseMockCount = MockSheetStore.recordCount();
+    const targetMockId = MockSheetStore.listRecords({ limit: 1 }).records[0].remote_submission_id;
+    MockSheetStore.deleteRecord(targetMockId, { actorId: 'lead', reason: 'Mock soft delete' });
+    expect(MockSheetStore.recordCount()).toBe(baseMockCount - 1);
+    expect(MockSheetStore.recordCount({ includeDeleted: true })).toBe(baseMockCount);
+    MockSheetStore.restoreRecord(targetMockId);
+    expect(MockSheetStore.recordCount()).toBe(baseMockCount);
+
+    // 10. Restore restores visibility in summary + list + detail
+    const restoreRes = await restoreSubmissionRoute(
+      new NextRequest('http://localhost:3000/api/submissions/SD-WB-001/restore', {
+        method: 'POST',
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `evaluation_session_token=${adminToken}`,
+        },
+        body: JSON.stringify({ reason: 'Confirmed valid' }),
+      }),
+      { params: { submissionId: 'SD-WB-001' } }
+    );
+    expect(restoreRes.status).toBe(200);
+
+    const restoredSummary = await (
+      await summarySubmissionsRoute(
+        new NextRequest('http://localhost:3000/api/submissions/summary', {
+          headers: { Cookie: `evaluation_session_token=${adminToken}` },
+        })
+      )
+    ).json();
+    expect(restoredSummary.data.total).toBe(2);
   });
 });
