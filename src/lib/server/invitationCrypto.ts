@@ -10,6 +10,7 @@
  */
 
 import crypto from 'crypto';
+import { resolveCanonicalStateEntry } from '@/lib/constants/stateCatalog';
 
 export const DEFAULT_INVITATION_EXPIRY_DAYS = 36500; // Permanent / No expiration (100 years)
 export const DEFAULT_INVITATION_EXPIRY_MS = DEFAULT_INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
@@ -28,33 +29,16 @@ export function normalizeInvitationCode(rawCode: string): string {
 }
 
 /**
- * Maps a full Indian State Name to an unambiguous 2-letter uppercase abbreviation
- * for prefixing readable invitation codes.
+ * Maps a full Indian State/UT name or legacy alias to an unambiguous 2-letter uppercase
+ * prefix for invitation codes using the single canonical catalog while preserving legacy prefixes.
  */
 export function getStateAbbreviation(stateName: string): string {
+  const entry = resolveCanonicalStateEntry(stateName);
+  if (entry) {
+    return entry.invitationCodePrefix;
+  }
   const norm = (stateName || '').trim().toLowerCase();
-  const map: Record<string, string> = {
-    maharashtra: 'MH',
-    delhi: 'DL',
-    karnataka: 'KA',
-    'tamil nadu': 'TN',
-    'west bengal': 'WB',
-    gujarat: 'GJ',
-    telangana: 'TG',
-    'uttar pradesh': 'UP',
-    bihar: 'BR',
-    rajasthan: 'RJ',
-    punjab: 'PB',
-    kerala: 'KL',
-    odisha: 'OD',
-    haryana: 'HR',
-    jharkhand: 'JH',
-    assam: 'AS',
-    chhattisgarh: 'CG',
-    'andhra pradesh': 'AP',
-    'madhya pradesh': 'MP',
-  };
-  return map[norm] || norm.substring(0, 2).toUpperCase();
+  return norm.substring(0, 2).toUpperCase();
 }
 
 /**

@@ -6,8 +6,9 @@
  */
 
 import { INDIAN_STATES_AND_UTS } from './indianStates';
+import { buildCanonicalStateCodeMap } from './stateCatalog';
 
-const STATE_CODE_MAP: Record<string, string> = {
+const LEGACY_STATE_CODE_MAP: Record<string, string> = {
   MH: 'Maharashtra',
   'STATE-MH': 'Maharashtra',
   DL: 'Delhi',
@@ -46,6 +47,13 @@ const STATE_CODE_MAP: Record<string, string> = {
   'STATE-CT': 'Chhattisgarh',
   AS: 'Assam',
   'STATE-AS': 'Assam',
+};
+
+// Merge additively so all existing stored state codes retain exact mapping
+// while remaining States/UTs and ISO aliases (CG, TS, LA, LD, etc.) also normalize cleanly.
+const STATE_CODE_MAP: Record<string, string> = {
+  ...buildCanonicalStateCodeMap(),
+  ...LEGACY_STATE_CODE_MAP,
 };
 
 /**
