@@ -474,6 +474,24 @@ export async function verifyStateTeamOtp(params: {
         redeem.invitation.issuedBy,
         redeem.invitation.assignedState
       );
+
+      // Dispatch best-effort welcome/approval confirmation containing the all-time 3-digit State PIN
+      const approvedState =
+        canonicalizeStateName(redeem.invitation.assignedState) || redeem.invitation.assignedState;
+      const appUrl = (
+        process.env.NEXT_PUBLIC_APP_URL || 'https://childcare.allianceindia.org'
+      ).replace(/\/+$/, '');
+      try {
+        const { sendCoordinatorApprovalNotificationEmail } = await import('./emailProvider');
+        await sendCoordinatorApprovalNotificationEmail({
+          coordinatorEmail: normEmail,
+          coordinatorName: `${registration.firstName} ${registration.lastName}`.trim(),
+          state: approvedState,
+          portalUrl: `${appUrl}/app`,
+        });
+      } catch (emailErr: any) {
+        console.warn('[STATE_TEAM_OTP:WARN] Welcome approval email failed after invite redemption:', emailErr?.message);
+      }
     }
 
     registration = await store.getStateTeamRegistrationByEmail(normEmail);

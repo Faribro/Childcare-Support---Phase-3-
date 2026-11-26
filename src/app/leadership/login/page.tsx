@@ -28,6 +28,7 @@ function LeadershipLoginCard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const safeReturnUrl = sanitizeReturnUrl(searchParams?.get('returnUrl'));
+  const gateUnlocked = searchParams?.get('gate') === '1';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-teal-950 to-slate-900 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100">
@@ -47,6 +48,7 @@ function LeadershipLoginCard() {
         <div className="p-6 sm:p-8 space-y-6">
           <LeadershipOtpFlow
             isModal={false}
+            gateUnlocked={gateUnlocked}
             onSuccess={() => {
               router.push(safeReturnUrl);
             }}

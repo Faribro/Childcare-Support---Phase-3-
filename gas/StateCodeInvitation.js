@@ -422,3 +422,202 @@ function submitStateCodeInvitation(formData) {
     }
   }
 }
+
+/**
+ * Fetches allowlisted Administrator contacts ({ id, name, email } — no job titles)
+ * from /api/admin/leader-access/sheet-bridge via the configured bridge secret.
+ */
+function fetchAdminAccessContacts_(senderEmail, bridgeConfig) {
+  var endpointUrl = bridgeConfig.appBaseUrl + '/api/admin/leader-access/sheet-bridge';
+  var res = UrlFetchApp.fetch(endpointUrl, {
+    method: 'post',
+    contentType: 'application/json',
+    muteHttpExceptions: true,
+    headers: {
+      'X-Invitation-Bridge-Secret': bridgeConfig.bridgeSecret
+    },
+    payload: JSON.stringify({
+      actorEmail: senderEmail,
+      action: 'list'
+    })
+  });
+  var statusCode = res.getResponseCode();
+  var bodyText = res.getContentText() || '';
+  var data = {};
+  try {
+    data = bodyText ? JSON.parse(bodyText) : {};
+  } catch (parseErr) {}
+
+  if (statusCode < 200 || statusCode >= 300 || data.status !== 'success') {
+    return {
+      ok: false,
+      error: (data && data.error) ? String(data.error) : ('Unable to load Administration contacts (HTTP ' + statusCode + ').')
+    };
+  }
+  return {
+    ok: true,
+    administrators: Array.isArray(data.administrators) ? data.administrators : []
+  };
+}
+
+function menuOpenAdminAccessModal() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  var template = HtmlService.createTemplateFromFile('AdminAccessDialog');
+  var activeSender = getActiveInvitationSenderEmail_();
+  var bridgeConfig = getInvitationBridgeConfig_();
+
+  var contacts = [];
+  var loadError = '';
+  if (!activeSender) {
+    loadError = 'Unable to verify your signed-in Google account email (Session.getActiveUser() returned empty).';
+  } else if (!bridgeConfig.valid) {
+    loadError = bridgeConfig.error;
+  } else {
+    try {
+      var fetched = fetchAdminAccessContacts_(activeSender, bridgeConfig);
+      if (fetched.ok) {
+        contacts = fetched.administrators;
+      } else {
+        loadError = fetched.error;
+      }
+    } catch (err) {
+      loadError = 'Unable to contact portal server to list allowlisted administrators.';
+    }
+  }
+
+  template.adminContactsJson = JSON.stringify(contacts);
+  template.activeSenderHint = activeSender || '';
+  template.initialLoadErrorJson = JSON.stringify(loadError || '');
+
+  var html = template.evaluate()
+    .setWidth(440)
+    .setHeight(430);
+  ui.showModalDialog(html, 'Send Administration Access Code');
+}
+
+/**
+ * Server handler invoked from AdminAccessDialog.html via google.script.run.
+ * Requests server dispatch of the confidential ADMIN_PORTAL_ACCESS_CODE to the selected
+ * allowlisted Administrator's stored email. Never stores or exposes the code in Sheet/GAS.
+ */
+function submitAdminAccessDispatch(formData) {
+  var ss = null;
+  try {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {}
+
+  var lock = typeof LockService !== 'undefined' && LockService ? LockService.getScriptLock() : null;
+  var hasLock = false;
+
+  try {
+    if (lock) {
+      hasLock = lock.tryLock(15000);
+      if (!hasLock) {
+        var busyMsg = 'Another Staff Access request is in progress. Please wait a few seconds and retry.';
+        showSheetToast_(ss, busyMsg);
+        return { ok: false, status: 'BUSY', message: busyMsg };
+      }
+    }
+
+    var senderEmail = getActiveInvitationSenderEmail_();
+    var targetEmail = formData && typeof formData.targetEmail === 'string'
+      ? formData.targetEmail.trim().toLowerCase()
+      : '';
+    var targetId = formData && typeof formData.targetId === 'string'
+      ? formData.targetId.trim()
+      : '';
+
+    if (!senderEmail) {
+      var unauthMsg = 'Unable to verify your signed-in Google account email (Session.getActiveUser() returned empty).';
+      appendInvitationLogRow_(ss, {
+        senderEmail: 'UNIDENTIFIED',
+        recipientName: 'Administration',
+        recipientEmail: targetEmail,
+        state: 'ADMINISTRATION',
+        status: 'DENIED_UNIDENTIFIED_SENDER',
+        detail: 'Empty Session.getActiveUser() email'
+      });
+      showSheetToast_(ss, unauthMsg);
+      return { ok: false, status: 'DENIED_UNIDENTIFIED_SENDER', message: unauthMsg };
+    }
+
+    if (!targetEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
+      var emailErr = 'Please select an authorised Programme Administrator.';
+      showSheetToast_(ss, emailErr);
+      return { ok: false, status: 'VALIDATION_ERROR', message: emailErr };
+    }
+
+    var bridgeConfig = getInvitationBridgeConfig_();
+    if (!bridgeConfig.valid) {
+      showSheetToast_(ss, bridgeConfig.error);
+      return { ok: false, status: 'CONFIG_ERROR', message: bridgeConfig.error };
+    }
+
+    var endpointUrl = bridgeConfig.appBaseUrl + '/api/admin/leader-access/sheet-bridge';
+    var res = UrlFetchApp.fetch(endpointUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      headers: {
+        'X-Invitation-Bridge-Secret': bridgeConfig.bridgeSecret
+      },
+      payload: JSON.stringify({
+        actorEmail: senderEmail,
+        action: 'send',
+        targetEmail: targetEmail,
+        targetId: targetId
+      })
+    });
+
+    var statusCode = res.getResponseCode();
+    var bodyText = res.getContentText() || '';
+    var data = {};
+    try {
+      data = bodyText ? JSON.parse(bodyText) : {};
+    } catch (parseErr) {}
+
+    if (statusCode < 200 || statusCode >= 300 || data.status !== 'success') {
+      var errMsg = (data && data.error) ? String(data.error) : ('Server rejected request (HTTP ' + statusCode + ').');
+      var failStatus = (data && data.code) ? String(data.code) : ('HTTP_' + statusCode);
+      appendInvitationLogRow_(ss, {
+        senderEmail: senderEmail,
+        recipientName: data.recipientName || 'Administration',
+        recipientEmail: targetEmail,
+        state: 'ADMINISTRATION',
+        status: failStatus,
+        detail: errMsg
+      });
+      showSheetToast_(ss, errMsg);
+      return { ok: false, status: failStatus, message: errMsg };
+    }
+
+    var successMsg = 'Administration access code dispatched to ' + (data.deliveredTo || targetEmail) + '.';
+    appendInvitationLogRow_(ss, {
+      senderEmail: senderEmail,
+      recipientName: data.recipientName || 'Administration',
+      recipientEmail: data.deliveredTo || targetEmail,
+      state: 'ADMINISTRATION',
+      status: 'ADMIN_CODE_SENT',
+      detail: 'Dispatched via app email gateway (code not stored)'
+    });
+    showSheetToast_(ss, successMsg);
+
+    return {
+      ok: true,
+      status: 'ADMIN_CODE_SENT',
+      message: successMsg,
+      deliveredTo: data.deliveredTo || targetEmail,
+      recipientName: data.recipientName || ''
+    };
+  } catch (err) {
+    var unexpectedErr = 'Unexpected error while dispatching Administration access code.';
+    Logger.log('submitAdminAccessDispatch failure: ' + (err && err.message ? err.message : err));
+    showSheetToast_(ss, unexpectedErr);
+    return { ok: false, status: 'INTERNAL_ERROR', message: unexpectedErr };
+  } finally {
+    if (lock && hasLock) {
+      try { lock.releaseLock(); } catch (rErr) {}
+    }
+  }
+}

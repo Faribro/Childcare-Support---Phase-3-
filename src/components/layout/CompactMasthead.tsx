@@ -27,6 +27,7 @@ interface CompactMastheadProps {
 export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMastheadProps) {
   const [isOnline, setIsOnline] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [requireAccessCodeGate, setRequireAccessCodeGate] = useState(false);
   const pathname = usePathname();
   const { isUnlocked, user } = useEvaluationAccess();
   const summary = useSubmissionSummary({ enabled: submittedCount === undefined });
@@ -43,7 +44,13 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
       const handleOnline = () => setIsOnline(true);
       const handleOffline = () => setIsOnline(false);
 
-      const handleOpenLogin = () => setIsLoginModalOpen(true);
+      const handleOpenLogin = (evt: Event) => {
+        const detail = (evt as CustomEvent<{ requireAccessCodeGate?: boolean }>)?.detail;
+        setRequireAccessCodeGate(
+          typeof detail?.requireAccessCodeGate === 'boolean' ? detail.requireAccessCodeGate : !isUnlocked
+        );
+        setIsLoginModalOpen(true);
+      };
       window.addEventListener('child_nutrition:open_login_modal', handleOpenLogin);
       window.addEventListener('online', handleOnline);
       window.addEventListener('offline', handleOffline);
@@ -54,7 +61,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
         window.removeEventListener('offline', handleOffline);
       };
     }
-  }, []);
+  }, [isUnlocked]);
 
   const displayCount = submittedCount !== undefined ? submittedCount : summary.submittedCount;
   const effectivePending = pendingSyncCount !== undefined ? pendingSyncCount : summary.localPendingSyncCount;
@@ -375,7 +382,10 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setIsLoginModalOpen(true)}
+                    onClick={() => {
+                      setRequireAccessCodeGate(true);
+                      setIsLoginModalOpen(true);
+                    }}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/70 cursor-pointer transition-all select-none"
                     title="Sign in for Staff Access"
                     aria-label="Staff Access Locked - Sign in to access"
@@ -389,7 +399,11 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
 
             <EvaluationLoginModal
               isOpen={isLoginModalOpen}
-              onClose={() => setIsLoginModalOpen(false)}
+              requireAccessCodeGate={requireAccessCodeGate}
+              onClose={() => {
+                setIsLoginModalOpen(false);
+                setRequireAccessCodeGate(false);
+              }}
             />
           </nav>
 

@@ -333,11 +333,24 @@ export const STATE_CATALOG: readonly CanonicalStateCatalogEntry[] = [
 ] as const;
 
 const ENTRY_BY_TOKEN = new Map<string, CanonicalStateCatalogEntry>();
+const ENTRY_BY_LGD_NUMERIC = new Map<string, CanonicalStateCatalogEntry>();
 for (const entry of STATE_CATALOG) {
   ENTRY_BY_TOKEN.set(entry.canonicalName.toUpperCase(), entry);
+  ENTRY_BY_LGD_NUMERIC.set(entry.lgdNumericCode, entry);
   for (const alias of entry.legacyAliases) {
     ENTRY_BY_TOKEN.set(alias.toUpperCase(), entry);
   }
+}
+
+/**
+ * Resolves a strict 3-digit LGD State/UT code (e.g. "027" -> Maharashtra)
+ * to its canonical catalog entry. Returns null for non-3-digit or unrecognised codes.
+ */
+export function resolveStateByLgdNumericCode(raw?: string | null): CanonicalStateCatalogEntry | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!/^\d{3}$/.test(trimmed)) return null;
+  return ENTRY_BY_LGD_NUMERIC.get(trimmed) || null;
 }
 
 /**

@@ -15,10 +15,12 @@ describe('Google Apps Script Staff Access -> State Code Invitation Menu, Modal, 
   const codeJsPath = path.join(process.cwd(), 'gas', 'Code.js');
   const inviteJsPath = path.join(process.cwd(), 'gas', 'StateCodeInvitation.js');
   const dialogHtmlPath = path.join(process.cwd(), 'gas', 'StateInvitationDialog.html');
+  const adminDialogHtmlPath = path.join(process.cwd(), 'gas', 'AdminAccessDialog.html');
 
   const codeJs = fs.readFileSync(codeJsPath, 'utf8');
   const inviteJs = fs.readFileSync(inviteJsPath, 'utf8');
   const dialogHtmlRaw = fs.readFileSync(dialogHtmlPath, 'utf8');
+  const adminDialogHtmlRaw = fs.readFileSync(adminDialogHtmlPath, 'utf8');
 
   let sandbox: any;
   let scriptProperties: Record<string, string>;
@@ -145,12 +147,20 @@ describe('Google Apps Script Staff Access -> State Code Invitation Menu, Modal, 
       },
       HtmlService: {
         createTemplateFromFile: (file: string) => {
-          expect(file).toBe('StateInvitationDialog');
+          expect(['StateInvitationDialog', 'AdminAccessDialog']).toContain(file);
           const tpl: any = {
             stateCatalogJson: '[]',
+            adminContactsJson: '[]',
+            initialLoadErrorJson: '""',
             activeSenderHint: '',
             evaluate: () => {
-              const rendered = dialogHtmlRaw.replace('<?!= stateCatalogJson ?>', tpl.stateCatalogJson);
+              const rendered =
+                file === 'AdminAccessDialog'
+                  ? adminDialogHtmlRaw
+                      .replace('<?!= adminContactsJson ?>', tpl.adminContactsJson)
+                      .replace('<?!= initialLoadErrorJson ?>', tpl.initialLoadErrorJson)
+                      .replace("<?= activeSenderHint || 'Google Workspace Admin' ?>", tpl.activeSenderHint || 'Google Workspace Admin')
+                  : dialogHtmlRaw.replace('<?!= stateCatalogJson ?>', tpl.stateCatalogJson);
               const out: any = {
                 _width: 0,
                 _height: 0,
@@ -211,13 +221,14 @@ describe('Google Apps Script Staff Access -> State Code Invitation Menu, Modal, 
     expect(gasCatalog.map((s) => s.isoCode)).toEqual(STATE_CATALOG.map((s) => s.isoCode));
   });
 
-  it('adds onOpen Staff Access -> State Code Invitation menu alongside Admin menu without leaks', () => {
+  it('adds onOpen Staff Access -> State Code Invitation and Send Administration Access Code menu items without leaks', () => {
     sandbox.onOpen({});
     expect(menusCreated.map((m) => m.title)).toContain('Childcare Phase 3 Admin');
     const staffMenu = menusCreated.find((m) => m.title === 'Staff Access');
     expect(staffMenu).toBeDefined();
     expect(staffMenu?.items).toEqual([
       { label: 'State Code Invitation', fn: 'menuOpenStateCodeInvitation' },
+      { label: 'Send Administration Access Code', fn: 'menuOpenAdminAccessModal' },
     ]);
   });
 
@@ -393,5 +404,96 @@ describe('Google Apps Script Staff Access -> State Code Invitation Menu, Modal, 
     expect(res.ok).toBe(false);
     expect(res.status).toBe('CONFIG_ERROR');
     expect(fetchCalls).toHaveLength(0);
+  });
+
+  it('populates AdminAccessDialog dropdown via sheet-bridge action=list without job titles and dispatches action=send cleanly', () => {
+    let callIndex = 0;
+    sandbox.UrlFetchApp.fetch = (url: string, options: any) => {
+      fetchCalls.push({ url, options });
+      callIndex++;
+      if (callIndex === 1) {
+        return {
+          getResponseCode: () => 200,
+          getContentText: () =>
+            JSON.stringify({
+              status: 'success',
+              administrators: [
+                { id: 'lead-rajiv-menon', name: 'Rajiv Menon', email: 'rajiv.menon@example.org' },
+                { id: 'lead-ananya-roy', name: 'Dr. Ananya Roy', email: 'ananya.roy@example.org' },
+              ],
+            }),
+        };
+      }
+      return {
+        getResponseCode: () => 200,
+        getContentText: () =>
+          JSON.stringify({
+            status: 'success',
+            recipientId: 'lead-ananya-roy',
+            recipientName: 'Dr. Ananya Roy',
+            deliveredTo: 'ananya.roy@example.org',
+            emailDispatched: true,
+          }),
+      };
+    };
+
+    sandbox.menuOpenAdminAccessModal();
+    expect(shownDialogs).toHaveLength(1);
+    expect(shownDialogs[0].title).toBe('Send Administration Access Code');
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toBe('https://csc-staging.example.run.app/api/admin/leader-access/sheet-bridge');
+    expect(JSON.parse(fetchCalls[0].options.payload)).toEqual({
+      actorEmail: 'rajiv.menon@example.org',
+      action: 'list',
+    });
+
+    const renderedHtml = shownDialogs[0].html;
+    expect(renderedHtml).not.toContain(scriptProperties.SHEET_INVITATION_BRIDGE_SECRET);
+    expect(renderedHtml).not.toContain(scriptProperties.WEBHOOK_SECRET);
+
+    const dom = new JSDOM(renderedHtml, { runScripts: 'dangerously' });
+    const doc = dom.window.document;
+    const selectEl = doc.getElementById('adminSelect') as HTMLSelectElement;
+    expect(selectEl.disabled).toBe(false);
+    expect(selectEl.options).toHaveLength(2);
+    expect(selectEl.options[0].textContent).toBe('Rajiv Menon (rajiv.menon@example.org)');
+    expect(selectEl.options[1].textContent).toBe('Dr. Ananya Roy (ananya.roy@example.org)');
+
+    const serverCalls: any[] = [];
+    (dom.window as any).google = {
+      script: {
+        run: {
+          withSuccessHandler(cb: (res: any) => void) {
+            return {
+              withFailureHandler() {
+                return {
+                  submitAdminAccessDispatch(payload: any) {
+                    serverCalls.push(payload);
+                    const gasResult = sandbox.submitAdminAccessDispatch(payload);
+                    cb(gasResult);
+                  },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    selectEl.value = 'ananya.roy@example.org';
+    doc.getElementById('adminAccessForm')!.dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+
+    expect(serverCalls).toHaveLength(1);
+    expect(fetchCalls).toHaveLength(2);
+    expect(JSON.parse(fetchCalls[1].options.payload)).toEqual({
+      actorEmail: 'rajiv.menon@example.org',
+      action: 'send',
+      targetEmail: 'ananya.roy@example.org',
+      targetId: 'lead-ananya-roy',
+    });
+
+    const statusEl = doc.getElementById('statusBox')!;
+    expect(statusEl.className).toContain('ok');
+    expect(statusEl.textContent).toContain('ananya.roy@example.org');
   });
 });

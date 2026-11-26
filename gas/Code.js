@@ -417,6 +417,7 @@ function onOpen(e) {
 
     ui.createMenu('Staff Access')
       .addItem('State Code Invitation', 'menuOpenStateCodeInvitation')
+      .addItem('Send Administration Access Code', 'menuOpenAdminAccessModal')
       .addToUi();
   } catch (err) {
     Logger.log('onOpen UI menu could not be created: ' + err);

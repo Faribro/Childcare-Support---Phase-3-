@@ -11,6 +11,7 @@
  */
 
 import nodemailer from 'nodemailer';
+import { resolveCanonicalStateEntry } from '@/lib/constants/stateCatalog';
 
 export interface SendEmailParams {
   to: string;
@@ -990,7 +991,25 @@ export async function sendCoordinatorApprovalNotificationEmail({
   portalUrl: string;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
+  const stateEntry = resolveCanonicalStateEntry(state);
+  const statePin = stateEntry?.lgdNumericCode || '';
+  const safeName = escapeEmailHtml(coordinatorName);
+  const safeState = escapeEmailHtml(state);
+  const safePortalUrl = escapeEmailHtml(portalUrl);
   const subject = `State Team Coordinator Registration Approved — ${state}`;
+
+  const pinBlockHtml = statePin
+    ? `
+          <div style="background-color: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 20px;">
+            <span style="font-size: 11px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">All-Time 3-Digit State Gate Code (${safeState})</span>
+            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 26px; font-weight: 800; letter-spacing: 0.18em; color: #1e3a8a; display: block;">
+              ${escapeEmailHtml(statePin)}
+            </code>
+            <p style="font-size: 12px; color: #334155; margin: 8px 0 0 0;">
+              Keep this 3-digit PIN to reopen <strong>Staff Access &mdash; ${safeState}</strong> anytime after signing out.
+            </p>
+          </div>`
+    : '';
 
   const html = `
     <!DOCTYPE html>
@@ -999,44 +1018,44 @@ export async function sendCoordinatorApprovalNotificationEmail({
         <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
           <div style="border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px;">
             <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
-            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — Registration Approved</p>
+            <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — Welcome &amp; Registration Approved</p>
           </div>
 
-          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Dear <strong>${coordinatorName}</strong>,</p>
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Dear <strong>${safeName}</strong>,</p>
 
           <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
-            Your registration as State Coordinator for <strong>${state}</strong> has been approved by the Programme Administrator.
+            Your State Team access for <strong>${safeState}</strong> is active and approved.
           </p>
 
+          ${pinBlockHtml}
+
           <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 18px; margin-bottom: 24px; font-size: 13px; color: #064e3b; line-height: 1.6;">
-            <strong>Your State Team Access is Active (${state}):</strong><br/>
-            Sign in using Email OTP under Staff Access &rarr; State Team to access state review and issue field-team invitations.
+            <strong>How to sign back in after signing out (${safeState}):</strong><br/>
+            1. Open the portal and triple-tap the <strong>heart icon</strong> (or select <strong>Staff Access</strong>).<br/>
+            2. Enter your 3-digit State Gate Code${statePin ? ` (<strong>${escapeEmailHtml(statePin)}</strong>)` : ''} to open <strong>Staff Access &mdash; ${safeState}</strong>.<br/>
+            3. Choose <strong>Sign in with email OTP</strong> using your approved work email.
           </div>
 
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${portalUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+            <a href="${safePortalUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
               Sign In to State Team Workspace
             </a>
           </div>
-
-          <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
-            To sign in, open Staff Access &rarr; State Team and choose Sign in with email OTP.
-          </p>
         </div>
       </body>
     </html>
   `;
 
-  const text = `
-State Team Coordinator Registration Approved:
-
-Dear ${coordinatorName},
-
-Your registration for ${state} has been approved by Administration.
-
-Sign in using Email OTP under Staff Access -> State Team at:
-${portalUrl}
-  `.trim();
+  const text = [
+    `State Team Coordinator Registration Approved — ${state}`,
+    '',
+    `Dear ${coordinatorName},`,
+    '',
+    `Your State Team access for ${state} is active and approved.`,
+    ...(statePin ? [`All-Time 3-Digit State Gate Code (${state}): ${statePin}`, 'Keep this PIN to reopen Staff Access anytime after signing out.', ''] : []),
+    `To sign back in: triple-tap the heart icon (or click Staff Access), enter ${statePin || 'your 3-digit State PIN'}, and choose Sign in with email OTP at:`,
+    portalUrl,
+  ].join('\n');
 
   return provider.sendEmail({
     to: coordinatorEmail,
@@ -1051,6 +1070,7 @@ ${portalUrl}
 
 /**
  * Sends a single-use, email-bound, expiring State Team access invitation issued by Administration.
+ * Includes both the always-on 3-digit LGD State Gate PIN and the single-use email-bound Invitation Code.
  */
 export async function sendStateTeamAccessInvitationEmail({
   to,
@@ -1070,6 +1090,8 @@ export async function sendStateTeamAccessInvitationEmail({
   portalUrl: string;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
+  const stateEntry = resolveCanonicalStateEntry(assignedState);
+  const statePin = stateEntry?.lgdNumericCode || '';
   const safeName = escapeEmailHtml(recipientName?.trim() || '');
   const safeIssuedBy = escapeEmailHtml(issuedBy);
   const safeState = escapeEmailHtml(assignedState);
@@ -1077,6 +1099,16 @@ export async function sendStateTeamAccessInvitationEmail({
   const greetingHtml = safeName ? `Hello <strong>${safeName}</strong>,` : 'Hello,';
   const greetingText = recipientName?.trim() ? `Hello ${recipientName.trim()},` : 'Hello,';
   const subject = `State Team Access Invitation — ${assignedState}`;
+
+  const pinBlockHtml = statePin
+    ? `
+          <div style="background-color: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px;">
+            <span style="font-size: 11px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">Step 1 &mdash; 3-Digit State Gate PIN (${safeState})</span>
+            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 24px; font-weight: 800; letter-spacing: 0.18em; color: #1e3a8a; display: block;">
+              ${escapeEmailHtml(statePin)}
+            </code>
+          </div>`
+    : '';
 
   const html = `
     <!DOCTYPE html>
@@ -1094,8 +1126,10 @@ export async function sendStateTeamAccessInvitationEmail({
             Administration (${safeIssuedBy}) has issued a single-use State Team access invitation bound to <strong>${safeTo}</strong> for <strong>${safeState}</strong>.
           </p>
 
+          ${pinBlockHtml}
+
           <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
-            <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">Single-Use State Team Access Code</span>
+            <span style="font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">Step 2 &mdash; Single-Use State Team Invitation Code</span>
             <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 22px; font-weight: 800; letter-spacing: 0.12em; color: #064e3b; word-break: break-all; display: block;">
               ${plainCode}
             </code>
@@ -1103,9 +1137,10 @@ export async function sendStateTeamAccessInvitationEmail({
 
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.6;">
             <ul style="margin: 0; padding-left: 18px;">
-              <li><strong>Bound Email:</strong> Valid only for <strong>${safeTo}</strong> after email OTP verification.</li>
+              <li><strong>How to open:</strong> Triple-tap the heart icon (or click Staff Access) and enter State PIN <strong>${escapeEmailHtml(statePin || '---')}</strong>.</li>
+              <li><strong>How to register:</strong> Select <strong>Request access</strong>, enter your email (<strong>${safeTo}</strong>), invitation code, and verify your 6-digit email OTP.</li>
               <li><strong>Assigned State Scope:</strong> ${safeState}</li>
-              <li><strong>Redemption Limit:</strong> Single-use only.</li>
+              <li><strong>Redemption Limit:</strong> Single-use only for initial registration. Keep your 3-digit State PIN to sign back in later.</li>
               <li><strong>Expires At:</strong> ${escapeEmailHtml(expiresAtIso)}</li>
             </ul>
           </div>
@@ -1120,20 +1155,21 @@ export async function sendStateTeamAccessInvitationEmail({
     </html>
   `;
 
-  const text = `
-${greetingText}
-
-State Team Access Invitation (${assignedState})
-
-Issued by: ${issuedBy}
-Bound email: ${to}
-Assigned state: ${assignedState}
-Single-use invitation code: ${plainCode}
-Expires at: ${expiresAtIso}
-
-Open Staff Access -> State Team -> Request access and enter this invitation code along with your email verification OTP:
-${portalUrl}
-  `.trim();
+  const text = [
+    greetingText,
+    '',
+    `State Team Access Invitation (${assignedState})`,
+    '',
+    `Issued by: ${issuedBy}`,
+    `Bound email: ${to}`,
+    `Assigned state: ${assignedState}`,
+    ...(statePin ? [`3-Digit State Gate PIN: ${statePin}`] : []),
+    `Single-use invitation code: ${plainCode}`,
+    `Expires at: ${expiresAtIso}`,
+    '',
+    `Triple-tap the heart icon (or click Staff Access), enter State PIN ${statePin || 'for your state'}, select Request access, and enter this invitation code along with your email verification OTP at:`,
+    portalUrl,
+  ].join('\n');
 
   return provider.sendEmail({
     to,
@@ -1141,6 +1177,95 @@ ${portalUrl}
     html,
     text,
     otp: plainCode,
+    action: 'send_transactional_email',
+  });
+}
+
+/**
+ * Dispatches the confidential Administration Staff Access Gate Code strictly
+ * to an active allowlisted Administrator's stored email.
+ */
+export async function sendAdminPortalAccessCodeEmail({
+  to,
+  recipientName,
+  issuedBy,
+  adminCode,
+  portalUrl,
+}: {
+  to: string;
+  recipientName: string;
+  issuedBy: string;
+  adminCode: string;
+  portalUrl: string;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const safeName = escapeEmailHtml(recipientName || to);
+  const safeIssuedBy = escapeEmailHtml(issuedBy);
+  const safeCode = escapeEmailHtml(adminCode);
+  const safePortalUrl = escapeEmailHtml(portalUrl);
+  const subject = 'Confidential: Alliance India Administration Access Code';
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 16px; margin-bottom: 24px;">
+            <h1 style="color: #0f172a; font-size: 20px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance</h1>
+            <p style="color: #1d4ed8; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Administration Staff Access Gate</p>
+          </div>
+
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello <strong>${safeName}</strong>,</p>
+
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+            An authorised Programme Administrator (${safeIssuedBy}) has shared your confidential <strong>Administration Staff Access Code</strong>. Do not forward or share this code outside active Leadership/Administration.
+          </p>
+
+          <div style="background-color: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 11px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px;">Confidential Administration Access Code</span>
+            <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 24px; font-weight: 800; letter-spacing: 0.14em; color: #1e3a8a; display: block;">
+              ${safeCode}
+            </code>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.6;">
+            <strong>Sign-in instructions:</strong>
+            <ol style="margin: 6px 0 0; padding-left: 18px;">
+              <li>Open the portal and triple-tap the heart icon (or click <strong>Staff Access</strong>).</li>
+              <li>Enter this confidential Administration Access Code.</li>
+              <li>On the Administration Login screen, choose your name/email and verify your 6-digit email OTP.</li>
+            </ol>
+          </div>
+
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${safePortalUrl}" style="background-color: #1e3a8a; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+              Open Portal
+            </a>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = [
+    `Hello ${recipientName || to},`,
+    '',
+    `Authorised Programme Administrator (${issuedBy}) sent your confidential Administration Staff Access Code:`,
+    `Administration Access Code: ${adminCode}`,
+    '',
+    '1. Triple-tap the heart icon (or click Staff Access) on the portal.',
+    '2. Enter the Administration Access Code.',
+    '3. Select your name/email on the Administration Login screen and verify your 6-digit email OTP.',
+    '',
+    portalUrl,
+  ].join('\n');
+
+  return provider.sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    otp: `tx-${Date.now()}`,
     action: 'send_transactional_email',
   });
 }

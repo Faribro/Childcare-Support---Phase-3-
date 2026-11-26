@@ -9,7 +9,7 @@ interface AnimatedHeartUnlockProps {
 }
 
 const REQUIRED_TAPS = 3;
-const TAP_WINDOW_RESET_MS = 2400;
+const TAP_WINDOW_RESET_MS = 900;
 
 export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHeartUnlockProps) {
   const { isUnlocked } = useEvaluationAccess();
@@ -27,6 +27,7 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   const [status, setStatus] = useState<'idle' | 'tapping' | 'opened'>('idle');
 
   const tapCountRef = useRef<number>(0);
+  const lastTapAtRef = useRef<number>(0);
   const resetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -38,22 +39,37 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
   const resetTaps = useCallback(() => {
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     tapCountRef.current = 0;
+    lastTapAtRef.current = 0;
     setTapCount(0);
     setStatus('idle');
   }, []);
 
   const openStaffAccessModal = useCallback(() => {
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('child_nutrition:open_login_modal'));
+      window.dispatchEvent(
+        new CustomEvent('child_nutrition:open_login_modal', {
+          detail: {
+            source: 'heart',
+            requireAccessCodeGate: !isUnlocked,
+          },
+        })
+      );
     }
-  }, []);
+  }, [isUnlocked]);
 
-  const handleHeartClick = () => {
-    // Heart entrypoint ONLY opens Staff Access modal cleanly; NEVER grants auth, roles, or scopes.
-    if (isUnlocked) {
-      openStaffAccessModal();
+  const handleHeartClick = (e?: React.MouseEvent<HTMLElement>) => {
+    // Ignore non-primary mouse clicks
+    if (e && typeof e.button === 'number' && e.button !== 0) {
       return;
     }
+
+    // Heart entrypoint ALWAYS requires 3 consecutive taps within the inter-tap window
+    // regardless of signed-in/unlocked state, so double-clicking never triggers Staff Access.
+    const now = Date.now();
+    if (tapCountRef.current > 0 && lastTapAtRef.current > 0 && now - lastTapAtRef.current > TAP_WINDOW_RESET_MS) {
+      tapCountRef.current = 0;
+    }
+    lastTapAtRef.current = now;
 
     setIsPumping(true);
     setTimeout(() => setIsPumping(false), 220);
@@ -65,6 +81,8 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     setTapCount(nextCount);
 
     if (nextCount >= REQUIRED_TAPS) {
+      tapCountRef.current = 0;
+      lastTapAtRef.current = 0;
       setStatus('opened');
       openStaffAccessModal();
       resetTimerRef.current = setTimeout(() => {
@@ -79,9 +97,10 @@ export function AnimatedHeartUnlock({ className = '', size = 'md' }: AnimatedHea
     }, TAP_WINDOW_RESET_MS);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      if (e.repeat) return;
       handleHeartClick();
     }
   };

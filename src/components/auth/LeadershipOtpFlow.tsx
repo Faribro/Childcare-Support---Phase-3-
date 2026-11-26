@@ -28,6 +28,7 @@ export interface LeadershipOtpFlowProps {
   onCancel?: () => void;
   initialEmail?: string;
   initialProfiles?: ApprovedLeaderProfile[];
+  gateUnlocked?: boolean;
 }
 
 export interface CandidateAuthUser {
@@ -40,7 +41,7 @@ export interface CandidateAuthUser {
 export interface ApprovedLeaderProfile {
   id: string;
   name: string;
-  title: string;
+  title?: string;
   isSynthetic?: boolean;
   email?: string;
 }
@@ -85,6 +86,7 @@ export function LeadershipOtpFlow({
   onCancel,
   initialEmail = '',
   initialProfiles,
+  gateUnlocked = false,
 }: LeadershipOtpFlowProps) {
   const { login } = useEvaluationAccess();
 
@@ -117,13 +119,45 @@ export function LeadershipOtpFlow({
 
   // Fallback shared password state (when feature is explicitly disabled)
   const [sharedPassword, setSharedPassword] = useState('');
+  const [gateProfiles, setGateProfiles] = useState<ApprovedLeaderProfile[]>([]);
+
+  // Load allowlisted administrator directory ({ id, name, email }) when Staff Access gate unlocked
+  useEffect(() => {
+    if (!gateUnlocked || initialProfiles) return;
+    let cancelled = false;
+    fetch('/api/auth/leader/gate', {
+      credentials: 'same-origin',
+      headers: { 'Cache-Control': 'no-cache' },
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json().catch(() => null);
+      })
+      .then((json) => {
+        if (cancelled) return;
+        const list =
+          json?.status === 'success' && Array.isArray(json?.data?.leaders)
+            ? (json.data.leaders as ApprovedLeaderProfile[])
+            : [];
+        if (list.length > 0) {
+          setGateProfiles(list);
+        }
+      })
+      .catch(() => {
+        // Fail closed cleanly: manual email entry remains available
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gateUnlocked, initialProfiles]);
 
   // Synthetic fixtures state (strictly dev/test gated)
   const isDevOrTest = process.env.NODE_ENV !== 'production';
   const hasFixtureFlag = process.env.NEXT_PUBLIC_ENABLE_SYNTHETIC_AUTH_FIXTURES === 'true';
   const showSyntheticFixtures = isDevOrTest && hasFixtureFlag;
 
-  const baseProfiles = initialProfiles ?? APPROVED_LEADERSHIP_PROFILES;
+  const baseProfiles =
+    initialProfiles ?? (gateProfiles.length > 0 ? gateProfiles : APPROVED_LEADERSHIP_PROFILES);
   const availableProfiles: ApprovedLeaderProfile[] = showSyntheticFixtures
     ? [...baseProfiles, ...DEV_SYNTHETIC_FIXTURES]
     : baseProfiles;
