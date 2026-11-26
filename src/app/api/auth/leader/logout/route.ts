@@ -6,6 +6,7 @@ import {
   clearDeviceBindingCookie,
 } from '@/lib/server/leaderSessionStore';
 import { getLeaderAuthStore } from '@/lib/server/leaderAuthStore';
+import { clearAdminGateCookie } from '@/lib/server/staffAccessGateService';
 import { logSecurityEvent, validateMutationOrigin } from '@/lib/server/authorisation';
 
 export const dynamic = 'force-dynamic';
@@ -49,7 +50,8 @@ export async function POST(req: NextRequest) {
     { headers: NO_STORE_HEADERS }
   );
 
-  clearLeaderSessionCookie(response);
-  clearDeviceBindingCookie(response);
+  clearLeaderSessionCookie(response, req);
+  clearDeviceBindingCookie(response, req);
+  clearAdminGateCookie(response, req);
   return response;
 }

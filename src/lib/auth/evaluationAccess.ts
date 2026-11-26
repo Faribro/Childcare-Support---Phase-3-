@@ -277,6 +277,11 @@ export function useEvaluationAccess() {
     try {
       await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     } finally {
+      try {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem('csc_admin_gate_token');
+        }
+      } catch (_) {}
       setUser(null);
       setUnlocked(false);
       setEvaluationUnlocked(false, null);

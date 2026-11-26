@@ -20,6 +20,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .env*
+.secrets
+*.secret
 .firebase
 bun.lock
 .DS_Store

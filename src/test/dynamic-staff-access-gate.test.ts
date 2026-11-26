@@ -467,6 +467,69 @@ describe('GET /api/auth/leader/gate', () => {
     }));
     expect((await GET(expiredReq)).status).toBe(401);
   });
+
+  it('succeeds when only an active Leadership __session unified cookie is present (no csc_admin_gate)', async () => {
+    process.env.COOKIE_STRATEGY = 'unified';
+    const {
+      MemoryLeaderAuthStore,
+      setLeaderAuthStoreForTesting,
+      getLeaderAuthStore,
+    } = await import('@/lib/server/leaderAuthStore');
+    const { getActiveLeaderIdentities } = await import('@/lib/server/leaderIdentityStore');
+    const { signUnifiedSession, UNIFIED_SESSION_COOKIE_NAME } = await import('@/lib/server/unifiedSessionCookie');
+    const { LEADER_ABSOLUTE_LIFETIME_MS } = await import('@/lib/server/leaderSessionStore');
+    const { GET } = await import('@/app/api/auth/leader/gate/route');
+    const { NextRequest } = await import('next/server');
+
+    setLeaderAuthStoreForTesting(new MemoryLeaderAuthStore());
+    try {
+      const leader = getActiveLeaderIdentities()[0];
+      expect(leader).toBeDefined();
+
+      const store = getLeaderAuthStore();
+      const now = Date.now();
+      await store.createChallenge({
+        challengeId: 'chg-unified-gate-test',
+        leaderId: leader.id,
+        email: leader.email,
+        codeHash: 'hash-123',
+        deviceBindingHash: 'dev-123',
+        userAgentHash: 'ua-123',
+        ip: '127.0.0.1',
+        createdAt: now,
+        expiresAt: now + 60_000,
+        failedAttempts: 0,
+        isUsed: false,
+        isLocked: false,
+      });
+      const consumed = await store.consumeChallengeAndCreateSession({
+        challengeId: 'chg-unified-gate-test',
+        submittedCodeHash: 'hash-123',
+        deviceBindingHash: 'dev-123',
+        leader,
+        now,
+        absoluteLifetimeMs: LEADER_ABSOLUTE_LIFETIME_MS,
+      });
+      expect(consumed.success).toBe(true);
+
+      const unified = signUnifiedSession({
+        leaderSessionId: consumed.session!.sessionId,
+        iat: now,
+        exp: now + LEADER_ABSOLUTE_LIFETIME_MS,
+      });
+
+      const req = new NextRequest(new Request('https://test.local/api/auth/leader/gate', {
+        headers: { Cookie: `${UNIFIED_SESSION_COOKIE_NAME}=${unified}` },
+      }));
+      const res = await GET(req);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.status).toBe('success');
+      expect(Array.isArray(json.data.leaders)).toBe(true);
+    } finally {
+      setLeaderAuthStoreForTesting(null);
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

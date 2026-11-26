@@ -6,7 +6,10 @@ node_modules/
 dist-client/
 coverage/
 *.log
+.env
 .env*.local
+.secrets/
+*.secret
 *.tsbuildinfo
 scratch/
 supabase/.temp/

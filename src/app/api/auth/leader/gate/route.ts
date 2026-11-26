@@ -4,7 +4,7 @@ import {
   resolveActiveLeaderContacts,
 } from '@/lib/server/staffAccessGateService';
 import {
-  LEADER_COOKIE_NAME,
+  extractLeaderSessionId,
   validateLeaderSession,
 } from '@/lib/server/leaderSessionStore';
 
@@ -18,17 +18,22 @@ const NO_STORE_HEADERS = {
 /**
  * Returns allowlisted Administration contacts (`{ id, name, email }` — strictly no job title)
  * only when the caller presents a valid server-signed csc_admin_gate cookie, an `X-Admin-Gate`
- * header carrying that signed token, or an active server-verified Leadership session cookie.
+ * header carrying that signed token, or an active server-verified Leadership session (`__session`
+ * or direct session cookie).
  */
 export async function GET(req: NextRequest) {
   let authorized = verifyLeaderGateRequest(req);
 
-  if (!authorized && req.cookies.get(LEADER_COOKIE_NAME)?.value) {
-    const leaderSession = await validateLeaderSession(
-      req.cookies.get(LEADER_COOKIE_NAME)?.value ?? null
-    ).catch(() => null);
-    if (leaderSession?.role === 'LEADERSHIP') {
-      authorized = true;
+  if (!authorized) {
+    const leaderSessionId = extractLeaderSessionId(req);
+    if (leaderSessionId) {
+      const leaderSession = await validateLeaderSession(leaderSessionId, {
+        isPoll: true,
+        req,
+      }).catch(() => null);
+      if (leaderSession?.role === 'LEADERSHIP') {
+        authorized = true;
+      }
     }
   }
 

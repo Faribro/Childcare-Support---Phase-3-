@@ -353,10 +353,16 @@ export function getExpectedHosts(): string[] {
   return [...new Set(defaults)];
 }
 
+function getRequestForwardedHost(req: NextRequest): string | undefined {
+  const raw = req.headers.get('x-forwarded-host') || req.headers.get('x-fh-requested-host');
+  const first = raw?.split(',')[0]?.trim().toLowerCase();
+  return first || undefined;
+}
+
 /**
  * Validates request Origin and Sec-Fetch-Site for state-changing authentication mutations.
  * Rejects cross-site requests to prevent CSRF attacks.
- * Strictly verifies x-forwarded-host against allowlisted hosts for Cloud Run + Firebase Hosting rewrites.
+ * Strictly verifies x-forwarded-host / x-fh-requested-host against allowlisted hosts for Cloud Run + Firebase Hosting rewrites.
  */
 export function validateMutationOrigin(req: NextRequest): { valid: boolean; reason?: string } {
   // If Sec-Fetch-Site is cross-site, reject
@@ -371,8 +377,8 @@ export function validateMutationOrigin(req: NextRequest): { valid: boolean; reas
       const originUrl = new URL(origin);
       const reqUrl = new URL(req.url);
 
-      // Handle x-forwarded-host strictly against allowlisted expected hosts (Firebase Hosting rewrite / Cloud Run proxy)
-      const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0].trim().toLowerCase();
+      // Handle x-forwarded-host / x-fh-requested-host strictly against allowlisted expected hosts (Firebase Hosting rewrite / Cloud Run proxy)
+      const forwardedHost = getRequestForwardedHost(req);
       const hostHeader = (req.headers.get('host') || '').toLowerCase();
       const effectiveHost = forwardedHost || hostHeader || reqUrl.host.toLowerCase();
 
@@ -893,8 +899,9 @@ export function validateCsrfOrigin(req: NextRequest): CsrfValidationResult {
 
   try {
     const originUrl = new URL(origin);
+    const forwardedHost = getRequestForwardedHost(req);
     const hostHeader = (
-      req.headers.get('x-forwarded-host') ||
+      forwardedHost ||
       req.headers.get('host') ||
       req.nextUrl.host ||
       ''
@@ -907,6 +914,17 @@ export function validateCsrfOrigin(req: NextRequest): CsrfValidationResult {
 
     // Match full origin against nextUrl.origin
     if (origin.toLowerCase() === req.nextUrl.origin.toLowerCase()) {
+      return { isValid: true };
+    }
+
+    // Match allowlisted expected hosts behind Firebase Hosting / Cloud Run rewrites
+    const expectedHosts = getExpectedHosts();
+    const isOriginAllowed = expectedHosts.some(
+      (allowed) =>
+        originUrl.host.toLowerCase() === allowed ||
+        originUrl.hostname.toLowerCase() === allowed
+    );
+    if (isOriginAllowed && (!forwardedHost || expectedHosts.includes(forwardedHost))) {
       return { isValid: true };
     }
 

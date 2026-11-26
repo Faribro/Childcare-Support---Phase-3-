@@ -25,7 +25,11 @@ import {
   LEADER_COOKIE_NAME,
   LEADER_DEVICE_COOKIE_NAME,
 } from '@/lib/server/leaderSessionStore';
-import { getExpectedHosts, validateMutationOrigin } from '@/lib/server/authorisation';
+import {
+  getExpectedHosts,
+  validateMutationOrigin,
+  validateCsrfOrigin,
+} from '@/lib/server/authorisation';
 
 describe('Unified Session Cookie Engine & Firebase Hosting Compatibility', () => {
   const originalEnv = { ...process.env };
@@ -420,6 +424,44 @@ describe('Unified Session Cookie Engine & Firebase Hosting Compatibility', () =>
 
       const check = validateMutationOrigin(legitReq);
       expect(check.valid).toBe(true);
+    });
+
+    it('accepts Firebase Hosting x-fh-requested-host and comma-separated x-forwarded-host in validateMutationOrigin and validateCsrfOrigin', () => {
+      process.env.APP_ENV = 'production';
+      process.env.ALLOWED_HOSTS = 'childcare.allianceindia.org,cs-p3-production.web.app,csc-production-963330210821.asia-south1.run.app';
+
+      const fhReq = new NextRequest('https://csc-production-s6jv7tgjhq-el.a.run.app/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          origin: 'https://childcare.allianceindia.org',
+          'x-fh-requested-host': 'childcare.allianceindia.org',
+          cookie: '__session=abc.def',
+        },
+      });
+      expect(validateMutationOrigin(fhReq).valid).toBe(true);
+      expect(validateCsrfOrigin(fhReq).isValid).toBe(true);
+
+      const multiHopReq = new NextRequest('https://csc-production-s6jv7tgjhq-el.a.run.app/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          origin: 'https://childcare.allianceindia.org',
+          'x-forwarded-host': 'childcare.allianceindia.org, internal-proxy.local',
+          cookie: '__session=abc.def',
+        },
+      });
+      expect(validateMutationOrigin(multiHopReq).valid).toBe(true);
+      expect(validateCsrfOrigin(multiHopReq).isValid).toBe(true);
+
+      const badReq = new NextRequest('https://csc-production-s6jv7tgjhq-el.a.run.app/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          origin: 'https://evil.attacker.example',
+          'x-fh-requested-host': 'childcare.allianceindia.org',
+          cookie: '__session=abc.def',
+        },
+      });
+      expect(validateMutationOrigin(badReq).valid).toBe(false);
+      expect(validateCsrfOrigin(badReq).isValid).toBe(false);
     });
   });
 });
