@@ -121,7 +121,7 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
       expect(body.code).toBe('FORBIDDEN');
     });
 
-    it('rejects STATE_REVIEWER trying to delete record with 403 FORBIDDEN', async () => {
+    it('requires a reason for STATE_REVIEWER soft delete, blocks cross-state with 403 FORBIDDEN_SCOPE, and allows same-state soft delete', async () => {
       const mhReviewerToken = createSessionToken({
         userId: 'rev-mh-01',
         name: 'Reviewer Maharashtra',
@@ -130,24 +130,53 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
         allowedDistricts: ['*'],
       });
 
-      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+      const missingReasonReq = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
         method: 'DELETE',
         headers: {
           Origin: 'http://localhost:3000',
           Cookie: `evaluation_session_token=${mhReviewerToken}`,
         },
       });
-
-      const res = await deleteSubmissionRoute(req, {
+      const missingRes = await deleteSubmissionRoute(missingReasonReq, {
         params: { submissionId: 'MH-PUN-081200-02' },
       });
+      expect(missingRes.status).toBe(400);
+      expect((await missingRes.json()).code).toBe('DELETE_REASON_REQUIRED');
 
-      expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.code).toBe('FORBIDDEN');
+      const crossStateReq = new NextRequest('http://localhost:3000/api/submissions/WB-KOL-081200-01', {
+        method: 'DELETE',
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `evaluation_session_token=${mhReviewerToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: 'Out-of-state delete attempt' }),
+      });
+      const crossRes = await deleteSubmissionRoute(crossStateReq, {
+        params: { submissionId: 'WB-KOL-081200-01' },
+      });
+      expect(crossRes.status).toBe(403);
+      expect((await crossRes.json()).code).toBe('FORBIDDEN_SCOPE');
+
+      const sameStateReq = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+        method: 'DELETE',
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `evaluation_session_token=${mhReviewerToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: 'Duplicate entry verified by state team' }),
+      });
+      const okRes = await deleteSubmissionRoute(sameStateReq, {
+        params: { submissionId: 'MH-PUN-081200-02' },
+      });
+      expect(okRes.status).toBe(200);
+      const okBody = await okRes.json();
+      expect(okBody.status).toBe('success');
+      expect(okBody.softDeleted).toBe(true);
     });
 
-    it('rejects LEADERSHIP evaluation session trying to delete record with 403 FORBIDDEN', async () => {
+    it('allows LEADERSHIP (Administration) to soft-delete any record across states', async () => {
       const leadershipToken = createSessionToken({
         userId: 'lead-nat-01',
         name: 'Leadership India',
@@ -156,21 +185,24 @@ describe('Issue #57: Scoped Auditable Access Control & Deletion Hardening', () =
         allowedDistricts: ['*'],
       });
 
-      const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+      const req = new NextRequest('http://localhost:3000/api/submissions/WB-KOL-081200-01', {
         method: 'DELETE',
         headers: {
           Origin: 'http://localhost:3000',
           Cookie: `evaluation_session_token=${leadershipToken}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ reason: 'Administrative cleanup' }),
       });
 
       const res = await deleteSubmissionRoute(req, {
-        params: { submissionId: 'MH-PUN-081200-02' },
+        params: { submissionId: 'WB-KOL-081200-01' },
       });
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.code).toBe('FORBIDDEN');
+      expect(body.status).toBe('success');
+      expect(body.softDeleted).toBe(true);
     });
 
     it('allows ADMIN to delete any record across states', async () => {

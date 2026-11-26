@@ -48,7 +48,7 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
       expect(data.capabilities.canDelete).toBe(true);
     });
 
-    it('returns capabilities.canEdit=true, canDelete=false for Leadership', async () => {
+    it('returns capabilities.canEdit=true, canDelete=true for Leadership (Administration)', async () => {
       const leaderToken = await createSessionToken({
         userId: 'lead-01',
         role: 'LEADERSHIP',
@@ -66,10 +66,10 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
       const data = await res.json();
       expect(data.capabilities).toBeDefined();
       expect(data.capabilities.canEdit).toBe(true);
-      expect(data.capabilities.canDelete).toBe(false);
+      expect(data.capabilities.canDelete).toBe(true);
     });
 
-    it('returns capabilities.canEdit=true for authorized in-state State Reviewer with edit clearance', async () => {
+    it('returns capabilities.canEdit=true, canDelete=true for authorized in-state State Reviewer with edit clearance', async () => {
       const stateReviewerToken = await createSessionToken({
         userId: 'rev-mh-01',
         role: 'STATE_REVIEWER',
@@ -88,7 +88,7 @@ describe('Edit Record Capabilities & Permission Enforcement', () => {
       const data = await res.json();
       expect(data.capabilities).toBeDefined();
       expect(data.capabilities.canEdit).toBe(true);
-      expect(data.capabilities.canDelete).toBe(false);
+      expect(data.capabilities.canDelete).toBe(true);
     });
 
     it('returns capabilities.canEdit=false for read-only State Reviewer (canEdit=false)', async () => {

@@ -142,7 +142,7 @@ export async function GET(
       canUploadOutstandingDocuments = true;
       canReplaceDocuments = true;
       canChangeApproval = true;
-      canDelete = false;
+      canDelete = true;
     } else if (scope.role === 'STATE_REVIEWER') {
       const recordState = record?.state || record?.['18\nState'] || record?.demographics?.state || 'Maharashtra';
       if (!isStateAuthorized(scope, recordState)) {
@@ -167,7 +167,7 @@ export async function GET(
         canUploadOutstandingDocuments = true;
         canReplaceDocuments = true;
         canChangeApproval = false;
-        canDelete = false;
+        canDelete = true;
       }
     } else if (scope.role === 'FIELD_USER') {
       if (isAuthor) {
@@ -685,8 +685,14 @@ export async function DELETE(
 
     const scope = await resolveUserAccessScope(req);
 
-    // Enforce role authorization: Hard deletion is strictly restricted to verified ADMIN
-    if (!scope.isVerified || scope.role !== 'ADMIN') {
+    // Role authorization:
+    // - Administration (LEADERSHIP / ADMIN): any record
+    // - State Team (STATE_REVIEWER with edit access): own state only, reason required
+    // - Field Workers (FIELD_USER), AUDITOR, and unauthenticated callers: strictly denied
+    const isAdminOrLeadership = scope.role === 'ADMIN' || scope.role === 'LEADERSHIP';
+    const isAuthorizedStateReviewer = scope.role === 'STATE_REVIEWER' && scope.canEdit !== false;
+
+    if (!scope.isVerified || (!isAdminOrLeadership && !isAuthorizedStateReviewer)) {
       logSecurityEvent({
         actor: scope.userId,
         actorRole: scope.role,
@@ -700,17 +706,99 @@ export async function DELETE(
         {
           status: 'error',
           code: 'FORBIDDEN',
-          message: 'Hard deletion is restricted to verified Administrator role. State Reviewers and Leadership evaluation users cannot delete records.',
+          message: 'Soft deletion is restricted to verified Administrator, Leadership, and state-scoped State Team coordinators.',
         },
         { status: 403 }
       );
     }
 
-    const result = await canonicalSubmissionAdapter.deleteSubmission(submissionId);
+    let providedReason = '';
+    try {
+      const body = await req.json().catch(() => null);
+      const raw = body?.reason ?? body?.deleteReason ?? req.headers.get('x-delete-reason') ?? '';
+      if (typeof raw === 'string') {
+        providedReason = raw.replace(/[\r\n\t]+/g, ' ').trim();
+      }
+    } catch {
+      const headerReason = req.headers.get('x-delete-reason') || '';
+      providedReason = headerReason.replace(/[\r\n\t]+/g, ' ').trim();
+    }
+
+    if (scope.role === 'STATE_REVIEWER') {
+      if (providedReason.length < 3 || providedReason.length > 500) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'DELETE_REASON_REQUIRED',
+            message: 'A valid deletion reason (between 3 and 500 characters) is required for State Team soft deletes.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const existing = await canonicalSubmissionAdapter.getSubmission(submissionId, 'supervisor');
+      if (existing.status !== 'success' || !existing.data) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: existing.code || 'NOT_FOUND',
+            message: existing.message || `Record ${submissionId} not found.`,
+          },
+          { status: existing.statusCode || 404 }
+        );
+      }
+
+      const recordState =
+        existing.data.state ||
+        existing.data['18\nState'] ||
+        existing.data.demographics?.state ||
+        'Maharashtra';
+      const recordDistrict =
+        existing.data.district ||
+        existing.data['19\nDistrict'] ||
+        existing.data.demographics?.district ||
+        undefined;
+
+      if (
+        !isStateAuthorized(scope, recordState) ||
+        (recordDistrict && !isDistrictAuthorized(scope, recordState, recordDistrict))
+      ) {
+        logSecurityEvent({
+          actor: scope.userId,
+          actorRole: scope.role,
+          eventType: 'SCOPE_VIOLATION',
+          outcome: 'DENY',
+          targetResource: submissionId,
+          scope: `state=${recordState},district=${recordDistrict || ''}`,
+          details: `STATE_REVIEWER forbidden to soft-delete out-of-state record ('${recordState}')`,
+        });
+
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'FORBIDDEN_SCOPE',
+            message: `Access denied: State Team coordinators can only delete records within their assigned state (${scope.allowedStates.join(', ')}).`,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    const effectiveReason = providedReason || 'Deleted by Administration';
+    const result = await canonicalSubmissionAdapter.deleteSubmission(submissionId, {
+      actorId: scope.userId,
+      actorName: scope.name,
+      actorRole: scope.role,
+      reason: effectiveReason,
+    });
 
     if (!result.success) {
       return NextResponse.json(
-        { status: 'error', message: result.message },
+        {
+          status: 'error',
+          code: result.code || 'DELETE_FAILED',
+          message: result.message || 'Failed to soft-delete record.',
+        },
         { status: result.statusCode || 500 }
       );
     }
@@ -721,11 +809,18 @@ export async function DELETE(
       eventType: 'RECORD_DELETED',
       outcome: 'ALLOW',
       targetResource: submissionId,
-      details: `Record ${submissionId} deleted by ${scope.name}`,
+      details: `Record ${submissionId} soft-deleted by ${scope.name} (${scope.role}): ${effectiveReason}`,
     });
 
     return NextResponse.json(
-      { status: 'success', message: `Record ${submissionId} deleted successfully` },
+      {
+        status: 'success',
+        deleted: true,
+        softDeleted: true,
+        deletedAt: result.deletedAt,
+        reason: effectiveReason,
+        message: `Record ${submissionId} soft-deleted successfully`,
+      },
       { status: 200 }
     );
   } catch (err: any) {

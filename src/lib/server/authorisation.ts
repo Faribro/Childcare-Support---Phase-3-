@@ -46,6 +46,7 @@ export interface SecurityAuditEvent {
     | 'RECORD_MODIFIED'
     | 'APPROVAL_CHANGED'
     | 'RECORD_DELETED'
+    | 'RECORD_RESTORED'
     | 'EXPORT_ATTEMPT'
     | 'RECORD_EXPORTED'
     | 'STATE_TEAM_ACCESS_REVOKED'

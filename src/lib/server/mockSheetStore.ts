@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
+import { stampSubmissionRowIntegrity } from './submissionRowHash';
 import { calculateBMI, calculateGrantEntitlement, classifyNutritionStatus } from '@/lib/clinical/nutritionCalculations';
 import {
   SAMPLE_PASSBOOK_SVG,
@@ -81,6 +82,15 @@ export interface StoredSheetRecord {
   authorId?: string;
   submittedByWorkerId?: string;
   authorIdentifier?: string;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deleted_by_name?: string | null;
+  deleted_by_role?: string | null;
+  delete_reason?: string | null;
+  previous_status?: string | null;
+  restored_at?: string | null;
+  restored_by?: string | null;
   raw_payload?: CompleteSubmissionPayload;
   assetHistory?: Array<{
     slot: string;
@@ -96,7 +106,7 @@ export interface SheetAuditEvent {
   version: number;
   timestamp: string;
   actor: string;
-  operation: 'CREATE' | 'UPDATE';
+  operation: 'CREATE' | 'UPDATE' | 'SOFT_DELETE' | 'RESTORE';
   changedFields: string[];
   requestId: string;
   previousVersion?: number;
@@ -147,10 +157,14 @@ export const MockSheetStore = {
    * Reset store (useful between isolated tests)
    */
   /**
-   * Delete Record
+   * Soft-Delete Record (tombstone archive; never permanently erases row)
    */
-  deleteRecord(id: string): boolean {
+  deleteRecord(
+    id: string,
+    context?: { actorId?: string; actorName?: string; actorRole?: string; reason?: string; deletedAt?: string }
+  ): boolean {
     let found = false;
+    const nowIso = context?.deletedAt || new Date().toISOString();
     for (const [remoteId, rec] of recordsByRemoteId.entries()) {
       if (
         rec.remote_submission_id === id ||
@@ -158,15 +172,88 @@ export const MockSheetStore = {
         rec.client_submission_id === id ||
         rec.art_number === id
       ) {
-        recordsByRemoteId.delete(remoteId);
-        recordsByUuid.delete(rec._uuid);
-        recordsByUuid.delete(rec.client_submission_id);
-        auditLogsByRemoteId.delete(remoteId);
+        rec.previous_status = rec.previous_status || rec.sync_state;
+        rec.is_deleted = true;
+        rec.deleted_at = nowIso;
+        rec.deleted_by = context?.actorId || null;
+        rec.deleted_by_name = context?.actorName || null;
+        rec.deleted_by_role = context?.actorRole || null;
+        rec.delete_reason = context?.reason || null;
+        rec.updated_at = nowIso;
+        const delIntegrity = stampSubmissionRowIntegrity(rec, {
+          is_deleted: true,
+          deleted_at: nowIso,
+          updated_at: nowIso,
+        });
+        rec.rowVersion = delIntegrity.rowVersion;
+        rec.rowHash = delIntegrity.rowHash;
+        const auditLog = auditLogsByRemoteId.get(remoteId) || [];
+        auditLog.push({
+          version: rec.version || 1,
+          timestamp: nowIso,
+          actor: context?.actorId || 'system',
+          operation: 'SOFT_DELETE',
+          changedFields: ['is_deleted', 'deleted_at', 'delete_reason'],
+          requestId: `del-${Date.now().toString(36)}`,
+        });
+        auditLogsByRemoteId.set(remoteId, auditLog);
         found = true;
         break;
       }
     }
     return found;
+  },
+
+  /**
+   * Restore a soft-deleted record tombstone
+   */
+  restoreRecord(
+    id: string,
+    context?: { actorId?: string; reason?: string }
+  ):
+    | { success: true; statusCode: 200; record: StoredSheetRecord; restoredAt: string; message: string }
+    | { success: false; statusCode: number; code: string; message: string } {
+    const rec = this.findRecord(id, true);
+    if (!rec) {
+      return { success: false, statusCode: 404, code: 'NOT_FOUND', message: `Record ${id} not found.` };
+    }
+    if (!rec.is_deleted && !rec.deleted_at) {
+      return { success: false, statusCode: 409, code: 'NOT_DELETED', message: `Record ${id} is not deleted.` };
+    }
+    const nowIso = new Date().toISOString();
+    rec.is_deleted = false;
+    rec.deleted_at = null;
+    rec.deleted_by = null;
+    rec.deleted_by_name = null;
+    rec.deleted_by_role = null;
+    rec.delete_reason = null;
+    rec.restored_at = nowIso;
+    rec.restored_by = context?.actorId || null;
+    rec.updated_at = nowIso;
+    const resIntegrity = stampSubmissionRowIntegrity(rec, {
+      is_deleted: false,
+      deleted_at: null,
+      updated_at: nowIso,
+    });
+    rec.rowVersion = resIntegrity.rowVersion;
+    rec.rowHash = resIntegrity.rowHash;
+    const auditLog = auditLogsByRemoteId.get(rec.remote_submission_id) || [];
+    auditLog.push({
+      version: rec.version || 1,
+      timestamp: nowIso,
+      actor: context?.actorId || 'system',
+      operation: 'RESTORE',
+      changedFields: ['is_deleted', 'restored_at', 'restored_by'],
+      requestId: `res-${Date.now().toString(36)}`,
+    });
+    auditLogsByRemoteId.set(rec.remote_submission_id, auditLog);
+    return {
+      success: true,
+      statusCode: 200,
+      record: rec,
+      restoredAt: nowIso,
+      message: `Record ${id} restored successfully.`,
+    };
   },
 
   setDriveFailure(fail: boolean) {
@@ -319,6 +406,9 @@ export const MockSheetStore = {
       sync_state: 'SYNCED',
       raw_payload: payload,
     };
+    const createIntegrity = stampSubmissionRowIntegrity(null, newRecord);
+    newRecord.rowVersion = createIntegrity.rowVersion;
+    newRecord.rowHash = createIntegrity.rowHash;
 
     recordsByRemoteId.set(remoteSubmissionId, newRecord);
     recordsByUuid.set(clientUuid, newRecord);
@@ -626,6 +716,12 @@ export const MockSheetStore = {
 
     const nowIso = new Date().toISOString();
     existing.updated_at = nowIso;
+    const assetIntegrity = stampSubmissionRowIntegrity(existing, {
+      version: nextRev,
+      updated_at: nowIso,
+    });
+    existing.rowVersion = assetIntegrity.rowVersion;
+    existing.rowHash = assetIntegrity.rowHash;
 
     // Track asset history
     existing.assetHistory = existing.assetHistory || [];
@@ -824,22 +920,25 @@ export const MockSheetStore = {
   /**
    * Find record by remoteSubmissionId, clientSubmissionId, or _uuid
    */
-  findRecord(id: string): StoredSheetRecord | undefined {
+  findRecord(id: string, includeDeleted = false): StoredSheetRecord | undefined {
+    const isVisible = (r?: StoredSheetRecord) =>
+      Boolean(r && (includeDeleted || (!r.is_deleted && !r.deleted_at)));
     const direct = recordsByRemoteId.get(id) || recordsByUuid.get(id);
-    if (direct) return direct;
-    return Array.from(recordsByRemoteId.values()).find(
+    if (isVisible(direct)) return direct;
+    const matched = Array.from(recordsByRemoteId.values()).find(
       (r) => r.art_number === id || r.client_submission_id === id || r._uuid === id
     );
+    return isVisible(matched) ? matched : undefined;
   },
 
   /**
    * List records with pagination
    */
-  listRecords(options: { cursor?: string; limit?: number; status?: string; updatedAfter?: string; state?: string; district?: string }) {
+  listRecords(options: { cursor?: string; limit?: number; status?: string; updatedAfter?: string; state?: string; district?: string; includeDeleted?: boolean }) {
     const limit = Math.min(Math.max(options.limit || 20, 1), 100);
     const all = Array.from(recordsByRemoteId.values());
 
-    let filtered = all;
+    let filtered = options.includeDeleted ? all : all.filter((r) => !r.is_deleted && !r.deleted_at);
     if (options.status) {
       filtered = filtered.filter((r) => r.sync_state.toLowerCase() === options.status!.toLowerCase());
     }
@@ -1099,6 +1198,12 @@ export const MockSheetStore = {
     const prevVersion = existing.version;
     existing.version = prevVersion + 1;
     existing.updated_at = now;
+    const patchIntegrity = stampSubmissionRowIntegrity(existing, {
+      version: existing.version,
+      updated_at: now,
+    });
+    existing.rowVersion = patchIntegrity.rowVersion;
+    existing.rowHash = patchIntegrity.rowHash;
 
     // Record audit event
     const logs = auditLogsByRemoteId.get(existing.remote_submission_id) || [];
@@ -1128,10 +1233,17 @@ export const MockSheetStore = {
   },
 
   /**
-   * Return number of records in store
+   * Return number of active (non-deleted) records in store
    */
-  recordCount(): number {
-    return recordsByRemoteId.size;
+  recordCount(options?: { includeDeleted?: boolean }): number {
+    if (options?.includeDeleted) {
+      return recordsByRemoteId.size;
+    }
+    let count = 0;
+    for (const r of recordsByRemoteId.values()) {
+      if (!r.is_deleted && !r.deleted_at) count++;
+    }
+    return count;
   },
 
   /**
@@ -1489,6 +1601,9 @@ export const MockSheetStore = {
         '72\nSignature Link': b.sig,
         '73\nLast Updated': b.timestamp,
       };
+      const seedIntegrity = stampSubmissionRowIntegrity(null, rec);
+      rec.rowVersion = seedIntegrity.rowVersion;
+      rec.rowHash = seedIntegrity.rowHash;
 
       recordsByRemoteId.set(rec.remote_submission_id, rec);
       recordsByUuid.set(rec._uuid, rec);

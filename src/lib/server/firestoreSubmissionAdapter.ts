@@ -23,6 +23,40 @@ import type {
 } from './canonicalSubmissionAdapter';
 import type { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
+import { computeSubmissionRowHash, stampSubmissionRowIntegrity } from './submissionRowHash';
+
+export interface ReconcileSnapshotItem {
+  id: string;
+  uniqueId: string;
+  submissionId: string;
+  state: string;
+  rowVersion: number;
+  rowHash: string;
+  version: number;
+  updatedAt: string | null;
+  isDeleted: boolean;
+  deletedAt: string | null;
+  deletedBy: string | null;
+  deleteReason: string | null;
+}
+
+export interface ReconcileSnapshotPage {
+  items: ReconcileSnapshotItem[];
+  nextAfterId: string | null;
+  hasMore: boolean;
+  limit: number;
+  sourceEngine: 'firestore';
+  generatedAt: string;
+}
+
+export interface ReconcileFullRecord extends ReconcileSnapshotItem {
+  submissionTime: string | null;
+  revisionNumber: number;
+  sheetRowNumber: number | null;
+  mirrorStatus: string | null;
+  payload: Record<string, any>;
+  doc: Record<string, any>;
+}
 
 export interface FirestoreAdapterOptions {
   projectId?: string;
@@ -152,7 +186,7 @@ export class FirestoreSubmissionAdapter {
     const state = canonicalizeStateName(rawState) || rawState;
 
     const authorId = payload.authorId || payload.submittedByWorkerId || payload.authorIdentifier || '';
-    const docData = {
+    const baseDocData = {
       id: clientSubmissionId,
       clientSubmissionId,
       uniqueId: payload.uniqueId || clientSubmissionId,
@@ -179,6 +213,8 @@ export class FirestoreSubmissionAdapter {
       updatedAt: now,
       mirrorStatus: 'PENDING_SHEET_SYNC',
     };
+    const integrity = stampSubmissionRowIntegrity(null, baseDocData);
+    const docData = integrity.nextState;
 
     // 2. Persist to Firestore (or Mock Store)
     const db = await this.getDb();
@@ -244,25 +280,9 @@ export class FirestoreSubmissionAdapter {
           });
 
           if (mirrorRes && (mirrorRes.status === 'success' || mirrorRes.statusCode === 200)) {
-            // Update mirror status in Firestore
-            if (db) {
-              const updatePayload: Record<string, any> = {
-                mirrorStatus: 'SYNCED',
-                mirroredAt: new Date().toISOString(),
-              };
-              if (mirrorRes.resolvedRow !== undefined) {
-                updatePayload.sheetRowNumber = mirrorRes.resolvedRow;
-              }
-              await db.collection('submissions').doc(clientSubmissionId).update(updatePayload);
-            } else {
-              const m = this.mockSubmissions.get(clientSubmissionId);
-              if (m) {
-                m.mirrorStatus = 'SYNCED';
-                if (mirrorRes.resolvedRow !== undefined) {
-                  m.sheetRowNumber = mirrorRes.resolvedRow;
-                }
-              }
-            }
+            await this.markSubmissionSynced(clientSubmissionId, {
+              sheetRowNumber: mirrorRes.resolvedRow,
+            });
           } else {
             throw new Error(mirrorRes?.message || 'Apps Script returned non-success status');
           }
@@ -305,6 +325,8 @@ export class FirestoreSubmissionAdapter {
       remoteSubmissionId: clientSubmissionId,
       version: 1,
       revisionNumber: 1,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       submissionStatus: 'SUBMITTED',
       assetStatus: 'NOT_REQUIRED',
       requestId: input.requestId,
@@ -421,26 +443,13 @@ export class FirestoreSubmissionAdapter {
               status: 'SYNCED',
               updatedAt: new Date().toISOString(),
             });
-            const updatePayload: Record<string, any> = {
-              mirrorStatus: 'SYNCED',
-              mirroredAt: new Date().toISOString(),
-            };
-            if (res.resolvedRow !== undefined) {
-              updatePayload.sheetRowNumber = res.resolvedRow;
-            }
-            await db.collection('submissions').doc(job.clientSubmissionId).update(updatePayload);
           } else {
             job.status = 'SYNCED';
             job.updatedAt = new Date().toISOString();
-            const sub = this.mockSubmissions.get(job.clientSubmissionId);
-            if (sub) {
-              sub.mirrorStatus = 'SYNCED';
-              if (res.resolvedRow !== undefined) {
-                sub.sheetRowNumber = res.resolvedRow;
-              }
-              sub.mirroredAt = new Date().toISOString();
-            }
           }
+          await this.markSubmissionSynced(job.clientSubmissionId || job.submissionId, {
+            sheetRowNumber: res.resolvedRow,
+          });
         } else {
           throw new Error(res?.message || 'Gateway returned failure on retry');
         }
@@ -539,6 +548,7 @@ export class FirestoreSubmissionAdapter {
 
   /**
    * Updates mirrorStatus to SYNCED in Firestore and records sheetRowNumber if provided.
+   * Advances rowVersion & recomputes rowHash through the central integrity helper.
    */
   public async markSubmissionSynced(id: string, details?: { sheetRowNumber?: number }): Promise<void> {
     const db = await this.getDb();
@@ -552,12 +562,14 @@ export class FirestoreSubmissionAdapter {
     if (db) {
       const resolved = await this.resolveSubmissionDoc(id, db);
       if (resolved) {
-        await resolved.ref.update(updatePayload);
+        const integrity = stampSubmissionRowIntegrity(resolved.data, updatePayload);
+        await resolved.ref.update(integrity.stampedUpdates);
       }
     } else {
       const existing = this.resolveMockSubmission(id);
       if (existing) {
-        Object.assign(existing, updatePayload);
+        const integrity = stampSubmissionRowIntegrity(existing, updatePayload);
+        Object.assign(existing, integrity.stampedUpdates);
       }
     }
   }
@@ -577,7 +589,7 @@ export class FirestoreSubmissionAdapter {
     let actualDocRef: any = null;
     if (db) {
       const resolved = await this.resolveSubmissionDoc(submissionId, db);
-      if (!resolved) {
+      if (!resolved || resolved.data.deletedAt || resolved.data.isDeleted === true || resolved.data.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -589,7 +601,7 @@ export class FirestoreSubmissionAdapter {
       actualDocRef = resolved.ref;
     } else {
       existing = this.resolveMockSubmission(submissionId);
-      if (!existing) {
+      if (!existing || existing.deletedAt || existing.isDeleted === true || existing.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -619,10 +631,12 @@ export class FirestoreSubmissionAdapter {
       updates.district = patch.district || (patch as any).demographics?.district;
     }
 
+    const integrity = stampSubmissionRowIntegrity(existing, updates);
+
     if (db && actualDocRef) {
-      await actualDocRef.update(updates);
+      await actualDocRef.update(integrity.stampedUpdates);
     } else if (existing) {
-      Object.assign(existing, updates);
+      Object.assign(existing, integrity.stampedUpdates);
     }
 
     const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || submissionId;
@@ -651,6 +665,8 @@ export class FirestoreSubmissionAdapter {
       remoteSubmissionId: existing.id || submissionId,
       version: nextVersion,
       revisionNumber: nextVersion,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       submissionStatus: updates.status || existing.status,
       requestId: input.requestId,
     };
@@ -658,21 +674,44 @@ export class FirestoreSubmissionAdapter {
 
   /**
    * GET: Retrieves submission by ID from Firestore (supporting docId, uniqueId, or clientSubmissionId).
+   * Excludes soft-deleted tombstones unless options.includeDeleted is true.
    */
-  public async getSubmission(id: string, session?: any): Promise<any> {
+  public async getSubmission(
+    id: string,
+    session?: any,
+    options?: { includeDeleted?: boolean }
+  ): Promise<any> {
+    const isDeletedRecord = (rec: any) =>
+      Boolean(rec && (rec.deletedAt || rec.isDeleted === true || rec.status === 'DELETED'));
+
     const db = await this.getDb();
     if (db) {
       const resolved = await this.resolveSubmissionDoc(id, db);
-      return resolved ? resolved.data : null;
+      if (!resolved) return null;
+      if (!options?.includeDeleted && isDeletedRecord(resolved.data)) {
+        return null;
+      }
+      return resolved.data;
     }
-    return this.resolveMockSubmission(id);
+    const mockRec = this.resolveMockSubmission(id);
+    if (!mockRec) return null;
+    if (!options?.includeDeleted && isDeletedRecord(mockRec)) {
+      return null;
+    }
+    return mockRec;
   }
 
   /**
    * LIST: Queries submissions with optional state/district filtering and cursor pagination.
    */
-  public async listSubmissions(params: CanonicalListParams = {}, session?: any): Promise<any> {
+  public async listSubmissions(
+    params: CanonicalListParams & { includeDeleted?: boolean } = {},
+    session?: any
+  ): Promise<any> {
     const limit = params.limit || 50;
+    const includeDeleted = Boolean(params.includeDeleted);
+    const isDeletedRecord = (rec: any) =>
+      Boolean(rec && (rec.deletedAt || rec.isDeleted === true || rec.status === 'DELETED'));
     const db = await this.getDb();
 
     if (db) {
@@ -694,8 +733,11 @@ export class FirestoreSubmissionAdapter {
       }
 
       const snap = await query.limit(limit).get();
-      const items = snap.docs.map((d: any) => d.data());
-      const hasMore = items.length === limit;
+      let items = snap.docs.map((d: any) => d.data());
+      if (!includeDeleted) {
+        items = items.filter((item: any) => !isDeletedRecord(item));
+      }
+      const hasMore = snap.docs.length === limit;
       const nextCursor = hasMore && items.length > 0 ? (items[items.length - 1].submissionTime || items[items.length - 1].id) : null;
       return {
         items,
@@ -706,6 +748,9 @@ export class FirestoreSubmissionAdapter {
     }
 
     let items = Array.from(this.mockSubmissions.values());
+    if (!includeDeleted) {
+      items = items.filter((i) => !isDeletedRecord(i));
+    }
     if (params.state && params.state !== '*' && params.state.toUpperCase() !== 'ALL') {
       const variants = getStateQueryVariants(params.state);
       items = items.filter((i) => variants.some((v) => v.toLowerCase() === (i.state || '').toLowerCase()));
@@ -829,16 +874,238 @@ export class FirestoreSubmissionAdapter {
   }
 
   /**
-   * DELETE: Marks document as deleted in Firestore.
+   * SOFT DELETE: Tombstones document in Firestore (deletedAt/deletedBy/deleteReason)
+   * instead of erasing, and mirrors trash request best-effort to Sheets/Drive.
    */
-  public async deleteSubmission(id: string, session?: any): Promise<any> {
-    const db = await this.getDb();
-    if (db) {
-      await db.collection('submissions').doc(id).delete();
-    } else {
-      this.mockSubmissions.delete(id);
+  public async deleteSubmission(
+    id: string,
+    context?: {
+      actorId?: string;
+      actorName?: string;
+      actorRole?: string;
+      reason?: string;
+      deletedAt?: string;
+      requestId?: string;
     }
-    return { status: 'success', deleted: true, id };
+  ): Promise<any> {
+    const db = await this.getDb();
+    const now = context?.deletedAt || new Date().toISOString();
+    let existing: any = null;
+    let resolvedRef: any = null;
+
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(id, db);
+      if (!resolved) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found in Firestore.`,
+        };
+      }
+      existing = resolved.data;
+      resolvedRef = resolved.ref;
+    } else {
+      existing = this.resolveMockSubmission(id);
+      if (!existing) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found.`,
+        };
+      }
+    }
+
+    const resolvedId = existing.id || id;
+    const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || resolvedId;
+
+    if (existing.deletedAt || existing.isDeleted === true || existing.status === 'DELETED') {
+      return {
+        success: true,
+        status: 'success',
+        statusCode: 200,
+        deleted: true,
+        softDeleted: true,
+        alreadyDeleted: true,
+        id: resolvedId,
+        uniqueId: resolvedUniqueId,
+        deletedAt: existing.deletedAt,
+        deletedBy: existing.deletedBy,
+        reason: existing.deleteReason,
+        message: `Record ${resolvedId} is already soft-deleted.`,
+      };
+    }
+
+    const cleanReason = (context?.reason || '').trim() || 'Deleted by Administration';
+    const tombstone: Record<string, any> = {
+      deletedAt: now,
+      deletedBy: context?.actorId || 'system',
+      deletedByName: context?.actorName || context?.actorId || 'System',
+      deletedByRole: context?.actorRole || 'LEADERSHIP',
+      deleteReason: cleanReason,
+      previousStatus: existing.previousStatus || (existing.status !== 'DELETED' ? existing.status : 'SUBMITTED') || 'SUBMITTED',
+      status: 'DELETED',
+      isDeleted: true,
+      updatedAt: now,
+    };
+    const integrity = stampSubmissionRowIntegrity(existing, tombstone);
+
+    if (db && resolvedRef) {
+      await resolvedRef.update(integrity.stampedUpdates);
+    } else if (existing) {
+      Object.assign(existing, integrity.stampedUpdates);
+    }
+
+    if (this.gatewayClient) {
+      try {
+        await this.gatewayClient.callGateway({
+          action: 'delete',
+          softDelete: true,
+          uniqueId: resolvedUniqueId,
+          submissionId: resolvedId,
+          remoteSubmissionId: resolvedId,
+          deletedAt: now,
+          deletedBy: tombstone.deletedBy,
+          reason: cleanReason,
+          state: existing.state || existing.payload?.state || '',
+          requestId: context?.requestId,
+        });
+      } catch (mirrorErr: any) {
+        console.warn(`[FIRESTORE_MIRROR] Soft delete mirror failed for ${resolvedUniqueId}:`, mirrorErr?.message);
+      }
+    }
+
+    return {
+      success: true,
+      status: 'success',
+      statusCode: 200,
+      deleted: true,
+      softDeleted: true,
+      id: resolvedId,
+      uniqueId: resolvedUniqueId,
+      deletedAt: now,
+      deletedBy: tombstone.deletedBy,
+      reason: cleanReason,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
+      message: `Record ${resolvedId} soft-deleted successfully.`,
+    };
+  }
+
+  /**
+   * RESTORE: Restores a soft-deleted submission tombstone and marks it active.
+   */
+  public async restoreSubmission(
+    id: string,
+    context?: {
+      actorId?: string;
+      actorName?: string;
+      actorRole?: string;
+      reason?: string;
+      requestId?: string;
+    }
+  ): Promise<any> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    let existing: any = null;
+    let resolvedRef: any = null;
+
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(id, db);
+      if (!resolved) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found in Firestore.`,
+        };
+      }
+      existing = resolved.data;
+      resolvedRef = resolved.ref;
+    } else {
+      existing = this.resolveMockSubmission(id);
+      if (!existing) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found.`,
+        };
+      }
+    }
+
+    const resolvedId = existing.id || id;
+    const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || resolvedId;
+    if (!existing.deletedAt && existing.isDeleted !== true && existing.status !== 'DELETED') {
+      return {
+        success: false,
+        status: 'error',
+        statusCode: 409,
+        code: 'NOT_DELETED',
+        message: `Record ${resolvedId} is not soft-deleted.`,
+      };
+    }
+
+    const restoredStatus =
+      existing.previousStatus && existing.previousStatus !== 'DELETED' ? existing.previousStatus : 'SUBMITTED';
+    const restoreUpdates: Record<string, any> = {
+      deletedAt: null,
+      deletedBy: null,
+      deletedByName: null,
+      deletedByRole: null,
+      deleteReason: null,
+      isDeleted: false,
+      status: restoredStatus,
+      restoredAt: now,
+      restoredBy: context?.actorId || 'system',
+      restoreReason: (context?.reason || '').trim() || 'Restored by Administration',
+      updatedAt: now,
+    };
+    const integrity = stampSubmissionRowIntegrity(existing, restoreUpdates);
+
+    if (db && resolvedRef) {
+      await resolvedRef.update(integrity.stampedUpdates);
+    } else if (existing) {
+      Object.assign(existing, integrity.stampedUpdates);
+    }
+
+    if (this.gatewayClient) {
+      try {
+        await this.gatewayClient.callGateway({
+          action: 'restore',
+          uniqueId: resolvedUniqueId,
+          submissionId: resolvedId,
+          remoteSubmissionId: resolvedId,
+          data: existing.payload || existing,
+          payload: existing.payload || existing,
+          restoredAt: now,
+          restoredBy: restoreUpdates.restoredBy,
+          requestId: context?.requestId,
+        });
+      } catch (mirrorErr: any) {
+        console.warn(`[FIRESTORE_MIRROR] Restore mirror failed for ${resolvedUniqueId}:`, mirrorErr?.message);
+      }
+    }
+
+    return {
+      success: true,
+      status: 'success',
+      statusCode: 200,
+      restored: true,
+      id: resolvedId,
+      remoteSubmissionId: resolvedId,
+      uniqueId: resolvedUniqueId,
+      restoredAt: now,
+      restoredBy: restoreUpdates.restoredBy,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
+      message: `Record ${resolvedId} restored successfully.`,
+    };
   }
 
   /**
@@ -854,7 +1121,7 @@ export class FirestoreSubmissionAdapter {
 
     if (db) {
       const resolved = await this.resolveSubmissionDoc(submissionId, db);
-      if (!resolved) {
+      if (!resolved || resolved.data.deletedAt || resolved.data.isDeleted === true || resolved.data.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -866,7 +1133,7 @@ export class FirestoreSubmissionAdapter {
       resolvedRef = resolved.ref;
     } else {
       existing = this.resolveMockSubmission(submissionId);
-      if (!existing) {
+      if (!existing || existing.deletedAt || existing.isDeleted === true || existing.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -877,14 +1144,29 @@ export class FirestoreSubmissionAdapter {
     }
 
     const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || submissionId;
+    const normDocType = String(docType || '').toLowerCase();
     const fieldMap: Record<string, string> = {
-      passbookPhoto: 'passbookPhotoUrl',
-      aadhaarCardPhoto: 'aadhaarCardPhotoUrl',
-      childPhoto: 'childPhotoUrl',
-      feeReceiptPhoto: 'feeReceiptPhotoUrl',
-      marksheetPhoto: 'marksheetPhotoUrl',
+      passbookphoto: 'passbookPhotoUrl',
+      passbook: 'passbookPhotoUrl',
+      aadhaarcardphoto: 'aadhaarCardPhotoUrl',
+      aadhaar: 'aadhaarCardPhotoUrl',
+      childphoto: 'childPhotoUrl',
+      photo: 'childPhotoUrl',
+      feereceiptphoto: 'feeReceiptPhotoUrl',
+      feereceipt: 'feeReceiptPhotoUrl',
+      fee_receipt: 'feeReceiptPhotoUrl',
+      marksheetphoto: 'marksheetPhotoUrl',
+      marksheet: 'marksheetPhotoUrl',
+      signature: 'signatureDataUrl',
+      signaturedataurl: 'signatureDataUrl',
     };
-    const fieldKey = fieldMap[docType];
+    const fieldKey = fieldMap[normDocType] ||
+      (normDocType.includes('passbook') ? 'passbookPhotoUrl' :
+       normDocType.includes('aadhaar') ? 'aadhaarCardPhotoUrl' :
+       normDocType.includes('fee') ? 'feeReceiptPhotoUrl' :
+       normDocType.includes('mark') ? 'marksheetPhotoUrl' :
+       normDocType.includes('sig') ? 'signatureDataUrl' :
+       normDocType.includes('photo') ? 'childPhotoUrl' : undefined);
 
     let cellFormula: string | undefined;
     let newFileId: string | undefined;
@@ -953,10 +1235,12 @@ export class FirestoreSubmissionAdapter {
       }
     }
 
+    const integrity = stampSubmissionRowIntegrity(existing, updatePayload);
+
     if (db && resolvedRef) {
-      await resolvedRef.update(updatePayload);
+      await resolvedRef.update(integrity.stampedUpdates);
     } else if (existing) {
-      Object.assign(existing, updatePayload);
+      Object.assign(existing, integrity.stampedUpdates);
     }
 
     return {
@@ -971,8 +1255,156 @@ export class FirestoreSubmissionAdapter {
       newRevision,
       version: newRevision,
       revisionNumber: newRevision,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       updatedAt: now,
       requestId: input.requestId,
+    };
+  }
+
+  private buildSnapshotItem(docId: string, data: Record<string, any>): ReconcileSnapshotItem {
+    const isDeleted = Boolean(data.deletedAt || data.isDeleted === true || data.is_deleted === true || data.status === 'DELETED');
+    const rowVersion =
+      typeof data.rowVersion === 'number' && Number.isFinite(data.rowVersion) && data.rowVersion >= 1
+        ? data.rowVersion
+        : typeof data.row_version === 'number' && Number.isFinite(data.row_version) && data.row_version >= 1
+          ? data.row_version
+          : Number(data.version || data.revisionNumber || 1) || 1;
+    const rowHash =
+      typeof data.rowHash === 'string' && /^[a-f0-9]{64}$/i.test(data.rowHash)
+        ? data.rowHash
+        : computeSubmissionRowHash(data);
+
+    const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+    const demo = payload.demographics && typeof payload.demographics === 'object' ? payload.demographics : data.demographics || {};
+    const state = String(
+      data.state ||
+      demo.state ||
+      payload.state ||
+      data['18\nState'] ||
+      ''
+    ).trim();
+
+    return {
+      id: docId,
+      uniqueId: String(data.uniqueId || data['1\nUnique Identifier'] || data.clientSubmissionId || data.id || docId).trim(),
+      submissionId: String(data.clientSubmissionId || data.id || docId).trim(),
+      state,
+      rowVersion,
+      rowHash,
+      version: Number(data.version || data.revisionNumber || 1) || 1,
+      updatedAt: data.updatedAt || data.submissionTime || data.createdAt || null,
+      isDeleted,
+      deletedAt: data.deletedAt || data.deleted_at || null,
+      deletedBy: data.deletedBy || data.deleted_by || null,
+      deleteReason: data.deleteReason || data.delete_reason || null,
+    };
+  }
+
+  /**
+   * Keyset-paginated, ID-ordered reconciliation snapshot over all Firestore submissions
+   * (both active records and soft-deleted tombstones) without leaking child PII.
+   */
+  public async listReconcileSnapshot(
+    params: { afterId?: string; limit?: number } = {}
+  ): Promise<ReconcileSnapshotPage> {
+    const limit = Math.min(Math.max(Math.trunc(Number(params.limit) || 200), 1), 500);
+    const afterId = params.afterId ? String(params.afterId).trim() : '';
+
+    const db = await this.getDb();
+    let rawDocs: Array<{ docId: string; data: Record<string, any> }> = [];
+
+    if (db) {
+      const col = db.collection('submissions');
+      if (typeof col.orderBy === 'function') {
+        const firestoreMod = await import('@google-cloud/firestore').catch(() => null as any);
+        const docIdField = firestoreMod?.FieldPath?.documentId?.() ?? '__name__';
+        let query = col.orderBy(docIdField);
+        if (afterId) {
+          query = query.startAfter(afterId);
+        }
+        const snap = await query.limit(limit + 1).get();
+        rawDocs = (snap.docs || []).map((d: any) => {
+          const data = typeof d.data === 'function' ? d.data() : d;
+          return {
+            docId: String(d.id || data?.id || ''),
+            data,
+          };
+        });
+      } else {
+        const snap = await col.get();
+        rawDocs = (snap.docs || [])
+          .map((d: any) => {
+            const data = typeof d.data === 'function' ? d.data() : d;
+            return {
+              docId: String(d.id || data?.id || ''),
+              data,
+            };
+          })
+          .sort((a: { docId: string }, b: { docId: string }) =>
+            a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0
+          )
+          .filter((entry: { docId: string }) => !afterId || entry.docId > afterId)
+          .slice(0, limit + 1);
+      }
+    } else {
+      rawDocs = Array.from(this.mockSubmissions.entries())
+        .map(([docId, data]) => ({ docId: String(docId), data }))
+        .sort((a, b) => (a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0))
+        .filter((entry) => !afterId || entry.docId > afterId)
+        .slice(0, limit + 1);
+    }
+
+    const hasMore = rawDocs.length > limit;
+    const pageRows = hasMore ? rawDocs.slice(0, limit) : rawDocs;
+    const items = pageRows.map((entry) => this.buildSnapshotItem(entry.docId, entry.data));
+    const nextAfterId = hasMore && pageRows.length > 0 ? pageRows[pageRows.length - 1].docId : null;
+
+    return {
+      items,
+      nextAfterId,
+      hasMore,
+      limit,
+      sourceEngine: 'firestore',
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Fetches full Firestore document payload for on-demand repair of a missing or
+   * hash-mismatched Sheet row during reconciliation.
+   */
+  public async getReconcileSubmissionRecord(submissionId: string): Promise<ReconcileFullRecord | null> {
+    const cleanId = String(submissionId || '').trim();
+    if (!cleanId) return null;
+
+    const db = await this.getDb();
+    let docId = cleanId;
+    let data: Record<string, any> | null = null;
+
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(cleanId, db);
+      if (!resolved) return null;
+      docId = String(resolved.ref?.id || resolved.data.id || cleanId);
+      data = resolved.data;
+    } else {
+      const existing = this.resolveMockSubmission(cleanId);
+      if (!existing) return null;
+      docId = String(existing.id || cleanId);
+      data = existing;
+    }
+
+    if (!data) return null;
+
+    const baseItem = this.buildSnapshotItem(docId, data);
+    return {
+      ...baseItem,
+      submissionTime: data.submissionTime || data.createdAt || null,
+      revisionNumber: Number(data.revisionNumber || data.version || 1) || 1,
+      sheetRowNumber: typeof data.sheetRowNumber === 'number' ? data.sheetRowNumber : null,
+      mirrorStatus: data.mirrorStatus || null,
+      payload: data.payload && typeof data.payload === 'object' ? { ...data.payload } : {},
+      doc: { ...data },
     };
   }
 }
