@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
+import { stampSubmissionRowIntegrity } from './submissionRowHash';
 import { calculateBMI, calculateGrantEntitlement, classifyNutritionStatus } from '@/lib/clinical/nutritionCalculations';
 import {
   SAMPLE_PASSBOOK_SVG,
@@ -179,6 +180,13 @@ export const MockSheetStore = {
         rec.deleted_by_role = context?.actorRole || null;
         rec.delete_reason = context?.reason || null;
         rec.updated_at = nowIso;
+        const delIntegrity = stampSubmissionRowIntegrity(rec, {
+          is_deleted: true,
+          deleted_at: nowIso,
+          updated_at: nowIso,
+        });
+        rec.rowVersion = delIntegrity.rowVersion;
+        rec.rowHash = delIntegrity.rowHash;
         const auditLog = auditLogsByRemoteId.get(remoteId) || [];
         auditLog.push({
           version: rec.version || 1,
@@ -222,6 +230,13 @@ export const MockSheetStore = {
     rec.restored_at = nowIso;
     rec.restored_by = context?.actorId || null;
     rec.updated_at = nowIso;
+    const resIntegrity = stampSubmissionRowIntegrity(rec, {
+      is_deleted: false,
+      deleted_at: null,
+      updated_at: nowIso,
+    });
+    rec.rowVersion = resIntegrity.rowVersion;
+    rec.rowHash = resIntegrity.rowHash;
     const auditLog = auditLogsByRemoteId.get(rec.remote_submission_id) || [];
     auditLog.push({
       version: rec.version || 1,
@@ -391,6 +406,9 @@ export const MockSheetStore = {
       sync_state: 'SYNCED',
       raw_payload: payload,
     };
+    const createIntegrity = stampSubmissionRowIntegrity(null, newRecord);
+    newRecord.rowVersion = createIntegrity.rowVersion;
+    newRecord.rowHash = createIntegrity.rowHash;
 
     recordsByRemoteId.set(remoteSubmissionId, newRecord);
     recordsByUuid.set(clientUuid, newRecord);
@@ -698,6 +716,12 @@ export const MockSheetStore = {
 
     const nowIso = new Date().toISOString();
     existing.updated_at = nowIso;
+    const assetIntegrity = stampSubmissionRowIntegrity(existing, {
+      version: nextRev,
+      updated_at: nowIso,
+    });
+    existing.rowVersion = assetIntegrity.rowVersion;
+    existing.rowHash = assetIntegrity.rowHash;
 
     // Track asset history
     existing.assetHistory = existing.assetHistory || [];
@@ -1174,6 +1198,12 @@ export const MockSheetStore = {
     const prevVersion = existing.version;
     existing.version = prevVersion + 1;
     existing.updated_at = now;
+    const patchIntegrity = stampSubmissionRowIntegrity(existing, {
+      version: existing.version,
+      updated_at: now,
+    });
+    existing.rowVersion = patchIntegrity.rowVersion;
+    existing.rowHash = patchIntegrity.rowHash;
 
     // Record audit event
     const logs = auditLogsByRemoteId.get(existing.remote_submission_id) || [];
@@ -1564,6 +1594,9 @@ export const MockSheetStore = {
         '72\nSignature Link': b.sig,
         '73\nLast Updated': b.timestamp,
       };
+      const seedIntegrity = stampSubmissionRowIntegrity(null, rec);
+      rec.rowVersion = seedIntegrity.rowVersion;
+      rec.rowHash = seedIntegrity.rowHash;
 
       recordsByRemoteId.set(rec.remote_submission_id, rec);
       recordsByUuid.set(rec._uuid, rec);

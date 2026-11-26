@@ -73,6 +73,8 @@ export interface CanonicalSubmissionResult {
   columnNumber?: number;
   version?: number;
   revisionNumber?: number;
+  rowVersion?: number;
+  rowHash?: string;
   updatedAt?: string;
   isDuplicate?: boolean;
   requestId?: string;
@@ -1200,6 +1202,8 @@ class CanonicalSubmissionAdapterService {
       uniqueId: mockRes.record.client_submission_id,
       version: mockRes.version,
       revisionNumber: mockRes.version,
+      rowVersion: mockRes.record.rowVersion,
+      rowHash: mockRes.record.rowHash,
       updatedAt: mockRes.record.updated_at,
       requestId: input.requestId,
       data: mockRes.record,
@@ -1248,6 +1252,8 @@ class CanonicalSubmissionAdapterService {
         uniqueId: raw.uniqueId || raw.id,
         version: raw.version || 1,
         revisionNumber: raw.revisionNumber || 1,
+        rowVersion: raw.rowVersion,
+        rowHash: raw.rowHash,
         submissionStatus: raw.status || 'SUBMITTED',
       };
     }

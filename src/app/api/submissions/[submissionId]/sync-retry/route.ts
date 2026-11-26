@@ -110,7 +110,7 @@ export async function POST(
         }
       }
 
-      const drainSummary = await firestoreAdapter.drainMirrorRetryQueue(10).catch(() => ({ processed: 0, succeeded: 0, failed: 0 }));
+      const drainSummary = await firestoreAdapter.replaySheetsMirrorRetryQueue(10).catch(() => ({ processed: 0, succeeded: 0, failed: 0 }));
 
       logSecurityEvent({
         actor: scope.userId,

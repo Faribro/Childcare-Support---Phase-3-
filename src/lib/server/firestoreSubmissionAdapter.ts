@@ -23,6 +23,7 @@ import type {
 } from './canonicalSubmissionAdapter';
 import type { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
+import { stampSubmissionRowIntegrity } from './submissionRowHash';
 
 export interface FirestoreAdapterOptions {
   projectId?: string;
@@ -152,7 +153,7 @@ export class FirestoreSubmissionAdapter {
     const state = canonicalizeStateName(rawState) || rawState;
 
     const authorId = payload.authorId || payload.submittedByWorkerId || payload.authorIdentifier || '';
-    const docData = {
+    const baseDocData = {
       id: clientSubmissionId,
       clientSubmissionId,
       uniqueId: payload.uniqueId || clientSubmissionId,
@@ -179,6 +180,8 @@ export class FirestoreSubmissionAdapter {
       updatedAt: now,
       mirrorStatus: 'PENDING_SHEET_SYNC',
     };
+    const integrity = stampSubmissionRowIntegrity(null, baseDocData);
+    const docData = integrity.nextState;
 
     // 2. Persist to Firestore (or Mock Store)
     const db = await this.getDb();
@@ -244,25 +247,9 @@ export class FirestoreSubmissionAdapter {
           });
 
           if (mirrorRes && (mirrorRes.status === 'success' || mirrorRes.statusCode === 200)) {
-            // Update mirror status in Firestore
-            if (db) {
-              const updatePayload: Record<string, any> = {
-                mirrorStatus: 'SYNCED',
-                mirroredAt: new Date().toISOString(),
-              };
-              if (mirrorRes.resolvedRow !== undefined) {
-                updatePayload.sheetRowNumber = mirrorRes.resolvedRow;
-              }
-              await db.collection('submissions').doc(clientSubmissionId).update(updatePayload);
-            } else {
-              const m = this.mockSubmissions.get(clientSubmissionId);
-              if (m) {
-                m.mirrorStatus = 'SYNCED';
-                if (mirrorRes.resolvedRow !== undefined) {
-                  m.sheetRowNumber = mirrorRes.resolvedRow;
-                }
-              }
-            }
+            await this.markSubmissionSynced(clientSubmissionId, {
+              sheetRowNumber: mirrorRes.resolvedRow,
+            });
           } else {
             throw new Error(mirrorRes?.message || 'Apps Script returned non-success status');
           }
@@ -305,6 +292,8 @@ export class FirestoreSubmissionAdapter {
       remoteSubmissionId: clientSubmissionId,
       version: 1,
       revisionNumber: 1,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       submissionStatus: 'SUBMITTED',
       assetStatus: 'NOT_REQUIRED',
       requestId: input.requestId,
@@ -421,26 +410,13 @@ export class FirestoreSubmissionAdapter {
               status: 'SYNCED',
               updatedAt: new Date().toISOString(),
             });
-            const updatePayload: Record<string, any> = {
-              mirrorStatus: 'SYNCED',
-              mirroredAt: new Date().toISOString(),
-            };
-            if (res.resolvedRow !== undefined) {
-              updatePayload.sheetRowNumber = res.resolvedRow;
-            }
-            await db.collection('submissions').doc(job.clientSubmissionId).update(updatePayload);
           } else {
             job.status = 'SYNCED';
             job.updatedAt = new Date().toISOString();
-            const sub = this.mockSubmissions.get(job.clientSubmissionId);
-            if (sub) {
-              sub.mirrorStatus = 'SYNCED';
-              if (res.resolvedRow !== undefined) {
-                sub.sheetRowNumber = res.resolvedRow;
-              }
-              sub.mirroredAt = new Date().toISOString();
-            }
           }
+          await this.markSubmissionSynced(job.clientSubmissionId || job.submissionId, {
+            sheetRowNumber: res.resolvedRow,
+          });
         } else {
           throw new Error(res?.message || 'Gateway returned failure on retry');
         }
@@ -539,6 +515,7 @@ export class FirestoreSubmissionAdapter {
 
   /**
    * Updates mirrorStatus to SYNCED in Firestore and records sheetRowNumber if provided.
+   * Advances rowVersion & recomputes rowHash through the central integrity helper.
    */
   public async markSubmissionSynced(id: string, details?: { sheetRowNumber?: number }): Promise<void> {
     const db = await this.getDb();
@@ -552,12 +529,14 @@ export class FirestoreSubmissionAdapter {
     if (db) {
       const resolved = await this.resolveSubmissionDoc(id, db);
       if (resolved) {
-        await resolved.ref.update(updatePayload);
+        const integrity = stampSubmissionRowIntegrity(resolved.data, updatePayload);
+        await resolved.ref.update(integrity.stampedUpdates);
       }
     } else {
       const existing = this.resolveMockSubmission(id);
       if (existing) {
-        Object.assign(existing, updatePayload);
+        const integrity = stampSubmissionRowIntegrity(existing, updatePayload);
+        Object.assign(existing, integrity.stampedUpdates);
       }
     }
   }
@@ -619,10 +598,12 @@ export class FirestoreSubmissionAdapter {
       updates.district = patch.district || (patch as any).demographics?.district;
     }
 
+    const integrity = stampSubmissionRowIntegrity(existing, updates);
+
     if (db && actualDocRef) {
-      await actualDocRef.update(updates);
+      await actualDocRef.update(integrity.stampedUpdates);
     } else if (existing) {
-      Object.assign(existing, updates);
+      Object.assign(existing, integrity.stampedUpdates);
     }
 
     const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || submissionId;
@@ -651,6 +632,8 @@ export class FirestoreSubmissionAdapter {
       remoteSubmissionId: existing.id || submissionId,
       version: nextVersion,
       revisionNumber: nextVersion,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       submissionStatus: updates.status || existing.status,
       requestId: input.requestId,
     };
@@ -935,11 +918,12 @@ export class FirestoreSubmissionAdapter {
       isDeleted: true,
       updatedAt: now,
     };
+    const integrity = stampSubmissionRowIntegrity(existing, tombstone);
 
     if (db && resolvedRef) {
-      await resolvedRef.update(tombstone);
+      await resolvedRef.update(integrity.stampedUpdates);
     } else if (existing) {
-      Object.assign(existing, tombstone);
+      Object.assign(existing, integrity.stampedUpdates);
     }
 
     if (this.gatewayClient) {
@@ -972,6 +956,8 @@ export class FirestoreSubmissionAdapter {
       deletedAt: now,
       deletedBy: tombstone.deletedBy,
       reason: cleanReason,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       message: `Record ${resolvedId} soft-deleted successfully.`,
     };
   }
@@ -1047,11 +1033,12 @@ export class FirestoreSubmissionAdapter {
       restoreReason: (context?.reason || '').trim() || 'Restored by Administration',
       updatedAt: now,
     };
+    const integrity = stampSubmissionRowIntegrity(existing, restoreUpdates);
 
     if (db && resolvedRef) {
-      await resolvedRef.update(restoreUpdates);
+      await resolvedRef.update(integrity.stampedUpdates);
     } else if (existing) {
-      Object.assign(existing, restoreUpdates);
+      Object.assign(existing, integrity.stampedUpdates);
     }
 
     if (this.gatewayClient) {
@@ -1082,6 +1069,8 @@ export class FirestoreSubmissionAdapter {
       uniqueId: resolvedUniqueId,
       restoredAt: now,
       restoredBy: restoreUpdates.restoredBy,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       message: `Record ${resolvedId} restored successfully.`,
     };
   }
@@ -1122,14 +1111,29 @@ export class FirestoreSubmissionAdapter {
     }
 
     const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || submissionId;
+    const normDocType = String(docType || '').toLowerCase();
     const fieldMap: Record<string, string> = {
-      passbookPhoto: 'passbookPhotoUrl',
-      aadhaarCardPhoto: 'aadhaarCardPhotoUrl',
-      childPhoto: 'childPhotoUrl',
-      feeReceiptPhoto: 'feeReceiptPhotoUrl',
-      marksheetPhoto: 'marksheetPhotoUrl',
+      passbookphoto: 'passbookPhotoUrl',
+      passbook: 'passbookPhotoUrl',
+      aadhaarcardphoto: 'aadhaarCardPhotoUrl',
+      aadhaar: 'aadhaarCardPhotoUrl',
+      childphoto: 'childPhotoUrl',
+      photo: 'childPhotoUrl',
+      feereceiptphoto: 'feeReceiptPhotoUrl',
+      feereceipt: 'feeReceiptPhotoUrl',
+      fee_receipt: 'feeReceiptPhotoUrl',
+      marksheetphoto: 'marksheetPhotoUrl',
+      marksheet: 'marksheetPhotoUrl',
+      signature: 'signatureDataUrl',
+      signaturedataurl: 'signatureDataUrl',
     };
-    const fieldKey = fieldMap[docType];
+    const fieldKey = fieldMap[normDocType] ||
+      (normDocType.includes('passbook') ? 'passbookPhotoUrl' :
+       normDocType.includes('aadhaar') ? 'aadhaarCardPhotoUrl' :
+       normDocType.includes('fee') ? 'feeReceiptPhotoUrl' :
+       normDocType.includes('mark') ? 'marksheetPhotoUrl' :
+       normDocType.includes('sig') ? 'signatureDataUrl' :
+       normDocType.includes('photo') ? 'childPhotoUrl' : undefined);
 
     let cellFormula: string | undefined;
     let newFileId: string | undefined;
@@ -1198,10 +1202,12 @@ export class FirestoreSubmissionAdapter {
       }
     }
 
+    const integrity = stampSubmissionRowIntegrity(existing, updatePayload);
+
     if (db && resolvedRef) {
-      await resolvedRef.update(updatePayload);
+      await resolvedRef.update(integrity.stampedUpdates);
     } else if (existing) {
-      Object.assign(existing, updatePayload);
+      Object.assign(existing, integrity.stampedUpdates);
     }
 
     return {
@@ -1216,6 +1222,8 @@ export class FirestoreSubmissionAdapter {
       newRevision,
       version: newRevision,
       revisionNumber: newRevision,
+      rowVersion: integrity.rowVersion,
+      rowHash: integrity.rowHash,
       updatedAt: now,
       requestId: input.requestId,
     };
