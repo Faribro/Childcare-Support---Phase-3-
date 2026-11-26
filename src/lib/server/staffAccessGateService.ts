@@ -20,6 +20,7 @@ import { getOnboardingStore } from './onboardingStore';
 import { getSessionSecret } from './sessionService';
 
 export const STAFF_ACCESS_GATE_COOKIE = 'csc_admin_gate';
+export const STAFF_ACCESS_GATE_HEADER = 'x-admin-gate';
 export const ADMIN_GATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const GATE_PROBE_LIMIT_15M = 15;
 const GATE_PROBE_WINDOW_MS = 15 * 60 * 1000;
@@ -138,6 +139,23 @@ export function verifyLeaderGateCookieToken(token?: string | null, now = Date.no
   } catch {
     return false;
   }
+}
+
+/**
+ * Verifies an Administration gate request by checking BOTH the `csc_admin_gate`
+ * cookie and the `X-Admin-Gate` request header (needed behind Firebase Hosting,
+ * which strips non-`__session` cookies before forwarding to Cloud Run).
+ */
+export function verifyLeaderGateRequest(req: NextRequest, now = Date.now()): boolean {
+  const cookieToken = req.cookies.get(STAFF_ACCESS_GATE_COOKIE)?.value?.trim();
+  if (cookieToken && verifyLeaderGateCookieToken(cookieToken, now)) {
+    return true;
+  }
+  const headerToken = req.headers.get(STAFF_ACCESS_GATE_HEADER)?.trim();
+  if (headerToken && verifyLeaderGateCookieToken(headerToken, now)) {
+    return true;
+  }
+  return false;
 }
 
 function isSecureCookieRequest(req?: NextRequest): boolean {

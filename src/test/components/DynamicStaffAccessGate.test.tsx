@@ -161,8 +161,9 @@ describe('Dynamic Staff Access Gate UI Flows', () => {
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 
-  it('EvaluationLoginModal redirects to /leadership/login?gate=1 on Administration gate code', async () => {
+  it('EvaluationLoginModal stores gateToken in sessionStorage and redirects to /leadership/login?gate=1 on Administration gate code', async () => {
     const onClose = vi.fn();
+    window.sessionStorage.clear();
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/staff-access/gate')) {
         return {
@@ -170,8 +171,10 @@ describe('Dynamic Staff Access Gate UI Flows', () => {
           json: async () => ({
             status: 'success',
             mode: 'administration',
+            gateToken: 'signed.gate.token.value',
             data: {
               redirectUrl: '/leadership/login?gate=1',
+              gateToken: 'signed.gate.token.value',
               leaders: [
                 { id: 'lead-1', name: 'Rajiv Menon', email: 'rajiv.menon@example.org' },
               ],
@@ -193,9 +196,44 @@ describe('Dynamic Staff Access Gate UI Flows', () => {
       expect(onClose).toHaveBeenCalledTimes(1);
       expect(mockPush).toHaveBeenCalledWith('/leadership/login?gate=1');
     });
+    expect(window.sessionStorage.getItem('csc_admin_gate_token')).toBe('signed.gate.token.value');
+  });
+
+  it('LeadershipOtpFlow attaches X-Admin-Gate header from sessionStorage when fetching /api/auth/leader/gate and clears it on 401', async () => {
+    window.sessionStorage.setItem('csc_admin_gate_token', 'header-fallback-token-123');
+    let capturedHeaders: any = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: { emailAuthEnabled: true, authMode: 'email_only' },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/leader/gate')) {
+        capturedHeaders = init?.headers;
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ status: 'error', code: 'AUTH_REQUIRED' }),
+        } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    render(<LeadershipOtpFlow isModal={false} gateUnlocked={true} />);
+
+    await waitFor(() => {
+      expect(capturedHeaders).not.toBeNull();
+      expect(window.sessionStorage.getItem('csc_admin_gate_token')).toBeNull();
+    });
+    expect((capturedHeaders as Record<string, string>)['X-Admin-Gate']).toBe('header-fallback-token-123');
   });
 
   it('LeadershipOtpFlow with gateUnlocked=true populates Administration dropdown via /api/auth/leader/gate with name & email only (no titles)', async () => {
+    window.sessionStorage.clear();
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
         return {
@@ -241,5 +279,102 @@ describe('Dynamic Staff Access Gate UI Flows', () => {
     // Clicking an entry selects that admin's email cleanly
     fireEvent.click(screen.getByText('Rajiv Menon'));
     expect(screen.getByText('rajiv.menon@example.org')).toBeDefined();
+  });
+
+  it('LeadershipOtpFlow clears csc_admin_gate_token from sessionStorage once leadership login completes', async () => {
+    window.sessionStorage.setItem('csc_admin_gate_token', 'header-fallback-token-complete');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/api/auth/leader/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: { emailAuthEnabled: true, authMode: 'email_only' },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/leader/gate')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: {
+              leaders: [
+                { id: 'lead-rajiv', name: 'Rajiv Menon', email: 'rajiv.menon@example.org' },
+              ],
+            },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/leader/request-code')) {
+        return {
+          ok: true,
+          json: async () => ({ status: 'success', message: 'Code sent.' }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/leader/verify-code')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: {
+              user: {
+                id: 'lead-rajiv',
+                name: 'Rajiv Menon',
+                email: 'rajiv.menon@example.org',
+                role: 'LEADERSHIP',
+              },
+            },
+          }),
+        } as Response;
+      }
+      if (typeof url === 'string' && url.includes('/api/auth/session')) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'success',
+            data: {
+              isVerified: true,
+              userId: 'lead-rajiv',
+              name: 'Rajiv Menon',
+              email: 'rajiv.menon@example.org',
+              role: 'LEADERSHIP',
+              allowedStates: ['*'],
+              allowedDistricts: ['*'],
+            },
+          }),
+        } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    const onSuccess = vi.fn();
+    render(<LeadershipOtpFlow isModal={false} gateUnlocked={true} onSuccess={onSuccess} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toBeDefined();
+    });
+    // Token still in sessionStorage while on step 1 after 200 gate fetch
+    expect(window.sessionStorage.getItem('csc_admin_gate_token')).toBe('header-fallback-token-complete');
+
+    fireEvent.click(screen.getByRole('combobox'));
+    await waitFor(() => {
+      expect(screen.getByText('Rajiv Menon')).toBeDefined();
+    });
+    fireEvent.click(screen.getByText('Rajiv Menon'));
+    fireEvent.click(screen.getByRole('button', { name: /Sign in with email OTP/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/6-Digit Verification Code/i)).toBeDefined();
+    });
+
+    fireEvent.change(screen.getByLabelText(/6-Digit Verification Code/i), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Verify & Sign In/i }));
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('csc_admin_gate_token')).toBeNull();
+    });
   });
 });

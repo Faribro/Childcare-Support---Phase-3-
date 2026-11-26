@@ -292,14 +292,18 @@ describe('POST /api/auth/staff-access/gate', () => {
     expect(json.data.state).toMatch(/maharashtra/i);
   });
 
-  it('returns { mode: "administration" } and sets csc_admin_gate cookie for admin code', async () => {
+  it('returns { mode: "administration" }, includes signed gateToken in JSON, and sets csc_admin_gate cookie for admin code', async () => {
     const { POST } = await import('@/app/api/auth/staff-access/gate/route');
+    const { verifyLeaderGateCookieToken } = await import('@/lib/server/staffAccessGateService');
     const { NextRequest } = await import('next/server');
     const req = new NextRequest(makeGateRequest({ code: 'HTTP-ADMIN-CODE-X9' }));
     const res = await POST(req);
     const json = await res.json();
     expect(res.status).toBe(200);
     expect(json.mode).toBe('administration');
+    expect(typeof json.gateToken).toBe('string');
+    expect(json.data.gateToken).toBe(json.gateToken);
+    expect(verifyLeaderGateCookieToken(json.gateToken)).toBe(true);
     expect(Array.isArray(json.data.leaders)).toBe(true);
     // Cookie should be set
     const cookieHeader = res.headers.get('set-cookie') || '';
@@ -401,6 +405,67 @@ describe('GET /api/auth/leader/gate', () => {
     }));
     const res = await GET(req);
     expect(res.status).toBe(401);
+  });
+
+  it('succeeds via X-Admin-Gate header when NO cookies are sent (Firebase Hosting cookie-stripping fallback)', async () => {
+    const { createLeaderGateCookieToken } =
+      await import('@/lib/server/staffAccessGateService');
+    const { GET } = await import('@/app/api/auth/leader/gate/route');
+    const { NextRequest } = await import('next/server');
+
+    const token = createLeaderGateCookieToken();
+    const req = new NextRequest(new Request('https://test.local/api/auth/leader/gate', {
+      headers: { 'X-Admin-Gate': token },
+    }));
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('success');
+    expect(Array.isArray(json.data.leaders)).toBe(true);
+    for (const leader of json.data.leaders) {
+      expect(leader).toHaveProperty('id');
+      expect(leader).toHaveProperty('name');
+      expect(leader).toHaveProperty('email');
+      expect(leader).not.toHaveProperty('title');
+    }
+  });
+
+  it('succeeds via valid X-Admin-Gate header even when an expired csc_admin_gate cookie is present', async () => {
+    const { createLeaderGateCookieToken, STAFF_ACCESS_GATE_COOKIE, ADMIN_GATE_TTL_MS } =
+      await import('@/lib/server/staffAccessGateService');
+    const { GET } = await import('@/app/api/auth/leader/gate/route');
+    const { NextRequest } = await import('next/server');
+
+    const expiredToken = createLeaderGateCookieToken(Date.now() - ADMIN_GATE_TTL_MS - 5000);
+    const validToken = createLeaderGateCookieToken();
+    const req = new NextRequest(new Request('https://test.local/api/auth/leader/gate', {
+      headers: {
+        Cookie: `${STAFF_ACCESS_GATE_COOKIE}=${expiredToken}`,
+        'X-Admin-Gate': validToken,
+      },
+    }));
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects tampered or expired X-Admin-Gate header tokens with 401 when no cookies are sent', async () => {
+    const { createLeaderGateCookieToken, ADMIN_GATE_TTL_MS } =
+      await import('@/lib/server/staffAccessGateService');
+    const { GET } = await import('@/app/api/auth/leader/gate/route');
+    const { NextRequest } = await import('next/server');
+
+    const freshToken = createLeaderGateCookieToken();
+    const tamperedToken = 'X' + freshToken.slice(1);
+    const tamperedReq = new NextRequest(new Request('https://test.local/api/auth/leader/gate', {
+      headers: { 'X-Admin-Gate': tamperedToken },
+    }));
+    expect((await GET(tamperedReq)).status).toBe(401);
+
+    const expiredToken = createLeaderGateCookieToken(Date.now() - ADMIN_GATE_TTL_MS - 5000);
+    const expiredReq = new NextRequest(new Request('https://test.local/api/auth/leader/gate', {
+      headers: { 'X-Admin-Gate': expiredToken },
+    }));
+    expect((await GET(expiredReq)).status).toBe(401);
   });
 });
 

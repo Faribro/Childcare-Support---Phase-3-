@@ -79,6 +79,26 @@ const DEV_SYNTHETIC_FIXTURES: ApprovedLeaderProfile[] = [
 
 const MOCK_SYNTHETIC_CODE = '123456';
 const VALID_AUTH_MODES = ['hybrid', 'email_only', 'password_only'] as const;
+const ADMIN_GATE_STORAGE_KEY = 'csc_admin_gate_token';
+
+function readAdminGateToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const val = window.sessionStorage.getItem(ADMIN_GATE_STORAGE_KEY);
+    return val ? val.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearAdminGateToken(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(ADMIN_GATE_STORAGE_KEY);
+  } catch {
+    // Ignore storage access errors
+  }
+}
 
 export function LeadershipOtpFlow({
   isModal = true,
@@ -125,11 +145,20 @@ export function LeadershipOtpFlow({
   useEffect(() => {
     if (!gateUnlocked || initialProfiles) return;
     let cancelled = false;
+    const headers: Record<string, string> = { 'Cache-Control': 'no-cache' };
+    const storedGateToken = readAdminGateToken();
+    if (storedGateToken) {
+      headers['X-Admin-Gate'] = storedGateToken;
+    }
     fetch('/api/auth/leader/gate', {
       credentials: 'same-origin',
-      headers: { 'Cache-Control': 'no-cache' },
+      headers,
     })
       .then(async (res) => {
+        if (res.status === 401) {
+          clearAdminGateToken();
+          return null;
+        }
         if (!res.ok) return null;
         return res.json().catch(() => null);
       })
@@ -637,6 +666,7 @@ export function LeadershipOtpFlow({
         };
 
         // Purge any stale read-model caches and update client-side auth state
+        clearAdminGateToken();
         supervisorReadModel.purgeSession();
         setEvaluationUnlocked(true, confirmedUser);
         setSuccessMessage(`Welcome back, ${confirmedUser.name}! Opening Administration workspace…`);
@@ -794,6 +824,7 @@ export function LeadershipOtpFlow({
     try {
       const result = await login('LEADERSHIP-ALL', sharedPassword);
       if (result.success) {
+        clearAdminGateToken();
         setSuccessMessage('Authentication successful! Administration workspace unlocked.');
         setTimeout(() => {
           onSuccess?.();
@@ -912,6 +943,7 @@ export function LeadershipOtpFlow({
             type="button"
             onClick={async () => {
               await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+              clearAdminGateToken();
               setExistingSession(null);
               setEvaluationUnlocked(false, null);
               supervisorReadModel.purgeSession();

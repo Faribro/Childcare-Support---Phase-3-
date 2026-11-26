@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  STAFF_ACCESS_GATE_COOKIE,
-  verifyLeaderGateCookieToken,
+  verifyLeaderGateRequest,
   resolveActiveLeaderContacts,
 } from '@/lib/server/staffAccessGateService';
 import {
@@ -18,12 +17,11 @@ const NO_STORE_HEADERS = {
 
 /**
  * Returns allowlisted Administration contacts (`{ id, name, email }` — strictly no job title)
- * only when the caller presents a valid server-signed csc_admin_gate cookie or an active
- * server-verified Leadership session cookie.
+ * only when the caller presents a valid server-signed csc_admin_gate cookie, an `X-Admin-Gate`
+ * header carrying that signed token, or an active server-verified Leadership session cookie.
  */
 export async function GET(req: NextRequest) {
-  const gateToken = req.cookies.get(STAFF_ACCESS_GATE_COOKIE)?.value;
-  let authorized = verifyLeaderGateCookieToken(gateToken);
+  let authorized = verifyLeaderGateRequest(req);
 
   if (!authorized && req.cookies.get(LEADER_COOKIE_NAME)?.value) {
     const leaderSession = await validateLeaderSession(

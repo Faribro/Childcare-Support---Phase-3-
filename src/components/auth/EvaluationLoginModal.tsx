@@ -119,6 +119,14 @@ export function EvaluationLoginModal({
       }
 
       if (json.mode === 'administration') {
+        const returnedGateToken = json.data?.gateToken ?? json.gateToken;
+        if (typeof window !== 'undefined' && typeof returnedGateToken === 'string' && returnedGateToken) {
+          try {
+            window.sessionStorage.setItem('csc_admin_gate_token', returnedGateToken);
+          } catch {
+            // Non-fatal in restricted/private storage contexts
+          }
+        }
         cosmicSound.playEvaluationUnlock();
         onClose();
         router.push(json.data?.redirectUrl || '/leadership/login?gate=1');

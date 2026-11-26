@@ -106,8 +106,10 @@ export async function POST(req: NextRequest) {
     {
       status: 'success',
       mode: 'administration',
+      gateToken: result.gateToken,
       data: {
         redirectUrl: result.redirectUrl,
+        gateToken: result.gateToken,
         leaders: result.leaders,
       },
     },
