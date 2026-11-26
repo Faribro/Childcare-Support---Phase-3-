@@ -5,6 +5,12 @@
  * official Local Government Directory (LGD) 2-digit codes (zero-padded to 3 digits
  * for informational display), standard 2-letter codes, and additive legacy aliases.
  *
+ * OFFICIAL VERIFICATION METADATA:
+ * - Source: Local Government Directory (LGD), Ministry of Panchayati Raj, Govt. of India
+ *   (https://lgdirectory.gov.in/)
+ * - Verified Date: 2026-11-26 (36 active States/UTs verified; 0 unverified active entries;
+ *   retired legacy codes 025 Daman & Diu and 026 Dadra & Nagar Haveli merged into 038).
+ *
  * SECURITY NOTE: `lgdNumericCode` (e.g. '027' for Maharashtra) is strictly
  * informational convenience metadata. It MUST NEVER be treated as an access
  * credential, OTP bypass, or state scope authorization token.
@@ -15,6 +21,11 @@
  */
 
 import type { IndianStateOrUT } from './indianStates';
+
+export const LGD_CATALOG_SOURCE =
+  'Local Government Directory (LGD), Ministry of Panchayati Raj, Government of India (https://lgdirectory.gov.in/)';
+export const LGD_CATALOG_VERIFIED_DATE = '2026-11-26';
+export const LGD_RETIRED_MERGED_CODES = ['025', '026'] as const;
 
 export interface CanonicalStateCatalogEntry {
   canonicalName: IndianStateOrUT;
