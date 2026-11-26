@@ -31,7 +31,7 @@ interface ChildApprovalDrawerProps {
   isLoading?: boolean;
   onClose: () => void;
   onConfirmApproval: (row: EvaluationBeneficiaryRow) => Promise<void>;
-  onViewDossier?: (row: EvaluationBeneficiaryRow) => void;
+  onViewRecord?: (row: EvaluationBeneficiaryRow) => void;
 }
 
 type DrawerDocStatus = DocumentReviewState | 'not_yet_due';
@@ -82,7 +82,7 @@ export function ChildApprovalDrawer({
   isLoading = false,
   onClose,
   onConfirmApproval,
-  onViewDossier,
+  onViewRecord,
 }: ChildApprovalDrawerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -400,17 +400,17 @@ export function ChildApprovalDrawer({
 
         {/* Sticky Action Footer */}
         <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur-xs flex items-center justify-between gap-3 shrink-0">
-          {onViewDossier && (
+          {onViewRecord && (
             <button
               type="button"
               onClick={() => {
                 onClose();
-                onViewDossier(row);
+                onViewRecord(row);
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 hover:text-[#155AD1] rounded-xl hover:bg-sky-50 transition-colors cursor-pointer"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              <span>Full Dossier</span>
+              <span>Full Record</span>
             </button>
           )}
 

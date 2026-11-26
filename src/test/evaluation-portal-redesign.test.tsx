@@ -106,14 +106,14 @@ describe('Workstream C: Evaluation Portal Redesign, 8-Column Linelist & Approval
 
   it('2. EvaluationLinelistTable renders 8 columns without Viral Load/Hb clutter and enforces RBAC on Approve CTA', () => {
     const onApprove = vi.fn();
-    const onDossier = vi.fn();
+    const onViewRecord = vi.fn();
 
     const { rerender } = render(
       <EvaluationLinelistTable
         rows={sampleEvalRows}
         canApprove={true}
         onOpenApprovalModal={onApprove}
-        onViewDossier={onDossier}
+        onViewRecord={onViewRecord}
       />
     );
 
@@ -141,7 +141,7 @@ describe('Workstream C: Evaluation Portal Redesign, 8-Column Linelist & Approval
         rows={sampleEvalRows}
         canApprove={false}
         onOpenApprovalModal={onApprove}
-        onViewDossier={onDossier}
+        onViewRecord={onViewRecord}
       />
     );
     expect(screen.queryAllByRole('button', { name: /^Approve$/i })).toHaveLength(0);
@@ -154,7 +154,7 @@ describe('Workstream C: Evaluation Portal Redesign, 8-Column Linelist & Approval
         rows={[]}
         isLoading={true}
         onOpenApprovalModal={vi.fn()}
-        onViewDossier={vi.fn()}
+        onViewRecord={vi.fn()}
       />
     );
     expect(screen.getByText(/Loading Beneficiary Records/i)).toBeTruthy();
@@ -171,7 +171,7 @@ describe('Workstream C: Evaluation Portal Redesign, 8-Column Linelist & Approval
         row={sampleEvalRows[0]}
         onClose={onClose}
         onConfirmApproval={onConfirm}
-        onViewDossier={vi.fn()}
+        onViewRecord={vi.fn()}
       />
     );
 
@@ -276,7 +276,7 @@ describe('Workstream C: Evaluation Portal Redesign, 8-Column Linelist & Approval
         rawRecord={nutritionRawRecord}
         onClose={vi.fn()}
         onConfirmApproval={vi.fn(async () => {})}
-        onViewDossier={vi.fn()}
+        onViewRecord={vi.fn()}
       />
     );
 

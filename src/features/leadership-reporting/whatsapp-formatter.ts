@@ -68,7 +68,7 @@ export class WhatsAppFormatter {
     const isLinelist = preview.reportType === 'LINELIST_EXPORT';
     const formatLabel = isLinelist
       ? 'Excel (.xlsx) with Google Drive Document Links'
-      : (preview.format || 'CSV / PDF Dossier');
+      : (preview.format || 'CSV / PDF Summary');
     const linksLine = preview.driveLinksCount ? `• *Document Links:* ~${preview.driveLinksCount} Drive hyperlinks\n` : '';
     const dateFieldLabel = preview.dateField === 'visit_date' ? 'visit_date (Field Visit Date)' : 'submission_date (Central Sync Date)';
     const scopeLabel = preview.stateFilter ? `State: ${preview.stateFilter}` : 'National (All Authorized States)';

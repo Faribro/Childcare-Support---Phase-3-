@@ -15,6 +15,7 @@ import { classifyVLCategory } from '../clinical/nutritionCalculations';
  */
 
 import { MockSheetStore } from './mockSheetStore';
+import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 import type { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 
 export interface CanonicalCreateInput {
@@ -354,8 +355,15 @@ export function normalizeSubmissionData(raw: any, submissionId: string, fallback
     raw['Signature Link'] ||
     raw.signature_data_url ||
     raw.signatureDataUrl ||
+    raw.signature_url ||
+    raw.signatureUrl ||
+    raw.consentSignatureUrl ||
     raw.caregiverConsent?.signatureDataUrl ||
+    raw.caregiverConsent?.signatureUrl ||
     raw.consent?.signatureDataUrl ||
+    raw.consent?.caregiverSignature ||
+    raw.raw_payload?.caregiverConsent?.signatureDataUrl ||
+    raw.raw_payload?.consent?.caregiverSignature ||
     ''
   );
 
@@ -1229,15 +1237,37 @@ class CanonicalSubmissionAdapterService {
           message: `Submission ${submissionId} not found in Firestore.`,
         };
       }
+      const resolvedState =
+        canonicalizeStateName(
+          raw.state || raw.payload?.demographics?.state || raw.payload?.state || ''
+        ) ||
+        raw.state ||
+        raw.payload?.demographics?.state ||
+        raw.payload?.state;
+      const resolvedDistrict =
+        raw.district || raw.payload?.demographics?.district || raw.payload?.district;
       const resolvedData = raw.payload
         ? {
             ...raw.payload,
+            remote_submission_id: raw.id,
+            remoteSubmissionId: raw.id,
+            uniqueId: raw.uniqueId || raw.id,
+            version: raw.version || 1,
+            revisionNumber: raw.revisionNumber || 1,
+            ...(raw.attachments !== undefined ? { attachments: raw.attachments } : {}),
             ...(raw.authorId !== undefined ? { authorId: raw.authorId } : {}),
             ...(raw.submittedByWorkerId !== undefined ? { submittedByWorkerId: raw.submittedByWorkerId } : {}),
             ...(raw.authorIdentifier !== undefined ? { authorIdentifier: raw.authorIdentifier } : {}),
             ...(raw.userId !== undefined ? { userId: raw.userId } : {}),
-            ...(raw.state !== undefined && !raw.payload.state ? { state: raw.state } : {}),
-            ...(raw.district !== undefined && !raw.payload.district ? { district: raw.district } : {}),
+            ...(resolvedState !== undefined && resolvedState !== '' ? { state: resolvedState } : {}),
+            ...(resolvedDistrict !== undefined && resolvedDistrict !== '' ? { district: resolvedDistrict } : {}),
+            ...(raw.passbookPhotoUrl && !raw.payload.passbookPhotoUrl ? { passbookPhotoUrl: raw.passbookPhotoUrl } : {}),
+            ...(raw.aadhaarCardPhotoUrl && !raw.payload.aadhaarCardPhotoUrl ? { aadhaarCardPhotoUrl: raw.aadhaarCardPhotoUrl } : {}),
+            ...(raw.childPhotoUrl && !raw.payload.childPhotoUrl ? { childPhotoUrl: raw.childPhotoUrl } : {}),
+            ...(raw.feeReceiptPhotoUrl && !raw.payload.feeReceiptPhotoUrl ? { feeReceiptPhotoUrl: raw.feeReceiptPhotoUrl } : {}),
+            ...(raw.marksheetPhotoUrl && !raw.payload.marksheetPhotoUrl ? { marksheetPhotoUrl: raw.marksheetPhotoUrl } : {}),
+            ...(raw.signatureDataUrl && !raw.payload.signatureDataUrl ? { signatureDataUrl: raw.signatureDataUrl } : {}),
+            ...(raw.signatureUrl && !raw.payload.signatureUrl ? { signatureUrl: raw.signatureUrl } : {}),
             ...(raw.deletedAt !== undefined ? { deletedAt: raw.deletedAt } : {}),
             ...(raw.deletedBy !== undefined ? { deletedBy: raw.deletedBy } : {}),
             ...(raw.deleteReason !== undefined ? { deleteReason: raw.deleteReason } : {}),

@@ -733,12 +733,13 @@ export class FirestoreSubmissionAdapter {
       }
 
       const snap = await query.limit(limit).get();
-      let items = snap.docs.map((d: any) => d.data());
-      if (!includeDeleted) {
-        items = items.filter((item: any) => !isDeletedRecord(item));
-      }
+      const rawItems = snap.docs.map((d: any) => d.data());
+      const items = includeDeleted
+        ? rawItems
+        : rawItems.filter((item: any) => !isDeletedRecord(item));
       const hasMore = snap.docs.length === limit;
-      const nextCursor = hasMore && items.length > 0 ? (items[items.length - 1].submissionTime || items[items.length - 1].id) : null;
+      const lastRaw = rawItems[rawItems.length - 1];
+      const nextCursor = hasMore && lastRaw ? (lastRaw.submissionTime || lastRaw.id) : null;
       return {
         items,
         totalCount: items.length,
@@ -795,7 +796,18 @@ export class FirestoreSubmissionAdapter {
         submissionTime: i.submissionTime || '',
         submittedBy: i.submittedBy || '',
         consentObtained: p.consentObtained || 'Yes',
-        hasSignature: Boolean(p.signatureLink || p.signaturePhotoUrl),
+        hasSignature: Boolean(
+          i.signatureDataUrl ||
+          i.signatureUrl ||
+          p.signatureDataUrl ||
+          p.signatureUrl ||
+          p.signatureLink ||
+          p.signaturePhotoUrl ||
+          p.caregiverConsent?.signatureDataUrl ||
+          p.caregiverConsent?.signatureUrl ||
+          p.consent?.signatureDataUrl ||
+          p.consent?.caregiverSignature
+        ),
         visitDate: p.visitDate || '',
         interviewerName: i.submittedBy || '',
         childName: i.childName || '',
@@ -814,9 +826,25 @@ export class FirestoreSubmissionAdapter {
         bankIfsc: p.bankIfsc || '',
         bankMobile: p.bankMobile || '',
         maskedAadhaar: p.aadhaarNumber ? '••••••••••••' : '',
-        hasPassbook: Boolean(p.passbookPhotoUrl || p.passbookLink),
-        hasAadhaar: Boolean(p.aadhaarPhotoUrl || p.aadhaarLink),
-        hasChildPhoto: Boolean(p.childPhotoUrl || p.childPhotoLink),
+        hasPassbook: Boolean(
+          i.passbookPhotoUrl ||
+          p.passbookPhotoUrl ||
+          p.passbookLink ||
+          p.bankingAndKyc?.passbookPhotoUrl
+        ),
+        hasAadhaar: Boolean(
+          i.aadhaarCardPhotoUrl ||
+          p.aadhaarCardPhotoUrl ||
+          p.aadhaarPhotoUrl ||
+          p.aadhaarLink ||
+          p.bankingAndKyc?.aadhaarCardPhotoUrl
+        ),
+        hasChildPhoto: Boolean(
+          i.childPhotoUrl ||
+          p.childPhotoUrl ||
+          p.childPhotoLink ||
+          p.bankingAndKyc?.childPhotoUrl
+        ),
         householdMembers: Number(p.householdMembers) || 0,
         noOfChildren: Number(p.noOfChildren) || 0,
         monthlyIncome: Number(p.monthlyIncome) || 0,
@@ -839,8 +867,19 @@ export class FirestoreSubmissionAdapter {
         currentClass: p.currentClass || '',
         attendanceStatus: i.attendanceStatus || '',
         totalAnnualEducationCost: Number(p.totalAnnualEducationCost) || 0,
-        hasFeeReceipt: Boolean(p.feeReceiptUrl || p.feeReceiptLink),
-        hasMarksheet: Boolean(p.marksheetPhotoUrl || p.marksheetPhotoLink),
+        hasFeeReceipt: Boolean(
+          i.feeReceiptPhotoUrl ||
+          p.feeReceiptPhotoUrl ||
+          p.feeReceiptUrl ||
+          p.feeReceiptLink ||
+          p.educationExpenses?.feeReceiptPhotoUrl
+        ),
+        hasMarksheet: Boolean(
+          i.marksheetPhotoUrl ||
+          p.marksheetPhotoUrl ||
+          p.marksheetPhotoLink ||
+          p.educationExpenses?.marksheetPhotoUrl
+        ),
         remarks: p.remarks || '',
         approvedAllianceIndia: p.approvedAllianceIndia || '',
         reviewConfirmed: Boolean(p.reviewConfirmed),

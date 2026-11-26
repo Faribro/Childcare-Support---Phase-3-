@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CheckCircle2,
   Copy,
@@ -11,6 +11,7 @@ import {
   School,
   ShieldCheck,
   Info,
+  X,
 } from 'lucide-react';
 import { triggerHaptic } from '@/hooks/useMobileTouch';
 
@@ -28,6 +29,7 @@ export interface EvaluationBeneficiaryRow {
   grantAmountInr: number;
   docsStatus: 'intake_pending' | 'bank_pending' | 'complete';
   missingDocs: string[];
+  missingReasons?: string[];
   approvalStatus: 'pending' | 'approved' | 'rejected';
   viralLoadText?: string;
   vlCategory?: string;
@@ -41,7 +43,8 @@ interface EvaluationLinelistTableProps {
   isLoading?: boolean;
   canApprove?: boolean;
   onOpenApprovalModal: (row: EvaluationBeneficiaryRow) => void;
-  onViewDossier: (row: EvaluationBeneficiaryRow) => void;
+  onViewRecord: (row: EvaluationBeneficiaryRow) => void;
+  onInspectDocs?: (row: EvaluationBeneficiaryRow) => void;
 }
 
 const DOC_BADGE_MAP = {
@@ -67,9 +70,50 @@ export function EvaluationLinelistTable({
   isLoading = false,
   canApprove = true,
   onOpenApprovalModal,
-  onViewDossier,
+  onViewRecord,
+  onInspectDocs,
 }: EvaluationLinelistTableProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [openInfoRowId, setOpenInfoRowId] = useState<string | null>(null);
+  const openPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openInfoRowId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpenInfoRowId(null);
+      }
+    };
+    const handlePointerDown = (e: MouseEvent) => {
+      if (openPopoverRef.current && !openPopoverRef.current.contains(e.target as Node)) {
+        setOpenInfoRowId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [openInfoRowId]);
+
+  const getPendingReasonsList = (row: EvaluationBeneficiaryRow): string[] => {
+    const items: string[] = [];
+    for (const d of row.missingDocs || []) {
+      if (d && !items.includes(d)) items.push(d);
+    }
+    for (const r of row.missingReasons || []) {
+      if (r && !items.includes(r)) items.push(r);
+    }
+    if (items.length === 0) {
+      if (row.docsStatus === 'bank_pending') {
+        items.push('Bank account or passbook proof pending');
+      } else if (row.docsStatus === 'intake_pending') {
+        items.push('Required intake details or document verification pending');
+      }
+    }
+    return items;
+  };
 
   const handleCopyId = (fullId: string) => {
     navigator.clipboard?.writeText(fullId).catch(() => {});
@@ -155,26 +199,27 @@ export function EvaluationLinelistTable({
   return (
     <>
       {/* ─── DESKTOP TABLE (Zero Horizontal Overflow — Viral Load & HB Removed) ─── */}
-      <div className="hidden lg:block overflow-hidden rounded-3xl border border-sky-100/90 bg-white shadow-[0_14px_34px_-14px_rgba(7,43,124,0.12)]">
+      <div className="hidden lg:block rounded-3xl border border-sky-100/90 bg-white shadow-[0_14px_34px_-14px_rgba(7,43,124,0.12)]">
         <table className="w-full table-fixed border-collapse text-left">
           <thead>
             <tr className="border-b border-sky-100 bg-[#F4F8FF] text-[11px] font-bold uppercase tracking-[0.06em] text-slate-500">
-              <th className="w-[13%] py-3.5 pl-5 pr-2">Ref ID</th>
+              <th className="w-[13%] rounded-tl-3xl py-3.5 pl-5 pr-2">Ref ID</th>
               <th className="w-[17%] px-2 py-3.5">Child &amp; Worker</th>
               <th className="w-[9%] px-2 py-3.5">Age / Sex</th>
               <th className="w-[14%] px-2 py-3.5">Location</th>
               <th className="w-[15%] px-2 py-3.5">School &amp; Orphan</th>
               <th className="w-[8%] px-2 py-3.5 text-right">Grant</th>
               <th className="w-[12%] px-2 py-3.5">Docs Status</th>
-              <th className="w-[12%] py-3.5 pl-2 pr-5 text-right">Approval</th>
+              <th className="w-[12%] rounded-tr-3xl py-3.5 pl-2 pr-5 text-right">Approval</th>
             </tr>
           </thead>
 
           <tbody className="divide-y divide-slate-100 text-[13px]">
-            {rows.map((row) => {
+            {rows.map((row, rowIdx) => {
               const docMeta = DOC_BADGE_MAP[row.docsStatus] || DOC_BADGE_MAP.intake_pending;
               const isApproved = row.approvalStatus === 'approved';
               const shortId = formatShortId(row);
+              const openPopoverUpward = rows.length > 2 && rowIdx >= rows.length - 2;
 
               return (
                 <tr
@@ -231,35 +276,111 @@ export function EvaluationLinelistTable({
                     ₹{row.grantAmountInr.toLocaleString('en-IN')}
                   </td>
 
-                  {/* Docs Status + Missing Tooltip */}
+                  {/* Docs Status + Missing Popover */}
                   <td className="px-2 py-3.5 align-middle">
-                    <div className="inline-flex items-center gap-1">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${docMeta.className}`}
-                      >
-                        {docMeta.label}
-                      </span>
-                      {row.missingDocs && row.missingDocs.length > 0 && (
-                        <span
-                          title={`Missing: ${row.missingDocs.join(', ')}`}
-                          className="text-slate-400 hover:text-[#155AD1] cursor-help"
-                        >
-                          <Info className="h-3.5 w-3.5" />
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const pendingItems = getPendingReasonsList(row);
+                      const hasDetails = row.docsStatus !== 'complete' || pendingItems.length > 0;
+                      const isInfoOpen = openInfoRowId === row.id;
+
+                      return (
+                        <div className="relative inline-flex items-center gap-1">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${docMeta.className}`}
+                          >
+                            {docMeta.label}
+                          </span>
+                          {hasDetails && (
+                            <div
+                              className="relative"
+                              ref={isInfoOpen ? openPopoverRef : undefined}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerHaptic('light');
+                                  setOpenInfoRowId((prev) => (prev === row.id ? null : row.id));
+                                }}
+                                aria-label={`View missing items for ${row.childName}`}
+                                aria-expanded={isInfoOpen}
+                                aria-haspopup="dialog"
+                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors cursor-pointer ${
+                                  isInfoOpen
+                                    ? 'bg-sky-100 text-[#155AD1]'
+                                    : 'text-slate-400 hover:bg-sky-50 hover:text-[#155AD1]'
+                                }`}
+                              >
+                                <Info className="h-3.5 w-3.5" />
+                              </button>
+
+                              {isInfoOpen && (
+                                <div
+                                  role="dialog"
+                                  aria-label={`${docMeta.label} details for ${row.childName}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={`absolute right-0 ${
+                                    openPopoverUpward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                                  } z-50 w-64 max-w-[calc(100vw-2rem)] rounded-2xl border border-sky-200 bg-white p-3.5 text-left shadow-xl animate-in fade-in zoom-in-95 duration-100`}
+                                >
+                                  <div className="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-900">{docMeta.label}</p>
+                                      <p className="text-[11px] text-slate-500 truncate">{row.childName}</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenInfoRowId(null)}
+                                      aria-label="Close details"
+                                      className="rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+
+                                  <ul className="mt-2 space-y-1">
+                                    {pendingItems.map((item, idx) => (
+                                      <li
+                                        key={idx}
+                                        className="flex items-center gap-1.5 rounded-lg bg-amber-50/70 px-2 py-1 text-[11px] font-medium text-amber-950 border border-amber-200/70"
+                                      >
+                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                                        <span>{item}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+
+                                  {onInspectDocs && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenInfoRowId(null);
+                                        onInspectDocs(row);
+                                      }}
+                                      className="mt-2.5 w-full rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1.5 text-[11px] font-bold text-[#093282] transition-colors cursor-pointer"
+                                    >
+                                      View Documents &amp; Previews
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
 
-                  {/* Deliberate Approval + Dossier View */}
+                  {/* Deliberate Approval + Record View */}
                   <td className="py-3.5 pl-2 pr-5 align-middle text-right">
                     <div className="inline-flex items-center justify-end gap-1.5">
                       <button
                         type="button"
                         onClick={() => {
                           triggerHaptic('light');
-                          onViewDossier(row);
+                          onViewRecord(row);
                         }}
-                        aria-label={`View dossier for ${row.childName}`}
+                        aria-label={`View record for ${row.childName}`}
                         className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-[#155AD1] transition-colors cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -329,12 +450,52 @@ export function EvaluationLinelistTable({
                   <p className="text-[12px] text-slate-500">{row.workerName}</p>
                 </div>
 
-                <span
-                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${docMeta.className}`}
-                >
-                  {docMeta.label}
-                </span>
+                <div className="inline-flex items-center gap-1 shrink-0">
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${docMeta.className}`}
+                  >
+                    {docMeta.label}
+                  </span>
+                  {(row.docsStatus !== 'complete' || (row.missingDocs && row.missingDocs.length > 0)) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('light');
+                        if (onInspectDocs) {
+                          onInspectDocs(row);
+                        } else {
+                          setOpenInfoRowId((prev) => (prev === row.id ? null : row.id));
+                        }
+                      }}
+                      aria-label={`View missing items for ${row.childName}`}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-sky-50 hover:text-[#155AD1] cursor-pointer"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {openInfoRowId === row.id && (
+                <div className="mt-2 rounded-xl border border-sky-200 bg-sky-50/50 p-2.5 text-xs">
+                  <div className="flex items-center justify-between font-bold text-slate-800 mb-1">
+                    <span>{docMeta.label} — Missing Items</span>
+                    <button
+                      type="button"
+                      onClick={() => setOpenInfoRowId(null)}
+                      aria-label="Close details"
+                      className="text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <ul className="space-y-1 text-[11px] text-amber-950">
+                    {getPendingReasonsList(row).map((item, idx) => (
+                      <li key={idx}>• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50/80 p-2.5 text-[12px] text-slate-600">
                 <div className="flex items-center gap-1.5 truncate">
@@ -359,11 +520,11 @@ export function EvaluationLinelistTable({
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => onViewDossier(row)}
+                  onClick={() => onViewRecord(row)}
                   className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white text-[13px] font-bold text-slate-700 active:scale-95 transition-transform cursor-pointer"
                 >
                   <Eye className="h-4 w-4" />
-                  View Dossier
+                  View Record
                 </button>
 
                 {isApproved ? (

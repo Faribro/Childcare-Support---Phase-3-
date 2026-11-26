@@ -41,12 +41,34 @@ export function isEvaluationUnlocked(): boolean {
   }
 }
 
+function buildUserScopeSignature(user?: Pick<EvaluationUser, 'userId' | 'role' | 'allowedStates' | 'allowedDistricts'> | null): string | null {
+  if (!user || !user.userId) return null;
+  const states = [...(user.allowedStates || [])].map((s) => s.trim().toLowerCase()).sort().join(',');
+  const districts = [...(user.allowedDistricts || [])].map((d) => d.trim().toLowerCase()).sort().join(',');
+  return `${user.userId.trim().toLowerCase()}|${user.role}|${states}|${districts}`;
+}
+
 /**
  * Update evaluation unlocked status, saving to localStorage and notifying listeners.
  */
 export function setEvaluationUnlocked(unlocked: boolean, user?: EvaluationUser | null): void {
   if (typeof window === 'undefined') return;
   try {
+    let prevSig: string | null = null;
+    try {
+      const prevRaw = localStorage.getItem(SESSION_CACHE_KEY);
+      if (prevRaw) {
+        prevSig = buildUserScopeSignature(JSON.parse(prevRaw));
+      }
+    } catch {
+      prevSig = null;
+    }
+
+    const nextSig = unlocked && user?.isVerified && user.role !== 'FIELD_USER' ? buildUserScopeSignature(user) : null;
+    if (prevSig && nextSig && prevSig !== nextSig) {
+      supervisorReadModel.purgeSession();
+    }
+
     const isFieldWorker = user?.role === 'FIELD_USER';
     if (unlocked && user?.isVerified && !isFieldWorker) {
       localStorage.setItem(STORAGE_KEY, 'true');
@@ -111,6 +133,13 @@ export function useEvaluationAccess() {
         if (res.ok) {
           const json = await res.json();
           if (json.data && json.data.isVerified && active) {
+            let prevSig: string | null = null;
+            try {
+              const prevRaw = localStorage.getItem(SESSION_CACHE_KEY);
+              if (prevRaw) prevSig = buildUserScopeSignature(JSON.parse(prevRaw));
+            } catch {
+              prevSig = null;
+            }
             const authedUser: EvaluationUser = {
               userId: json.data.userId,
               name: json.data.name,
@@ -120,6 +149,8 @@ export function useEvaluationAccess() {
               isVerified: true,
               canEdit: json.data.canEdit ?? (json.data.role === 'STATE_REVIEWER' || json.data.role === 'ADMIN' || json.data.role === 'LEADERSHIP' || json.data.role === 'FIELD_USER'),
             };
+            const nextSig = buildUserScopeSignature(authedUser);
+            const scopeChanged = Boolean(nextSig && prevSig !== nextSig);
             setUser(authedUser);
             if (authedUser.role === 'FIELD_USER') {
               setUnlocked(false);
@@ -127,6 +158,10 @@ export function useEvaluationAccess() {
             } else {
               setUnlocked(true);
               setEvaluationUnlocked(true, authedUser);
+              if (scopeChanged) {
+                supervisorReadModel.purgeSession();
+                supervisorReadModel.initiateFetch(true).catch(() => {});
+              }
             }
           } else if (active) {
             // Unauthenticated response (e.g. isVerified: false): clear cached credentials

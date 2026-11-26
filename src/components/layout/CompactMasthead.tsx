@@ -217,7 +217,7 @@ export function CompactMasthead({ pendingSyncCount, submittedCount }: CompactMas
                   </span>
                 </div>
               ) : (
-                /* Evaluation Workspace Quick Switcher when viewing sub-pages outside /supervisor* (e.g. Full Dossier) */
+                /* Evaluation Workspace Quick Switcher when viewing sub-pages outside /supervisor* (e.g. Full Record) */
                 <div className="flex items-center p-1 rounded-full bg-[#EFF6FF] border border-blue-100/80 gap-1 shadow-2xs">
                 {/* Tab 1: Overview & Surveillance */}
                 <Link

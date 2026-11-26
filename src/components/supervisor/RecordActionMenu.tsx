@@ -174,7 +174,7 @@ export function RecordActionMenu({
             </Link>
           )}
 
-          {/* Download PDF Dossier */}
+          {/* Download PDF Summary */}
           <button
             type="button"
             role="menuitem"
@@ -187,7 +187,7 @@ export function RecordActionMenu({
             ) : (
               <FileDown className="h-3.5 w-3.5 text-teal-600" />
             )}
-            <span>{isExporting ? 'Generating PDF...' : 'Download PDF Dossier'}</span>
+            <span>{isExporting ? 'Generating PDF...' : 'Download PDF Summary'}</span>
           </button>
 
           {/* Delete Record: Rendered only for verified ADMIN under Model A */}

@@ -345,7 +345,12 @@ export function normalizeApprovalStatus(rawApproved: any): {
 /**
  * Pure typed function to derive canonical readiness and verification for any assessment record.
  */
-export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
+export function deriveBeneficiaryReadiness(rawIt: any): CanonicalRecordReadiness {
+  const it =
+    rawIt && typeof rawIt === 'object' && rawIt.payload && typeof rawIt.payload === 'object'
+      ? { ...rawIt.payload, ...rawIt }
+      : rawIt;
+
   const id = String(
     it['1\nUnique ID'] ||
     it['unique id'] ||
@@ -440,17 +445,23 @@ export function deriveBeneficiaryReadiness(it: any): CanonicalRecordReadiness {
     it['Signature Link'] ||
     it.signatureDataUrl ||
     it.signature_data_url ||
+    it.signatureUrl ||
     it.consentSignatureUrl ||
     it.signature_url ||
     it.caregiverConsent?.signatureDataUrl ||
     it.caregiverConsent?.signatureUrl ||
+    it.caregiverConsent?.signatureAssetId ||
     it.consent?.signatureDataUrl ||
+    it.consent?.signatureUrl ||
     it.consent?.caregiverSignature ||
     it.raw_payload?.consent?.caregiverSignature;
-  const isSigStatusCaptured =
-    it.caregiverConsent?.signatureStatus === 'CAPTURED_LOCAL' ||
-    it.caregiverConsent?.signatureStatus === 'UPLOADED';
-  let sigPresent = isAttachmentPresent(sigVal, it.hasSignature ?? (isSigStatusCaptured ? true : undefined));
+  const isSigStatusUploaded =
+    it.caregiverConsent?.signatureStatus === 'UPLOADED' ||
+    Boolean(
+      it.caregiverConsent?.signatureAssetId &&
+        it.caregiverConsent?.signatureStatus === 'CAPTURED_LOCAL'
+    );
+  let sigPresent = isAttachmentPresent(sigVal, it.hasSignature ?? (isSigStatusUploaded ? true : undefined));
 
   // 5. School Fee Receipt (Applicable only if education is applicable and child is enrolled in school)
   const feeVal =

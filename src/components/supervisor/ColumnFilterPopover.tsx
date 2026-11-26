@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
   Filter,
   Search,
@@ -46,8 +46,11 @@ export function ColumnFilterPopover({
   const [activeSectionId, setActiveSectionId] = useState<string>(sections[0]?.id || '');
   const [searchQueries, setSearchQueries] = useState<Record<string, string>>({});
   const [stagedSelections, setStagedSelections] = useState<Record<string, string[]>>({});
+  const [alignRight, setAlignRight] = useState(false);
+  const [horizontalShiftPx, setHorizontalShiftPx] = useState(0);
 
   const popoverRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevIsOpenRef = useRef(false);
@@ -100,6 +103,45 @@ export function ColumnFilterPopover({
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
+  }, [isOpen]);
+
+  // Flip/clamp popover within viewport bounds so right-edge filters (Documents, Approval) never overflow sideways
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setHorizontalShiftPx(0);
+      setAlignRight(false);
+      return;
+    }
+
+    const updateAlignment = () => {
+      const triggerEl = triggerRef.current;
+      const dialogEl = dialogRef.current;
+      if (!triggerEl || typeof window === 'undefined') return;
+
+      const viewportW = window.innerWidth || document.documentElement.clientWidth || 1024;
+      const margin = 12;
+      const triggerRect = triggerEl.getBoundingClientRect();
+      const dialogW = dialogEl?.getBoundingClientRect().width || Math.min(288, viewportW - margin * 2);
+
+      const overflowsRight = triggerRect.left + dialogW > viewportW - margin;
+      const fitsAlignedRight = triggerRect.right - dialogW >= margin;
+
+      if (overflowsRight && fitsAlignedRight) {
+        setAlignRight(true);
+        setHorizontalShiftPx(0);
+      } else if (overflowsRight) {
+        setAlignRight(false);
+        const desiredLeft = Math.max(margin, viewportW - margin - dialogW);
+        setHorizontalShiftPx(Math.round(desiredLeft - triggerRect.left));
+      } else {
+        setAlignRight(false);
+        setHorizontalShiftPx(0);
+      }
+    };
+
+    updateAlignment();
+    window.addEventListener('resize', updateAlignment);
+    return () => window.removeEventListener('resize', updateAlignment);
   }, [isOpen]);
 
   const activeSection = sections.find((s) => s.id === activeSectionId) || sections[0];
@@ -206,9 +248,11 @@ export function ColumnFilterPopover({
 
       {isOpen && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label={`${columnTitle} filter options`}
-          className="absolute left-0 top-full mt-1.5 w-64 sm:w-72 rounded-2xl bg-white shadow-2xl border border-sky-100 z-50 text-slate-800 focus:outline-none animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+          style={horizontalShiftPx !== 0 ? { left: `${horizontalShiftPx}px`, right: 'auto' } : undefined}
+          className={`absolute ${alignRight ? 'right-0' : 'left-0'} top-full mt-1.5 w-64 sm:w-72 max-w-[calc(100vw-1.5rem)] rounded-2xl bg-white shadow-2xl border border-sky-100 z-50 text-slate-800 focus:outline-none animate-in fade-in zoom-in-95 duration-100 overflow-hidden`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

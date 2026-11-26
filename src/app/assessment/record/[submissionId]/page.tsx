@@ -37,6 +37,10 @@ import {
   type CanonicalDocumentType,
 } from '@/lib/read-model/beneficiaryReadiness';
 import { deriveSubmissionStages, maskBankAccountNumber } from '@/lib/shared/submissionStages';
+import {
+  DocumentPreviewThumbnail,
+  DocumentModalBody,
+} from '@/components/evaluation/DocumentPreviewThumbnail';
 
 const CANONICAL_DOC_TO_PARAM: Record<CanonicalDocumentType, string> = {
   'Bank Passbook Front Page': 'passbookPhoto',
@@ -46,6 +50,69 @@ const CANONICAL_DOC_TO_PARAM: Record<CanonicalDocumentType, string> = {
   'School Fee Receipt': 'feeReceiptPhoto',
   'Academic Marksheet': 'marksheetPhoto',
 };
+
+function getInlineDataUrl(record: any, docType: CanonicalDocumentType): string | null {
+  if (!record || typeof record !== 'object') return null;
+  let candidates: Array<string | undefined> = [];
+  if (docType === 'Bank Passbook Front Page') {
+    candidates = [
+      record.passbookPhotoUrl,
+      record.passbook_photo_url,
+      record.bankingAndKyc?.passbookPhotoUrl,
+      record.raw_payload?.bankingAndKyc?.passbookPhotoUrl,
+    ];
+  } else if (docType === 'Aadhaar Card') {
+    candidates = [
+      record.aadhaarCardPhotoUrl,
+      record.aadhaar_card_photo_url,
+      record.bankingAndKyc?.aadhaarCardPhotoUrl,
+      record.raw_payload?.bankingAndKyc?.aadhaarCardPhotoUrl,
+    ];
+  } else if (docType === 'Passport Size Photo') {
+    candidates = [
+      record.childPhotoUrl,
+      record.child_photo_url,
+      record.bankingAndKyc?.childPhotoUrl,
+      record.raw_payload?.bankingAndKyc?.childPhotoUrl,
+    ];
+  } else if (docType === 'Caregiver Signature') {
+    candidates = [
+      record.signatureDataUrl,
+      record.signature_data_url,
+      record.signatureUrl,
+      record.caregiverConsent?.signatureDataUrl,
+      record.consent?.signatureDataUrl,
+      record.consent?.caregiverSignature,
+      record.raw_payload?.caregiverConsent?.signatureDataUrl,
+      record.raw_payload?.consent?.caregiverSignature,
+    ];
+  } else if (docType === 'School Fee Receipt') {
+    candidates = [
+      record.feeReceiptPhotoUrl,
+      record.fee_receipt_photo_url,
+      record.educationExpenses?.feeReceiptPhotoUrl,
+      record.raw_payload?.educationExpenses?.feeReceiptPhotoUrl,
+    ];
+  } else if (docType === 'Academic Marksheet') {
+    candidates = [
+      record.marksheetPhotoUrl,
+      record.marksheet_photo_url,
+      record.educationExpenses?.marksheetPhotoUrl,
+      record.raw_payload?.educationExpenses?.marksheetPhotoUrl,
+    ];
+  }
+
+  for (const cand of candidates) {
+    if (typeof cand === 'string') {
+      const trimmed = cand.trim();
+      const lower = trimmed.toLowerCase();
+      if (lower.startsWith('data:image/') || lower.startsWith('data:application/pdf') || lower.startsWith('blob:')) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
 
 export default function RecordDetailPage() {
   const params = useParams();
@@ -268,7 +335,7 @@ export default function RecordDetailPage() {
     return (
       <AppShell>
         <div className="max-w-md mx-auto py-16 text-center text-xs text-slate-500">
-          Loading canonical record...
+          Loading child record...
         </div>
       </AppShell>
     );
@@ -307,7 +374,7 @@ export default function RecordDetailPage() {
       const targetId = remoteId || submissionId;
       const res = await fetch(`/api/submissions/${encodeURIComponent(targetId)}/export`);
       if (!res.ok) {
-        alert('Failed to generate PDF dossier.');
+        alert('Failed to generate PDF summary.');
         return;
       }
       const blob = await res.blob();
@@ -321,7 +388,7 @@ export default function RecordDetailPage() {
       document.body.removeChild(a);
     } catch (err) {
       console.error('PDF export error:', err);
-      alert('Error downloading PDF dossier.');
+      alert('Error downloading PDF summary.');
     } finally {
       setIsExporting(false);
     }
@@ -477,7 +544,7 @@ export default function RecordDetailPage() {
               ) : (
                 <FileDown className="h-4 w-4 mr-1.5" />
               )}
-              <span>{isExporting ? 'Generating PDF...' : 'Download PDF Dossier'}</span>
+              <span>{isExporting ? 'Generating PDF...' : 'Download PDF Summary'}</span>
             </Button>
 
             <Link href={`/assessment/record/${submissionId}/receipt`}>
@@ -859,6 +926,8 @@ export default function RecordDetailPage() {
               {Object.values(readiness.docDetails).map((doc) => {
                 const docTypeKey = CANONICAL_DOC_TO_PARAM[doc.docType];
                 const assetUrl = `/api/submissions/${encodeURIComponent(remoteId || submissionId)}/asset?docType=${docTypeKey}`;
+                const inlineUrl = getInlineDataUrl(record, doc.docType);
+                const previewUrl = inlineUrl || assetUrl;
                 const isAvailable = doc.isPresent;
 
                 return (
@@ -896,24 +965,12 @@ export default function RecordDetailPage() {
 
                       {/* Thumbnail preview container */}
                       {isAvailable ? (
-                        <div className="h-32 w-full bg-white rounded-lg border border-slate-200 overflow-hidden relative flex items-center justify-center group">
-                          <img
-                            src={assetUrl}
-                            alt={doc.label}
-                            className="w-full h-full object-contain p-1.5 transition-transform duration-200 group-hover:scale-105"
-                            loading="lazy"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                              const parent = (e.target as HTMLElement).parentElement;
-                              if (parent && !parent.querySelector('.doc-fallback')) {
-                                const fallback = document.createElement('div');
-                                fallback.className = 'doc-fallback flex flex-col items-center justify-center text-slate-400 p-2 text-center';
-                                fallback.innerHTML = `<span class="text-xs font-semibold text-slate-700">Document Available</span><span class="text-[10px] text-slate-400">Click to preview</span>`;
-                                parent.appendChild(fallback);
-                              }
-                            }}
-                          />
-                        </div>
+                        <DocumentPreviewThumbnail
+                          title={doc.label}
+                          assetUrl={assetUrl}
+                          inlineUrl={inlineUrl}
+                          onPreview={() => setPreviewDoc({ title: doc.label, url: previewUrl, state: doc.state })}
+                        />
                       ) : (
                         <div className="h-32 w-full bg-slate-100/60 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center text-center p-3">
                           <AlertCircle className="h-6 w-6 text-slate-400 mb-1" />
@@ -928,14 +985,14 @@ export default function RecordDetailPage() {
                       <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          onClick={() => setPreviewDoc({ title: doc.label, url: assetUrl, state: doc.state })}
+                          onClick={() => setPreviewDoc({ title: doc.label, url: previewUrl, state: doc.state })}
                           className="inline-flex items-center text-xs font-bold text-teal-700 hover:text-teal-900 transition-colors cursor-pointer"
                         >
                           <Eye className="h-3.5 w-3.5 mr-1" />
                           <span>Enlarge Preview</span>
                         </button>
                         <a
-                          href={assetUrl}
+                          href={previewUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center text-[11px] text-slate-500 hover:text-slate-800 font-medium"
@@ -958,7 +1015,7 @@ export default function RecordDetailPage() {
             <h3 className="text-sm font-bold text-slate-900">
               Education Expenses & Programme Approval Breakdown
             </h3>
-            <span className="text-xs text-slate-500">Canonical server record snapshot</span>
+            <span className="text-xs text-slate-500">Synced record summary</span>
           </div>
           <ExpensesAndApprovalGrid
             isReadOnly={true}
@@ -1067,20 +1124,10 @@ export default function RecordDetailPage() {
               </div>
 
               <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-slate-50 rounded-xl p-2 border border-slate-100 min-h-[220px]">
-                <img
-                  src={previewDoc.url}
-                  alt={previewDoc.title}
-                  className="max-h-[65vh] w-auto object-contain rounded-lg shadow-2xs"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
-                    const parent = (e.target as HTMLElement).parentElement;
-                    if (parent && !parent.querySelector('.embed-pdf')) {
-                      const iframe = document.createElement('iframe');
-                      iframe.src = previewDoc.url;
-                      iframe.className = 'embed-pdf w-full h-[60vh] border-0 rounded-lg';
-                      parent.appendChild(iframe);
-                    }
-                  }}
+                <DocumentModalBody
+                  title={previewDoc.title}
+                  url={previewDoc.url}
+                  inlineUrl={previewDoc.url.startsWith('data:') || previewDoc.url.startsWith('blob:') ? previewDoc.url : null}
                 />
               </div>
 
@@ -1157,7 +1204,7 @@ export default function RecordDetailPage() {
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed">
-                Confirming will synchronize this sensitive approval state to the central surveillance sheet under your authorized identity.
+                Confirming will save this approval status to the central records database under your authorized identity.
               </p>
 
               <div className="pt-2 flex items-center justify-end space-x-2.5">

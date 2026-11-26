@@ -49,7 +49,7 @@ export function CaseStatusSummaryDashboard({
             <span>Case Status & Document Verification Readiness</span>
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Dossier completeness and vulnerability surveillance across {summary.contextLabel}
+            Document completeness and child support summary across {summary.contextLabel}
           </p>
         </div>
         <div className="flex items-center gap-2">

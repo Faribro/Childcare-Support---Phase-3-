@@ -448,12 +448,20 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
     try {
       const leaderSession = await validateLeaderSession(leaderSessionId, { isPoll, req });
       if (leaderSession) {
+        const leaderStates =
+          Array.isArray(leaderSession.allowedStates) && leaderSession.allowedStates.length > 0
+            ? leaderSession.allowedStates
+            : ['*'];
+        const leaderDistricts =
+          Array.isArray(leaderSession.allowedDistricts) && leaderSession.allowedDistricts.length > 0
+            ? leaderSession.allowedDistricts
+            : ['*'];
         return {
           userId: leaderSession.leaderId,
           name: leaderSession.name,
           role: 'LEADERSHIP',
-          allowedStates: leaderSession.allowedStates || ['*'],
-          allowedDistricts: leaderSession.allowedDistricts || ['*'],
+          allowedStates: leaderStates,
+          allowedDistricts: leaderDistricts,
           isVerified: true,
           reason: 'verified_leader_session',
         };
@@ -517,20 +525,31 @@ export async function resolveUserAccessScope(req: NextRequest): Promise<UserAcce
           canEdit: session.canEdit,
         };
       } else {
-        return {
-          userId: session.userId,
-          username: session.username,
-          name: session.name,
-          role: session.role,
-          allowedStates: (session.allowedStates || []).map((s) => (s === '*' ? '*' : canonicalizeStateName(s) || s)),
-          allowedDistricts: session.allowedDistricts,
-          allowedProgrammes: session.allowedProgrammes || ['alliance-childcare-phase3'],
-          isVerified: true,
-          reason: 'verified_session_token',
-          srName: session.srName,
-          ssrName: session.ssrName,
-          canEdit: session.canEdit,
-        };
+          const rawStates = (session.allowedStates || []).map((s) => {
+            const trimmed = String(s || '').trim();
+            if (trimmed === '*' || trimmed.toUpperCase() === 'ALL') return '*';
+            return canonicalizeStateName(trimmed) || trimmed;
+          }).filter(Boolean);
+          const rawDistricts = (session.allowedDistricts || []).map((d) => {
+            const trimmed = String(d || '').trim();
+            if (trimmed === '*' || trimmed.toUpperCase() === 'ALL') return '*';
+            return trimmed;
+          }).filter(Boolean);
+          const isNationalRole = session.role === 'ADMIN' || session.role === 'LEADERSHIP';
+          return {
+            userId: session.userId,
+            username: session.username,
+            name: session.name,
+            role: session.role,
+            allowedStates: rawStates.length > 0 ? rawStates : isNationalRole ? ['*'] : [],
+            allowedDistricts: rawDistricts.length > 0 ? rawDistricts : isNationalRole ? ['*'] : [],
+            allowedProgrammes: session.allowedProgrammes || ['alliance-childcare-phase3'],
+            isVerified: true,
+            reason: 'verified_session_token',
+            srName: session.srName,
+            ssrName: session.ssrName,
+            canEdit: session.canEdit,
+          };
       }
     }
   }
@@ -784,15 +803,40 @@ export function filterRecordsByScope<T extends { state?: string; district?: stri
       if (!scope.allowedProgrammes.some((p) => p.toLowerCase() === rProg)) return false;
     }
 
-    const rState = (r.state || r['18\nState'] || r.demographics?.state || 'Maharashtra').toString().trim().toLowerCase();
+    const rawState = (
+      r.state ||
+      r['18\nState'] ||
+      r.demographics?.state ||
+      r.payload?.demographics?.state ||
+      r.payload?.state ||
+      'Maharashtra'
+    )
+      .toString()
+      .trim();
+    const rStateLower = rawState.toLowerCase();
+    const rStateCanonical = (canonicalizeStateName(rawState) || rawState).toLowerCase();
     const stateMatch =
       scope.allowedStates.includes('*') ||
-      scope.allowedStates.some((s) => s.toLowerCase() === rState);
+      scope.allowedStates.some((s) => {
+        const sLower = s.trim().toLowerCase();
+        const sCanonical = (canonicalizeStateName(s) || s).toLowerCase();
+        return sLower === rStateLower || sCanonical === rStateCanonical;
+      });
     if (!stateMatch) return false;
 
     if (scope.allowedDistricts.includes('*')) return true;
-    const rDistrict = (r.district || r['19\nDistrict'] || r.demographics?.district || '').toString().trim().toLowerCase();
-    return scope.allowedDistricts.some((d) => d.toLowerCase() === rDistrict);
+    const rDistrict = (
+      r.district ||
+      r['19\nDistrict'] ||
+      r.demographics?.district ||
+      r.payload?.demographics?.district ||
+      r.payload?.district ||
+      ''
+    )
+      .toString()
+      .trim()
+      .toLowerCase();
+    return scope.allowedDistricts.some((d) => d.trim().toLowerCase() === rDistrict);
   });
 }
 

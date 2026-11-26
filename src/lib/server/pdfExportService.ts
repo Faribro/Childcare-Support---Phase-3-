@@ -71,7 +71,7 @@ export function generateBeneficiaryPdfBuffer(record: any): Buffer {
     // Header
     { text: 'INDIA HIV/AIDS ALLIANCE', x: 50, y: 740, fontSize: 16, bold: true },
     { text: 'CHILD NUTRITION & EDUCATION SUPPORT PROGRAMME', x: 50, y: 722, fontSize: 12, bold: true },
-    { text: 'CONFIDENTIAL CLINICAL & WELFARE ASSESSMENT DOSSIER', x: 50, y: 706, fontSize: 10, bold: false },
+    { text: 'CONFIDENTIAL CHILD SUPPORT ASSESSMENT REPORT', x: 50, y: 706, fontSize: 10, bold: false },
     { text: `Export Date: ${exportDate}   |   Record ID: ${id}`, x: 50, y: 690, fontSize: 9, bold: false },
 
     // Section 1: Demographics

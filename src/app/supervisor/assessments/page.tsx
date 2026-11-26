@@ -66,6 +66,10 @@ import {
   type EvaluationBeneficiaryRow,
 } from '@/components/evaluation/EvaluationLinelistTable';
 import { ChildApprovalDrawer } from '@/components/evaluation/ChildApprovalDrawer';
+import {
+  DocumentPreviewThumbnail,
+  DocumentModalBody,
+} from '@/components/evaluation/DocumentPreviewThumbnail';
 
 type BeneficiaryRow = SupervisorBeneficiaryRow;
 
@@ -159,12 +163,16 @@ export default function SupervisorAssessmentsPage() {
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
   const effectiveLoading = isLoading || (isLoaded && isUnlocked && status === 'idle' && data.length === 0);
 
-  // Document Verification Cloud Modal State
+  // Document Verification Modal State
   const [activeDocModal, setActiveDocModal] = useState<{
     id: string;
     childName: string;
     artNumber: string;
     status: BeneficiaryDocumentStatus;
+  } | null>(null);
+  const [expandedDocPreview, setExpandedDocPreview] = useState<{
+    title: string;
+    url: string;
   } | null>(null);
 
   // Feedback Notification Toast
@@ -187,19 +195,23 @@ export default function SupervisorAssessmentsPage() {
     setCurrentPage(1);
   }, [debouncedSearchTerm, columnFilters]);
 
-  // Escape key handler for cloud modal and confirmation modals
+  // Escape key handler for document modal and confirmation modals
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (expandedDocPreview) {
+          setExpandedDocPreview(null);
+          return;
+        }
         setActiveDocModal(null);
         setDeleteConfirmTarget(null);
       }
     };
-    if (activeDocModal || deleteConfirmTarget) {
+    if (activeDocModal || deleteConfirmTarget || expandedDocPreview) {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [activeDocModal, deleteConfirmTarget]);
+  }, [activeDocModal, deleteConfirmTarget, expandedDocPreview]);
 
   // 1. Authorized scope filtering: Strictly ensure records never cross geographic clearance
   const authorizedRecords = useMemo(() => {
@@ -332,6 +344,26 @@ export default function SupervisorAssessmentsPage() {
 
   // 4b. Formatted Evaluation Rows for 8-column layout with 1-click copy and zero overflow
   const evaluationRows: EvaluationBeneficiaryRow[] = useMemo(() => {
+    const fieldLabelMap: Record<string, string> = {
+      childName: 'Child Name',
+      dob: 'Date of Birth',
+      gender: 'Gender',
+      caregiverName: 'Caregiver Name',
+      state: 'State',
+      district: 'District',
+      aadhaarCardPhoto: 'Aadhaar Card',
+      childPhoto: 'Passport Size Photo',
+      caregiverSignature: 'Caregiver Signature',
+      feeReceiptPhoto: 'School Fee Receipt',
+      marksheetPhoto: 'Academic Marksheet',
+      accountNumber: 'Bank Account Number',
+      accountHolderName: 'Account Holder Name',
+      bankName: 'Bank Name',
+      branchName: 'Branch Name',
+      ifscCode: 'IFSC Code',
+      passbookProof: 'Bank Passbook Front Page',
+    };
+
     return paginatedRows.map((row) => {
       const stages = deriveSubmissionStages(row.rawRecord || row);
       const isApproved = row.isApproved;
@@ -345,6 +377,22 @@ export default function SupervisorAssessmentsPage() {
         docsStatus = 'bank_pending';
       } else if (!hasIntakeGap && (!isApproved || stages.bankWorkflow === 'complete')) {
         docsStatus = 'complete';
+      }
+
+      const missingReasons: string[] = [];
+      for (const f of stages.missingIntakeFields || []) {
+        const label = fieldLabelMap[f] || f;
+        if (!missingReasons.includes(label)) missingReasons.push(label);
+      }
+      for (const p of stages.pendingReviewDocs || []) {
+        const label = `${fieldLabelMap[p] || p} (Not available — review pending)`;
+        if (!missingReasons.includes(label)) missingReasons.push(label);
+      }
+      if (isApproved && stages.bankWorkflow === 'pending') {
+        for (const bf of stages.missingBankFields || []) {
+          const label = fieldLabelMap[bf] || bf;
+          if (!missingReasons.includes(label)) missingReasons.push(label);
+        }
       }
 
       return {
@@ -361,6 +409,7 @@ export default function SupervisorAssessmentsPage() {
         grantAmountInr: row.grantAmount || 0,
         docsStatus,
         missingDocs: row.documentStatus?.pendingDocs || [],
+        missingReasons,
         approvalStatus: isApproved ? 'approved' : 'pending',
         viralLoadText: row.viralLoad,
         vlCategory: row.vlCategory,
@@ -704,13 +753,13 @@ export default function SupervisorAssessmentsPage() {
         );
         setToastMessage(
           nextApproved
-            ? `Survey for ${row.childName} Approved and synced to central surveillance!`
+            ? `Survey for ${row.childName} Approved and saved to central records!`
             : `Survey for ${row.childName} marked as Pending.`
         );
         setTimeout(() => setToastMessage(null), 3500);
       } else if (res.status === 409) {
         alert(
-          'Version Conflict (HTTP 409): This assessment was modified concurrently by another user. Refreshing latest surveillance data...'
+          'Version Conflict (HTTP 409): This assessment was modified concurrently by another user. Refreshing latest records...'
         );
         await refresh();
       } else if (res.status === 401) {
@@ -802,8 +851,8 @@ export default function SupervisorAssessmentsPage() {
             </h2>
             <p className="text-xs text-slate-500 leading-relaxed">
               {isFieldWorker
-                ? 'Staff Access is permanently restricted to approved State Team reviewers and Administration. Field caseworkers cannot access clinical surveillance or review linelists.'
-                : 'Beneficiary evaluation and surveillance records are restricted to authenticated personnel with authorized state and district scope.'}
+                ? 'Staff Access is permanently restricted to approved State Team reviewers and Administration. Field caseworkers cannot access review dashboards or beneficiary lists.'
+                : 'Beneficiary evaluation records are restricted to authenticated personnel with authorized state and district scope.'}
             </p>
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
               {!isFieldWorker && (
@@ -914,7 +963,7 @@ export default function SupervisorAssessmentsPage() {
                     ? `State Reviewer Workspace: ${user.allowedStates?.filter((s) => s !== '*').join(', ') || 'State'}`
                     : user?.role === 'LEADERSHIP'
                     ? 'National Administration Workspace: All States'
-                    : 'System Administrator Surveillance'}
+                    : 'System Administration Workspace'}
                 </span>
               </div>
               <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-white">
@@ -1415,8 +1464,24 @@ export default function SupervisorAssessmentsPage() {
               setSelectedDrawerRow(row);
               setIsDrawerOpen(true);
             }}
-            onViewDossier={(row) => {
+            onViewRecord={(row) => {
               router.push(`/assessment/record/${row.id}`);
+            }}
+            onInspectDocs={(row) => {
+              const match = sortedData.find((r) => r.id === row.id);
+              const fallbackStatus: BeneficiaryDocumentStatus = {
+                isComplete: row.docsStatus === 'complete',
+                totalRequired: (row.missingDocs?.length || 0),
+                uploadedCount: 0,
+                pendingDocs: row.missingDocs || [],
+                uploadedDocs: [],
+              };
+              setActiveDocModal({
+                id: match?.remoteSubmissionId || row.id,
+                childName: row.childName,
+                artNumber: row.displayCode || row.id,
+                status: match?.documentStatus || fallbackStatus,
+              });
             }}
           />
 
@@ -1481,7 +1546,7 @@ export default function SupervisorAssessmentsPage() {
           )}
         </div>
 
-        {/* Cloud Modal for Pending Documents */}
+        {/* Document Verification Status Modal */}
         {activeDocModal && (
           <div
             className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
@@ -1496,10 +1561,10 @@ export default function SupervisorAssessmentsPage() {
               <div className="flex items-start justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center space-x-3">
                   <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-sky-50 to-blue-50 border border-sky-200 flex items-center justify-center text-[#155AD1] shadow-xs">
-                    <Cloud className="h-6 w-6" />
+                    <FileCheck className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-slate-900">Document Status Cloud</h3>
+                    <h3 className="text-base font-bold text-slate-900">Document Verification Status</h3>
                     <p className="text-xs text-slate-500">
                       {activeDocModal.childName} •{' '}
                       <span className="font-mono font-semibold text-[#093282]">
@@ -1605,33 +1670,30 @@ export default function SupervisorAssessmentsPage() {
                               Uploaded
                             </span>
                           </div>
-                          <div className="h-28 w-full bg-white rounded-lg border border-slate-200 overflow-hidden relative flex items-center justify-center">
-                            <img
-                              src={assetUrl}
-                              alt={`Preview of ${doc}`}
-                              className="w-full h-full object-contain p-1"
-                              loading="lazy"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
-                                const parent = (e.target as HTMLElement).parentElement;
-                                if (parent && !parent.querySelector('.doc-fallback')) {
-                                  const fallback = document.createElement('div');
-                                  fallback.className = 'doc-fallback flex flex-col items-center justify-center text-slate-400 p-2 text-center';
-                                  fallback.innerHTML = `<span class="text-xs font-medium text-slate-600">Document File</span><span class="text-[10px] text-slate-400">Click preview to open</span>`;
-                                  parent.appendChild(fallback);
-                                }
-                              }}
-                            />
+                          <DocumentPreviewThumbnail
+                            title={doc}
+                            assetUrl={assetUrl}
+                            heightClass="h-28"
+                            onPreview={() => setExpandedDocPreview({ title: doc, url: assetUrl })}
+                          />
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedDocPreview({ title: doc, url: assetUrl })}
+                              className="inline-flex items-center justify-center space-x-1 text-[11px] font-bold text-[#093282] hover:text-[#07225E] bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg py-1 transition-colors cursor-pointer"
+                            >
+                              <Eye className="h-3 w-3" />
+                              <span>Preview</span>
+                            </button>
+                            <a
+                              href={assetUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center space-x-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg py-1 transition-colors"
+                            >
+                              <span>Open</span>
+                            </a>
                           </div>
-                          <a
-                            href={assetUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center space-x-1 text-[11px] font-bold text-[#093282] hover:text-[#07225E] bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg py-1 transition-colors"
-                          >
-                            <Eye className="h-3 w-3" />
-                            <span>View Full Document</span>
-                          </a>
                         </div>
                       );
                     })}
@@ -1663,6 +1725,37 @@ export default function SupervisorAssessmentsPage() {
           </div>
         )}
 
+        {/* Enlarged Document Preview Modal from Status Dialog */}
+        {expandedDocPreview && (
+          <div
+            className="fixed inset-0 z-[60] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-label={expandedDocPreview.title}
+            onClick={() => setExpandedDocPreview(null)}
+          >
+            <div
+              className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 space-y-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <h3 className="text-sm font-bold text-slate-900">{expandedDocPreview.title}</h3>
+                <button
+                  type="button"
+                  onClick={() => setExpandedDocPreview(null)}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  aria-label="Close preview"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-slate-50 rounded-xl p-2 border border-slate-100 min-h-[220px]">
+                <DocumentModalBody title={expandedDocPreview.title} url={expandedDocPreview.url} />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* High-Trust Child Approval Drawer for ADMIN and LEADERSHIP */}
       <ChildApprovalDrawer
         isOpen={isDrawerOpen}
@@ -1677,7 +1770,7 @@ export default function SupervisorAssessmentsPage() {
           setSelectedDrawerRow(null);
         }}
         onConfirmApproval={handleDrawerConfirmApproval}
-        onViewDossier={(row) => router.push(`/assessment/record/${row.id}`)}
+        onViewRecord={(row) => router.push(`/assessment/record/${row.id}`)}
       />
 
       {/* Explicit Single-Record Deletion Modal for ADMIN */}

@@ -2,7 +2,7 @@ import { DocType, SubmissionEntity } from './types';
 
 /**
  * Mandatory document inspection rules:
- * - Basic Surveillance Dossier: passbookPhoto, aadhaarCardPhoto, childPhoto, caregiverSignature
+ * - Basic Support Record: passbookPhoto, aadhaarCardPhoto, childPhoto, caregiverSignature
  * - Conditional Education Support: feeReceiptPhoto (required when requiresFeeReceipt is true)
  */
 export const CORE_MANDATORY_DOCUMENTS: readonly DocType[] = [

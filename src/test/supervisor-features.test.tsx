@@ -423,7 +423,7 @@ describe('Supervisor Features Suite: Issues #53, #54, #55, #56', () => {
       expect(screen.getByRole('menu')).toBeDefined();
       expect(screen.getByText('View Details')).toBeDefined();
       expect(screen.getByText('Edit Record')).toBeDefined();
-      expect(screen.getByText('Download PDF Dossier')).toBeDefined();
+      expect(screen.getByText('Download PDF Summary')).toBeDefined();
 
       const deleteItem = screen.getByText('Delete Survey');
       expect(deleteItem).toBeDefined();

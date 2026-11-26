@@ -137,46 +137,75 @@ export async function GET(req: NextRequest) {
           ? effectiveScope.allowedDistricts[0]
           : districtParam;
 
-    // 2. Fetch submissions from canonical storage
-    const listResult = await canonicalSubmissionAdapter.listSubmissions({
-      limit: 100,
-      state: effectiveStateFilter,
-      district: effectiveDistrictFilter,
-    });
+    // 2. Fetch all pages of submissions from canonical storage (bounded to 50 pages / 5,000 records)
+    const rawRecords: any[] = [];
+    let cursor: string | undefined = undefined;
+    let upstreamTotal: number | undefined = undefined;
+    const seenCursors = new Set<string>();
+    const MAX_SUMMARY_PAGES = 50;
 
-    if (listResult.status === 'error') {
-      return NextResponse.json(
-        {
-          status: 'error',
-          code: listResult.code || 'UPSTREAM_ERROR',
-          message: listResult.message || 'Unable to retrieve submissions summary',
-          requestId,
-        },
-        {
-          status: listResult.statusCode || 502,
-          headers: {
-            ...AUTH_SCOPED_NO_STORE_HEADERS,
-            'X-Request-Id': requestId,
-          },
+    for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
+      const listResult = await canonicalSubmissionAdapter.listSubmissions({
+        cursor,
+        limit: 100,
+        state: effectiveStateFilter,
+        district: effectiveDistrictFilter,
+      });
+
+      if (listResult.status === 'error') {
+        if (page === 0) {
+          return NextResponse.json(
+            {
+              status: 'error',
+              code: listResult.code || 'UPSTREAM_ERROR',
+              message: listResult.message || 'Unable to retrieve submissions summary',
+              requestId,
+            },
+            {
+              status: listResult.statusCode || 502,
+              headers: {
+                ...AUTH_SCOPED_NO_STORE_HEADERS,
+                'X-Request-Id': requestId,
+              },
+            }
+          );
         }
-      );
-    }
+        break;
+      }
 
-    const rawRecords = listResult.data?.records || (Array.isArray(listResult.data) ? listResult.data : []);
+      const batch = listResult.data?.records || (Array.isArray(listResult.data) ? listResult.data : []);
+      rawRecords.push(...batch);
+
+      if (upstreamTotal === undefined) {
+        const candidateTotal = listResult.pagination?.totalCount ?? listResult.data?.total;
+        if (typeof candidateTotal === 'number') {
+          upstreamTotal = candidateTotal;
+        }
+      }
+
+      const nextCursor = listResult.pagination?.nextCursor ?? listResult.data?.nextCursor ?? null;
+      if (!nextCursor || batch.length === 0 || seenCursors.has(nextCursor)) {
+        break;
+      }
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
 
     // 3. Apply server-authoritative scope filtering
     let scoped = filterRecordsByScope(effectiveScope, rawRecords);
 
     // Apply explicit query filters if provided
     if (stateParam && stateParam.toUpperCase() !== 'ALL') {
-      scoped = scoped.filter(
-        (r: any) => (r.state || r['18\nState'] || 'Maharashtra').toLowerCase() === stateParam.toLowerCase()
-      );
+      scoped = scoped.filter((r: any) => {
+        const rs = (r.state || r['18\nState'] || r.demographics?.state || r.payload?.demographics?.state || r.payload?.state || 'Maharashtra').toString().trim().toLowerCase();
+        return rs === stateParam.trim().toLowerCase();
+      });
     }
     if (districtParam && districtParam.toUpperCase() !== 'ALL') {
-      scoped = scoped.filter(
-        (r: any) => (r.district || r['19\nDistrict'] || '').toLowerCase() === districtParam.toLowerCase()
-      );
+      scoped = scoped.filter((r: any) => {
+        const rd = (r.district || r['19\nDistrict'] || r.demographics?.district || r.payload?.demographics?.district || r.payload?.district || '').toString().trim().toLowerCase();
+        return rd === districtParam.trim().toLowerCase();
+      });
     }
 
     // Determine un-truncated total count
@@ -187,17 +216,20 @@ export async function GET(req: NextRequest) {
       (effectiveScope.allowedStates.includes('*') && effectiveScope.allowedDistricts.includes('*')) ||
       effectiveScope.role === 'LEADERSHIP' ||
       effectiveScope.role === 'ADMIN';
-    const upstreamTotal = listResult.pagination?.totalCount ?? listResult.data?.total;
     const totalCount = isFilteredByLocation
       ? scoped.length
       : typeof upstreamTotal === 'number' && hasWildcardScope
-        ? upstreamTotal
+        ? Math.max(upstreamTotal, scoped.length)
         : scoped.length;
     const now = new Date().toISOString();
 
     let intakeIncompleteCount = 0;
     let bankPendingCount = 0;
-    for (const r of scoped) {
+    for (const rawItem of scoped) {
+      const r =
+        rawItem && typeof rawItem === 'object' && rawItem.payload && typeof rawItem.payload === 'object'
+          ? { ...rawItem.payload, ...rawItem }
+          : rawItem;
       const stages = deriveSubmissionStages(r);
       if (
         stages.intakeCompleteness === 'incomplete' ||

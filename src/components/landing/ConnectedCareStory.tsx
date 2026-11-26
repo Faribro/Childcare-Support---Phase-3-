@@ -338,7 +338,7 @@ export function ConnectedCareStory() {
                 </span>
               </div>
 
-              {/* Right Card: Institutional Review Dossier State */}
+              {/* Right Card: Institutional Review Record State */}
               <div className="lg:col-span-5 rounded-2xl bg-white p-5 sm:p-6 border border-[#DAC8B5] shadow-sm flex flex-col justify-between space-y-4">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between border-b border-[#EAE0D0] pb-2.5">

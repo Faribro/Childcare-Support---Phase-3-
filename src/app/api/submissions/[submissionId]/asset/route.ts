@@ -306,28 +306,115 @@ export async function GET(
     );
   }
 
-  // Extract requested document type
+  // Extract requested document type (case-insensitive canonical normalization)
   const { searchParams } = new URL(req.url);
   const rawDocType = (searchParams.get('docType') || searchParams.get('type') || '').trim();
+  const normalizedDocTypeLower = rawDocType.toLowerCase();
 
-  // Canonical document field mapping
-  const docTypeMap: Record<string, string[]> = {
-    passbookPhoto: ['passbookPhotoUrl', 'passbook_photo_url', '25\nPassbook Front Page Link', 'Passbook Front Page Link'],
-    passbook: ['passbookPhotoUrl', 'passbook_photo_url', '25\nPassbook Front Page Link', 'Passbook Front Page Link'],
-    aadhaarCardPhoto: ['aadhaarCardPhotoUrl', 'aadhaar_card_photo_url', '26\nAadhaar Card Link', 'Aadhaar Card Link'],
-    aadhaar: ['aadhaarCardPhotoUrl', 'aadhaar_card_photo_url', '26\nAadhaar Card Link', 'Aadhaar Card Link'],
-    childPhoto: ['childPhotoUrl', 'child_photo_url', '27\nPassport Size Photo Link', 'Passport Size Photo Link'],
-    photo: ['childPhotoUrl', 'child_photo_url', '27\nPassport Size Photo Link', 'Passport Size Photo Link'],
-    feeReceiptPhoto: ['feeReceiptPhotoUrl', 'fee_receipt_photo_url', '64\nSchool Fee Receipt Link', 'School Fee Receipt Link'],
-    feeReceipt: ['feeReceiptPhotoUrl', 'fee_receipt_photo_url', '64\nSchool Fee Receipt Link', 'School Fee Receipt Link'],
-    marksheetPhoto: ['marksheetPhotoUrl', 'marksheet_photo_url', '65\nMarksheet Photo Link', 'Marksheet Photo Link'],
-    marksheet: ['marksheetPhotoUrl', 'marksheet_photo_url', '65\nMarksheet Photo Link', 'Marksheet Photo Link'],
-    caregiverSignature: ['signatureDataUrl', 'signature_data_url', '6\nSignature /\nThumb Impression', '6\nSignature / Thumb Impression', '72\nSignature Link', 'Signature Link'],
-    signature: ['signatureDataUrl', 'signature_data_url', '6\nSignature /\nThumb Impression', '6\nSignature / Thumb Impression', '72\nSignature Link', 'Signature Link'],
+  type CanonicalAssetKey =
+    | 'passbookPhoto'
+    | 'aadhaarCardPhoto'
+    | 'childPhoto'
+    | 'feeReceiptPhoto'
+    | 'marksheetPhoto'
+    | 'caregiverSignature';
+
+  const aliasToCanonical: Record<string, CanonicalAssetKey> = {
+    passbookphoto: 'passbookPhoto',
+    passbook: 'passbookPhoto',
+    passbookphotourl: 'passbookPhoto',
+    aadhaarcardphoto: 'aadhaarCardPhoto',
+    aadhaar: 'aadhaarCardPhoto',
+    aadhaarcardphotourl: 'aadhaarCardPhoto',
+    childphoto: 'childPhoto',
+    photo: 'childPhoto',
+    childphotourl: 'childPhoto',
+    feereceiptphoto: 'feeReceiptPhoto',
+    feereceipt: 'feeReceiptPhoto',
+    fee_receipt: 'feeReceiptPhoto',
+    feereceiptphotourl: 'feeReceiptPhoto',
+    marksheetphoto: 'marksheetPhoto',
+    marksheet: 'marksheetPhoto',
+    marksheetphotourl: 'marksheetPhoto',
+    caregiversignature: 'caregiverSignature',
+    signature: 'caregiverSignature',
+    signaturedataurl: 'caregiverSignature',
+    signatureurl: 'caregiverSignature',
   };
 
-  const lookupFields = docTypeMap[rawDocType];
-  if (!lookupFields) {
+  const canonicalKey = aliasToCanonical[normalizedDocTypeLower];
+
+  // Canonical document field mapping
+  const docTypeMap: Record<CanonicalAssetKey, string[]> = {
+    passbookPhoto: [
+      'passbookPhotoUrl',
+      'passbook_photo_url',
+      'passbookProof',
+      'passbookLink',
+      '25\nPassbook Front Page Link',
+      '25\\nPassbook Front Page Link',
+      'Passbook Front Page Link',
+      'passbook front page link',
+    ],
+    aadhaarCardPhoto: [
+      'aadhaarCardPhotoUrl',
+      'aadhaar_card_photo_url',
+      'aadhaarPhotoUrl',
+      'aadhaarLink',
+      '26\nAadhaar Card Link',
+      '26\\nAadhaar Card Link',
+      'Aadhaar Card Link',
+      'aadhaar card link',
+    ],
+    childPhoto: [
+      'childPhotoUrl',
+      'child_photo_url',
+      'childPhotoLink',
+      '27\nPassport Size Photo Link',
+      '27\\nPassport Size Photo Link',
+      'Passport Size Photo Link',
+      'passport size photo link',
+    ],
+    feeReceiptPhoto: [
+      'feeReceiptPhotoUrl',
+      'fee_receipt_photo_url',
+      'feeReceiptUrl',
+      'feeReceiptLink',
+      '64\nSchool Fee Receipt Link',
+      '64\\nSchool Fee Receipt Link',
+      'School Fee Receipt Link',
+      'school fee receipt link',
+    ],
+    marksheetPhoto: [
+      'marksheetPhotoUrl',
+      'marksheet_photo_url',
+      'marksheetPhotoLink',
+      '65\nMarksheet Photo Link',
+      '65\\nMarksheet Photo Link',
+      'Marksheet Photo Link',
+      'marksheet photo link',
+    ],
+    caregiverSignature: [
+      'signatureDataUrl',
+      'signature_data_url',
+      'signatureUrl',
+      'signature_url',
+      'signatureLink',
+      'signaturePhotoUrl',
+      'consentSignatureUrl',
+      'caregiverSignature',
+      '6\nSignature /\nThumb Impression',
+      '6\\nSignature /\\nThumb Impression',
+      '6\nSignature / Thumb Impression',
+      '6\\nSignature / Thumb Impression',
+      'Signature /\nThumb Impression',
+      '72\nSignature Link',
+      '72\\nSignature Link',
+      'Signature Link',
+    ],
+  };
+
+  if (!canonicalKey) {
     return NextResponse.json(
       {
         status: 'error',
@@ -337,6 +424,8 @@ export async function GET(
       { status: 400, headers: ASSET_NO_STORE_HEADERS }
     );
   }
+
+  const lookupFields = docTypeMap[canonicalKey];
 
   // Retrieve raw record using caseworker role so internal attachment references are not stripped
   const result = await canonicalSubmissionAdapter.getSubmission(submissionId, 'caseworker');
@@ -375,39 +464,153 @@ export async function GET(
     );
   }
 
-  // Find document value across mapped fields and nested structures
-  let docValue: any = null;
-  for (const field of lookupFields) {
-    if (record[field]) {
-      docValue = record[field];
+  const extractUsableAssetRef = (candidate: any): string | null => {
+    if (candidate === null || candidate === undefined) return null;
+
+    if (typeof candidate === 'object') {
+      const obj = candidate as Record<string, any>;
+      const nestedFields = [
+        obj.cellFormula,
+        obj.fileData,
+        obj.dataUrl,
+        obj.url,
+        obj.gcsUri,
+        obj.storagePath,
+        obj.storageKey,
+        obj.newFileId,
+        obj.assetId,
+        obj.ref,
+      ];
+      for (const nf of nestedFields) {
+        const extracted = extractUsableAssetRef(nf);
+        if (extracted) return extracted;
+      }
+      return null;
+    }
+
+    if (typeof candidate !== 'string') return null;
+    const trimmed = candidate.trim();
+    if (!trimmed) return null;
+    const lower = trimmed.toLowerCase();
+
+    if (
+      trimmed === 'Restricted Document' ||
+      trimmed === '—' ||
+      trimmed === '-' ||
+      trimmed === 'N/A' ||
+      lower === 'n/a' ||
+      lower === 'none' ||
+      lower === 'null' ||
+      lower === 'undefined' ||
+      lower === 'pending' ||
+      lower === 'missing' ||
+      lower === 'captured_local' ||
+      lower === 'not uploaded' ||
+      lower === 'not submitted' ||
+      lower === 'no fee receipt' ||
+      lower === 'no marksheet' ||
+      lower === 'data_url_stored_pending_auth' ||
+      lower.startsWith('/api/submissions/')
+    ) {
+      return null;
+    }
+
+    if (
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('gcs://') ||
+      trimmed.startsWith('asset://') ||
+      trimmed.startsWith('storage://') ||
+      trimmed.startsWith('s3://') ||
+      trimmed.startsWith('urn:asset:') ||
+      trimmed.startsWith('<svg') ||
+      trimmed.startsWith('=')
+    ) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('/')) {
+      return `storage://${trimmed.replace(/^\/+/, '')}`;
+    }
+
+    return trimmed;
+  };
+
+  // Collect ordered candidate containers (root, unwrapped payload, raw_payload)
+  const recordScopes: any[] = [record];
+  if (record.payload && typeof record.payload === 'object') recordScopes.push(record.payload);
+  if (record.raw_payload && typeof record.raw_payload === 'object') recordScopes.push(record.raw_payload);
+
+  const candidateValues: any[] = [];
+  for (const scopeObj of recordScopes) {
+    for (const field of lookupFields) {
+      if (scopeObj && scopeObj[field] !== undefined) {
+        candidateValues.push(scopeObj[field]);
+      }
+    }
+
+    const bankings = [scopeObj?.bankingAndKyc, scopeObj?.bankDetails].filter(Boolean);
+    const edus = [scopeObj?.educationExpenses, scopeObj?.education].filter(Boolean);
+    const consents = [scopeObj?.caregiverConsent, scopeObj?.consent].filter(Boolean);
+
+    if (canonicalKey === 'passbookPhoto') {
+      for (const b of bankings) {
+        candidateValues.push(b.passbookPhotoUrl, b.passbook_photo_url, b.passbookProof, b.passbookLink);
+      }
+    } else if (canonicalKey === 'aadhaarCardPhoto') {
+      for (const b of bankings) {
+        candidateValues.push(b.aadhaarCardPhotoUrl, b.aadhaar_card_photo_url, b.aadhaarPhotoUrl, b.aadhaarLink);
+      }
+    } else if (canonicalKey === 'childPhoto') {
+      for (const b of bankings) {
+        candidateValues.push(b.childPhotoUrl, b.child_photo_url, b.childPhotoLink);
+      }
+    } else if (canonicalKey === 'feeReceiptPhoto') {
+      for (const e of edus) {
+        candidateValues.push(e.feeReceiptPhotoUrl, e.fee_receipt_photo_url, e.feeReceiptUrl, e.feeReceiptLink);
+      }
+    } else if (canonicalKey === 'marksheetPhoto') {
+      for (const e of edus) {
+        candidateValues.push(e.marksheetPhotoUrl, e.marksheet_photo_url, e.marksheetPhotoLink);
+      }
+    } else if (canonicalKey === 'caregiverSignature') {
+      for (const c of consents) {
+        candidateValues.push(
+          c.signatureDataUrl,
+          c.signature_data_url,
+          c.signatureUrl,
+          c.signature_url,
+          c.caregiverSignature,
+          c.signatureAssetId
+        );
+      }
+    }
+
+    if (Array.isArray(scopeObj?.attachments)) {
+      const matchingAttachments = [...scopeObj.attachments]
+        .reverse()
+        .filter((att: any) => {
+          const attType = String(att?.docType || att?.type || '').trim().toLowerCase();
+          return aliasToCanonical[attType] === canonicalKey;
+        });
+      for (const att of matchingAttachments) {
+        candidateValues.push(att.cellFormula, att.fileData, att.dataUrl, att.url, att.gcsUri, att.storagePath, att.newFileId);
+      }
+    }
+  }
+
+  let docValue: string | null = null;
+  for (const cand of candidateValues) {
+    const resolved = extractUsableAssetRef(cand);
+    if (resolved) {
+      docValue = resolved;
       break;
     }
   }
 
-  // Check nested payload objects if not found at root
-  if (!docValue) {
-    const banking = record.bankingAndKyc || record.bankDetails;
-    const edu = record.educationExpenses || record.education;
-    const consent = record.caregiverConsent || record.consent;
-
-    if (rawDocType.includes('passbook') && banking?.passbookPhotoUrl) docValue = banking.passbookPhotoUrl;
-    else if (rawDocType.includes('aadhaar') && banking?.aadhaarCardPhotoUrl) docValue = banking.aadhaarCardPhotoUrl;
-    else if ((rawDocType.includes('childPhoto') || rawDocType.includes('photo')) && banking?.childPhotoUrl) docValue = banking.childPhotoUrl;
-    else if (rawDocType.includes('feeReceipt') && edu?.feeReceiptPhotoUrl) docValue = edu.feeReceiptPhotoUrl;
-    else if (rawDocType.includes('marksheet') && edu?.marksheetPhotoUrl) docValue = edu.marksheetPhotoUrl;
-    else if (rawDocType.includes('signature') && consent?.signatureDataUrl) docValue = consent.signatureDataUrl;
-  }
-
   // Handle case where document is missing or placeholder
-  const trimmedDoc = typeof docValue === 'string' ? docValue.trim() : '';
-  if (
-    !docValue ||
-    docValue === 'Restricted Document' ||
-    docValue === '—' ||
-    docValue === '-' ||
-    trimmedDoc === 'DATA_URL_STORED_PENDING_AUTH' ||
-    trimmedDoc.toLowerCase() === 'data_url_stored_pending_auth'
-  ) {
+  if (!docValue) {
     return NextResponse.json(
       {
         status: 'error',

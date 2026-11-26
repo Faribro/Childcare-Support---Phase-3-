@@ -329,13 +329,16 @@ export async function GET(req: NextRequest) {
 
     // Apply explicit query filters (Issue #53)
     if (stateParam && stateParam.toUpperCase() !== 'ALL') {
-      records = records.filter(
-        (r: any) => (r.state || r['18\nState'] || 'Maharashtra').toLowerCase() === stateParam.toLowerCase()
-      );
+      const targetState = canonicalizeStateName(stateParam).toLowerCase();
+      records = records.filter((r: any) => {
+        const rawState = r.state || r['18\nState'] || r.demographics?.state || r.payload?.demographics?.state || r.payload?.state || 'Maharashtra';
+        return (canonicalizeStateName(rawState) || rawState).toLowerCase() === targetState;
+      });
     }
     if (districtParam && districtParam.toUpperCase() !== 'ALL') {
+      const targetDistrict = districtParam.toLowerCase();
       records = records.filter(
-        (r: any) => (r.district || r['19\nDistrict'] || '').toLowerCase() === districtParam.toLowerCase()
+        (r: any) => (r.district || r['19\nDistrict'] || r.demographics?.district || r.payload?.demographics?.district || r.payload?.district || '').toLowerCase() === targetDistrict
       );
     }
     if (programmeParam) {

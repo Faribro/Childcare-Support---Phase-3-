@@ -19,6 +19,7 @@ import {
   type ReadinessSummary,
 } from './beneficiaryReadiness';
 import { deriveSubmissionStages, type SubmissionStages } from '@/lib/shared/submissionStages';
+import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
 
 export type {
   NetworkStatus,
@@ -158,7 +159,35 @@ export function evaluateDocuments(it: any, schoolTypeStr?: string): BeneficiaryD
   };
 }
 
-export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
+function getCurrentSessionScopeSignature(): string | null {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('child_nutrition:user_session_v1');
+    if (!raw) return null;
+    const u = JSON.parse(raw);
+    if (!u || !u.isVerified || !u.userId) return null;
+    const states = [...(u.allowedStates || [])].map((s: string) => s.trim().toLowerCase()).sort().join(',');
+    const districts = [...(u.allowedDistricts || [])].map((d: string) => d.trim().toLowerCase()).sort().join(',');
+    return `${String(u.userId).trim().toLowerCase()}|${u.role}|${states}|${districts}`;
+  } catch {
+    return null;
+  }
+}
+
+function unwrapSubmissionRecord(rawIt: any): any {
+  if (!rawIt || typeof rawIt !== 'object') return rawIt;
+  if (rawIt.payload && typeof rawIt.payload === 'object') {
+    return {
+      ...rawIt.payload,
+      ...rawIt,
+      payload: rawIt.payload,
+    };
+  }
+  return rawIt;
+}
+
+export function parseBeneficiaryRecord(rawIt: any): SupervisorBeneficiaryRow {
+  const it = unwrapSubmissionRecord(rawIt);
   const readiness = deriveBeneficiaryReadiness(it);
 
   const rawBmi = it['34\nBMI'] ?? it['bmi'] ?? it.nutrition?.bmi ?? it.clinical?.bmi ?? 0;
@@ -210,7 +239,8 @@ export function parseBeneficiaryRecord(it: any): SupervisorBeneficiaryRow {
   const age = readiness.age;
   const gender = it['12\nGender'] || it['gender'] || it.demographics?.gender || it.gender || '—';
   const district = it['19\nDistrict'] || it['district'] || it.demographics?.district || it.district || 'General';
-  const state = it['18\nState'] || it['state'] || it.demographics?.state || it.state || 'Maharashtra';
+  const rawState = it['18\nState'] || it['state'] || it.demographics?.state || it.state || 'Maharashtra';
+  const state = canonicalizeStateName(rawState) || rawState;
   const schoolType = it['53\nSchool Type'] || it['school type'] || it.educationStatus?.schoolType || it.education?.schoolType || it.school_type || 'Government school';
   const schoolEnrolled = readiness.isEnrolledInSchool;
   const orphanStatus = readiness.orphanClassification;
@@ -465,6 +495,11 @@ class SupervisorReadModelService {
       const cached = localStorage.getItem(CACHE_STORAGE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
+        const currentScope = getCurrentSessionScopeSignature();
+        if (parsed.scopeKey && currentScope && parsed.scopeKey !== currentScope) {
+          this.clearCache();
+          return;
+        }
         if (Array.isArray(parsed.records) && parsed.records.length > 0) {
           this.state = {
             ...this.state,
@@ -493,6 +528,7 @@ class SupervisorReadModelService {
           records,
           total,
           lastSuccessAt: new Date().toISOString(),
+          scopeKey: getCurrentSessionScopeSignature(),
         })
       );
     } catch {
@@ -631,149 +667,204 @@ class SupervisorReadModelService {
       const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
       try {
-        let url = '/api/submissions?limit=100';
+        const baseParams: string[] = ['limit=100'];
         if (this.activeFilters.state) {
-          url += `&state=${encodeURIComponent(this.activeFilters.state)}`;
+          baseParams.push(`state=${encodeURIComponent(this.activeFilters.state)}`);
         }
         if (this.activeFilters.district) {
-          url += `&district=${encodeURIComponent(this.activeFilters.district)}`;
+          baseParams.push(`district=${encodeURIComponent(this.activeFilters.district)}`);
         }
 
-        const res = await fetch(url, {
-          method: 'GET',
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache, no-store',
-            Pragma: 'no-cache',
-          },
-          signal: controller.signal,
-        });
+        const MAX_FETCH_PAGES = 50;
+        const allRawItems: any[] = [];
+        const seenItemKeys = new Set<string>();
+        const seenCursors = new Set<string>();
+        let pageCursor: string | null = null;
+        let reportedTotal = 0;
+
+        for (let pageIndex = 0; pageIndex < MAX_FETCH_PAGES; pageIndex++) {
+          const queryParts = [...baseParams];
+          if (pageCursor) {
+            queryParts.push(`cursor=${encodeURIComponent(pageCursor)}`);
+          }
+          const url = `/api/submissions?${queryParts.join('&')}`;
+
+          const res = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store',
+              Pragma: 'no-cache',
+            },
+            signal: controller.signal,
+          });
+
+          if (!res.ok) {
+            clearTimeout(timeoutId);
+            // If a subsequent page fails while we already have page 1 records, keep partial result safely
+            if (pageIndex > 0 && allRawItems.length > 0) {
+              break;
+            }
+            let errCode = res.status >= 500 ? 'UPSTREAM_UNAVAILABLE' : 'VALIDATION_ERROR';
+            let errMsg = `Server returned HTTP ${res.status}`;
+            let retryable = res.status !== 400 && res.status !== 401 && res.status !== 403;
+            let reqId: string | undefined;
+
+            try {
+              const errBody = await res.json();
+              if (errBody && typeof errBody === 'object') {
+                if (errBody.code) errCode = errBody.code;
+                if (errBody.message) errMsg = errBody.message;
+                if (typeof errBody.retryable === 'boolean') retryable = errBody.retryable;
+                if (errBody.requestId) reqId = errBody.requestId;
+              }
+            } catch {
+              errMsg = `Gateway returned HTTP ${res.status}: ${res.statusText}`;
+            }
+
+            const nextFailures = this.state.consecutiveFailures + 1;
+            const errorObj = {
+              code: errCode,
+              message: errMsg,
+              retryable,
+              statusCode: res.status,
+              requestId: reqId,
+            };
+
+            // Auth or scope failure: halt polling immediately and purge records
+            if (res.status === 401) {
+              this.clearCache();
+              this.stopPolling();
+              this.state = {
+                ...this.state,
+                records: [],
+                total: 0,
+                dataSource: 'local-only',
+                status: 'unauthorized',
+                consecutiveFailures: nextFailures,
+                networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+                syncStatus: 'failed',
+                error: errorObj,
+              };
+              this.notify();
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('child_nutrition:session_unauthorized'));
+              }
+              return;
+            }
+
+            if (res.status === 403) {
+              this.clearCache();
+              this.stopPolling();
+              this.state = {
+                ...this.state,
+                records: [],
+                total: 0,
+                dataSource: 'local-only',
+                status: 'forbidden',
+                consecutiveFailures: nextFailures,
+                networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+                syncStatus: 'failed',
+                error: errorObj,
+              };
+              this.notify();
+              return;
+            }
+
+            // Non-retryable error (terminal 4xx): halt polling completely!
+            if (!retryable || res.status === 400) {
+              this.stopPolling();
+              this.state = {
+                ...this.state,
+                status: 'error',
+                consecutiveFailures: nextFailures,
+                networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+                syncStatus: 'failed',
+                error: errorObj,
+              };
+              this.notify();
+              return;
+            }
+
+            // Retryable error: retain cached records if available, otherwise show error
+            this.state = {
+              ...this.state,
+              status: this.state.records.length > 0 ? 'offline_cache' : 'error',
+              dataSource: this.state.records.length > 0 ? 'cache' : 'local-only',
+              consecutiveFailures: nextFailures,
+              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
+              syncStatus: retryable ? 'retrying' : 'failed',
+              error: errorObj,
+            };
+            this.notify();
+
+            // Exponential backoff with jitter
+            const backoff = Math.min(
+              10000 * Math.pow(1.5, Math.min(nextFailures, 5)),
+              MAX_BACKOFF_MS
+            ) + Math.random() * 2000;
+
+            if (nextFailures < 6) {
+              this.schedulePoll(backoff);
+            }
+            return;
+          }
+
+          const json = await res.json();
+          let pageItems: any[] = [];
+          if (json.data && Array.isArray(json.data.records)) {
+            pageItems = json.data.records;
+          } else if (Array.isArray(json.data)) {
+            pageItems = json.data;
+          } else if (Array.isArray(json.items)) {
+            pageItems = json.items;
+          }
+
+          if (pageIndex === 0) {
+            reportedTotal = json.data?.total ?? json.pagination?.totalCount ?? pageItems.length;
+          }
+
+          let addedThisPage = 0;
+          for (const rawItem of pageItems) {
+            const keyCandidate =
+              rawItem?.id ||
+              rawItem?.clientSubmissionId ||
+              rawItem?.client_submission_id ||
+              rawItem?.remoteSubmissionId ||
+              rawItem?.remote_submission_id ||
+              rawItem?.uniqueId ||
+              rawItem?.['1\nUnique ID'];
+            const keyStr = keyCandidate ? String(keyCandidate) : null;
+            if (keyStr && seenItemKeys.has(keyStr)) {
+              continue;
+            }
+            if (keyStr) seenItemKeys.add(keyStr);
+            allRawItems.push(rawItem);
+            addedThisPage++;
+          }
+
+          const nextCursor = json.data?.nextCursor ?? json.pagination?.nextCursor ?? null;
+          if (
+            !nextCursor ||
+            typeof nextCursor !== 'string' ||
+            pageItems.length === 0 ||
+            addedThisPage === 0 ||
+            seenCursors.has(nextCursor)
+          ) {
+            break;
+          }
+          seenCursors.add(nextCursor);
+          pageCursor = nextCursor;
+        }
 
         clearTimeout(timeoutId);
 
-        if (!res.ok) {
-          let errCode = res.status >= 500 ? 'UPSTREAM_UNAVAILABLE' : 'VALIDATION_ERROR';
-          let errMsg = `Server returned HTTP ${res.status}`;
-          let retryable = res.status !== 400 && res.status !== 401 && res.status !== 403;
-          let reqId: string | undefined;
-
-          try {
-            const errBody = await res.json();
-            if (errBody && typeof errBody === 'object') {
-              if (errBody.code) errCode = errBody.code;
-              if (errBody.message) errMsg = errBody.message;
-              if (typeof errBody.retryable === 'boolean') retryable = errBody.retryable;
-              if (errBody.requestId) reqId = errBody.requestId;
-            }
-          } catch {
-            errMsg = `Gateway returned HTTP ${res.status}: ${res.statusText}`;
-          }
-
-          const nextFailures = this.state.consecutiveFailures + 1;
-          const errorObj = {
-            code: errCode,
-            message: errMsg,
-            retryable,
-            statusCode: res.status,
-            requestId: reqId,
-          };
-
-          // Auth or scope failure: halt polling immediately and purge records
-          if (res.status === 401) {
-            this.clearCache();
-            this.stopPolling();
-            this.state = {
-              ...this.state,
-              records: [],
-              total: 0,
-              dataSource: 'local-only',
-              status: 'unauthorized',
-              consecutiveFailures: nextFailures,
-              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
-              syncStatus: 'failed',
-              error: errorObj,
-            };
-            this.notify();
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('child_nutrition:session_unauthorized'));
-            }
-            return;
-          }
-
-          if (res.status === 403) {
-            this.clearCache();
-            this.stopPolling();
-            this.state = {
-              ...this.state,
-              records: [],
-              total: 0,
-              dataSource: 'local-only',
-              status: 'forbidden',
-              consecutiveFailures: nextFailures,
-              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
-              syncStatus: 'failed',
-              error: errorObj,
-            };
-            this.notify();
-            return;
-          }
-
-          // Non-retryable error (terminal 4xx): halt polling completely!
-          if (!retryable || res.status === 400) {
-            this.stopPolling();
-            this.state = {
-              ...this.state,
-              status: 'error',
-              consecutiveFailures: nextFailures,
-              networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
-              syncStatus: 'failed',
-              error: errorObj,
-            };
-            this.notify();
-            return;
-          }
-
-          // Retryable error: retain cached records if available, otherwise show error
-          this.state = {
-            ...this.state,
-            status: this.state.records.length > 0 ? 'offline_cache' : 'error',
-            dataSource: this.state.records.length > 0 ? 'cache' : 'local-only',
-            consecutiveFailures: nextFailures,
-            networkStatus: getBrowserNetworkHint() === 'offline' ? 'offline' : 'online',
-            syncStatus: retryable ? 'retrying' : 'failed',
-            error: errorObj,
-          };
-          this.notify();
-
-          // Exponential backoff with jitter
-          const backoff = Math.min(
-            10000 * Math.pow(1.5, Math.min(nextFailures, 5)),
-            MAX_BACKOFF_MS
-          ) + Math.random() * 2000;
-
-          if (nextFailures < 6) {
-            this.schedulePoll(backoff);
-          }
-          return;
-        }
-
-        const json = await res.json();
-        let rawItems: any[] = [];
-        if (json.data && Array.isArray(json.data.records)) {
-          rawItems = json.data.records;
-        } else if (Array.isArray(json.data)) {
-          rawItems = json.data;
-        } else if (Array.isArray(json.items)) {
-          rawItems = json.items;
-        }
-
-        const reportedTotal = json.data?.total ?? json.pagination?.totalCount ?? rawItems.length;
-        const mapped = rawItems.map(parseBeneficiaryRecord);
+        const mapped = allRawItems.map(parseBeneficiaryRecord);
         const now = new Date();
 
         this.state = {
           records: mapped,
-          total: reportedTotal > 0 ? reportedTotal : mapped.length,
+          total: Math.max(reportedTotal || 0, mapped.length),
           status: mapped.length === 0 ? 'empty' : 'success',
           lastRefreshed: now,
           lastSuccessAt: now,

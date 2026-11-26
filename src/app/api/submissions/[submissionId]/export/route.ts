@@ -48,7 +48,7 @@ export async function GET(
         {
           status: 'error',
           code: 'UNAUTHORIZED',
-          message: 'Authentication required to export official evaluation dossier.',
+          message: 'Authentication required to export official assessment report.',
         },
         { status: 401, headers: EXPORT_NO_STORE_HEADERS }
       );
@@ -70,7 +70,7 @@ export async function GET(
     }
 
     const record = result.data;
-    const access = evaluateRecordAccess(scope, record, 'assessment dossier');
+    const access = evaluateRecordAccess(scope, record, 'assessment record');
     if (!access.allowed) {
       logSecurityEvent({
         actor: scope.userId,

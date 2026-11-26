@@ -306,8 +306,8 @@ export function deriveLifecycle(record: any): SubmissionLifecycle {
 /**
  * Pure typed function to derive all five stage dimensions of a submission.
  */
-export function deriveSubmissionStages(record: any): SubmissionStages {
-  if (!record || typeof record !== 'object' || Object.keys(record).length === 0) {
+export function deriveSubmissionStages(rawRecord: any): SubmissionStages {
+  if (!rawRecord || typeof rawRecord !== 'object' || Object.keys(rawRecord).length === 0) {
     return {
       lifecycle: 'draft',
       intakeCompleteness: 'unknown',
@@ -340,6 +340,11 @@ export function deriveSubmissionStages(record: any): SubmissionStages {
       missingIntakeFields: ['childName', 'dob', 'gender', 'caregiverName', 'state', 'district'],
     };
   }
+
+  const record =
+    rawRecord.payload && typeof rawRecord.payload === 'object'
+      ? { ...rawRecord.payload, ...rawRecord }
+      : rawRecord;
 
   // 1. Lifecycle
   const lifecycle = deriveLifecycle(record);
