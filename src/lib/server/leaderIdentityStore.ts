@@ -215,6 +215,16 @@ export function getPublicDirectoryLeaders(): PublicDirectoryLeader[] {
 }
 
 /**
+ * Returns full active leader identities for server-side authorization and security
+ * notification dispatch (never expose directly to signed-out clients).
+ */
+export function getActiveLeaderIdentities(): LeaderIdentity[] {
+  return leadersDatabase
+    .filter((l) => l.isActive && Boolean(l.email))
+    .map((l) => ({ ...l }));
+}
+
+/**
  * Looks up a leader identity by email (case-insensitive).
  */
 export function findLeaderByEmail(email: string): LeaderIdentity | null {

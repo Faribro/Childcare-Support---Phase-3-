@@ -414,6 +414,10 @@ function onOpen(e) {
       .addItem('Apply: Protect Header & Governance Ranges', 'menuApplyProtectedRanges')
       .addItem('Apply: Refresh Linelist Formatting', 'menuRefreshSheetPresentation')
       .addToUi();
+
+    ui.createMenu('Staff Access')
+      .addItem('State Code Invitation', 'menuOpenStateCodeInvitation')
+      .addToUi();
   } catch (err) {
     Logger.log('onOpen UI menu could not be created: ' + err);
   }
@@ -4707,8 +4711,14 @@ function handleSendLeadershipOtp_(payload) {
       name: 'Alliance Childcare Support'
     });
 
+    var quotaAfter = null;
+    try {
+      quotaAfter = MailApp.getRemainingDailyQuota();
+    } catch (qErr) {}
+
     return ContentService.createTextOutput(JSON.stringify({
-      success: true
+      success: true,
+      remainingDailyQuota: quotaAfter
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {

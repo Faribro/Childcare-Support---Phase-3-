@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 18px 20px 20px;
+        color: #0f172a;
+        background: #ffffff;
+        font-size: 13px;
+      }
+      .header {
+        border-bottom: 2px solid #0d9488;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+      }
+      .header h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .header p {
+        margin: 4px 0 0;
+        font-size: 11.5px;
+        color: #475569;
+      }
+      .field {
+        margin-bottom: 12px;
+      }
+      .field label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #334155;
+        margin-bottom: 4px;
+      }
+      .field input,
+      .field select {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #0f172a;
+        background: #fff;
+      }
+      .field input:focus,
+      .field select:focus {
+        outline: 2px solid #0d9488;
+        outline-offset: -1px;
+        border-color: #0d9488;
+      }
+      .numeric-panel {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .numeric-panel-meta {
+        font-size: 11px;
+        color: #475569;
+        line-height: 1.35;
+      }
+      .numeric-panel-meta strong {
+        display: block;
+        font-size: 12px;
+        color: #1e293b;
+      }
+      .numeric-badge {
+        min-width: 68px;
+        text-align: center;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: #1e3a8a;
+        color: #ffffff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+      }
+      .status-box {
+        min-height: 44px;
+        margin-bottom: 14px;
+        padding: 9px 11px;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        color: #475569;
+      }
+      .status-box.success {
+        border-color: #86efac;
+        background: #f0fdf4;
+        color: #166534;
+      }
+      .status-box.error {
+        border-color: #fca5a5;
+        background: #fef2f2;
+        color: #991b1b;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .btn-send {
+        width: 100%;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 6px;
+        background: #0d9488;
+        color: #ffffff;
+        font-size: 13.5px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .btn-send:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h2>State Code Invitation</h2>
+      <p>Issues a single-use, email-bound access invitation via the application server.</p>
+    </div>
+
+    <form id="invitationForm" novalidate>
+      <div class="field">
+        <label for="recipientName">Recipient Name</label>
+        <input id="recipientName" name="recipientName" type="text" placeholder="Full name" required maxlength="120" />
+      </div>
+
+      <div class="field">
+        <label for="recipientEmail">Recipient Email</label>
+        <input id="recipientEmail" name="recipientEmail" type="email" placeholder="name@allianceindia.org" required maxlength="254" />
+      </div>
+
+      <div class="field">
+        <label for="stateSelect">State / Union Territory</label>
+        <select id="stateSelect" name="assignedState" required>
+          <option value="">-- Select State or UT --</option>
+        </select>
+      </div>
+
+      <div id="numericPanel" class="numeric-panel" aria-live="polite">
+        <div class="numeric-panel-meta">
+          <strong>LGD Numeric Code (Informational)</strong>
+          <span>Display reference only — not a login or invitation credential.</span>
+        </div>
+        <div id="numericCodeValue" class="numeric-badge">---</div>
+      </div>
+
+      <div id="statusBox" class="status-box" role="status" aria-live="polite">
+        Enter recipient details and select a state. The single-use code is emailed directly by the app and never displayed here.
+      </div>
+
+      <div class="actions">
+        <button id="sendBtn" type="submit" class="btn-send">Send</button>
+      </div>
+    </form>
+
+    <script id="catalogData" type="application/json"><?!= stateCatalogJson ?></script>
+    <script>
+      (function () {
+        var catalog = [];
+        try {
+          var raw = document.getElementById('catalogData').textContent || '[]';
+          catalog = JSON.parse(raw);
+        } catch (e) {
+          catalog = [];
+        }
+
+        var stateByName = {};
+        var stateSelect = document.getElementById('stateSelect');
+        var numericCodeEl = document.getElementById('numericCodeValue');
+        var statusBox = document.getElementById('statusBox');
+        var form = document.getElementById('invitationForm');
+        var nameInput = document.getElementById('recipientName');
+        var emailInput = document.getElementById('recipientEmail');
+        var sendBtn = document.getElementById('sendBtn');
+
+        for (var i = 0; i < catalog.length; i++) {
+          var entry = catalog[i];
+          stateByName[entry.canonicalName] = entry;
+          var opt = document.createElement('option');
+          opt.value = entry.canonicalName;
+          opt.textContent = entry.canonicalName;
+          stateSelect.appendChild(opt);
+        }
+
+        function setStatus(type, msg) {
+          statusBox.className = 'status-box' + (type ? ' ' + type : '');
+          statusBox.textContent = msg;
+        }
+
+        stateSelect.addEventListener('change', function () {
+          var selected = stateByName[stateSelect.value];
+          numericCodeEl.textContent = selected ? selected.lgdNumericCode : '---';
+        });
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var recipientName = (nameInput.value || '').trim();
+          var recipientEmail = (emailInput.value || '').trim().toLowerCase();
+          var assignedState = (stateSelect.value || '').trim();
+
+          if (!recipientName || recipientName.length < 2) {
+            setStatus('error', 'Please enter the recipient name (at least 2 characters).');
+            return;
+          }
+          if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+            setStatus('error', 'Please enter a valid recipient email address.');
+            return;
+          }
+          if (!assignedState || !stateByName[assignedState]) {
+            setStatus('error', 'Please select a State or Union Territory.');
+            return;
+          }
+
+          sendBtn.disabled = true;
+          sendBtn.textContent = 'Sending...';
+          setStatus('', 'Submitting invitation request...');
+
+          if (typeof google === 'undefined' || !google.script || !google.script.run) {
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Send';
+            setStatus('error', 'Apps Script runtime unavailable in this context.');
+            return;
+          }
+
+          google.script.run
+            .withSuccessHandler(function (res) {
+              sendBtn.disabled = false;
+              sendBtn.textContent = 'Send';
+              if (res && res.ok) {
+                setStatus('success', res.message || 'Invitation sent.');
+                form.reset();
+                numericCodeEl.textContent = '---';
+              } else {
+                setStatus('error', (res && res.message) || 'Failed to issue invitation.');
+              }
+            })
+            .withFailureHandler(function (err) {
+              sendBtn.disabled = false;
+              sendBtn.textContent = 'Send';
+              setStatus('error', (err && err.message) ? err.message : 'Unexpected server error.');
+            })
+            .submitStateCodeInvitation({
+              recipientName: recipientName,
+              recipientEmail: recipientEmail,
+              assignedState: assignedState
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>

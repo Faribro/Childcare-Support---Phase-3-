@@ -26,6 +26,17 @@ export interface SendEmailResult {
   messageId?: string;
   error?: string;
   provider: 'smtp' | 'resend' | 'mock_logger' | 'apps_script';
+  remainingDailyQuota?: number | null;
+}
+
+function escapeEmailHtml(raw?: string | null): string {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export interface DispatchedEmailRecord extends SendEmailParams {
@@ -335,10 +346,16 @@ export class AppsScriptEmailProvider implements EmailProvider {
         };
       }
 
+      const remainingDailyQuota =
+        typeof data.remainingDailyQuota === 'number' && Number.isFinite(data.remainingDailyQuota)
+          ? data.remainingDailyQuota
+          : null;
+
       return {
         success: true,
         messageId: `gas-otp-${Date.now()}`,
         provider: 'apps_script',
+        remainingDailyQuota,
       };
     } catch (err: any) {
       const sanitized = sanitizeEmailProviderError(err);
@@ -1037,6 +1054,7 @@ ${portalUrl}
  */
 export async function sendStateTeamAccessInvitationEmail({
   to,
+  recipientName,
   assignedState,
   plainCode,
   issuedBy,
@@ -1044,6 +1062,7 @@ export async function sendStateTeamAccessInvitationEmail({
   portalUrl,
 }: {
   to: string;
+  recipientName?: string;
   assignedState: string;
   plainCode: string;
   issuedBy: string;
@@ -1051,6 +1070,12 @@ export async function sendStateTeamAccessInvitationEmail({
   portalUrl: string;
 }): Promise<SendEmailResult> {
   const provider = getEmailProvider();
+  const safeName = escapeEmailHtml(recipientName?.trim() || '');
+  const safeIssuedBy = escapeEmailHtml(issuedBy);
+  const safeState = escapeEmailHtml(assignedState);
+  const safeTo = escapeEmailHtml(to);
+  const greetingHtml = safeName ? `Hello <strong>${safeName}</strong>,` : 'Hello,';
+  const greetingText = recipientName?.trim() ? `Hello ${recipientName.trim()},` : 'Hello,';
   const subject = `State Team Access Invitation — ${assignedState}`;
 
   const html = `
@@ -1063,10 +1088,10 @@ export async function sendStateTeamAccessInvitationEmail({
             <p style="color: #0d9488; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">Childcare Support Programme — State Team Access Invitation</p>
           </div>
 
-          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">Hello,</p>
+          <p style="color: #334155; font-size: 15px; margin-bottom: 16px;">${greetingHtml}</p>
 
           <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
-            Administration (${issuedBy}) has issued a single-use State Team access invitation bound to <strong>${to}</strong> for <strong>${assignedState}</strong>.
+            Administration (${safeIssuedBy}) has issued a single-use State Team access invitation bound to <strong>${safeTo}</strong> for <strong>${safeState}</strong>.
           </p>
 
           <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
@@ -1078,15 +1103,15 @@ export async function sendStateTeamAccessInvitationEmail({
 
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.6;">
             <ul style="margin: 0; padding-left: 18px;">
-              <li><strong>Bound Email:</strong> Valid only for <strong>${to}</strong> after email OTP verification.</li>
-              <li><strong>Assigned State Scope:</strong> ${assignedState}</li>
+              <li><strong>Bound Email:</strong> Valid only for <strong>${safeTo}</strong> after email OTP verification.</li>
+              <li><strong>Assigned State Scope:</strong> ${safeState}</li>
               <li><strong>Redemption Limit:</strong> Single-use only.</li>
-              <li><strong>Expires At:</strong> ${expiresAtIso}</li>
+              <li><strong>Expires At:</strong> ${escapeEmailHtml(expiresAtIso)}</li>
             </ul>
           </div>
 
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${portalUrl}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
+            <a href="${escapeEmailHtml(portalUrl)}" style="background-color: #0d9488; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">
               Complete State Team Setup
             </a>
           </div>
@@ -1096,6 +1121,8 @@ export async function sendStateTeamAccessInvitationEmail({
   `;
 
   const text = `
+${greetingText}
+
 State Team Access Invitation (${assignedState})
 
 Issued by: ${issuedBy}
@@ -1114,6 +1141,88 @@ ${portalUrl}
     html,
     text,
     otp: plainCode,
+    action: 'send_transactional_email',
+  });
+}
+
+/**
+ * Security audit notification sent to Programme Administrators whenever a State Code Invitation
+ * is issued (strictly excludes plaintext invitation codes and bridge secrets).
+ */
+export async function sendAdminStateInvitationNotificationEmail({
+  adminEmail,
+  senderEmail,
+  recipientName,
+  recipientEmail,
+  assignedState,
+  invitationId,
+  expiresAtIso,
+  source = 'sheet_bridge',
+}: {
+  adminEmail: string;
+  senderEmail: string;
+  recipientName?: string;
+  recipientEmail: string;
+  assignedState: string;
+  invitationId: string;
+  expiresAtIso: string;
+  source?: string;
+}): Promise<SendEmailResult> {
+  const provider = getEmailProvider();
+  const safeSender = escapeEmailHtml(senderEmail);
+  const safeRecipientName = escapeEmailHtml(recipientName || '—');
+  const safeRecipientEmail = escapeEmailHtml(recipientEmail);
+  const safeState = escapeEmailHtml(assignedState);
+  const safeInviteId = escapeEmailHtml(invitationId);
+  const safeSource = escapeEmailHtml(source);
+  const subject = `[Security Alert] State Team Invitation Issued — ${assignedState}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px;">
+        <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 32px;">
+          <div style="border-bottom: 2px solid #0284c7; padding-bottom: 14px; margin-bottom: 20px;">
+            <h1 style="color: #0f172a; font-size: 18px; font-weight: bold; margin: 0;">India HIV/AIDS Alliance — Security Notice</h1>
+            <p style="color: #0369a1; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;">State Team Access Invitation Issued</p>
+          </div>
+          <p style="color: #334155; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
+            A single-use State Team access invitation was issued. This notification contains audit metadata only (no invitation code or secret).
+          </p>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
+            <tr><td style="padding: 6px 0; font-weight: 600;">Sender:</td><td style="padding: 6px 0;">${safeSender}</td></tr>
+            <tr><td style="padding: 6px 0; font-weight: 600;">Recipient Name:</td><td style="padding: 6px 0;">${safeRecipientName}</td></tr>
+            <tr><td style="padding: 6px 0; font-weight: 600;">Recipient Email:</td><td style="padding: 6px 0;">${safeRecipientEmail}</td></tr>
+            <tr><td style="padding: 6px 0; font-weight: 600;">Assigned State:</td><td style="padding: 6px 0;">${safeState}</td></tr>
+            <tr><td style="padding: 6px 0; font-weight: 600;">Invitation ID:</td><td style="padding: 6px 0;">${safeInviteId}</td></tr>
+            <tr><td style="padding: 6px 0; font-weight: 600;">Expires At:</td><td style="padding: 6px 0;">${escapeEmailHtml(expiresAtIso)}</td></tr>
+            <tr><td style="padding: 6px 0; font-weight: 600;">Channel:</td><td style="padding: 6px 0;">${safeSource}</td></tr>
+          </table>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+[Security Notice] State Team Access Invitation Issued
+
+Sender: ${senderEmail}
+Recipient Name: ${recipientName || '—'}
+Recipient Email: ${recipientEmail}
+Assigned State: ${assignedState}
+Invitation ID: ${invitationId}
+Expires At: ${expiresAtIso}
+Channel: ${source}
+
+No invitation code or secret is included in this audit notice.
+  `.trim();
+
+  return provider.sendEmail({
+    to: adminEmail,
+    subject,
+    html,
+    text,
+    otp: `tx-${Date.now()}`,
     action: 'send_transactional_email',
   });
 }

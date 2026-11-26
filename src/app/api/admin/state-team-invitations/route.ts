@@ -5,12 +5,7 @@ import {
   logSecurityEvent,
 } from '@/lib/server/authorisation';
 import { getOnboardingStore } from '@/lib/server/onboardingStore';
-import { canonicalizeStateName } from '@/lib/constants/stateNormalization';
-import {
-  generatePlaintextInvitationCode,
-  createInvitationVerifierPair,
-} from '@/lib/server/invitationCrypto';
-import { sendStateTeamAccessInvitationEmail } from '@/lib/server/emailProvider';
+import { issueStateTeamAccessInvitationRecord } from '@/lib/server/stateTeamInvitationService';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,71 +69,58 @@ export async function POST(req: NextRequest) {
   }
 
   const invitedEmail = typeof body?.invitedEmail === 'string' ? body.invitedEmail.trim().toLowerCase() : '';
+  const recipientName = typeof body?.recipientName === 'string' ? body.recipientName.trim() : undefined;
   const rawState = typeof body?.assignedState === 'string' ? body.assignedState.trim() : '';
   const note = typeof body?.note === 'string' ? body.note.trim() : undefined;
-  const rawDays = Number(body?.expiresInDays);
-  const expiresInDays = Number.isFinite(rawDays) && rawDays >= 1 && rawDays <= 30 ? Math.floor(rawDays) : 7;
-
-  if (!invitedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail)) {
-    return NextResponse.json(
-      { status: 'error', error: 'A valid official work email address is required.' },
-      { status: 400, headers: NO_STORE_HEADERS }
-    );
-  }
-
-  if (!rawState) {
-    return NextResponse.json(
-      { status: 'error', error: 'Assigned state is required.' },
-      { status: 400, headers: NO_STORE_HEADERS }
-    );
-  }
-
-  const assignedState = canonicalizeStateName(rawState) || rawState;
-  const plainCode = generatePlaintextInvitationCode(assignedState);
-  const { salt, verifier } = createInvitationVerifierPair(plainCode);
+  const expiresInDays = typeof body?.expiresInDays === 'number' ? body.expiresInDays : Number(body?.expiresInDays);
   const issuedBy = scope.username || scope.userId || 'administration';
-  const expiresAt = Date.now() + expiresInDays * 24 * 60 * 60 * 1000;
-
-  const store = getOnboardingStore();
-  const invitation = await store.createStateTeamAccessInvitation({
-    invitedEmail,
-    assignedState,
-    codeSalt: salt,
-    codeVerifier: verifier,
-    issuedBy,
-    expiresAt,
-    note,
-  });
-
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin || 'https://childcare.allianceindia.org';
   const portalUrl = `${baseUrl.replace(/\/+$/, '')}/app`;
-  const emailRes = await sendStateTeamAccessInvitationEmail({
-    to: invitedEmail,
-    assignedState,
-    plainCode,
+
+  const result = await issueStateTeamAccessInvitationRecord({
+    source: 'admin_portal',
+    recipientName,
+    invitedEmail,
+    assignedState: rawState,
     issuedBy,
-    expiresAtIso: new Date(expiresAt).toISOString(),
+    actorRateKey: scope.username || scope.userId || 'administration',
+    note,
+    expiresInDays,
     portalUrl,
+    notifyAdministrators: false,
   });
+
+  if (!result.success) {
+    return NextResponse.json(
+      { status: 'error', code: result.code, error: result.error },
+      {
+        status: result.statusCode,
+        headers: {
+          ...NO_STORE_HEADERS,
+          ...(result.retryAfterSeconds ? { 'Retry-After': String(result.retryAfterSeconds) } : {}),
+        },
+      }
+    );
+  }
 
   logSecurityEvent({
     actor: scope.userId,
     actorRole: scope.role,
     eventType: 'STATE_TEAM_INVITATION_ISSUED',
     outcome: 'ALLOW',
-    targetResource: invitation.id,
-    scope: `state=${assignedState},email=${invitedEmail}`,
-    details: `Issued single-use State Team access invitation for ${invitedEmail} (${assignedState})`,
+    targetResource: result.invitation.id,
+    scope: `state=${result.invitation.assignedState},email=${result.invitation.invitedEmail}`,
+    details: `Issued single-use State Team access invitation for ${result.invitation.invitedEmail} (${result.invitation.assignedState})`,
   });
 
-  const { codeSalt: _s, codeVerifier: _v, ...sanitized } = invitation;
   return NextResponse.json(
     {
       status: 'success',
-      invitation: sanitized,
-      plainCode,
-      emailDispatched: emailRes.success,
-      emailError: emailRes.success ? undefined : emailRes.error,
+      invitation: result.invitation,
+      plainCode: result.plainCode,
+      emailDispatched: result.emailDispatched,
+      emailError: result.emailError,
+      remainingDailyQuota: result.remainingDailyQuota,
     },
     { status: 201, headers: NO_STORE_HEADERS }
   );
