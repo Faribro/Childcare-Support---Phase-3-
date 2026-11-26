@@ -289,22 +289,48 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
       expect(data.code).toBe('FORBIDDEN_SCOPE');
     });
 
-    it('rejects STATE_REVIEWER hard delete attempts with HTTP 403 FORBIDDEN', async () => {
+    it('requires reason and enforces state scope on STATE_REVIEWER soft delete attempts', async () => {
       const mhAuth = await authenticateUser('STATE-MH', getTestStatePassword('MH'), TEST_IP);
       if (!mhAuth.success) throw new Error('Auth failed');
 
-      const deleteReq = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+      const missingReasonReq = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
         method: 'DELETE',
         headers: {
           Origin: 'http://localhost:3000',
           Cookie: `evaluation_session_token=${mhAuth.token}`,
         },
       });
+      const missingRes = await deleteSubmissionRoute(missingReasonReq, { params: { submissionId: 'MH-PUN-081200-02' } });
+      expect(missingRes.status).toBe(400);
+      expect((await missingRes.json()).code).toBe('DELETE_REASON_REQUIRED');
 
-      const res = await deleteSubmissionRoute(deleteReq, { params: { submissionId: 'MH-PUN-081200-02' } });
-      expect(res.status).toBe(403);
+      const crossStateReq = new NextRequest('http://localhost:3000/api/submissions/WB-KOL-081200-01', {
+        method: 'DELETE',
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `evaluation_session_token=${mhAuth.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: 'Out of state check' }),
+      });
+      const crossRes = await deleteSubmissionRoute(crossStateReq, { params: { submissionId: 'WB-KOL-081200-01' } });
+      expect(crossRes.status).toBe(403);
+      expect((await crossRes.json()).code).toBe('FORBIDDEN_SCOPE');
+
+      const validDeleteReq = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
+        method: 'DELETE',
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `evaluation_session_token=${mhAuth.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: 'Duplicate beneficiary entry confirmed' }),
+      });
+      const res = await deleteSubmissionRoute(validDeleteReq, { params: { submissionId: 'MH-PUN-081200-02' } });
+      expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.code).toBe('FORBIDDEN');
+      expect(data.status).toBe('success');
+      expect(data.softDeleted).toBe(true);
     });
 
     it('rejects STATE_REVIEWER record edit (PATCH) attempts with HTTP 403 FORBIDDEN under Model A', async () => {
@@ -407,7 +433,7 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
       expect(dataAll.status).toBe('success');
     });
 
-    it('rejects leadership credential attempting to DELETE records with HTTP 403 FORBIDDEN', async () => {
+    it('permits leadership credential to soft-delete records across states with HTTP 200', async () => {
       const leadAuth = await authenticateUser('LEADERSHIP-ALL', TEST_LEADERSHIP_PWD, TEST_IP);
       if (!leadAuth.success) throw new Error('Auth failed');
 
@@ -416,13 +442,16 @@ describe('State-Scoped Evaluation Access & Password-Free Form Workflows', () => 
         headers: {
           Origin: 'http://localhost:3000',
           Cookie: `evaluation_session_token=${leadAuth.token}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ reason: 'Leadership administrative removal' }),
       });
 
       const res = await deleteSubmissionRoute(deleteReq, { params: { submissionId: 'MH-PUN-081200-02' } });
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.code).toBe('FORBIDDEN');
+      expect(data.status).toBe('success');
+      expect(data.softDeleted).toBe(true);
     });
 
     it('permits leadership credential to PATCH records within authorized scope with HTTP 200', async () => {

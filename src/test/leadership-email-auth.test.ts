@@ -1063,7 +1063,7 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       expect(Array.isArray(body.data.records)).toBe(true);
     });
 
-    it('rejects DELETE attempts by leadership session with HTTP 403 FORBIDDEN', async () => {
+    it('allows Administration (LEADERSHIP email session) to soft-delete records with HTTP 200', async () => {
       const email = 'ananya.roy@example.org';
       const deviceBindingSecret = generateDeviceBindingSecret();
       await requestLeadershipAuthCode({ email, deviceBindingSecret });
@@ -1074,17 +1074,21 @@ describe('PR B: Individual Allowlisted Leadership Email Authentication', () => {
       const req = new NextRequest('http://localhost:3000/api/submissions/MH-PUN-081200-02', {
         method: 'DELETE',
         headers: {
+          Origin: 'http://localhost:3000',
+          'Content-Type': 'application/json',
           cookie: `${LEADER_COOKIE_NAME}=${sessionId}`,
         },
+        body: JSON.stringify({ reason: 'Administration soft delete check' }),
       });
 
       const res = await deleteSubmissionRoute(req, {
         params: { submissionId: 'MH-PUN-081200-02' },
       });
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.code).toBe('FORBIDDEN');
+      expect(body.status).toBe('success');
+      expect(body.softDeleted).toBe(true);
     });
 
     it('rejects POST asset uploads by leadership session with HTTP 403 FORBIDDEN', async () => {

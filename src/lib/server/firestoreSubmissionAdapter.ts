@@ -577,7 +577,7 @@ export class FirestoreSubmissionAdapter {
     let actualDocRef: any = null;
     if (db) {
       const resolved = await this.resolveSubmissionDoc(submissionId, db);
-      if (!resolved) {
+      if (!resolved || resolved.data.deletedAt || resolved.data.isDeleted === true || resolved.data.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -589,7 +589,7 @@ export class FirestoreSubmissionAdapter {
       actualDocRef = resolved.ref;
     } else {
       existing = this.resolveMockSubmission(submissionId);
-      if (!existing) {
+      if (!existing || existing.deletedAt || existing.isDeleted === true || existing.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -658,21 +658,44 @@ export class FirestoreSubmissionAdapter {
 
   /**
    * GET: Retrieves submission by ID from Firestore (supporting docId, uniqueId, or clientSubmissionId).
+   * Excludes soft-deleted tombstones unless options.includeDeleted is true.
    */
-  public async getSubmission(id: string, session?: any): Promise<any> {
+  public async getSubmission(
+    id: string,
+    session?: any,
+    options?: { includeDeleted?: boolean }
+  ): Promise<any> {
+    const isDeletedRecord = (rec: any) =>
+      Boolean(rec && (rec.deletedAt || rec.isDeleted === true || rec.status === 'DELETED'));
+
     const db = await this.getDb();
     if (db) {
       const resolved = await this.resolveSubmissionDoc(id, db);
-      return resolved ? resolved.data : null;
+      if (!resolved) return null;
+      if (!options?.includeDeleted && isDeletedRecord(resolved.data)) {
+        return null;
+      }
+      return resolved.data;
     }
-    return this.resolveMockSubmission(id);
+    const mockRec = this.resolveMockSubmission(id);
+    if (!mockRec) return null;
+    if (!options?.includeDeleted && isDeletedRecord(mockRec)) {
+      return null;
+    }
+    return mockRec;
   }
 
   /**
    * LIST: Queries submissions with optional state/district filtering and cursor pagination.
    */
-  public async listSubmissions(params: CanonicalListParams = {}, session?: any): Promise<any> {
+  public async listSubmissions(
+    params: CanonicalListParams & { includeDeleted?: boolean } = {},
+    session?: any
+  ): Promise<any> {
     const limit = params.limit || 50;
+    const includeDeleted = Boolean(params.includeDeleted);
+    const isDeletedRecord = (rec: any) =>
+      Boolean(rec && (rec.deletedAt || rec.isDeleted === true || rec.status === 'DELETED'));
     const db = await this.getDb();
 
     if (db) {
@@ -694,8 +717,11 @@ export class FirestoreSubmissionAdapter {
       }
 
       const snap = await query.limit(limit).get();
-      const items = snap.docs.map((d: any) => d.data());
-      const hasMore = items.length === limit;
+      let items = snap.docs.map((d: any) => d.data());
+      if (!includeDeleted) {
+        items = items.filter((item: any) => !isDeletedRecord(item));
+      }
+      const hasMore = snap.docs.length === limit;
       const nextCursor = hasMore && items.length > 0 ? (items[items.length - 1].submissionTime || items[items.length - 1].id) : null;
       return {
         items,
@@ -706,6 +732,9 @@ export class FirestoreSubmissionAdapter {
     }
 
     let items = Array.from(this.mockSubmissions.values());
+    if (!includeDeleted) {
+      items = items.filter((i) => !isDeletedRecord(i));
+    }
     if (params.state && params.state !== '*' && params.state.toUpperCase() !== 'ALL') {
       const variants = getStateQueryVariants(params.state);
       items = items.filter((i) => variants.some((v) => v.toLowerCase() === (i.state || '').toLowerCase()));
@@ -829,16 +858,232 @@ export class FirestoreSubmissionAdapter {
   }
 
   /**
-   * DELETE: Marks document as deleted in Firestore.
+   * SOFT DELETE: Tombstones document in Firestore (deletedAt/deletedBy/deleteReason)
+   * instead of erasing, and mirrors trash request best-effort to Sheets/Drive.
    */
-  public async deleteSubmission(id: string, session?: any): Promise<any> {
-    const db = await this.getDb();
-    if (db) {
-      await db.collection('submissions').doc(id).delete();
-    } else {
-      this.mockSubmissions.delete(id);
+  public async deleteSubmission(
+    id: string,
+    context?: {
+      actorId?: string;
+      actorName?: string;
+      actorRole?: string;
+      reason?: string;
+      deletedAt?: string;
+      requestId?: string;
     }
-    return { status: 'success', deleted: true, id };
+  ): Promise<any> {
+    const db = await this.getDb();
+    const now = context?.deletedAt || new Date().toISOString();
+    let existing: any = null;
+    let resolvedRef: any = null;
+
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(id, db);
+      if (!resolved) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found in Firestore.`,
+        };
+      }
+      existing = resolved.data;
+      resolvedRef = resolved.ref;
+    } else {
+      existing = this.resolveMockSubmission(id);
+      if (!existing) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found.`,
+        };
+      }
+    }
+
+    const resolvedId = existing.id || id;
+    const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || resolvedId;
+
+    if (existing.deletedAt || existing.isDeleted === true || existing.status === 'DELETED') {
+      return {
+        success: true,
+        status: 'success',
+        statusCode: 200,
+        deleted: true,
+        softDeleted: true,
+        alreadyDeleted: true,
+        id: resolvedId,
+        uniqueId: resolvedUniqueId,
+        deletedAt: existing.deletedAt,
+        deletedBy: existing.deletedBy,
+        reason: existing.deleteReason,
+        message: `Record ${resolvedId} is already soft-deleted.`,
+      };
+    }
+
+    const cleanReason = (context?.reason || '').trim() || 'Deleted by Administration';
+    const tombstone: Record<string, any> = {
+      deletedAt: now,
+      deletedBy: context?.actorId || 'system',
+      deletedByName: context?.actorName || context?.actorId || 'System',
+      deletedByRole: context?.actorRole || 'LEADERSHIP',
+      deleteReason: cleanReason,
+      previousStatus: existing.previousStatus || (existing.status !== 'DELETED' ? existing.status : 'SUBMITTED') || 'SUBMITTED',
+      status: 'DELETED',
+      isDeleted: true,
+      updatedAt: now,
+    };
+
+    if (db && resolvedRef) {
+      await resolvedRef.update(tombstone);
+    } else if (existing) {
+      Object.assign(existing, tombstone);
+    }
+
+    if (this.gatewayClient) {
+      try {
+        await this.gatewayClient.callGateway({
+          action: 'delete',
+          softDelete: true,
+          uniqueId: resolvedUniqueId,
+          submissionId: resolvedId,
+          remoteSubmissionId: resolvedId,
+          deletedAt: now,
+          deletedBy: tombstone.deletedBy,
+          reason: cleanReason,
+          state: existing.state || existing.payload?.state || '',
+          requestId: context?.requestId,
+        });
+      } catch (mirrorErr: any) {
+        console.warn(`[FIRESTORE_MIRROR] Soft delete mirror failed for ${resolvedUniqueId}:`, mirrorErr?.message);
+      }
+    }
+
+    return {
+      success: true,
+      status: 'success',
+      statusCode: 200,
+      deleted: true,
+      softDeleted: true,
+      id: resolvedId,
+      uniqueId: resolvedUniqueId,
+      deletedAt: now,
+      deletedBy: tombstone.deletedBy,
+      reason: cleanReason,
+      message: `Record ${resolvedId} soft-deleted successfully.`,
+    };
+  }
+
+  /**
+   * RESTORE: Restores a soft-deleted submission tombstone and marks it active.
+   */
+  public async restoreSubmission(
+    id: string,
+    context?: {
+      actorId?: string;
+      actorName?: string;
+      actorRole?: string;
+      reason?: string;
+      requestId?: string;
+    }
+  ): Promise<any> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    let existing: any = null;
+    let resolvedRef: any = null;
+
+    if (db) {
+      const resolved = await this.resolveSubmissionDoc(id, db);
+      if (!resolved) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found in Firestore.`,
+        };
+      }
+      existing = resolved.data;
+      resolvedRef = resolved.ref;
+    } else {
+      existing = this.resolveMockSubmission(id);
+      if (!existing) {
+        return {
+          success: false,
+          status: 'error',
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: `Submission ${id} not found.`,
+        };
+      }
+    }
+
+    const resolvedId = existing.id || id;
+    const resolvedUniqueId = existing.uniqueId || existing['1\nUnique Identifier'] || resolvedId;
+    if (!existing.deletedAt && existing.isDeleted !== true && existing.status !== 'DELETED') {
+      return {
+        success: false,
+        status: 'error',
+        statusCode: 409,
+        code: 'NOT_DELETED',
+        message: `Record ${resolvedId} is not soft-deleted.`,
+      };
+    }
+
+    const restoredStatus =
+      existing.previousStatus && existing.previousStatus !== 'DELETED' ? existing.previousStatus : 'SUBMITTED';
+    const restoreUpdates: Record<string, any> = {
+      deletedAt: null,
+      deletedBy: null,
+      deletedByName: null,
+      deletedByRole: null,
+      deleteReason: null,
+      isDeleted: false,
+      status: restoredStatus,
+      restoredAt: now,
+      restoredBy: context?.actorId || 'system',
+      restoreReason: (context?.reason || '').trim() || 'Restored by Administration',
+      updatedAt: now,
+    };
+
+    if (db && resolvedRef) {
+      await resolvedRef.update(restoreUpdates);
+    } else if (existing) {
+      Object.assign(existing, restoreUpdates);
+    }
+
+    if (this.gatewayClient) {
+      try {
+        await this.gatewayClient.callGateway({
+          action: 'restore',
+          uniqueId: resolvedUniqueId,
+          submissionId: resolvedId,
+          remoteSubmissionId: resolvedId,
+          data: existing.payload || existing,
+          payload: existing.payload || existing,
+          restoredAt: now,
+          restoredBy: restoreUpdates.restoredBy,
+          requestId: context?.requestId,
+        });
+      } catch (mirrorErr: any) {
+        console.warn(`[FIRESTORE_MIRROR] Restore mirror failed for ${resolvedUniqueId}:`, mirrorErr?.message);
+      }
+    }
+
+    return {
+      success: true,
+      status: 'success',
+      statusCode: 200,
+      restored: true,
+      id: resolvedId,
+      remoteSubmissionId: resolvedId,
+      uniqueId: resolvedUniqueId,
+      restoredAt: now,
+      restoredBy: restoreUpdates.restoredBy,
+      message: `Record ${resolvedId} restored successfully.`,
+    };
   }
 
   /**
@@ -854,7 +1099,7 @@ export class FirestoreSubmissionAdapter {
 
     if (db) {
       const resolved = await this.resolveSubmissionDoc(submissionId, db);
-      if (!resolved) {
+      if (!resolved || resolved.data.deletedAt || resolved.data.isDeleted === true || resolved.data.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,
@@ -866,7 +1111,7 @@ export class FirestoreSubmissionAdapter {
       resolvedRef = resolved.ref;
     } else {
       existing = this.resolveMockSubmission(submissionId);
-      if (!existing) {
+      if (!existing || existing.deletedAt || existing.isDeleted === true || existing.status === 'DELETED') {
         return {
           status: 'error',
           statusCode: 404,

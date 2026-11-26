@@ -340,12 +340,33 @@ describe('Firestore Submission Adapter & Data Engine (Task 2)', () => {
       expect(docWithAsset.attachments).toHaveLength(1);
       expect(docWithAsset.attachments[0].docType).toBe('Passbook');
 
-      // Delete document
-      const delRes = await adapter.deleteSubmission(clientSubmissionId);
+      // Soft-delete document (preserves tombstone, excludes from active read, returns .success: true)
+      const delRes = await adapter.deleteSubmission(clientSubmissionId, {
+        actorId: 'lead-01',
+        actorRole: 'LEADERSHIP',
+        reason: 'Test soft delete cleanup',
+      });
+      expect(delRes.success).toBe(true);
       expect(delRes.status).toBe('success');
+      expect(delRes.softDeleted).toBe(true);
 
       const docAfterDelete = await adapter.getSubmission(clientSubmissionId);
       expect(docAfterDelete).toBeNull();
+
+      const tombstone = await adapter.getSubmission(clientSubmissionId, undefined, { includeDeleted: true });
+      expect(tombstone).not.toBeNull();
+      expect(tombstone.deletedBy).toBe('lead-01');
+      expect(tombstone.deleteReason).toBe('Test soft delete cleanup');
+
+      const restoreRes = await adapter.restoreSubmission(clientSubmissionId, {
+        actorId: 'lead-01',
+        reason: 'Restored after audit',
+      });
+      expect(restoreRes.success).toBe(true);
+      expect(restoreRes.restored).toBe(true);
+      const docAfterRestore = await adapter.getSubmission(clientSubmissionId);
+      expect(docAfterRestore).not.toBeNull();
+      expect(docAfterRestore.deletedAt).toBeNull();
     });
   });
 

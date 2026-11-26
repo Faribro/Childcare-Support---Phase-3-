@@ -1209,10 +1209,14 @@ class CanonicalSubmissionAdapterService {
   /**
    * CANONICAL GET (READ)
    */
-  async getSubmission(submissionId: string, role: UserRole = 'caseworker'): Promise<CanonicalSubmissionResult> {
+  async getSubmission(
+    submissionId: string,
+    role: UserRole = 'caseworker',
+    options?: { includeDeleted?: boolean }
+  ): Promise<CanonicalSubmissionResult> {
     if (this.getDataEngine() === 'firestore') {
       const adapter = await this.getFirestoreAdapter();
-      const raw = await adapter.getSubmission(submissionId, role);
+      const raw = await adapter.getSubmission(submissionId, role, options);
       if (!raw) {
         return {
           status: 'error',
@@ -1230,6 +1234,10 @@ class CanonicalSubmissionAdapterService {
             ...(raw.userId !== undefined ? { userId: raw.userId } : {}),
             ...(raw.state !== undefined && !raw.payload.state ? { state: raw.state } : {}),
             ...(raw.district !== undefined && !raw.payload.district ? { district: raw.district } : {}),
+            ...(raw.deletedAt !== undefined ? { deletedAt: raw.deletedAt } : {}),
+            ...(raw.deletedBy !== undefined ? { deletedBy: raw.deletedBy } : {}),
+            ...(raw.deleteReason !== undefined ? { deleteReason: raw.deleteReason } : {}),
+            ...(raw.isDeleted !== undefined ? { isDeleted: raw.isDeleted } : {}),
           }
         : raw;
       return {
@@ -1315,7 +1323,7 @@ class CanonicalSubmissionAdapterService {
       }
     }
 
-    const record = MockSheetStore.findRecord(submissionId);
+    const record = MockSheetStore.findRecord(submissionId, options?.includeDeleted);
     if (!record) {
       return {
         status: 'error',
@@ -1841,18 +1849,35 @@ class CanonicalSubmissionAdapterService {
   }
 
   /**
-   * CANONICAL DELETE
+   * CANONICAL SOFT DELETE
    */
-  async deleteSubmission(submissionId: string): Promise<{ success: boolean; message: string; statusCode: number }> {
+  async deleteSubmission(
+    submissionId: string,
+    context?: {
+      actorId?: string;
+      actorName?: string;
+      actorRole?: string;
+      reason?: string;
+      deletedAt?: string;
+      requestId?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    statusCode: number;
+    code?: string;
+    deletedAt?: string;
+    uniqueId?: string;
+  }> {
     if (this.getDataEngine() === 'firestore') {
       const adapter = await this.getFirestoreAdapter();
-      return await adapter.deleteSubmission(submissionId);
+      return await adapter.deleteSubmission(submissionId, context);
     }
 
     if (this.getStorageEngine() === 'supabase') {
       const adapter = await this.getSupabaseAdapter();
       if (typeof adapter.deleteSubmission === 'function') {
-        return await adapter.deleteSubmission(submissionId);
+        return await adapter.deleteSubmission(submissionId, undefined, undefined, context);
       }
     }
 
@@ -1867,6 +1892,7 @@ class CanonicalSubmissionAdapterService {
 
     const appsScriptUrl = this.getAppsScriptUrl();
     const webhookSecret = this.getWebhookSecret();
+    const nowIso = context?.deletedAt || new Date().toISOString();
 
     if (this.isConfigured() && appsScriptUrl) {
       try {
@@ -1879,8 +1905,12 @@ class CanonicalSubmissionAdapterService {
           },
           body: JSON.stringify({
             action: 'delete',
+            softDelete: true,
             submissionId,
             uniqueId: submissionId,
+            deletedAt: nowIso,
+            deletedBy: context?.actorId || 'system',
+            reason: context?.reason || '',
             secret: webhookSecret,
           }),
         });
@@ -1891,6 +1921,7 @@ class CanonicalSubmissionAdapterService {
             success: false,
             message: gasData.message || ('Upstream bridge failed to delete record ' + submissionId),
             statusCode: res.status || (gasData.code === 'NOT_FOUND' ? 404 : 502),
+            code: gasData.code,
           };
         }
       } catch (err: any) {
@@ -1902,8 +1933,72 @@ class CanonicalSubmissionAdapterService {
         };
       }
     }
-    MockSheetStore.deleteRecord(submissionId);
-    return { success: true, message: `Record ${submissionId} deleted`, statusCode: 200 };
+
+    const deleted = MockSheetStore.deleteRecord(submissionId, context);
+    if (!deleted && !this.isConfigured()) {
+      return {
+        success: false,
+        code: 'NOT_FOUND',
+        message: `Record ${submissionId} not found`,
+        statusCode: 404,
+      };
+    }
+    return {
+      success: true,
+      message: `Record ${submissionId} soft-deleted`,
+      statusCode: 200,
+      deletedAt: nowIso,
+      uniqueId: submissionId,
+    };
+  }
+
+  /**
+   * CANONICAL RESTORE (Administration only)
+   */
+  async restoreSubmission(
+    submissionId: string,
+    context?: {
+      actorId?: string;
+      actorName?: string;
+      actorRole?: string;
+      reason?: string;
+      requestId?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    statusCode: number;
+    code?: string;
+    remoteSubmissionId?: string;
+    uniqueId?: string;
+    restoredAt?: string;
+  }> {
+    if (this.getDataEngine() === 'firestore') {
+      const adapter = await this.getFirestoreAdapter();
+      return await adapter.restoreSubmission(submissionId, context);
+    }
+
+    const configCheck = this.checkConfiguration('write');
+    if (!configCheck.valid && configCheck.errorResponse) {
+      return {
+        success: false,
+        message: configCheck.errorResponse.message || 'Configuration error',
+        statusCode: configCheck.errorResponse.statusCode,
+      };
+    }
+
+    const restored = MockSheetStore.restoreRecord(submissionId, context);
+    if (!restored.success) {
+      return restored;
+    }
+    return {
+      success: true,
+      message: restored.message,
+      statusCode: 200,
+      remoteSubmissionId: restored.record.remote_submission_id,
+      uniqueId: restored.record.client_submission_id || submissionId,
+      restoredAt: restored.restoredAt,
+    };
   }
 }
 
