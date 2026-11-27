@@ -24,6 +24,13 @@ import type {
 import type { CompleteSubmissionPayload, PatchSubmissionPayload } from '@/lib/validations/submissionSchema';
 import { canonicalizeStateName, getStateQueryVariants } from '@/lib/constants/stateNormalization';
 import { computeSubmissionRowHash, stampSubmissionRowIntegrity } from './submissionRowHash';
+import {
+  GcsStorageService,
+  extensionForAttachmentMime,
+  getStorageProvider,
+  normalizeAttachmentMime,
+  sanitizeGcsFilename,
+} from './gcsStorageService';
 
 export interface ReconcileSnapshotItem {
   id: string;
@@ -62,6 +69,8 @@ export interface FirestoreAdapterOptions {
   projectId?: string;
   databaseId?: string;
   appEnv?: string;
+  storageProvider?: 'gcs' | 'tigris';
+  storageService?: GcsStorageService;
   gatewayClient?: {
     callGateway: (payload: Record<string, any>) => Promise<any>;
   };
@@ -100,10 +109,217 @@ export function validateFirestoreDatabaseEnvironment(appEnv?: string, databaseId
   }
 }
 
+interface AttachmentSlotDescriptor {
+  docType: string;
+  primaryFieldKey: string;
+  topKeys: string[];
+  nestedContainers: Array<{ containerKey: string; keys: string[] }>;
+}
+
+const ATTACHMENT_SLOT_DESCRIPTORS: AttachmentSlotDescriptor[] = [
+  {
+    docType: 'passbookPhoto',
+    primaryFieldKey: 'passbookPhotoUrl',
+    topKeys: ['passbookPhotoUrl', 'passbook_photo_url', 'passbookProof', 'passbookLink'],
+    nestedContainers: [
+      { containerKey: 'bankingAndKyc', keys: ['passbookPhotoUrl', 'passbook_photo_url', 'passbookProof', 'passbookLink'] },
+      { containerKey: 'bankDetails', keys: ['passbookPhotoUrl', 'passbook_photo_url', 'passbookProof', 'passbookLink'] },
+    ],
+  },
+  {
+    docType: 'aadhaarCardPhoto',
+    primaryFieldKey: 'aadhaarCardPhotoUrl',
+    topKeys: ['aadhaarCardPhotoUrl', 'aadhaar_card_photo_url', 'aadhaarPhotoUrl', 'aadhaarLink'],
+    nestedContainers: [
+      { containerKey: 'bankingAndKyc', keys: ['aadhaarCardPhotoUrl', 'aadhaar_card_photo_url', 'aadhaarPhotoUrl', 'aadhaarLink'] },
+      { containerKey: 'bankDetails', keys: ['aadhaarCardPhotoUrl', 'aadhaar_card_photo_url', 'aadhaarPhotoUrl', 'aadhaarLink'] },
+    ],
+  },
+  {
+    docType: 'childPhoto',
+    primaryFieldKey: 'childPhotoUrl',
+    topKeys: ['childPhotoUrl', 'child_photo_url', 'childPhotoLink'],
+    nestedContainers: [
+      { containerKey: 'bankingAndKyc', keys: ['childPhotoUrl', 'child_photo_url', 'childPhotoLink'] },
+      { containerKey: 'bankDetails', keys: ['childPhotoUrl', 'child_photo_url', 'childPhotoLink'] },
+    ],
+  },
+  {
+    docType: 'feeReceiptPhoto',
+    primaryFieldKey: 'feeReceiptPhotoUrl',
+    topKeys: ['feeReceiptPhotoUrl', 'fee_receipt_photo_url', 'feeReceiptUrl', 'feeReceiptLink'],
+    nestedContainers: [
+      { containerKey: 'educationExpenses', keys: ['feeReceiptPhotoUrl', 'fee_receipt_photo_url', 'feeReceiptUrl', 'feeReceiptLink'] },
+      { containerKey: 'education', keys: ['feeReceiptPhotoUrl', 'fee_receipt_photo_url', 'feeReceiptUrl', 'feeReceiptLink'] },
+    ],
+  },
+  {
+    docType: 'marksheetPhoto',
+    primaryFieldKey: 'marksheetPhotoUrl',
+    topKeys: ['marksheetPhotoUrl', 'marksheet_photo_url', 'marksheetPhotoLink'],
+    nestedContainers: [
+      { containerKey: 'educationExpenses', keys: ['marksheetPhotoUrl', 'marksheet_photo_url', 'marksheetPhotoLink'] },
+      { containerKey: 'education', keys: ['marksheetPhotoUrl', 'marksheet_photo_url', 'marksheetPhotoLink'] },
+    ],
+  },
+  {
+    docType: 'caregiverSignature',
+    primaryFieldKey: 'signatureDataUrl',
+    topKeys: ['signatureDataUrl', 'signature_data_url', 'signatureUrl', 'signature_url', 'caregiverSignature'],
+    nestedContainers: [
+      { containerKey: 'caregiverConsent', keys: ['signatureDataUrl', 'signature_data_url', 'signatureUrl', 'signature_url', 'caregiverSignature'] },
+      { containerKey: 'consent', keys: ['signatureDataUrl', 'signature_data_url', 'signatureUrl', 'signature_url', 'caregiverSignature'] },
+    ],
+  },
+];
+
+function normalizeDocTypeCanonical(docType: string): string {
+  const norm = String(docType || '').trim().toLowerCase();
+  if (!norm) return 'document';
+  if (norm.includes('passbook')) return 'passbookPhoto';
+  if (norm.includes('aadhaar')) return 'aadhaarCardPhoto';
+  if (norm.includes('fee')) return 'feeReceiptPhoto';
+  if (norm.includes('mark')) return 'marksheetPhoto';
+  if (norm.includes('sig')) return 'caregiverSignature';
+  if (norm.includes('child') || norm === 'photo' || norm === 'childphoto') return 'childPhoto';
+  return String(docType).trim();
+}
+
+function getSlotDescriptorForDocType(docType: string): AttachmentSlotDescriptor | undefined {
+  const canonical = normalizeDocTypeCanonical(docType);
+  return ATTACHMENT_SLOT_DESCRIPTORS.find((d) => d.docType === canonical);
+}
+
+function clonePayloadValue(val: any): any {
+  if (val === null || typeof val !== 'object') return val;
+  if (Buffer.isBuffer(val)) return Buffer.from(val);
+  if (val instanceof Date) return new Date(val.getTime());
+  if (Array.isArray(val)) return val.map(clonePayloadValue);
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(val)) {
+    out[k] = clonePayloadValue(v);
+  }
+  return out;
+}
+
+function inferAllowedMimeFromMagicBytes(buf: Buffer): string | null {
+  if (buf.length < 4) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  if (buf.subarray(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
+  return null;
+}
+
+function decodeBinaryAttachmentInput(
+  rawValue: unknown,
+  docType: string,
+  explicitFileName?: string,
+  explicitMimeType?: string
+): { buffer: Buffer; mimeType: string; fileName: string } | null {
+  if (rawValue === null || rawValue === undefined) return null;
+
+  if (Buffer.isBuffer(rawValue)) {
+    if (rawValue.length === 0) return null;
+    const mime = normalizeAttachmentMime(explicitMimeType || '') || inferAllowedMimeFromMagicBytes(rawValue) || '';
+    if (!mime) return null;
+    return {
+      buffer: rawValue,
+      mimeType: mime,
+      fileName: sanitizeGcsFilename(explicitFileName, mime, docType),
+    };
+  }
+
+  if (typeof rawValue !== 'string') return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+
+  const dataUriMatch = /^data:([a-zA-Z0-9.+_-]+\/[a-zA-Z0-9.+_-]+)((?:;[a-zA-Z0-9=._-]+)*);base64,([\s\S]+)$/.exec(trimmed);
+  if (dataUriMatch) {
+    const mimeType = normalizeAttachmentMime(dataUriMatch[1]);
+    const metaParams = dataUriMatch[2] || '';
+    const nameMatch = /;name=([^;]+)/i.exec(metaParams);
+    let rawMetaName: string | undefined;
+    if (nameMatch?.[1]) {
+      const stripped = nameMatch[1].replace(/^"|"$/g, '');
+      try {
+        rawMetaName = decodeURIComponent(stripped);
+      } catch {
+        rawMetaName = stripped;
+      }
+    }
+    const base64Body = dataUriMatch[3].replace(/\s+/g, '');
+    if (!base64Body) return null;
+    const buffer = Buffer.from(base64Body, 'base64');
+    if (buffer.length === 0) return null;
+    return {
+      buffer,
+      mimeType,
+      fileName: sanitizeGcsFilename(explicitFileName || rawMetaName, mimeType, docType),
+    };
+  }
+
+  // Fallback for callers submitting raw unprefixed base64 binary payloads (without URI prefixes)
+  const isStoredRef =
+    /^(gcs|https?|asset|storage|s3|urn):/i.test(trimmed) ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('=') ||
+    trimmed.startsWith('<svg');
+  if (!isStoredRef && trimmed.length >= 16 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed)) {
+    const compact = trimmed.replace(/\s+/g, '');
+    const buf = Buffer.from(compact, 'base64');
+    const inferred = normalizeAttachmentMime(explicitMimeType || '') || inferAllowedMimeFromMagicBytes(buf);
+    if (buf.length > 0 && inferred) {
+      return {
+        buffer: buf,
+        mimeType: inferred,
+        fileName: sanitizeGcsFilename(explicitFileName, inferred, docType),
+      };
+    }
+  }
+
+  return null;
+}
+
+function collectGcsUrisFromRecord(record: any): string[] {
+  const uris = new Set<string>();
+  const visited = new Set<any>();
+
+  const scan = (node: any) => {
+    if (!node) return;
+    if (typeof node === 'string') {
+      const trimmed = node.trim();
+      if (trimmed.startsWith('gcs://')) {
+        uris.add(trimmed);
+      }
+      return;
+    }
+    if (typeof node !== 'object' || Buffer.isBuffer(node)) return;
+    if (visited.has(node)) return;
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) scan(item);
+      return;
+    }
+    for (const val of Object.values(node)) {
+      scan(val);
+    }
+  };
+
+  scan(record);
+  return Array.from(uris);
+}
+
 export class FirestoreSubmissionAdapter {
   private db: any = null;
   private readonly projectId: string;
   private readonly databaseId: string;
+  private readonly appEnv: string;
+  private readonly configuredStorageProvider?: 'gcs' | 'tigris';
+  private storageService: GcsStorageService | null = null;
   public readonly gatewayClient?: { callGateway: (payload: Record<string, any>) => Promise<any> };
 
   // In-memory fallback / mock store for offline unit tests
@@ -116,8 +332,11 @@ export class FirestoreSubmissionAdapter {
     this.projectId = options.projectId || process.env.GOOGLE_CLOUD_PROJECT || 'cs-p3-production';
     this.databaseId = options.databaseId || process.env.FIRESTORE_DATABASE_ID || '(default)';
     this.gatewayClient = options.gatewayClient;
+    this.configuredStorageProvider = options.storageProvider;
+    this.storageService = options.storageService || null;
 
     const env = options.appEnv || process.env.APP_ENV || process.env.NEXT_PUBLIC_APP_ENV || 'development';
+    this.appEnv = env;
     validateFirestoreDatabaseEnvironment(env, this.databaseId);
 
     if (options.mockDb) {
@@ -128,6 +347,242 @@ export class FirestoreSubmissionAdapter {
     } else {
       this.isMock = false;
     }
+  }
+
+  private getActiveGcsService(): GcsStorageService | null {
+    if (this.storageService) return this.storageService;
+    const provider = (this.configuredStorageProvider || getStorageProvider()).toLowerCase().trim();
+    if (provider !== 'gcs') {
+      return null;
+    }
+    try {
+      const normalizedEnv = this.appEnv === 'development' ? 'staging' : this.appEnv;
+      this.storageService = new GcsStorageService({
+        projectId: this.projectId,
+        appEnv: normalizedEnv,
+      });
+      return this.storageService;
+    } catch (err: any) {
+      if (this.appEnv.toLowerCase().trim() === 'production') {
+        throw err;
+      }
+      console.warn(`[GCS_ADAPTER] GCS storage disabled (${err?.message || err}); falling back cleanly.`);
+      return null;
+    }
+  }
+
+  private async uploadAttachmentToGcsOrFail(
+    gcsService: GcsStorageService,
+    submissionId: string,
+    docType: string,
+    decoded: { buffer: Buffer; mimeType: string; fileName: string },
+    uploadedAt: string,
+    indexHint: number = 0
+  ): Promise<
+    | { ok: true; gcsUri: string; metadata: Record<string, any> }
+    | { ok: false; statusCode: number; code: string; message: string }
+  > {
+    const timestamp = `${Date.now()}${indexHint > 0 ? String(indexHint) : ''}`;
+    const storageKey = gcsService.buildSubmissionObjectKey(submissionId, docType, {
+      fileName: decoded.fileName,
+      contentType: decoded.mimeType,
+      timestamp,
+    });
+    const uploadRes = await gcsService.uploadAttachment({
+      submissionId,
+      docType,
+      buffer: decoded.buffer,
+      contentType: decoded.mimeType,
+      storageKey,
+      fileName: decoded.fileName,
+    });
+
+    if (uploadRes.status === 'REJECTED_OVERSIZE') {
+      return {
+        ok: false,
+        statusCode: 413,
+        code: 'ASSET_TOO_LARGE',
+        message: uploadRes.error || 'Uploaded attachment exceeds maximum allowed size.',
+      };
+    }
+    if (uploadRes.status === 'REJECTED_UNSUPPORTED_MIME') {
+      return {
+        ok: false,
+        statusCode: 415,
+        code: 'UNSUPPORTED_MEDIA_TYPE',
+        message: uploadRes.error || 'Unsupported attachment MIME type.',
+      };
+    }
+    if (uploadRes.status !== 'STORED_PRIVATE' || !uploadRes.privateUri) {
+      return {
+        ok: false,
+        statusCode: 502,
+        code: 'GCS_UPLOAD_FAILED',
+        message: uploadRes.error || 'Failed to upload attachment to Cloud Storage.',
+      };
+    }
+
+    return {
+      ok: true,
+      gcsUri: uploadRes.privateUri,
+      metadata: {
+        docType,
+        gcsUri: uploadRes.privateUri,
+        url: uploadRes.privateUri,
+        storageKey: uploadRes.storageKey,
+        bucketName: uploadRes.bucketName,
+        mimeType: decoded.mimeType,
+        sizeBytes: uploadRes.byteSize,
+        fileName: decoded.fileName,
+        sha256: uploadRes.calculatedSha256,
+        uploadedAt,
+      },
+    };
+  }
+
+  private async persistSubmissionAttachmentsToGcs(
+    clientSubmissionId: string,
+    firestorePayload: Record<string, any>,
+    now: string,
+    gcsService: GcsStorageService | null
+  ): Promise<
+    | {
+        ok: true;
+        promotedTopFields: Record<string, string>;
+        attachments: any[];
+      }
+    | {
+        ok: false;
+        statusCode: number;
+        code: string;
+        message: string;
+      }
+  > {
+    const promotedTopFields: Record<string, string> = {};
+    const uploadedAttachments: any[] = [];
+    const existingAttachments = Array.isArray(firestorePayload.attachments) ? firestorePayload.attachments : [];
+
+    if (!gcsService) {
+      return {
+        ok: true,
+        promotedTopFields,
+        attachments: existingAttachments,
+      };
+    }
+
+    const dedupeCache = new Map<string, { gcsUri: string; metadata: Record<string, any> }>();
+    let seq = 0;
+
+    const resolveOrUpload = async (
+      docType: string,
+      rawValue: unknown,
+      explicitFileName?: string,
+      explicitMimeType?: string
+    ): Promise<
+      | { ok: true; gcsUri: string; metadata: Record<string, any>; isNew: boolean }
+      | { ok: false; statusCode: number; code: string; message: string }
+      | null
+    > => {
+      const decoded = decodeBinaryAttachmentInput(rawValue, docType, explicitFileName, explicitMimeType);
+      if (!decoded) return null;
+
+      const hashKey = `${docType}::${decoded.buffer.length}::${decoded.buffer.subarray(0, 64).toString('base64')}`;
+      const cached = dedupeCache.get(hashKey);
+      if (cached) {
+        return { ok: true, gcsUri: cached.gcsUri, metadata: cached.metadata, isNew: false };
+      }
+
+      seq += 1;
+      const uploaded = await this.uploadAttachmentToGcsOrFail(
+        gcsService,
+        clientSubmissionId,
+        docType,
+        decoded,
+        now,
+        seq
+      );
+      if (!uploaded.ok) {
+        return uploaded;
+      }
+
+      dedupeCache.set(hashKey, { gcsUri: uploaded.gcsUri, metadata: uploaded.metadata });
+      return { ok: true, gcsUri: uploaded.gcsUri, metadata: uploaded.metadata, isNew: true };
+    };
+
+    const scopesToScrub: Record<string, any>[] = [firestorePayload];
+    if (firestorePayload.raw_payload && typeof firestorePayload.raw_payload === 'object') {
+      scopesToScrub.push(firestorePayload.raw_payload);
+    }
+
+    for (const slot of ATTACHMENT_SLOT_DESCRIPTORS) {
+      for (const scope of scopesToScrub) {
+        for (const key of slot.topKeys) {
+          if (scope[key] !== undefined && scope[key] !== null) {
+            const res = await resolveOrUpload(slot.docType, scope[key]);
+            if (res) {
+              if (!res.ok) return res;
+              scope[key] = res.gcsUri;
+              promotedTopFields[slot.primaryFieldKey] = res.gcsUri;
+              if (res.isNew) uploadedAttachments.push(res.metadata);
+            }
+          }
+        }
+        for (const container of slot.nestedContainers) {
+          const containerObj = scope[container.containerKey];
+          if (containerObj && typeof containerObj === 'object') {
+            for (const key of container.keys) {
+              if (containerObj[key] !== undefined && containerObj[key] !== null) {
+                const res = await resolveOrUpload(slot.docType, containerObj[key]);
+                if (res) {
+                  if (!res.ok) return res;
+                  containerObj[key] = res.gcsUri;
+                  promotedTopFields[slot.primaryFieldKey] = res.gcsUri;
+                  if (res.isNew) uploadedAttachments.push(res.metadata);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Handle pre-populated attachments array items containing inline data URI / buffer payloads
+    const sanitizedExistingAttachments: any[] = [];
+    for (const item of existingAttachments) {
+      if (!item || typeof item !== 'object') {
+        sanitizedExistingAttachments.push(item);
+        continue;
+      }
+      const itemDocType = normalizeDocTypeCanonical(item.docType || item.type || 'document');
+      const rawCandidate = item.buffer || item.fileData || item.dataUrl || item.url;
+      const res = await resolveOrUpload(itemDocType, rawCandidate, item.fileName, item.mimeType);
+      if (res) {
+        if (!res.ok) return res;
+        sanitizedExistingAttachments.push(res.metadata);
+      } else {
+        sanitizedExistingAttachments.push(item);
+      }
+    }
+
+    const mergedAttachments = [...sanitizedExistingAttachments];
+    for (const uploadedMeta of uploadedAttachments) {
+      const alreadyPresent = mergedAttachments.some(
+        (att) => att && typeof att === 'object' && att.gcsUri === uploadedMeta.gcsUri && att.docType === uploadedMeta.docType
+      );
+      if (!alreadyPresent) {
+        mergedAttachments.push(uploadedMeta);
+      }
+    }
+    firestorePayload.attachments = mergedAttachments;
+    if (firestorePayload.raw_payload && typeof firestorePayload.raw_payload === 'object') {
+      firestorePayload.raw_payload.attachments = mergedAttachments;
+    }
+
+    return {
+      ok: true,
+      promotedTopFields,
+      attachments: mergedAttachments,
+    };
   }
 
   public async getDb() {
@@ -185,30 +640,57 @@ export class FirestoreSubmissionAdapter {
     const rawState = payload.demographics?.state || payload.state || '';
     const state = canonicalizeStateName(rawState) || rawState;
 
-    const authorId = payload.authorId || payload.submittedByWorkerId || payload.authorIdentifier || '';
-    const baseDocData = {
+    const gcsService = this.getActiveGcsService();
+    const sheetPayload = clonePayloadValue(payload);
+    const firestorePayload = clonePayloadValue(payload);
+
+    const gcsPrep = await this.persistSubmissionAttachmentsToGcs(
+      clientSubmissionId,
+      firestorePayload,
+      now,
+      gcsService
+    );
+    if (!gcsPrep.ok) {
+      return {
+        status: 'error',
+        statusCode: gcsPrep.statusCode,
+        code: gcsPrep.code,
+        message: gcsPrep.message,
+        requestId: input.requestId,
+      };
+    }
+
+    const authorId = firestorePayload.authorId || firestorePayload.submittedByWorkerId || firestorePayload.authorIdentifier || '';
+    const baseDocData: Record<string, any> = {
       id: clientSubmissionId,
       clientSubmissionId,
-      uniqueId: payload.uniqueId || clientSubmissionId,
+      uniqueId: firestorePayload.uniqueId || clientSubmissionId,
       version: 1,
       revisionNumber: 1,
-      status: payload.status || 'SUBMITTED',
+      status: firestorePayload.status || 'SUBMITTED',
       state,
-      district: payload.demographics?.district || payload.district || '',
-      taluk: payload.demographics?.taluk || payload.taluk || '',
-      village: payload.demographics?.village || payload.village || '',
-      childName: payload.demographics?.childName || payload.childName || '',
-      submittedBy: payload.interviewerName || payload.submittedBy || 'Field Worker',
+      district: firestorePayload.demographics?.district || firestorePayload.district || '',
+      taluk: firestorePayload.demographics?.taluk || firestorePayload.taluk || '',
+      village: firestorePayload.demographics?.village || firestorePayload.village || '',
+      childName: firestorePayload.demographics?.childName || firestorePayload.childName || '',
+      submittedBy: firestorePayload.interviewerName || firestorePayload.submittedBy || 'Field Worker',
       authorId,
       submittedByWorkerId: authorId,
       authorIdentifier: authorId,
-      artStatus: payload.clinical?.artStatus || payload.artStatus || '',
-      vlStatus: payload.clinical?.vlStatus || payload.vlStatus || '',
-      attendanceStatus: payload.education?.attendance || payload.attendanceStatus || '',
-      payload: { ...payload, clientSubmissionId, authorId, submittedByWorkerId: authorId, authorIdentifier: authorId },
-      attachments: payload.attachments || [],
+      artStatus: firestorePayload.clinical?.artStatus || firestorePayload.artStatus || '',
+      vlStatus: firestorePayload.clinical?.vlStatus || firestorePayload.vlStatus || '',
+      attendanceStatus: firestorePayload.education?.attendance || firestorePayload.attendanceStatus || '',
+      ...gcsPrep.promotedTopFields,
+      payload: {
+        ...firestorePayload,
+        clientSubmissionId,
+        authorId,
+        submittedByWorkerId: authorId,
+        authorIdentifier: authorId,
+      },
+      attachments: gcsPrep.attachments,
       idempotencyKey: input.idempotencyKey,
-      submissionTime: payload.submissionTime || now,
+      submissionTime: firestorePayload.submissionTime || now,
       createdAt: now,
       updatedAt: now,
       mirrorStatus: 'PENDING_SHEET_SYNC',
@@ -271,10 +753,10 @@ export class FirestoreSubmissionAdapter {
         try {
           const mirrorRes = await this.gatewayClient!.callGateway({
             action: 'create',
-            data: payload,
-            payload: { ...payload, clientSubmissionId },
-            uniqueId: payload.uniqueId || payload.artNumber || payload.demographics?.artNumber || payload.uuid || clientSubmissionId,
-            ...payload,
+            data: sheetPayload,
+            payload: { ...sheetPayload, clientSubmissionId },
+            uniqueId: sheetPayload.uniqueId || sheetPayload.artNumber || sheetPayload.demographics?.artNumber || sheetPayload.uuid || clientSubmissionId,
+            ...sheetPayload,
             idempotencyKey: input.idempotencyKey,
             clientSubmissionId,
           });
@@ -998,6 +1480,15 @@ export class FirestoreSubmissionAdapter {
       Object.assign(existing, integrity.stampedUpdates);
     }
 
+    // Clean up associated GCS attachment objects best-effort when STORAGE_PROVIDER=gcs
+    const gcsService = this.getActiveGcsService();
+    if (gcsService) {
+      const gcsUris = collectGcsUrisFromRecord(existing);
+      if (gcsUris.length > 0) {
+        await Promise.allSettled(gcsUris.map((uri) => gcsService.deleteAttachment(uri)));
+      }
+    }
+
     if (this.gatewayClient) {
       try {
         await this.gatewayClient.callGateway({
@@ -1211,6 +1702,38 @@ export class FirestoreSubmissionAdapter {
     let newFileId: string | undefined;
     let newRevision: number = (existing.version || existing.revisionNumber || 1) + 1;
 
+    const canonicalDocType = normalizeDocTypeCanonical(docType);
+    const gcsService = this.getActiveGcsService();
+    const parsedAsset = gcsService
+      ? decodeBinaryAttachmentInput(
+          (input as any).buffer || fileData,
+          canonicalDocType,
+          (input as any).fileName,
+          (input as any).mimeType
+        )
+      : null;
+
+    if (gcsService && parsedAsset) {
+      if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(parsedAsset.mimeType)) {
+        return {
+          status: 'error',
+          statusCode: 415,
+          code: 'UNSUPPORTED_MEDIA_TYPE',
+          message: `Unsupported MIME type '${parsedAsset.mimeType}'.`,
+          requestId: input.requestId,
+        };
+      }
+      if (parsedAsset.buffer.length > 3 * 1024 * 1024) {
+        return {
+          status: 'error',
+          statusCode: 413,
+          code: 'ASSET_TOO_LARGE',
+          message: `Attachment size ${parsedAsset.buffer.length} bytes exceeds maximum limit.`,
+          requestId: input.requestId,
+        };
+      }
+    }
+
     // Mirror replacement to Google Apps Script / Drive
     if (this.gatewayClient) {
       try {
@@ -1247,14 +1770,56 @@ export class FirestoreSubmissionAdapter {
       }
     }
 
-    const attachments = existing.attachments || [];
-    attachments.push({
-      docType,
-      fileDataPreview: fileData.substring(0, 64),
-      newFileId,
-      cellFormula,
-      updatedAt: now,
-    });
+    const targetSubmissionIdForGcs = existing.id || existing.clientSubmissionId || submissionId;
+    let gcsUri: string | undefined;
+    let gcsMetadata: Record<string, any> | undefined;
+
+    if (gcsService && parsedAsset) {
+      const uploadRes = await this.uploadAttachmentToGcsOrFail(
+        gcsService,
+        targetSubmissionIdForGcs,
+        canonicalDocType,
+        parsedAsset,
+        now
+      );
+      if (!uploadRes.ok) {
+        return {
+          status: 'error',
+          statusCode: uploadRes.statusCode,
+          code: uploadRes.code,
+          message: uploadRes.message,
+          requestId: input.requestId,
+        };
+      }
+      gcsUri = uploadRes.gcsUri;
+      gcsMetadata = uploadRes.metadata;
+    }
+
+    const existingAttachments = Array.isArray(existing.attachments) ? existing.attachments : [];
+    const attachments = gcsUri
+      ? existingAttachments.filter(
+          (att: any) => normalizeDocTypeCanonical(att?.docType || att?.type || '') !== canonicalDocType
+        )
+      : [...existingAttachments];
+
+    if (gcsUri && gcsMetadata) {
+      attachments.push({
+        ...gcsMetadata,
+        docType,
+        canonicalDocType,
+        ...(newFileId ? { newFileId } : {}),
+        ...(cellFormula ? { driveCellFormula: cellFormula } : {}),
+        updatedAt: now,
+      });
+    } else {
+      attachments.push({
+        docType,
+        fileDataPreview: typeof fileData === 'string' ? fileData.substring(0, 64) : '',
+        newFileId,
+        cellFormula,
+        updatedAt: now,
+      });
+    }
 
     const updatePayload: Record<string, any> = {
       version: newRevision,
@@ -1264,13 +1829,29 @@ export class FirestoreSubmissionAdapter {
     };
 
     if (fieldKey) {
-      const storedVal = cellFormula || fileData;
+      const storedVal = gcsUri || cellFormula || fileData;
       updatePayload[fieldKey] = storedVal;
-      if (existing.payload) {
-        updatePayload.payload = {
-          ...existing.payload,
-          [fieldKey]: storedVal,
-        };
+      const clonedPayload = existing.payload ? clonePayloadValue(existing.payload) : undefined;
+      if (clonedPayload && typeof clonedPayload === 'object') {
+        clonedPayload[fieldKey] = storedVal;
+        const descriptor = getSlotDescriptorForDocType(canonicalDocType);
+        if (descriptor) {
+          for (const container of descriptor.nestedContainers) {
+            if (clonedPayload[container.containerKey] && typeof clonedPayload[container.containerKey] === 'object') {
+              clonedPayload[container.containerKey][descriptor.primaryFieldKey] = storedVal;
+              for (const k of container.keys) {
+                if (clonedPayload[container.containerKey][k] !== undefined) {
+                  clonedPayload[container.containerKey][k] = storedVal;
+                }
+              }
+            }
+          }
+          if (clonedPayload.raw_payload && typeof clonedPayload.raw_payload === 'object') {
+            clonedPayload.raw_payload[fieldKey] = storedVal;
+          }
+        }
+        clonedPayload.attachments = attachments;
+        updatePayload.payload = clonedPayload;
       }
     }
 
@@ -1290,6 +1871,7 @@ export class FirestoreSubmissionAdapter {
       uniqueId: resolvedUniqueId,
       docType,
       cellFormula,
+      gcsUri,
       newFileId,
       newRevision,
       version: newRevision,

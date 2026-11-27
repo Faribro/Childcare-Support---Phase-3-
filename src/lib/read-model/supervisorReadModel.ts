@@ -363,9 +363,9 @@ class SupervisorReadModelService {
     lastRefreshed: null,
     lastSuccessAt: null,
     error: null,
-    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    isOnline: true,
     consecutiveFailures: 0,
-    networkStatus: getBrowserNetworkHint(),
+    networkStatus: 'online',
     dataSource: 'live',
     syncStatus: 'synced',
   };
@@ -374,11 +374,23 @@ class SupervisorReadModelService {
   private inFlightPromise: Promise<void> | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private isInitialized = false;
+  private hasHydratedClient = false;
+  private hasBoundWindowEvents = false;
   private activeFilters: { state?: string; district?: string } = {};
 
   constructor() {
+    // Defer browser cache restoration and navigator checks until after client hydration
+    // to ensure SSR HTML matches the initial client render deterministically.
+  }
+
+  public hydrateClientState(): void {
+    if (typeof window === 'undefined' || this.hasHydratedClient) return;
+    this.hasHydratedClient = true;
+    this.state.isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    this.state.networkStatus = getBrowserNetworkHint();
     this.restoreCache();
     this.bindWindowEvents();
+    this.notify();
   }
 
   private notify() {
@@ -404,6 +416,7 @@ class SupervisorReadModelService {
     }
     this.inFlightPromise = null;
     this.isInitialized = false;
+    this.hasHydratedClient = false;
     this.activeFilters = {};
     this.state = {
       status: 'idle',
@@ -446,6 +459,7 @@ class SupervisorReadModelService {
     this.stopPolling();
     this.inFlightPromise = null;
     this.isInitialized = false;
+    this.hasHydratedClient = false;
     this.activeFilters = {};
     this.clearCache();
     this.state = {
@@ -546,7 +560,8 @@ class SupervisorReadModelService {
   }
 
   private bindWindowEvents() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || this.hasBoundWindowEvents) return;
+    this.hasBoundWindowEvents = true;
 
     window.addEventListener('online', () => {
       this.state.isOnline = true;

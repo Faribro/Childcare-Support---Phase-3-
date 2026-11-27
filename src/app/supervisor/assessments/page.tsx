@@ -88,7 +88,12 @@ export default function SupervisorAssessmentsPage() {
   const router = useRouter();
   const { isUnlocked, isLoaded, user } = useEvaluationAccess();
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
   const canApprove = user?.role === 'ADMIN' || user?.role === 'LEADERSHIP';
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
   const {
     records: data,
     total,
@@ -908,9 +913,9 @@ export default function SupervisorAssessmentsPage() {
         <SupervisorTabNav
           rightAction={
             <div className="flex items-center space-x-2">
-              {lastRefreshed && (
+              {hasMounted && lastRefreshed && (
                 <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
-                  Updated: {lastRefreshed.toLocaleTimeString()}
+                  Updated: {lastRefreshed.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </span>
               )}
               <Button

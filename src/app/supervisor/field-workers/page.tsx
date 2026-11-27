@@ -368,6 +368,7 @@ export default function SupervisorFieldWorkersPage() {
                                 day: 'numeric',
                                 month: 'short',
                                 year: 'numeric',
+                                timeZone: 'Asia/Kolkata',
                               })}
                             </div>
                             <div className="text-[10px] text-slate-400">Last survey submitted</div>
@@ -379,6 +380,7 @@ export default function SupervisorFieldWorkersPage() {
                                 day: 'numeric',
                                 month: 'short',
                                 year: 'numeric',
+                                timeZone: 'Asia/Kolkata',
                               })}
                             </div>
                             <div className="text-[10px] text-slate-400">Onboarded</div>

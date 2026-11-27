@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
@@ -32,6 +32,11 @@ export default function SupervisorDashboardPage() {
   const router = useRouter();
   const { isUnlocked, isLoaded, user } = useEvaluationAccess();
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const {
     records,
@@ -166,9 +171,9 @@ export default function SupervisorDashboardPage() {
         <SupervisorTabNav
           rightAction={
             <div className="flex items-center space-x-2">
-              {lastRefreshed && (
+              {hasMounted && lastRefreshed && (
                 <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
-                  Updated: {lastRefreshed.toLocaleTimeString()}
+                  Updated: {lastRefreshed.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </span>
               )}
               <Button

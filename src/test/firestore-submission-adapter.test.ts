@@ -4,6 +4,7 @@ import {
   validateFirestoreDatabaseEnvironment,
   SheetsMirrorRetryRecord,
 } from '@/lib/server/firestoreSubmissionAdapter';
+import { GcsStorageService } from '@/lib/server/gcsStorageService';
 import { canonicalSubmissionAdapter } from '@/lib/server/canonicalSubmissionAdapter';
 import type { CompleteSubmissionPayload } from '@/lib/validations/submissionSchema';
 
@@ -492,6 +493,165 @@ describe('Firestore Submission Adapter & Data Engine (Task 2)', () => {
       expect(updated.mirrorStatus).toBe('SYNCED');
       expect(updated.sheetRowNumber).toBe(42);
       expect(updated.payload.bankAccountNumber).toBe('111222333444');
+    });
+  });
+
+  describe('7. Private GCS Attachment Persistence & Cleanup Wiring', () => {
+    it('uploads createSubmission and updateAsset base64 data URIs to GCS and stores gcs:// URIs + metadata instead of data: strings', async () => {
+      process.env.STORAGE_PROVIDER = 'gcs';
+      process.env.GCS_BUCKET_NAME = 'cs-p3-childcare-production';
+      process.env.APP_ENV = 'production';
+      process.env.FORCE_SYNC_MIRROR = 'true';
+
+      const gcsService = new GcsStorageService({
+        bucketName: 'cs-p3-childcare-production',
+        appEnv: 'production',
+      });
+
+      let capturedMirrorPayload: any = null;
+      const mockGateway = {
+        callGateway: vi.fn().mockImplementation(async (payload: any) => {
+          capturedMirrorPayload = payload;
+          if (payload.action === 'replaceAsset') {
+            return {
+              status: 'success',
+              statusCode: 200,
+              newFileId: 'drv-mock-1',
+              cellFormula: '=HYPERLINK("https://drive.google.com/file/d/drv-mock-1/view", "Restricted Doc")',
+              newRevision: 2,
+            };
+          }
+          return { status: 'success', statusCode: 200, resolvedRow: 77 };
+        }),
+      };
+
+      const adapter = new FirestoreSubmissionAdapter({
+        appEnv: 'production',
+        databaseId: '(default)',
+        storageProvider: 'gcs',
+        storageService: gcsService,
+        gatewayClient: mockGateway,
+      });
+
+      const pngBase64 = Buffer.from('\x89PNG\r\n\x1a\nMOCK_PNG_BYTES_012345').toString('base64');
+      const jpegBase64 = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]).toString('base64');
+      const pdfBase64 = Buffer.from('%PDF-1.4\n%Mock PDF Document Payload').toString('base64');
+
+      const childPhotoDataUrl = `data:image/png;name=child_portrait.png;base64,${pngBase64}`;
+      const passbookDataUrl = `data:image/jpeg;base64,${jpegBase64}`;
+      const feeReceiptDataUrl = `data:application/pdf;name=tuition_bill.pdf;base64,${pdfBase64}`;
+
+      const subId = 'GCS-SUB-001';
+      const createRes = await adapter.createSubmission({
+        payload: {
+          clientSubmissionId: subId,
+          uniqueId: 'MH-PUN-90001',
+          demographics: { childName: 'Kavya Nair', state: 'Maharashtra', district: 'Pune' },
+          childPhotoUrl: childPhotoDataUrl,
+          bankingAndKyc: {
+            childPhotoUrl: childPhotoDataUrl,
+            passbookPhotoUrl: passbookDataUrl,
+          },
+          caregiverConsent: {
+            signatureDataUrl: `data:image/png;base64,${pngBase64}`,
+          },
+        } as any,
+        idempotencyKey: 'gcs-idemp-01',
+        requestId: 'req-gcs-01',
+      });
+
+      expect(createRes.status).toBe('success');
+
+      // Mirror gateway still receives original data URLs for Drive archiving
+      expect(capturedMirrorPayload?.data?.bankingAndKyc?.passbookPhotoUrl).toBe(passbookDataUrl);
+
+      const stored = await adapter.getSubmission(subId);
+      expect(stored).toBeDefined();
+      expect(stored.childPhotoUrl).toMatch(/^gcs:\/\/cs-p3-childcare-production\/submissions\/GCS-SUB-001\/childPhoto\/\d+-child_portrait\.png$/);
+      expect(stored.passbookPhotoUrl).toMatch(/^gcs:\/\/cs-p3-childcare-production\/submissions\/GCS-SUB-001\/passbookPhoto\/\d+-/);
+      expect(stored.signatureDataUrl).toMatch(/^gcs:\/\/cs-p3-childcare-production\/submissions\/GCS-SUB-001\/caregiverSignature\/\d+-/);
+
+      // Nested payload slots are also scrubbed of data: base64 payloads
+      expect(stored.payload.childPhotoUrl).toBe(stored.childPhotoUrl);
+      expect(stored.payload.bankingAndKyc.childPhotoUrl).toBe(stored.childPhotoUrl);
+      expect(stored.payload.bankingAndKyc.passbookPhotoUrl).toBe(stored.passbookPhotoUrl);
+      expect(stored.payload.caregiverConsent.signatureDataUrl).toBe(stored.signatureDataUrl);
+      expect(JSON.stringify(stored)).not.toContain('data:image/');
+
+      // Attachment metadata preserved cleanly
+      expect(stored.attachments).toHaveLength(3);
+      for (const att of stored.attachments) {
+        expect(att.gcsUri).toMatch(/^gcs:\/\/cs-p3-childcare-production\/submissions\/GCS-SUB-001\//);
+        expect(att.mimeType).toBeTruthy();
+        expect(att.sizeBytes).toBeGreaterThan(0);
+        expect(att.fileName).toBeTruthy();
+        expect(att.uploadedAt).toBeTruthy();
+        expect(await gcsService.headAttachment(att.gcsUri)).toBe(true);
+      }
+
+      // Now replace/update feeReceiptPhoto via updateAsset
+      const assetRes = await adapter.updateAsset({
+        submissionId: subId,
+        docType: 'feeReceiptPhoto',
+        fileData: feeReceiptDataUrl,
+        requestId: 'req-gcs-02',
+      });
+
+      expect(assetRes.status).toBe('success');
+      expect(assetRes.gcsUri).toMatch(/^gcs:\/\/cs-p3-childcare-production\/submissions\/GCS-SUB-001\/feeReceiptPhoto\/\d+-tuition_bill\.pdf$/);
+      expect(await gcsService.headAttachment(assetRes.gcsUri!)).toBe(true);
+
+      const afterUpdate = await adapter.getSubmission(subId);
+      expect(afterUpdate.feeReceiptPhotoUrl).toBe(assetRes.gcsUri);
+      expect(afterUpdate.payload.feeReceiptPhotoUrl).toBe(assetRes.gcsUri);
+      expect(JSON.stringify(afterUpdate)).not.toContain('data:application/pdf');
+
+      const uploadedFeeMeta = afterUpdate.attachments.find((a: any) => a.docType === 'feeReceiptPhoto');
+      expect(uploadedFeeMeta?.gcsUri).toBe(assetRes.gcsUri);
+      expect(uploadedFeeMeta?.mimeType).toBe('application/pdf');
+      expect(uploadedFeeMeta?.sizeBytes).toBeGreaterThan(0);
+      expect(uploadedFeeMeta?.fileName).toBe('tuition_bill.pdf');
+      expect(uploadedFeeMeta?.uploadedAt).toBeTruthy();
+
+      // Fetch uploaded bytes back via GcsStorageService
+      const fetchedPdf = await gcsService.fetchAttachment(assetRes.gcsUri!);
+      expect(fetchedPdf.status).toBe('SUCCESS');
+      expect(fetchedPdf.contentType).toBe('application/pdf');
+
+      // Delete submission -> cleans up associated GCS objects best-effort
+      const delRes = await adapter.deleteSubmission(subId, {
+        actorId: 'lead-01',
+        actorRole: 'LEADERSHIP',
+        reason: 'GCS cleanup verification',
+      });
+      expect(delRes.success).toBe(true);
+      expect(await gcsService.headAttachment(assetRes.gcsUri!)).toBe(false);
+      expect(await gcsService.headAttachment(stored.passbookPhotoUrl)).toBe(false);
+    });
+
+    it('gracefully retains fallback payload behavior when STORAGE_PROVIDER is not gcs', async () => {
+      process.env.STORAGE_PROVIDER = 'tigris';
+      const adapter = new FirestoreSubmissionAdapter({
+        appEnv: 'development',
+        databaseId: '(default)',
+      });
+
+      const subId = 'FALLBACK-TIGRIS-001';
+      const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+      const createRes = await adapter.createSubmission({
+        payload: {
+          clientSubmissionId: subId,
+          uniqueId: subId,
+          demographics: { childName: 'Riya Das', state: 'Maharashtra', district: 'Mumbai' },
+          childPhotoUrl: dataUrl,
+        } as any,
+        idempotencyKey: 'fallback-idemp-01',
+        requestId: 'req-fallback-01',
+      });
+
+      expect(createRes.status).toBe('success');
+      const stored = await adapter.getSubmission(subId);
+      expect(stored.payload.childPhotoUrl).toBe(dataUrl);
     });
   });
 });

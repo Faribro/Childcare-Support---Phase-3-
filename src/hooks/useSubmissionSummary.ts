@@ -29,18 +29,8 @@ export interface SubmissionSummaryState {
 const CACHE_KEY = 'child_nutrition:summary_cache_v1';
 
 export function useSubmissionSummary(filters?: SubmissionSummaryFilters): SubmissionSummaryState {
-  const [serverConfirmedCount, setServerConfirmedCount] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (typeof parsed.count === 'number') return parsed.count;
-        }
-      } catch (_) {}
-    }
-    return 0;
-  });
+  // Always initialize identically on SSR and first client render to prevent React hydration mismatches.
+  const [serverConfirmedCount, setServerConfirmedCount] = useState<number>(0);
 
   const [localDraftCount, setLocalDraftCount] = useState<number>(0);
   const [localPendingSyncCount, setLocalPendingSyncCount] = useState<number>(0);
@@ -191,6 +181,17 @@ export function useSubmissionSummary(filters?: SubmissionSummaryFilters): Submis
   }, [filters?.state, filters?.district]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (typeof parsed.count === 'number') {
+            setServerConfirmedCount(parsed.count);
+          }
+        }
+      } catch (_) {}
+    }
     if (filters?.enabled === false) {
       setIsLoading(false);
       return;

@@ -696,12 +696,12 @@ function RegistrationsReviewContent() {
                         Applied: {new Date(reg.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
                         {reg.approvedBy && (
                           <span className="ml-3 font-medium text-slate-600">
-                            Approved by: {reg.approvedBy} ({reg.approvedAt ? new Date(reg.approvedAt).toLocaleDateString('en-IN') : ''})
+                            Approved by: {reg.approvedBy} ({reg.approvedAt ? new Date(reg.approvedAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''})
                           </span>
                         )}
                         {reg.revokedBy && (
                           <span className="ml-3 font-medium text-rose-700">
-                            Revoked by: {reg.revokedBy} ({reg.revokedAt ? new Date(reg.revokedAt).toLocaleDateString('en-IN') : ''})
+                            Revoked by: {reg.revokedBy} ({reg.revokedAt ? new Date(reg.revokedAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''})
                           </span>
                         )}
                         {notesParsed?.adminNotifiedAt && (

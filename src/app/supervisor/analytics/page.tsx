@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
@@ -43,6 +43,11 @@ interface ClinicalAnalyticsRecord {
 export default function AnalyticsDashboardPage() {
   const { isUnlocked, isLoaded } = useEvaluationAccess();
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const {
     records: rawRecords,
@@ -194,9 +199,9 @@ export default function AnalyticsDashboardPage() {
         <SupervisorTabNav
           rightAction={
             <div className="flex items-center space-x-2">
-              {lastRefreshed && (
+              {hasMounted && lastRefreshed && (
                 <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
-                  Updated: {lastRefreshed.toLocaleTimeString()}
+                  Updated: {lastRefreshed.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </span>
               )}
               <Button

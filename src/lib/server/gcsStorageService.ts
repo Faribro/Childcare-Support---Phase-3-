@@ -55,6 +55,18 @@ export interface SignedUrlResult {
   error?: string;
 }
 
+export interface GcsUploadAttachmentInput extends UploadAttachmentInput {
+  storageKey?: string;
+  fileName?: string;
+}
+
+export interface DeleteAttachmentResult {
+  status: 'DELETED' | 'NOT_FOUND' | 'FAILED';
+  bucketName: string;
+  storageKey: string;
+  error?: string;
+}
+
 export function getStorageProvider(): 'tigris' | 'gcs' {
   const provider = (process.env.STORAGE_PROVIDER || 'tigris').toLowerCase().trim();
   if (provider === 'gcs') {
@@ -63,10 +75,50 @@ export function getStorageProvider(): 'tigris' | 'gcs' {
   return 'tigris';
 }
 
+export function normalizeAttachmentMime(contentType: string): string {
+  if (!contentType || typeof contentType !== 'string') return '';
+  const raw = contentType.toLowerCase().trim().split(';')[0].trim();
+  if (raw === 'image/jpg') return 'image/jpeg';
+  return raw;
+}
+
+export function extensionForAttachmentMime(contentType: string): string {
+  const mime = normalizeAttachmentMime(contentType);
+  if (mime === 'image/jpeg') return 'jpg';
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/webp') return 'webp';
+  if (mime === 'application/pdf') return 'pdf';
+  return 'bin';
+}
+
+export function sanitizeGcsFilename(
+  fileName: string | undefined,
+  contentType: string,
+  fallbackBase: string = 'document'
+): string {
+  const cleanBase = (fallbackBase || 'document').replace(/[^a-zA-Z0-9_-]/g, '_') || 'document';
+  const ext = extensionForAttachmentMime(contentType);
+  const rawName = (fileName || '').trim().split(/[\\/]/).pop() || '';
+  if (!rawName) {
+    return `${cleanBase}.${ext}`;
+  }
+  const cleanName = rawName
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/\.{2,}/g, '_')
+    .replace(/^_+/, '');
+  if (!cleanName || cleanName === '.' || cleanName === '_') {
+    return `${cleanBase}.${ext}`;
+  }
+  if (!/\.[a-zA-Z0-9]{2,5}$/.test(cleanName) && ext !== 'bin') {
+    return `${cleanName}.${ext}`;
+  }
+  return cleanName;
+}
+
 export function validateAttachmentMime(contentType: string): boolean {
-  if (!contentType || typeof contentType !== 'string') return false;
-  const raw = contentType.toLowerCase().trim();
-  return ALLOWED_ATTACHMENT_MIMES.some((m) => raw.startsWith(m));
+  const normalized = normalizeAttachmentMime(contentType);
+  if (!normalized) return false;
+  return ALLOWED_ATTACHMENT_MIMES.some((m) => normalized.startsWith(m));
 }
 
 export function validateAttachmentExtension(filename: string): boolean {
@@ -167,7 +219,7 @@ export class GcsStorageService {
   }
 
   /**
-   * Deterministic storage key builder for submission attachments.
+   * Deterministic storage key builder for submission attachments (presigned/legacy slot path).
    * Format: <env>/documents/<submissionId>/<docType>.bin
    */
   public buildStorageKey(submissionId: string, docType: string): string {
@@ -175,6 +227,23 @@ export class GcsStorageService {
     const cleanDoc = docType.replace(/[^a-zA-Z0-9_-]/g, '_');
     const prefix = (this.config.appEnv || 'staging').toLowerCase();
     return `${prefix}/documents/${cleanSub}/${cleanDoc}.bin`;
+  }
+
+  /**
+   * Deterministic object key builder for direct server-side GCS uploads.
+   * Format: submissions/<submissionId>/<docType>/<timestamp>-<sanitizedFilename>
+   */
+  public buildSubmissionObjectKey(
+    submissionId: string,
+    docType: string,
+    options?: { fileName?: string; contentType?: string; timestamp?: number | string }
+  ): string {
+    const cleanSub = (submissionId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown';
+    const cleanDoc = (docType || 'document').replace(/[^a-zA-Z0-9_-]/g, '_') || 'document';
+    const rawTs = options?.timestamp !== undefined ? String(options.timestamp).replace(/[^0-9]/g, '') : '';
+    const ts = rawTs || String(Date.now());
+    const cleanFile = sanitizeGcsFilename(options?.fileName, options?.contentType || 'application/octet-stream', cleanDoc);
+    return `submissions/${cleanSub}/${cleanDoc}/${ts}-${cleanFile}`;
   }
 
   /**
@@ -313,8 +382,10 @@ export class GcsStorageService {
   /**
    * Direct server-side upload to private GCS bucket.
    */
-  public async uploadAttachment(input: UploadAttachmentInput): Promise<UploadAttachmentResult> {
-    const storageKey = this.buildStorageKey(input.submissionId, input.docType);
+  public async uploadAttachment(input: GcsUploadAttachmentInput): Promise<UploadAttachmentResult> {
+    const storageKey = input.storageKey
+      ? input.storageKey.replace(/^\/+/, '').replace(/\.\./g, '')
+      : this.buildStorageKey(input.submissionId, input.docType);
     const bucket = this.config.bucketName;
     const byteSize = input.buffer.length;
 
@@ -332,7 +403,7 @@ export class GcsStorageService {
     }
 
     // 2. MIME allowlist check
-    const rawMime = input.contentType.toLowerCase().trim();
+    const rawMime = normalizeAttachmentMime(input.contentType);
     if (!validateAttachmentMime(rawMime)) {
       return {
         status: 'REJECTED_UNSUPPORTED_MIME',
@@ -364,7 +435,7 @@ export class GcsStorageService {
     if (this.isMock) {
       this.mockStore.set(`${bucket}/${storageKey}`, {
         buffer: input.buffer,
-        contentType: input.contentType,
+        contentType: rawMime,
         sha256: calculatedSha256,
       });
 
@@ -383,11 +454,12 @@ export class GcsStorageService {
       const file = storage.bucket(bucket).file(storageKey);
 
       await file.save(input.buffer, {
-        contentType: input.contentType,
+        contentType: rawMime,
         metadata: {
           metadata: {
             'submission-id': input.submissionId,
             'doc-type': input.docType,
+            'file-name': input.fileName || storageKey.split('/').pop() || input.docType,
             'sha256': calculatedSha256,
           },
         },
@@ -482,6 +554,63 @@ export class GcsStorageService {
       return Boolean(exists);
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Deletes an attachment object from GCS (best-effort/idempotent on missing objects).
+   */
+  public async deleteAttachment(targetRef: string): Promise<DeleteAttachmentResult> {
+    const trimmed = (targetRef || '').trim();
+    const { bucket, key } = this.parseStorageRef(trimmed);
+    if (!trimmed || !key) {
+      return {
+        status: 'NOT_FOUND',
+        bucketName: bucket,
+        storageKey: key,
+      };
+    }
+
+    // Preserve explicit bucket encoded in gcs://<bucket>/<key> if different from default bucket
+    let targetBucket = bucket;
+    let targetKey = key;
+    const gcsMatch = /^gcs:\/\/([^/]+)\/(.+)$/i.exec(trimmed);
+    if (gcsMatch) {
+      targetBucket = gcsMatch[1];
+      targetKey = gcsMatch[2].replace(/^\/+/, '').replace(/\.\./g, '');
+    }
+
+    if (this.isMock) {
+      const existed = this.mockStore.delete(`${targetBucket}/${targetKey}`);
+      return {
+        status: existed ? 'DELETED' : 'NOT_FOUND',
+        bucketName: targetBucket,
+        storageKey: targetKey,
+      };
+    }
+
+    try {
+      const storage = await this.getStorage();
+      await storage.bucket(targetBucket).file(targetKey).delete({ ignoreNotFound: true });
+      return {
+        status: 'DELETED',
+        bucketName: targetBucket,
+        storageKey: targetKey,
+      };
+    } catch (err: any) {
+      if (err?.code === 404) {
+        return {
+          status: 'NOT_FOUND',
+          bucketName: targetBucket,
+          storageKey: targetKey,
+        };
+      }
+      return {
+        status: 'FAILED',
+        bucketName: targetBucket,
+        storageKey: targetKey,
+        error: `GCS delete failed: ${err?.message || err}`,
+      };
     }
   }
 }

@@ -60,6 +60,7 @@ export function useSupervisorData(options?: { enabled?: boolean; autoFetch?: boo
   );
 
   useEffect(() => {
+    supervisorReadModel.hydrateClientState();
     const unsubscribe = supervisorReadModel.subscribe(
       () => {
         setModelState({ ...supervisorReadModel.getSnapshot() });

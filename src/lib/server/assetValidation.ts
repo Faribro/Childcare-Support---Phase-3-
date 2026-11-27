@@ -32,6 +32,7 @@ const DATA_URI_PATTERN = /^data:([a-zA-Z0-9.+_-]+\/[a-zA-Z0-9.+_-]+)(?:;[a-zA-Z0
 function isAlreadyStoredAssetReference(val: string): boolean {
   const trimmed = val.trim();
   return (
+    trimmed.startsWith('gcs://') ||
     trimmed.startsWith('asset://') ||
     trimmed.startsWith('storage://') ||
     trimmed.startsWith('s3://') ||

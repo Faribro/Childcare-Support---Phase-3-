@@ -69,6 +69,7 @@ export interface CanonicalSubmissionResult {
   uniqueId?: string;
   docType?: string;
   cellFormula?: string;
+  gcsUri?: string;
   resolvedRow?: number;
   rowNumber?: number;
   columnNumber?: number;
