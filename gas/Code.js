@@ -5140,3 +5140,30 @@ function handleSendLinelistEmail_(payload) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }
+
+/**
+ * Idempotent CLI configuration helper invoked via `clasp run`.
+ * Updates only APP_ENV, APP_BASE_URL, and SHEET_INVITATION_BRIDGE_SECRET
+ * while preserving all other ScriptProperties.
+ */
+function configureProductionProperties(bridgeSecret) {
+  var cleanSecret = bridgeSecret == null ? '' : String(bridgeSecret).trim();
+  if (cleanSecret.length < 32) {
+    throw new Error('bridgeSecret must be at least 32 characters.');
+  }
+  PropertiesService.getScriptProperties().setProperties(
+    {
+      APP_ENV: 'production',
+      APP_BASE_URL: 'https://childcare.allianceindia.org',
+      SHEET_INVITATION_BRIDGE_SECRET: cleanSecret
+    },
+    false
+  );
+  return {
+    ok: true,
+    appEnv: 'production',
+    appBaseUrl: 'https://childcare.allianceindia.org',
+    secretLength: cleanSecret.length
+  };
+}
+
